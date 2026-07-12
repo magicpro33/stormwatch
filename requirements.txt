@@ -1,0 +1,12 @@
+# Money Weather — dependencies
+# Hard-won pins from the stock app (do not float these):
+#  - pyarrow<25: 25.0.0 segfaults in pandas<->arrow conversion under Streamlit
+#  - pandas<3:   arrow-backed strings route through the crashing path
+#  - curl_cffi is disabled at runtime via YF_DISABLE_CURL_CFFI=1 in app.py
+#    (0.15.x has memory-corruption bugs, upstream #677)
+streamlit>=1.32
+yfinance==1.5.1
+pandas>=2.0,<3.0
+pyarrow<25
+numpy>=1.24
+requests>=2.31
