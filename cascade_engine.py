@@ -350,36 +350,135 @@ def _third_friday(y, m):
 
 
 def forced_flows(today: date | None = None, days_ahead: int = 45) -> pd.DataFrame:
-    """Mechanical, scheduled flows in the next `days_ahead` days."""
+    """Mechanical, scheduled flows in the next `days_ahead` days — with who
+    is forced to trade, what they trade, and what to watch."""
     today = today or date.today()
     horizon = today + timedelta(days=days_ahead)
     events = []
+
+    def ev(d, name, why, who, what, watch):
+        events.append(dict(Date=d, Event=name, Why=why, Who=who,
+                           What=what, Watch=watch))
+
     for k in range(3):
         m = (today.month - 1 + k) % 12 + 1
         y = today.year + (today.month - 1 + k) // 12
         opex = _third_friday(y, m)
-        events.append((opex, "Options expiration (OpEx)",
-                       "Dealer hedging unwinds pin prices into OpEx; volatility often expands the week after."))
+        ev(opex, "Options expiration (OpEx)",
+           "Dealer hedging pins prices near big strikes into expiry; when the "
+           "options expire the pin releases and volatility often expands the "
+           "following week.",
+           "Market-maker desks (Citadel Securities, Susquehanna, Wolverine) "
+           "mechanically hedging their options books.",
+           "Index & mega-cap options: SPY, QQQ, SPX, and the highest open-"
+           "interest single names (NVDA, TSLA, AAPL).",
+           "Expect drift INTO OpEx week, bigger moves the week AFTER. "
+           "Fade the pin, don't fight it.")
         if m in (3, 6, 9, 12):
-            events.append((opex, "S&P quarterly rebalance (effective)",
-                           "Index funds must trade adds/deletes at the close — forced, price-insensitive flow."))
+            ev(opex, "S&P quarterly rebalance (effective at the close)",
+               "Every S&P index fund must own the new weights at that close — "
+               "trillions tracking, zero price sensitivity.",
+               "Vanguard, BlackRock, State Street index funds (~$12tn+ "
+               "tracking S&P indices).",
+               "The announced adds get bought, deletes get sold. Adds are "
+               "published ~5-10 days early on spglobal.com press releases.",
+               "The classic play — buy the add at announcement — has decayed "
+               "as it got crowded; the reliable part is the huge closing "
+               "auction volume, good for exiting positions with zero impact.")
         last = (date(y, m, 28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-        events.append((last, "Month-end pension rebalance window",
-                       "Pensions rebalance equity/bond mix in the final 1-3 sessions; flows oppose the month's move."))
+        ev(last, "Month-end pension rebalance window (final 1-3 sessions)",
+           "Pensions restore their stock/bond targets: whatever RALLIED this "
+           "month gets trimmed, whatever lagged gets topped up.",
+           "Corporate & state pensions (CalPERS-scale), target-date funds, "
+           "sovereign wealth funds — roughly $1tn rebalancing monthly.",
+           "If stocks beat bonds this month: they SELL equities (SPY) and "
+           "BUY bonds (TLT). Reverse if bonds won.",
+           "Estimate the direction from the month's stock-vs-bond gap; the "
+           "flow hits the last 1-3 closes, then pressure vanishes on day 1 "
+           "of the new month.")
         if m in (1, 4, 7, 10):
-            events.append((date(y, m, 15), "Buyback blackout lifts (approx.)",
-                           "As earnings pass, corporate buybacks — the largest single equity buyer — switch back on."))
+            ev(date(y, m, 15), "Buyback blackout lifts (approx.)",
+               "Companies can't repurchase shares in the ~5 weeks before "
+               "earnings; as each company reports, its buyback desk switches "
+               "back on. Corporates are the single largest net buyer of US "
+               "equities (~$1tn/yr authorized).",
+               "The companies themselves via broker algos: Apple (~$100bn/yr "
+               "program), Alphabet, Microsoft, Meta, NVIDIA, JPMorgan, "
+               "Exxon — the mega-cap cash machines.",
+               "Their OWN stock — which concentrates the bid in mega-cap "
+               "indices. Broad exposure: SPY/QQQ; pure-play: PKW (Buyback "
+               "Achievers ETF) holds the heaviest repurchasers.",
+               "Support returns to mega-caps 1-2 days after each one "
+               "reports. Post-earnings dips in heavy-buyback names get "
+               "bought by the company itself.")
     if today.month <= 6:
-        events.append((_third_friday(today.year, 6) + timedelta(days=7),
-                       "Russell reconstitution (late June)",
-                       "Largest forced-flow day of the year; adds/deletes see massive closing auctions."))
+        rr = _third_friday(today.year, 6) + timedelta(days=7)
+        ev(rr, "Russell reconstitution (late June)",
+           "FTSE Russell rebuilds the Russell 1000/2000 once a year — the "
+           "single largest forced-flow day: ~$100bn+ trades in one closing "
+           "auction.",
+           "Every small-cap index fund and closet indexer tracking the "
+           "Russell 2000 (~$10tn benchmarked).",
+           "Adds to the Russell 2000 (fast-growing small caps, recent IPOs) "
+           "get bought; graduates and deletes get sold. Preliminary lists "
+           "publish in May on ftserussell.com.",
+           "Adds tend to run up AFTER the preliminary list, into recon day; "
+           "the effect fades fast after the auction. IWM sees enormous "
+           "closing volume.")
     if today.month >= 11 or today.month == 12:
-        events.append((date(today.year, 12, 15), "Tax-loss selling peak window",
-                       "Losers get sold for tax harvesting into mid-December…"))
-        events.append((date(today.year + (1 if today.month == 12 else 0), 1, 5),
-                       "January reversal window",
-                       "…and the beaten-down names historically bounce in early January."))
-    df = pd.DataFrame([(d, n, note) for d, n, note in events
-                       if today <= d <= horizon],
-                      columns=["Date", "Event", "Why it moves money"])
+        ev(date(today.year, 12, 15), "Tax-loss selling peak window",
+           "Investors dump the year's losers before Dec 31 to harvest "
+           "capital losses — selling that has nothing to do with the "
+           "companies' prospects.",
+           "Retail investors and taxable funds; advisors run harvesting "
+           "programs Nov-Dec.",
+           "The year's WORST performers, hardest in small caps where retail "
+           "owns more. Screen: down 30%+ YTD, still profitable businesses.",
+           "Don't catch the falling knives in early Dec; build the January-"
+           "reversal shopping list instead.")
+        ev(date(today.year + (1 if today.month == 12 else 0), 1, 5),
+           "January reversal window",
+           "The tax-selling pressure disappears on Jan 1 and the beaten-down "
+           "names bounce — the 'January effect', strongest in the first two "
+           "weeks.",
+           "The same sellers stop selling; bargain hunters and small-cap "
+           "funds step in.",
+           "Last year's oversold losers, small-cap value especially. Broad "
+           "proxy: IWM vs SPY spread in early January.",
+           "Enter the final week of Dec, exit mid-Jan. It's a decayed but "
+           "still-positive seasonal — size it small.")
+
+    df = pd.DataFrame([e for e in events if today <= e["Date"] <= horizon])
     return df.sort_values("Date", ignore_index=True)
+
+
+# ── plain-language forecast board: aggregate waves by target ─────────
+def forecast_board(waves: pd.DataFrame, min_sources: int = 1) -> pd.DataFrame:
+    """Group active-wave forecasts by TARGET into simple net calls.
+    Multiple waves agreeing on one target = conviction."""
+    if waves is None or waves.empty:
+        return pd.DataFrame()
+    w = waves.copy()
+    w["dir"] = np.where(w.call.str.contains("UP"), 1, -1)
+    w["weight"] = w.edge_ic.abs() * w.hit_rate.fillna(0.5)
+    rows = []
+    for tgt, g in w.groupby("target"):
+        net = float((g.dir * g.weight).sum())
+        if net == 0:
+            continue
+        agree = g[g.dir == np.sign(net)]
+        rows.append(dict(
+            target=tgt, target_name=NODES.get(tgt, (tgt,))[0],
+            call="UP" if net > 0 else "DOWN",
+            n_sources=int(len(agree)),
+            sources=", ".join(agree.sort_values("weight", ascending=False)
+                              .source_name.head(3)),
+            avg_hit=float(agree.hit_rate.fillna(0.5).mean()),
+            conviction=abs(net),
+        ))
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df["conviction"] = df.conviction / df.conviction.max()
+    df = df[df.n_sources >= min_sources]
+    return df.sort_values(["conviction"], ascending=False, ignore_index=True)

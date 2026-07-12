@@ -195,13 +195,42 @@ with tab_map:
                 "threshold right now. Check the Sentinels tab for early "
                 "twitches, or lower the threshold in cascade_engine.py.")
     else:
-        st.subheader("Active fronts → downstream forecasts")
+        # ── the forecast, plain and simple ──────────────────────────
+        st.subheader("🎯 Today's forecast board")
+        st.caption("The cascade, translated: each card is one asset, the net "
+                   "call on it, and how many independent waves back it. "
+                   "Conviction bar = how loudly the graph agrees.")
+        board = ce.forecast_board(waves)
+        bcols = st.columns(2)
+        for i, (_, b) in enumerate(board.head(8).iterrows()):
+            up = b.call == "UP"
+            col = GREEN if up else RED
+            arrow = "📈 UP" if up else "📉 DOWN"
+            hitc = GREEN if b.avg_hit >= 0.60 else (DIM if b.avg_hit >= 0.50 else RED)
+            bcols[i % 2].markdown(
+                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                border-left:4px solid {col};border-radius:10px;
+                padding:10px 14px;margin-bottom:10px;">
+                <span style="font-size:17px;font-weight:700;">{b.target_name}</span>
+                <span style="color:{col};font-weight:700;float:right;">{arrow}</span><br>
+                <div style="background:#081325;border-radius:4px;height:6px;margin:8px 0 6px;">
+                  <div style="background:{col};height:6px;border-radius:4px;
+                  width:{max(int(b.conviction*100),6)}%;"></div></div>
+                <span style="color:{DIM};font-size:12px;">
+                  next {ce.EDGE_HORIZON} sessions · backed by {b.n_sources} wave{'s' if b.n_sources>1 else ''}
+                  ({b.sources}) · hit <span style="color:{hitc};font-weight:600;">{b.avg_hit:.0%}</span></span>
+                </div>""", unsafe_allow_html=True)
+        if len(board) > 8:
+            st.caption(f"+ {len(board)-8} lower-conviction calls in the full detail below.")
+
+        _detail = st.expander("🔗 Full wave detail (every source → target edge)")
+        _detail.write("")  # anchor
         show = waves.copy()
         show = show[["source_name", "source_z", "call", "target_name",
                      "horizon_days", "edge_ic", "hit_rate"]]
         show.columns = ["Wave source", "Impulse z", "Forecast", "Target",
                         "Days", "Edge IC", "Hist. hit rate"]
-        st.dataframe(
+        _detail.dataframe(
             show.style.format({"Impulse z": "{:+.2f}", "Edge IC": "{:+.2f}",
                                "Hist. hit rate": "{:.0%}"})
             .map(lambda v: f"color:{GREEN};font-weight:600" if v == "📈 UP"
@@ -227,7 +256,7 @@ with tab_map:
                 "Edge IC": st.column_config.Column(help=HELP["edge_ic"]),
                 "Hist. hit rate": st.column_config.Column(help=HELP["hit_rate"]),
             })
-        st.caption("Read it like a weather report: *\"a front entered "
+        _detail.caption("Read it like a weather report: *\"a front entered "
                    "[source]; it historically reaches [target] within "
                    "[days] sessions, [hit rate] of the time.\"* "
                    "Research tool — size positions like forecasts can be wrong, "
@@ -359,12 +388,16 @@ with tab_forced:
         days = (ev.Date - pd.Timestamp.today().date()).days
         st.markdown(
             f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-            border-radius:10px;padding:10px 14px;margin-bottom:8px;">
+            border-radius:10px;padding:12px 14px;margin-bottom:10px;">
             <span style="color:{ACCENT};font-weight:700;">{ev.Date:%a %b %d}</span>
-            <span style="color:#9aa8bd;"> · in {days}d</span><br>
-            <span style="font-weight:600;">{ev.Event}</span><br>
-            <span style="color:#9aa8bd;font-size:13px;">{ev['Why it moves money']}</span>
-            </div>""", unsafe_allow_html=True)
+            <span style="color:{DIM};"> · in {days}d</span><br>
+            <span style="font-weight:700;font-size:15px;">{ev.Event}</span><br>
+            <span style="color:{DIM};font-size:13px;">{ev.Why}</span>
+            <div style="margin-top:8px;font-size:13px;line-height:1.7;">
+              <span style="color:{ACCENT};">👥 Who's forced:</span> {ev.Who}<br>
+              <span style="color:{ACCENT};">💰 What they trade:</span> {ev.What}<br>
+              <span style="color:{ACCENT};">🎯 What to watch:</span> {ev.Watch}
+            </div></div>""", unsafe_allow_html=True)
 
 
 # ── 🔬 validation lab ────────────────────────────────────────────────
