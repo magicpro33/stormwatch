@@ -103,6 +103,34 @@ HELP = {
 ACCENT = "#E87722"
 GREEN = "#3fbf7f"
 RED = "#e05252"
+DIM = "#9aa8bd"
+
+
+def _css_sign(v, pos_good=True, dead=0.0):
+    """Green when the number is good, red when bad, dim when ~neutral."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if not np.isfinite(v) or abs(v) <= dead:
+        return f"color:{DIM}"
+    good = (v > 0) if pos_good else (v < 0)
+    return f"color:{GREEN};font-weight:600" if good else f"color:{RED};font-weight:600"
+
+
+def _css_hit(v):
+    """Hit rates: >=60% real tilt (green), 50-60 lukewarm (dim), <50 bad (red)."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if not np.isfinite(v):
+        return f"color:{DIM}"
+    if v >= 0.60:
+        return f"color:{GREEN};font-weight:600"
+    if v >= 0.50:
+        return f"color:{DIM}"
+    return f"color:{RED};font-weight:600"
 
 st.markdown(
     f"""
@@ -114,6 +142,9 @@ st.markdown(
     <div style="color:#9aa8bd;font-size:13px;margin-bottom:10px;">
       Money doesn't teleport — it propagates. Track the pressure, watch the
       sentinels, follow the storm tracks. Probability tilts, not prophecy.
+      <br><span style="color:#3fbf7f;">■ green = supportive / working</span> ·
+      <span style="color:#e05252;">■ red = draining / against you</span> ·
+      <span style="color:#9aa8bd;">■ dim = neutral noise</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -166,16 +197,20 @@ with tab_map:
     else:
         st.subheader("Active fronts → downstream forecasts")
         show = waves.copy()
-        show["confidence"] = (show.hit_rate.fillna(0.5) * 100).round(0).astype(int).astype(str) + "%"
         show = show[["source_name", "source_z", "call", "target_name",
-                     "horizon_days", "edge_ic", "confidence"]]
+                     "horizon_days", "edge_ic", "hit_rate"]]
         show.columns = ["Wave source", "Impulse z", "Forecast", "Target",
                         "Days", "Edge IC", "Hist. hit rate"]
         st.dataframe(
-            show.style.map(
-                lambda v: f"color:{GREEN};font-weight:600" if v == "📈 UP"
-                else (f"color:{RED};font-weight:600" if v == "📉 DOWN" else ""),
-                subset=["Forecast"]),
+            show.style.format({"Impulse z": "{:+.2f}", "Edge IC": "{:+.2f}",
+                               "Hist. hit rate": "{:.0%}"})
+            .map(lambda v: f"color:{GREEN};font-weight:600" if v == "📈 UP"
+                 else (f"color:{RED};font-weight:600" if v == "📉 DOWN" else ""),
+                 subset=["Forecast"])
+            .map(lambda v: _css_sign(v, dead=0.0), subset=["Impulse z"])
+            .map(lambda v: _css_sign(abs(v) if v == v else v, dead=0.13) if isinstance(v, float) else "",
+                 subset=["Edge IC"])
+            .map(_css_hit, subset=["Hist. hit rate"]),
             width="stretch", hide_index=True, height=430,
             column_config={
                 "Wave source": st.column_config.Column(
@@ -211,11 +246,14 @@ with tab_map:
 
     with st.expander("🗺 Strongest storm tracks (full edge list)"):
         e = edges.copy()
-        e["hit"] = (e.hit_rate * 100).round(0)
+        e = e[["source_name", "target_name", "ic", "hit_rate"]].rename(columns={
+            "source_name": "Leads", "target_name": "Follows",
+            "ic": "IC", "hit_rate": "Hit %"}).head(60)
         st.dataframe(
-            e[["source_name", "target_name", "ic", "hit"]].rename(columns={
-                "source_name": "Leads", "target_name": "Follows",
-                "ic": "IC", "hit": "Hit %"}).head(60),
+            e.style.format({"IC": "{:+.2f}", "Hit %": "{:.0%}"})
+            .map(lambda v: _css_sign(abs(v) if v == v else v, dead=0.15)
+                 if isinstance(v, float) else "", subset=["IC"])
+            .map(_css_hit, subset=["Hit %"]),
             width="stretch", hide_index=True,
             column_config={
                 "Leads": st.column_config.Column(help="Upstream node — its moves come first."),
@@ -235,17 +273,21 @@ with tab_pressure:
         g_l.markdown(f"### {p['gauge_label']}")
         with g_r.popover("❓"):
             st.markdown(HELP["gauge"])
-        _COMP_HELP = {
-            "Net US Liquidity ($tn)": HELP["netliq"],
-            "NetLiq Δ 21d ($bn)": HELP["netliq_d"],
-            "HY Spread (%)": HELP["hy"],
-            "HY Δ 21d (bp)": HELP["hy_d"],
-            "Stablecoin Supply ($bn)": HELP["stables"],
-            "Stables Δ 21d ($bn)": HELP["stables_d"],
-        }
-        cols = st.columns(min(4, max(1, len(p["components"]))))
-        for (k, v), c in zip(p["components"].items(), cols * 3):
-            c.metric(k, f"{v:,.1f}", help=_COMP_HELP.get(k))
+        c = p["components"]
+        m1, m2, m3 = st.columns(3)
+        if "Net US Liquidity ($tn)" in c:
+            m1.metric("Net US Liquidity", f"${c['Net US Liquidity ($tn)']:,.2f}tn",
+                      delta=f"{c.get('NetLiq Δ 21d ($bn)', 0):+,.0f} $bn / 21d",
+                      help=HELP["netliq"] + "  \nΔ: " + HELP["netliq_d"])
+        if "Stablecoin Supply ($bn)" in c:
+            m2.metric("Stablecoin Supply", f"${c['Stablecoin Supply ($bn)']:,.0f}bn",
+                      delta=f"{c.get('Stables Δ 21d ($bn)', 0):+,.1f} $bn / 21d",
+                      help=HELP["stables"] + "  \nΔ: " + HELP["stables_d"])
+        if "HY Spread (%)" in c:
+            m3.metric("HY Credit Spread", f"{c['HY Spread (%)']:.2f}%",
+                      delta=f"{c.get('HY Δ 21d (bp)', 0):+,.0f} bp / 21d",
+                      delta_color="inverse",   # tightening (down) = good = green
+                      help=HELP["hy"] + "  \nΔ: " + HELP["hy_d"])
         g1, g2 = st.columns(2)
         if "netliq" in p:
             g1.markdown("**Net US Liquidity ($tn)** — Fed BS − TGA − RRP")
@@ -276,7 +318,9 @@ with tab_sentinels:
                              "21d %": "{:+.1f}%", "ImpulseZ": "{:+.2f}"})
             .map(lambda v: f"color:{GREEN}" if isinstance(v, str) and "surging" in v
                  else (f"color:{RED}" if isinstance(v, str) and "dumping" in v else ""),
-                 subset=["Signal"]),
+                 subset=["Signal"])
+            .map(lambda v: _css_sign(v, dead=0.75), subset=["ImpulseZ"])
+            .map(lambda v: _css_sign(v, dead=0.5), subset=["5d %", "21d %"]),
             width="stretch", hide_index=True,
             column_config={
                 "Sentinel": st.column_config.Column(help=HELP["sentinel_why"]),
@@ -345,18 +389,30 @@ with tab_lab:
             c[3].metric("Sharpe (strat vs univ)",
                         f"{summ['sharpe']:.2f} / {summ['bench_sharpe']:.2f}",
                         help=HELP["sharpe"])
+            def _span(v):
+                col = GREEN if v > 0 else (RED if v < 0 else DIM)
+                return f"<span style='color:{col};font-weight:700'>{v:+.2%}</span>"
             st.markdown(
-                f"**Honesty split** — 1st half excess: `{summ['h1_excess']:+.2%}` · "
-                f"2nd half excess: `{summ['h2_excess']:+.2%}` "
+                f"**Honesty split** — 1st half excess: {_span(summ['h1_excess'])} · "
+                f"2nd half excess: {_span(summ['h2_excess'])} "
                 + ("✅ holds up out-of-sample" if summ['h2_excess'] > 0 else
-                   "⚠️ second half is weak — treat forecasts skeptically"))
+                   "⚠️ second half is weak — treat forecasts skeptically"),
+                unsafe_allow_html=True)
             with st.expander("❓ What the honesty split means"):
                 st.markdown(HELP["honesty"])
             eq = (1 + bt.set_index("date")[["strat", "bench"]]).cumprod()
             st.line_chart(eq, height=260)
-            st.dataframe(bt.tail(20).style.format(
-                {"strat": "{:+.2%}", "bench": "{:+.2%}", "excess": "{:+.2%}"}),
-                width="stretch", hide_index=True)
+            st.dataframe(
+                bt.tail(20).style.format(
+                    {"strat": "{:+.2%}", "bench": "{:+.2%}", "excess": "{:+.2%}"})
+                .map(lambda v: _css_sign(v), subset=["strat", "excess"])
+                .map(lambda v: f"color:{DIM}", subset=["bench"]),
+                width="stretch", hide_index=True,
+                column_config={
+                    "strat": st.column_config.Column(help="Direction-adjusted mean return of the top-5 forecasts that week."),
+                    "bench": st.column_config.Column(help="Equal-weight universe over the same horizon — the bar to beat."),
+                    "excess": st.column_config.Column(help="strat minus bench: green = the forecasts earned their keep that week."),
+                })
     st.caption("One year is one regime. Cascade edges break when regimes "
                "flip — that is why they are re-estimated every week and why "
                "this tab exists. Not investment advice.")
