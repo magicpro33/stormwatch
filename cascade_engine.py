@@ -87,12 +87,24 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
             os.remove(LOCAL_HISTORY)
         except OSError:
             return df
-    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
-    import yfinance as yf
-    start = (date.today() - timedelta(days=int(years * 365.25 + 30))).isoformat()
-    raw = yf.download(list(NODES), start=start, auto_adjust=True,
-                      progress=False, group_by="column")
-    closes = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw
+    global LAST_HISTORY_SOURCE
+    closes = alpaca_history(list(NODES), years)          # ── PRIMARY: Alpaca
+    missing = [s for s in NODES if s not in closes.columns
+               or closes[s].dropna().empty] if not closes.empty else list(NODES)
+    if missing:                                           # ── fallback: yfinance
+        os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+        import yfinance as yf
+        start = (date.today() - timedelta(days=int(years * 365.25 + 30))).isoformat()
+        raw = yf.download(missing, start=start, auto_adjust=True,
+                          progress=False, group_by="column")
+        yfc = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw
+        if isinstance(yfc, pd.Series):
+            yfc = yfc.to_frame(missing[0])
+        yfc = yfc.dropna(how="all")
+        yfc.index = pd.to_datetime(yfc.index).tz_localize(None)
+        closes = yfc if closes.empty else closes.join(yfc, how="outer")
+    LAST_HISTORY_SOURCE = ("Alpaca (primary)" + (f" + yfinance ({len(missing)} symbols)" if missing else "")
+                           ) if len(missing) < len(NODES) else "yfinance (Alpaca keys not set)"
     closes = closes.dropna(how="all").ffill(limit=5)
     try:
         closes.to_parquet(LOCAL_HISTORY)
@@ -768,3 +780,78 @@ def upcoming_earnings(tickers: list) -> dict:
     except Exception:
         pass
     return out
+
+
+CRYPTO_MAP = {"BTC-USD": "BTC/USD", "ETH-USD": "ETH/USD", "SOL-USD": "SOL/USD"}
+LAST_HISTORY_SOURCE = "unknown"
+
+
+def _alpaca_keys_simple():
+    pairs = [("ALPACA_API_KEY", "ALPACA_SECRET_KEY"),
+             ("ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY"),
+             ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY")]
+    getters = [lambda k: os.environ.get(k, "")]
+    try:
+        import streamlit as st
+        getters.insert(0, lambda k: st.secrets.get(k, ""))
+    except Exception:
+        pass
+    for a, b in pairs:
+        for g in getters:
+            try:
+                if g(a) and g(b):
+                    return g(a), g(b)
+            except Exception:
+                continue
+    return None, None
+
+
+def alpaca_history(symbols: list, years: int = HISTORY_YEARS) -> pd.DataFrame:
+    """Daily closes for many symbols straight from Alpaca (IEX stocks feed +
+    crypto endpoint). Empty frame when keys are missing or requests fail —
+    caller falls back to yfinance."""
+    kid, sec = _alpaca_keys_simple()
+    if not kid:
+        return pd.DataFrame()
+    hdr = {"APCA-API-KEY-ID": kid, "APCA-API-SECRET-KEY": sec}
+    start = (date.today() - timedelta(days=int(years * 365.25 + 30))).isoformat()
+    out = {}
+
+    def _paged(url, params, unmap=None):
+        token = None
+        while True:
+            p = dict(params, **({"page_token": token} if token else {}))
+            try:
+                r = requests.get(url, params=p, headers=hdr, timeout=60)
+                if r.status_code != 200:
+                    return
+                j = r.json()
+            except Exception:
+                return
+            for sym, bars in (j.get("bars") or {}).items():
+                key = unmap.get(sym, sym) if unmap else sym
+                d = out.setdefault(key, {})
+                for b in bars:
+                    d[b["t"][:10]] = b["c"]
+            token = j.get("next_page_token")
+            if not token:
+                return
+
+    stocks = [s for s in symbols if s not in CRYPTO_MAP and not s.startswith("^")]
+    for i in range(0, len(stocks), 50):
+        _paged("https://data.alpaca.markets/v2/stocks/bars",
+               {"symbols": ",".join(stocks[i:i + 50]), "timeframe": "1Day",
+                "start": start, "limit": 10000, "adjustment": "split",
+                "feed": "iex"})
+    cryptos = [s for s in symbols if s in CRYPTO_MAP]
+    if cryptos:
+        unmap = {v: k for k, v in CRYPTO_MAP.items()}
+        _paged("https://data.alpaca.markets/v1beta3/crypto/us/bars",
+               {"symbols": ",".join(CRYPTO_MAP[s] for s in cryptos),
+                "timeframe": "1Day", "start": start, "limit": 10000},
+               unmap=unmap)
+    if not out:
+        return pd.DataFrame()
+    df = pd.DataFrame({k: pd.Series(v) for k, v in out.items()})
+    df.index = pd.to_datetime(df.index)
+    return df.sort_index().ffill(limit=5)

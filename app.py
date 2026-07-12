@@ -212,17 +212,45 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame):
         st.session_state.pop("mw_analyze", None)
         st.rerun()
 
-    m = st.columns(6)
-    m[0].metric("5d", f"{stats['r5']:+.1%}", help="Return over the last 5 sessions.")
-    m[1].metric("21d", f"{stats['r21']:+.1%}", help="Return over the last month of sessions.")
-    m[2].metric("RSI 14", f"{stats['rsi']:.0f}" if np.isfinite(stats['rsi']) else "—",
-                help="Momentum oscillator: >70 hot, <30 washed out, 40-60 neutral.")
-    m[3].metric("RVOL", f"{stats['rvol']:.2f}x" if np.isfinite(stats['rvol']) else "—",
-                help="5d avg volume vs 63d avg — above 1.5x means unusual attention.")
-    m[4].metric("Range pos", f"{stats['rangepos']:.0%}" if np.isfinite(stats['rangepos']) else "—",
-                help="Where price sits in its 63-day range: 100% = at the highs.")
-    m[5].metric("Ann. vol", f"{stats['vol21']:.0%}" if np.isfinite(stats['vol21']) else "—",
-                help="Annualised 21-day volatility — how wide this thing swings.")
+    def _pill(label, txt, css, tip):
+        return (f"<div title=\"{tip}\" style='background:#0c1829;border:1px solid #1d2b40;"
+                f"border-radius:10px;padding:8px 12px;text-align:center;flex:1;min-width:92px;'>"
+                f"<div style='font-size:11px;color:{DIM};'>{label} ⓘ</div>"
+                f"<div style='font-size:17px;font-weight:700;{css}'>{txt}</div></div>")
+
+    def _sgn_css(v, dead=0.002):
+        if not np.isfinite(v) or abs(v) <= dead:
+            return f"color:{DIM};"
+        return f"color:{GREEN};" if v > 0 else f"color:{RED};"
+
+    rsi = stats["rsi"]
+    rsi_css = (f"color:{RED};" if rsi >= 70 else
+               f"color:{GREEN};" if rsi <= 30 else f"color:{DIM};") if np.isfinite(rsi) else f"color:{DIM};"
+    rsi_tag = (" hot" if np.isfinite(rsi) and rsi >= 70 else
+               " washed out" if np.isfinite(rsi) and rsi <= 30 else "")
+    rvol = stats["rvol"]
+    rvol_css = (f"color:{GREEN};" if np.isfinite(rvol) and rvol >= 1.5 else f"color:{DIM};")
+    rp = stats["rangepos"]
+    rp_css = (f"color:{GREEN};" if np.isfinite(rp) and rp >= 0.8 else
+              f"color:{RED};" if np.isfinite(rp) and rp <= 0.2 else f"color:{DIM};")
+    av = stats["vol21"]
+    av_css = f"color:{RED};" if np.isfinite(av) and av >= 0.60 else f"color:{DIM};"
+
+    st.markdown(
+        "<div style='display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px;'>"
+        + _pill("5d", f"{stats['r5']:+.1%}" if np.isfinite(stats['r5']) else "—",
+                _sgn_css(stats['r5']), "Return over the last 5 sessions.")
+        + _pill("21d", f"{stats['r21']:+.1%}" if np.isfinite(stats['r21']) else "—",
+                _sgn_css(stats['r21']), "Return over the last month of sessions.")
+        + _pill("RSI 14", (f"{rsi:.0f}{rsi_tag}" if np.isfinite(rsi) else "—"), rsi_css,
+                "Momentum oscillator: 70+ overbought (red), 30- washed out and bounce-prone (green), 40-65 neutral (dim).")
+        + _pill("RVOL", f"{rvol:.2f}x" if np.isfinite(rvol) else "—", rvol_css,
+                "5d avg volume vs 63d avg. 1.5x+ (green) = unusual attention; near 1x = normal.")
+        + _pill("Range pos", f"{rp:.0%}" if np.isfinite(rp) else "—", rp_css,
+                "Where price sits in its 63-day range: 80%+ near highs = strength (green); 20%- near lows = weakness (red).")
+        + _pill("Ann. vol", f"{av:.0%}" if np.isfinite(av) else "—", av_css,
+                "Annualised 21-day volatility. 60%+ (red) = wide swings, size smaller.")
+        + "</div>", unsafe_allow_html=True)
 
     d = df.tail(180)
     has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
@@ -254,7 +282,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame):
                       legend=dict(orientation="h", y=1.05),
                       xaxis_rangeslider_visible=False,
                       margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", key=f"mw_chart_{tk}")
     trend = "above" if stats["price"] > stats["sma50"] else "below"
     st.caption(f"Price is **{trend}** its 50-session average · last 180 sessions shown. "
                "Research view, not investment advice.")
@@ -284,7 +312,9 @@ with tab_map:
     if st.session_state.get("mw_analyze"):
         render_ticker_analysis(st.session_state["mw_analyze"], closes)
         st.divider()
-    st.caption(f"Data through {asof} · edges re-estimated on the trailing "
+    st.caption(f"Data through {asof} · history source: "
+               f"{getattr(ce, 'LAST_HISTORY_SOURCE', 'cached parquet')} · "
+               f"edges re-estimated on the trailing "
                f"{ce.EDGE_TRAIN} sessions · forecasts look {ce.EDGE_HORIZON} "
                f"sessions ahead.")
     edges = _edges(asof)
@@ -375,10 +405,15 @@ with tab_map:
                                          if _sel and getattr(_sel, "selection", None) else [])
                                 if _rows:
                                     _tk = fl.iloc[_rows[0]].Ticker
-                                    if st.session_state.get("mw_analyze") != _tk:
+                                    _hkey = f"_fl_handled_{b.target}"
+                                    # open ONCE per selection — otherwise the sticky
+                                    # row selection instantly re-opens after ✕ Close
+                                    if st.session_state.get(_hkey) != _tk:
+                                        st.session_state[_hkey] = _tk
                                         st.session_state["mw_analyze"] = _tk
                                         st.rerun()
-                                st.caption("👆 Tap a row for the full ticker analysis.")
+                                st.caption("👆 Tap a row for the full ticker analysis "
+                                           "(tap a different row to switch).")
                         except Exception as _fe:
                             st.caption(f"Follower analysis unavailable: {_fe}")
                     except Exception as _pe:
@@ -470,7 +505,7 @@ with tab_map:
             fig.update_layout(height=max(340, 26 * max(len(srcs), len(tgts))),
                               paper_bgcolor="#081325", font_color="#F6F4E9",
                               font_size=12, margin=dict(l=10, r=10, t=10, b=24))
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, width="stretch", key="wd_sankey")
             st.caption("Ribbon width = edge strength · green ribbon pushes the target "
                        "UP, red pushes DOWN · ribbons converging on one target = "
                        "independent waves agreeing (that's conviction). Hover/tap a "
