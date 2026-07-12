@@ -207,19 +207,36 @@ with tab_map:
             col = GREEN if up else RED
             arrow = "📈 UP" if up else "📉 DOWN"
             hitc = GREEN if b.avg_hit >= 0.60 else (DIM if b.avg_hit >= 0.50 else RED)
-            bcols[i % 2].markdown(
-                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:4px solid {col};border-radius:10px;
-                padding:10px 14px;margin-bottom:10px;">
-                <span style="font-size:17px;font-weight:700;">{b.target_name}</span>
-                <span style="color:{col};font-weight:700;float:right;">{arrow}</span><br>
-                <div style="background:#081325;border-radius:4px;height:6px;margin:8px 0 6px;">
-                  <div style="background:{col};height:6px;border-radius:4px;
-                  width:{max(int(b.conviction*100),6)}%;"></div></div>
-                <span style="color:{DIM};font-size:12px;">
-                  next {ce.EDGE_HORIZON} sessions · backed by {b.n_sources} wave{'s' if b.n_sources>1 else ''}
-                  ({b.sources}) · hit <span style="color:{hitc};font-weight:600;">{b.avg_hit:.0%}</span></span>
-                </div>""", unsafe_allow_html=True)
+            with bcols[i % 2]:
+                st.markdown(
+                    f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-left:4px solid {col};border-radius:10px 10px 0 0;
+                    padding:10px 14px;margin-bottom:0;">
+                    <span style="font-size:17px;font-weight:700;">{b.target_name}</span>
+                    <span style="color:{col};font-weight:700;float:right;">{arrow}</span><br>
+                    <div style="background:#081325;border-radius:4px;height:6px;margin:8px 0 6px;">
+                      <div style="background:{col};height:6px;border-radius:4px;
+                      width:{max(int(b.conviction*100),6)}%;"></div></div>
+                    <span style="color:{DIM};font-size:12px;">
+                      next {ce.EDGE_HORIZON} sessions · backed by {b.n_sources} wave{'s' if b.n_sources>1 else ''}
+                      ({b.sources}) · hit <span style="color:{hitc};font-weight:600;">{b.avg_hit:.0%}</span></span>
+                    </div>""", unsafe_allow_html=True)
+                with st.expander("📋 Investment plan"):
+                    try:
+                        pl = ce.investment_plan(b, closes)
+                        st.markdown(
+                            f"**{pl['action']}**\n\n"
+                            f"- **Trigger:** {pl['trigger']}\n"
+                            f"- **Entry:** {pl['entry']}\n"
+                            f"- **Stop:** {pl['stop']}\n"
+                            f"- **Price target:** {pl['target']}\n"
+                            f"- **Time exit:** {pl['time_exit']}\n"
+                            f"- **Size:** {pl['size']}\n"
+                            f"- **Stand-down rule:** {pl['invalidation']}")
+                        st.caption("Rule-generated from the trigger's own stats and the "
+                                   "asset's volatility — a playbook, not personal advice.")
+                    except Exception as _pe:
+                        st.caption(f"Plan unavailable: {_pe}")
         if len(board) > 8:
             st.caption(f"+ {len(board)-8} lower-conviction calls in the full detail below.")
 
@@ -383,7 +400,7 @@ with tab_forced:
             "creates (and the reversal after it passes) is one of the few "
             "genuinely knowable things in markets. Each card explains its "
             "own mechanism.")
-    ff = ce.forced_flows()
+    ff = ce.forced_flows(closes=closes)
     for _, ev in ff.iterrows():
         days = (ev.Date - pd.Timestamp.today().date()).days
         st.markdown(
@@ -397,6 +414,10 @@ with tab_forced:
               <span style="color:{ACCENT};">👥 Who's forced:</span> {ev.Who}<br>
               <span style="color:{ACCENT};">💰 What they trade:</span> {ev.What}<br>
               <span style="color:{ACCENT};">🎯 What to watch:</span> {ev.Watch}
+            </div>
+            <div style="margin-top:8px;background:#081325;border:1px solid #1d2b40;
+              border-radius:8px;padding:8px 12px;font-size:13px;line-height:1.6;">
+              <span style="color:{GREEN};font-weight:700;">{ev.Buy}</span>
             </div></div>""", unsafe_allow_html=True)
 
 

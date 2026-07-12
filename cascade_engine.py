@@ -349,16 +349,41 @@ def _third_friday(y, m):
     return d
 
 
-def forced_flows(today: date | None = None, days_ahead: int = 45) -> pd.DataFrame:
+def forced_flows(today: date | None = None, days_ahead: int = 45,
+                 closes: pd.DataFrame | None = None) -> pd.DataFrame:
     """Mechanical, scheduled flows in the next `days_ahead` days — with who
     is forced to trade, what they trade, and what to watch."""
     today = today or date.today()
     horizon = today + timedelta(days=days_ahead)
     events = []
 
-    def ev(d, name, why, who, what, watch):
+    def ev(d, name, why, who, what, watch, buy):
         events.append(dict(Date=d, Event=name, Why=why, Who=who,
-                           What=what, Watch=watch))
+                           What=what, Watch=watch, Buy=buy))
+
+    # dynamic month-end call: which side do pensions rebalance INTO?
+    _pension_buy = ("Direction unknown without SPY/TLT history — pensions buy "
+                    "whichever of stocks/bonds LAGGED this month.")
+    if closes is not None and "SPY" in closes and "TLT" in closes:
+        try:
+            mtd = closes.loc[closes.index.month == closes.index[-1].month,
+                             ["SPY", "TLT"]]
+            gap = float((mtd.SPY.iloc[-1] / mtd.SPY.iloc[0] - 1)
+                        - (mtd.TLT.iloc[-1] / mtd.TLT.iloc[0] - 1))
+            if gap > 0.005:
+                _pension_buy = (f"Stocks beat bonds by {gap:+.1%} this month → "
+                                "pensions SELL equities / BUY bonds into month-end. "
+                                "Play: long TLT for the final 1-3 sessions; expect "
+                                "a mild SPY headwind, relief on day 1 of the new month.")
+            elif gap < -0.005:
+                _pension_buy = (f"Bonds beat stocks by {-gap:+.1%} this month → "
+                                "pensions SELL bonds / BUY equities into month-end. "
+                                "Play: long SPY for the final 1-3 sessions.")
+            else:
+                _pension_buy = ("Stocks and bonds are roughly tied this month → "
+                                "rebalance flow is small. No trade.")
+        except Exception:
+            pass
 
     for k in range(3):
         m = (today.month - 1 + k) % 12 + 1
@@ -373,7 +398,10 @@ def forced_flows(today: date | None = None, days_ahead: int = 45) -> pd.DataFram
            "Index & mega-cap options: SPY, QQQ, SPX, and the highest open-"
            "interest single names (NVDA, TSLA, AAPL).",
            "Expect drift INTO OpEx week, bigger moves the week AFTER. "
-           "Fade the pin, don't fight it.")
+           "Fade the pin, don't fight it.",
+           "🛒 Buy: patience. Hold off NEW entries during OpEx week (pinned, "
+           "choppy); place planned buys the Monday-Tuesday AFTER expiry when "
+           "the pin releases — dips then are mechanical, not fundamental.")
         if m in (3, 6, 9, 12):
             ev(opex, "S&P quarterly rebalance (effective at the close)",
                "Every S&P index fund must own the new weights at that close — "
@@ -384,7 +412,10 @@ def forced_flows(today: date | None = None, days_ahead: int = 45) -> pd.DataFram
                "published ~5-10 days early on spglobal.com press releases.",
                "The classic play — buy the add at announcement — has decayed "
                "as it got crowded; the reliable part is the huge closing "
-               "auction volume, good for exiting positions with zero impact.")
+               "auction volume, good for exiting positions with zero impact.",
+               "🛒 Buy: the announced ADD tickers at the announcement (small "
+               "size — decayed edge), sell into the rebalance close. Check "
+               "spglobal.com press releases ~5-10 days before this date.")
         last = (date(y, m, 28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
         ev(last, "Month-end pension rebalance window (final 1-3 sessions)",
            "Pensions restore their stock/bond targets: whatever RALLIED this "
@@ -395,7 +426,8 @@ def forced_flows(today: date | None = None, days_ahead: int = 45) -> pd.DataFram
            "BUY bonds (TLT). Reverse if bonds won.",
            "Estimate the direction from the month's stock-vs-bond gap; the "
            "flow hits the last 1-3 closes, then pressure vanishes on day 1 "
-           "of the new month.")
+           "of the new month.",
+           "🛒 " + _pension_buy)
         if m in (1, 4, 7, 10):
             ev(date(y, m, 15), "Buyback blackout lifts (approx.)",
                "Companies can't repurchase shares in the ~5 weeks before "
@@ -410,7 +442,10 @@ def forced_flows(today: date | None = None, days_ahead: int = 45) -> pd.DataFram
                "Achievers ETF) holds the heaviest repurchasers.",
                "Support returns to mega-caps 1-2 days after each one "
                "reports. Post-earnings dips in heavy-buyback names get "
-               "bought by the company itself.")
+               "bought by the company itself.",
+               "🛒 Buy: post-earnings DIPS in the heaviest repurchasers — "
+               "AAPL, GOOGL, META, NVDA, MSFT, JPM, XOM — 1-2 days after each "
+               "reports. Broad: QQQ/SPY. Pure-play: PKW (Buyback Achievers ETF).")
     if today.month <= 6:
         rr = _third_friday(today.year, 6) + timedelta(days=7)
         ev(rr, "Russell reconstitution (late June)",
@@ -424,7 +459,10 @@ def forced_flows(today: date | None = None, days_ahead: int = 45) -> pd.DataFram
            "publish in May on ftserussell.com.",
            "Adds tend to run up AFTER the preliminary list, into recon day; "
            "the effect fades fast after the auction. IWM sees enormous "
-           "closing volume.")
+           "closing volume.",
+           "🛒 Buy: preliminary-list ADDS (ftserussell.com, published May) in "
+           "early June, exit AT the reconstitution close — do not hold "
+           "through it. Lazy version: IWM into recon week.")
     if today.month >= 11 or today.month == 12:
         ev(date(today.year, 12, 15), "Tax-loss selling peak window",
            "Investors dump the year's losers before Dec 31 to harvest "
@@ -435,7 +473,10 @@ def forced_flows(today: date | None = None, days_ahead: int = 45) -> pd.DataFram
            "The year's WORST performers, hardest in small caps where retail "
            "owns more. Screen: down 30%+ YTD, still profitable businesses.",
            "Don't catch the falling knives in early Dec; build the January-"
-           "reversal shopping list instead.")
+           "reversal shopping list instead.",
+           "🛒 Buy: nothing yet — this window is for LIST-BUILDING. Screen: "
+           "down 30%+ YTD, still profitable, small/mid cap. Your buy date is "
+           "the January-reversal card below.")
         ev(date(today.year + (1 if today.month == 12 else 0), 1, 5),
            "January reversal window",
            "The tax-selling pressure disappears on Jan 1 and the beaten-down "
@@ -446,7 +487,10 @@ def forced_flows(today: date | None = None, days_ahead: int = 45) -> pd.DataFram
            "Last year's oversold losers, small-cap value especially. Broad "
            "proxy: IWM vs SPY spread in early January.",
            "Enter the final week of Dec, exit mid-Jan. It's a decayed but "
-           "still-positive seasonal — size it small.")
+           "still-positive seasonal — size it small.",
+           "🛒 Buy: your December loser list (equal-weight basket of 10+, "
+           "never one name), or simply IWM, in the final week of Dec. Exit "
+           "mid-January. Small size — decayed seasonal.")
 
     df = pd.DataFrame([e for e in events if today <= e["Date"] <= horizon])
     return df.sort_values("Date", ignore_index=True)
@@ -482,3 +526,44 @@ def forecast_board(waves: pd.DataFrame, min_sources: int = 1) -> pd.DataFrame:
     df["conviction"] = df.conviction / df.conviction.max()
     df = df[df.n_sources >= min_sources]
     return df.sort_values(["conviction"], ascending=False, ignore_index=True)
+
+
+def investment_plan(b, closes: pd.DataFrame) -> dict:
+    """Rule-based trade plan for one forecast-board row `b`, sized from the
+    target's own volatility and the trigger's historical hit rate.
+    Research output, not personal advice."""
+    tgt = b["target"]
+    px = float(closes[tgt].dropna().iloc[-1])
+    dly = closes[tgt].pct_change().dropna()
+    sigma10 = float(dly.tail(63).std() * np.sqrt(EDGE_HORIZON))  # 10-session vol
+    up = b["call"] == "UP"
+    stop_pct = 1.25 * sigma10
+    tgt_pct = 1.50 * sigma10
+    hit = float(b["avg_hit"])
+    strong = hit >= 0.62 and b["n_sources"] >= 2
+    unit = "1 full unit (≈1% account risk)" if strong else "½ unit (≈0.5% account risk)"
+    if up:
+        action = f"BUY {tgt} ({b['target_name']})"
+        entry = f"Enter within 1-2 sessions at ≈ ${px:,.2f} (signal decays over the horizon)"
+        stop = f"${px * (1 - stop_pct):,.2f}  ({-stop_pct:.1%} — 1.25× its own 10-session volatility)"
+        target = f"${px * (1 + tgt_pct):,.2f}  ({tgt_pct:+.1%}) or time exit, whichever first"
+    else:
+        action = f"AVOID / TRIM {tgt} ({b['target_name']}) — take profits, skip new longs"
+        entry = (f"If expressing short: puts or inverse exposure near ≈ ${px:,.2f}; "
+                 "simplest edge capture is just NOT buying this for 10 sessions")
+        stop = f"${px * (1 + stop_pct):,.2f}  (+{stop_pct:.1%} against a short)"
+        target = f"${px * (1 - tgt_pct):,.2f}  ({-tgt_pct:.1%}) or time exit"
+    return dict(
+        action=action,
+        trigger=(f"{b['n_sources']} independent wave{'s' if b['n_sources']>1 else ''} "
+                 f"({b['sources']}) firing into edges that hit {hit:.0%} "
+                 f"historically over the next {EDGE_HORIZON} sessions"),
+        entry=entry, stop=stop, target=target,
+        time_exit=(f"Close after {EDGE_HORIZON} sessions regardless — the edge is "
+                   "only measured to there; holding past it is a different, "
+                   "untested trade"),
+        size=unit,
+        invalidation=("Stand down if the source wave's impulse flips sign "
+                      "before you enter, or if the Pressure gauge drops to 🔴 "
+                      "— waves don't travel in draining liquidity"),
+    )
