@@ -593,21 +593,22 @@ def investment_plan(b, closes: pd.DataFrame) -> dict:
 # Stock-level layer: nightly dump + Alpaca + earnings dates
 # ═════════════════════════════════════════════════════════════════════
 DUMP_URL = "https://raw.githubusercontent.com/magicpro33/stock/main/data/stock_data.json.gz"
-LOCAL_DUMP = os.path.join(os.path.dirname(__file__), "data", "dump_panel.npz")
+LOCAL_DUMP = os.path.join(os.path.dirname(__file__), "data", "dump_panel_v2.npz")
 
 BUYBACK_TITANS = ["AAPL", "GOOGL", "MSFT", "META", "NVDA", "JPM", "XOM"]
 
 
 def load_dump_panel():
-    """5,700-stock daily-close panel from the nightly magicpro33/stock dump.
-    Cached to disk; refetched when >4 days stale. Returns
-    (closes[T,N] float32, tickers[N], sectors[N], med_dollar_vol[N], dates)."""
+    """Full OHLCV panel for ~5,700 stocks from the nightly magicpro33/stock
+    dump. Cached to disk; refetched when >4 days stale. Returns
+    (panel dict[o/h/l/c/v -> (T,N) float32], tickers, sectors, mdv, dates)."""
     import gzip as _gz
     if os.path.exists(LOCAL_DUMP):
         z = np.load(LOCAL_DUMP, allow_pickle=True)
         dts = pd.to_datetime(z["dates"])
         if (pd.Timestamp.today() - dts[-1]).days <= 4:
-            return z["closes"], z["tickers"], z["sectors"], z["mdv"], dts
+            panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
+            return panel, z["tickers"], z["sectors"], z["mdv"], dts
     r = requests.get(DUMP_URL, timeout=120)
     r.raise_for_status()
     data = json.loads(_gz.decompress(r.content).decode())
@@ -615,21 +616,59 @@ def load_dump_panel():
     all_d = sorted({d for x in rows for d in x["_hist"]["dates"]})
     dix = {d: i for i, d in enumerate(all_d)}
     T, N = len(all_d), len(rows)
-    closes = np.full((T, N), np.nan, dtype=np.float32)
-    vol = np.zeros((T, N), dtype=np.float32)
+    panel = {f: np.full((T, N), np.nan, dtype=np.float32)
+             for f in ("o", "h", "l", "c", "v")}
+    key = dict(o="open", h="high", l="low", c="close", v="volume")
     tickers, sectors = [], []
     for j, x in enumerate(rows):
         ix = [dix[d] for d in x["_hist"]["dates"]]
-        closes[ix, j] = x["_hist"]["close"]
-        vol[ix, j] = x["_hist"]["volume"]
+        for f, kk in key.items():
+            panel[f][ix, j] = x["_hist"][kk]
         tickers.append(x["Ticker"])
         sectors.append(x.get("Sector") or "Unknown")
-    closes = pd.DataFrame(closes).ffill(limit=5).values.astype(np.float32)
-    mdv = np.nanmedian((closes * vol)[-21:], axis=0)
+    panel["c"] = pd.DataFrame(panel["c"]).ffill(limit=5).values.astype(np.float32)
+    mdv = np.nanmedian((panel["c"] * np.nan_to_num(panel["v"]))[-21:], axis=0)
     tickers, sectors = np.array(tickers), np.array(sectors)
-    np.savez_compressed(LOCAL_DUMP, closes=closes, tickers=tickers,
-                        sectors=sectors, mdv=mdv, dates=np.array(all_d))
-    return closes, tickers, sectors, mdv, pd.to_datetime(all_d)
+    np.savez_compressed(LOCAL_DUMP, tickers=tickers, sectors=sectors,
+                        mdv=mdv, dates=np.array(all_d), **panel)
+    return panel, tickers, sectors, mdv, pd.to_datetime(all_d)
+
+
+def dump_ohlcv(ticker: str) -> pd.DataFrame:
+    """Full OHLCV history for one stock from the nightly dump."""
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    ix = np.where(tickers == ticker)[0]
+    if not len(ix):
+        return pd.DataFrame()
+    j = ix[0]
+    df = pd.DataFrame({"Open": panel["o"][:, j], "High": panel["h"][:, j],
+                       "Low": panel["l"][:, j], "Close": panel["c"][:, j],
+                       "Volume": panel["v"][:, j]}, index=dts)
+    return df.dropna(subset=["Close"]).astype(float)
+
+
+def ticker_stats(df: pd.DataFrame) -> dict:
+    """IGNITION-style indicator pack from an OHLCV (or Close-only) frame."""
+    c = df["Close"].dropna()
+    out = {"price": float(c.iloc[-1])}
+    for label, n in (("r5", 5), ("r21", 21), ("r63", 63)):
+        out[label] = float(c.iloc[-1] / c.iloc[-n - 1] - 1) if len(c) > n else np.nan
+    d = c.diff()
+    up = d.clip(lower=0).ewm(alpha=1 / 14, min_periods=14).mean()
+    dn = (-d.clip(upper=0)).ewm(alpha=1 / 14, min_periods=14).mean()
+    rsi = 100 - 100 / (1 + up / dn.replace(0, np.nan))
+    out["rsi"] = float(rsi.iloc[-1]) if rsi.notna().any() else np.nan
+    out["sma20"] = float(c.tail(20).mean())
+    out["sma50"] = float(c.tail(50).mean()) if len(c) >= 50 else np.nan
+    out["vol21"] = float(c.pct_change().tail(21).std() * np.sqrt(252))
+    lo, hi = float(c.tail(63).min()), float(c.tail(63).max())
+    out["rangepos"] = (out["price"] - lo) / (hi - lo) if hi > lo else np.nan
+    if "Volume" in df and df["Volume"].notna().any():
+        v = df["Volume"].fillna(0)
+        out["rvol"] = float(v.tail(5).mean() / max(v.tail(63).mean(), 1))
+    else:
+        out["rvol"] = np.nan
+    return out
 
 
 def fastest_followers(node_symbol: str, node_closes: pd.DataFrame,
@@ -637,7 +676,8 @@ def fastest_followers(node_symbol: str, node_closes: pd.DataFrame,
     """Which individual stocks (from the nightly dump) historically follow
     this node's moves the fastest? Score = corr(node 5d move at t,
     stock 5d move at t+5) — a lagged response, not just same-day beta."""
-    C, tickers, sectors, mdv, dts = load_dump_panel()
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    C = panel["c"]
     node = node_closes[node_symbol].dropna()
     node.index = pd.to_datetime(node.index).tz_localize(None)
     common = dts.intersection(node.index)

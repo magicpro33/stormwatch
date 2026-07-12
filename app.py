@@ -175,10 +175,103 @@ def _followers(node: str, _asof: str):
     return ce.fastest_followers(node, _history())
 
 
+
+def _open_analysis(tk: str):
+    st.session_state["mw_analyze"] = tk
+
+
+def render_ticker_analysis(tk: str, closes: pd.DataFrame):
+    """IGNITION-style deep dive: candles + volume + indicator pack.
+    Stocks come from the nightly dump (full OHLCV); nodes fall back to the
+    close-only history; Alpaca supplies the live print when keyed."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    df = ce.dump_ohlcv(tk)
+    src_label = "nightly dump"
+    if df.empty and tk in closes.columns:
+        df = pd.DataFrame({"Close": closes[tk].dropna()})
+        src_label = "node history"
+    if df.empty:
+        st.warning(f"No history found for {tk}.")
+        return
+
+    stats = ce.ticker_stats(df)
+    live = ce.alpaca_prices([tk])
+    px = live.get(tk, stats["price"])
+    chg = px / df["Close"].iloc[-2] - 1 if len(df) > 1 else 0.0
+
+    hc, xc = st.columns([5, 1])
+    hc.markdown(
+        f"<span style='font-size:24px;font-weight:800;'>🔬 {tk}</span> "
+        f"<span style='font-size:20px;font-weight:700;'>${px:,.2f}</span> "
+        f"<span style='color:{GREEN if chg >= 0 else RED};font-weight:700;'>{chg:+.2%}</span> "
+        f"<span style='color:{DIM};font-size:12px;'>· {'live via Alpaca' if tk in live else src_label}</span>",
+        unsafe_allow_html=True)
+    if xc.button("✕ Close", key="mw_close_analysis"):
+        st.session_state.pop("mw_analyze", None)
+        st.rerun()
+
+    m = st.columns(6)
+    m[0].metric("5d", f"{stats['r5']:+.1%}", help="Return over the last 5 sessions.")
+    m[1].metric("21d", f"{stats['r21']:+.1%}", help="Return over the last month of sessions.")
+    m[2].metric("RSI 14", f"{stats['rsi']:.0f}" if np.isfinite(stats['rsi']) else "—",
+                help="Momentum oscillator: >70 hot, <30 washed out, 40-60 neutral.")
+    m[3].metric("RVOL", f"{stats['rvol']:.2f}x" if np.isfinite(stats['rvol']) else "—",
+                help="5d avg volume vs 63d avg — above 1.5x means unusual attention.")
+    m[4].metric("Range pos", f"{stats['rangepos']:.0%}" if np.isfinite(stats['rangepos']) else "—",
+                help="Where price sits in its 63-day range: 100% = at the highs.")
+    m[5].metric("Ann. vol", f"{stats['vol21']:.0%}" if np.isfinite(stats['vol21']) else "—",
+                help="Annualised 21-day volatility — how wide this thing swings.")
+
+    d = df.tail(180)
+    has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
+    has_vol = "Volume" in d.columns and d["Volume"].notna().any()
+    fig = make_subplots(rows=2 if has_vol else 1, cols=1, shared_xaxes=True,
+                        row_heights=[0.75, 0.25] if has_vol else [1.0],
+                        vertical_spacing=0.03)
+    if has_ohlc:
+        fig.add_trace(go.Candlestick(
+            x=d.index, open=d.Open, high=d.High, low=d.Low, close=d.Close,
+            increasing_line_color=GREEN, decreasing_line_color=RED,
+            name=tk), row=1, col=1)
+    else:
+        fig.add_trace(go.Scatter(x=d.index, y=d.Close, mode="lines",
+                                 line=dict(color=ACCENT, width=2), name=tk),
+                      row=1, col=1)
+    c = d["Close"]
+    fig.add_trace(go.Scatter(x=d.index, y=c.rolling(20).mean(), name="SMA20",
+                             line=dict(color="#7fb2ff", width=1)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=d.index, y=c.rolling(50).mean(), name="SMA50",
+                             line=dict(color=ACCENT, width=1)), row=1, col=1)
+    if has_vol:
+        vcol = np.where(d.Close.diff().fillna(0) >= 0, GREEN, RED)
+        fig.add_trace(go.Bar(x=d.index, y=d.Volume, marker_color=vcol,
+                             name="Volume", opacity=0.6), row=2, col=1)
+    fig.update_layout(height=430, template="plotly_dark",
+                      paper_bgcolor="#081325", plot_bgcolor="#0c1829",
+                      font_color="#F6F4E9", showlegend=True,
+                      legend=dict(orientation="h", y=1.05),
+                      xaxis_rangeslider_visible=False,
+                      margin=dict(l=10, r=10, t=10, b=10))
+    st.plotly_chart(fig, width="stretch")
+    trend = "above" if stats["price"] > stats["sma50"] else "below"
+    st.caption(f"Price is **{trend}** its 50-session average · last 180 sessions shown. "
+               "Research view, not investment advice.")
+
+
 try:
     closes = _history()
 except Exception as e:
     st.error(f"Could not load market history: {e}")
+    st.stop()
+if closes is None or closes.empty or closes.dropna(how="all").empty:
+    st.error("📡 Market data feed returned nothing — Yahoo may be rate-limiting "
+             "this deployment right now. Retry in a few minutes (the download "
+             "is cached once it succeeds).")
+    if st.button("🔄 Retry download"):
+        st.cache_data.clear()
+        st.rerun()
     st.stop()
 
 asof = str(closes.index[-1].date())
@@ -188,6 +281,9 @@ tab_map, tab_pressure, tab_sentinels, tab_forced, tab_lab = st.tabs(
 
 # ── 🌊 cascade map ───────────────────────────────────────────────────
 with tab_map:
+    if st.session_state.get("mw_analyze"):
+        render_ticker_analysis(st.session_state["mw_analyze"], closes)
+        st.divider()
     st.caption(f"Data through {asof} · edges re-estimated on the trailing "
                f"{ce.EDGE_TRAIN} sessions · forecasts look {ce.EDGE_HORIZON} "
                f"sessions ahead.")
@@ -245,6 +341,8 @@ with tab_map:
                             f"- **Stand-down rule:** {pl['invalidation']}")
                         st.caption("Rule-generated from the trigger's own stats and the "
                                    "asset's volatility — a playbook, not personal advice.")
+                        st.button(f"🔬 Analyze {b.target}", key=f"an_{b.target}",
+                                  on_click=_open_analysis, args=(b.target,))
                         try:
                             fl = _followers(b.target, asof)
                             if fl is not None and not fl.empty:
@@ -256,13 +354,15 @@ with tab_map:
                                             "node's moves within ~5 sessions "
                                             "(from the 5,700-stock nightly dump"
                                             + (", live Alpaca prices" if live else "") + "):")
-                                st.dataframe(
+                                _sel = st.dataframe(
                                     fl.style.format({"Price": "${:,.2f}",
                                                      "FollowCorr": "{:+.2f}",
                                                      "Beta": "{:+.2f}"})
                                     .map(lambda v: _css_sign(v, dead=0.05),
                                          subset=["FollowCorr"]),
                                     width="stretch", hide_index=True,
+                                    on_select="rerun", selection_mode="single-row",
+                                    key=f"fl_{b.target}",
                                     column_config={
                                         "FollowCorr": st.column_config.Column(
                                             help="Correlation between this node's 5-day move and the stock's 5-day move ONE WEEK LATER — a lagged response, not same-day beta. Higher = chases the node faster and more reliably."),
@@ -271,6 +371,14 @@ with tab_map:
                                         "Price": st.column_config.Column(
                                             help="Live via Alpaca when a key is configured; otherwise last close from the nightly dump."),
                                     })
+                                _rows = (_sel.selection.rows
+                                         if _sel and getattr(_sel, "selection", None) else [])
+                                if _rows:
+                                    _tk = fl.iloc[_rows[0]].Ticker
+                                    if st.session_state.get("mw_analyze") != _tk:
+                                        st.session_state["mw_analyze"] = _tk
+                                        st.rerun()
+                                st.caption("👆 Tap a row for the full ticker analysis.")
                         except Exception as _fe:
                             st.caption(f"Follower analysis unavailable: {_fe}")
                     except Exception as _pe:
@@ -278,44 +386,100 @@ with tab_map:
         if len(board) > 8:
             st.caption(f"+ {len(board)-8} lower-conviction calls in the full detail below.")
 
-        _detail = st.expander("🔗 Full wave detail (every source → target edge)")
-        _detail.write("")  # anchor
-        show = waves.copy()
-        show = show[["source_name", "source_z", "call", "target_name",
-                     "horizon_days", "edge_ic", "hit_rate"]]
-        show.columns = ["Wave source", "Impulse z", "Forecast", "Target",
-                        "Days", "Edge IC", "Hist. hit rate"]
-        _detail.dataframe(
-            show.style.format({"Impulse z": "{:+.2f}", "Edge IC": "{:+.2f}",
-                               "Hist. hit rate": "{:.0%}"})
-            .map(lambda v: f"color:{GREEN};font-weight:600" if v == "📈 UP"
-                 else (f"color:{RED};font-weight:600" if v == "📉 DOWN" else ""),
-                 subset=["Forecast"])
-            .map(lambda v: _css_sign(v, dead=0.0), subset=["Impulse z"])
-            .map(lambda v: _css_sign(abs(v) if v == v else v, dead=0.13) if isinstance(v, float) else "",
-                 subset=["Edge IC"])
-            .map(_css_hit, subset=["Hist. hit rate"]),
-            width="stretch", hide_index=True, height=430,
-            column_config={
-                "Wave source": st.column_config.Column(
-                    help="The node money is entering/leaving abnormally fast right now."),
-                "Impulse z": st.column_config.Column(help=HELP["impulse"]),
-                "Forecast": st.column_config.Column(
-                    help="Direction the target is expected to move: source impulse "
-                         "sign × edge sign."),
-                "Target": st.column_config.Column(
-                    help="The downstream node this wave historically reaches."),
-                "Days": st.column_config.Column(
-                    help="Forecast horizon: the edge predicts the target's return "
-                         "over the NEXT this-many sessions."),
-                "Edge IC": st.column_config.Column(help=HELP["edge_ic"]),
-                "Hist. hit rate": st.column_config.Column(help=HELP["hit_rate"]),
-            })
-        _detail.caption("Read it like a weather report: *\"a front entered "
-                   "[source]; it historically reaches [target] within "
-                   "[days] sessions, [hit rate] of the time.\"* "
-                   "Research tool — size positions like forecasts can be wrong, "
-                   "because they can.")
+        st.subheader("🔗 Full wave detail")
+        _wd_view = st.radio("Wave detail view", ["📇 Flow cards", "🌊 Flow map"],
+                            horizontal=True, key="wd_view",
+                            label_visibility="collapsed")
+        wshow = waves.copy()
+        wshow["strength"] = wshow.edge_ic.abs()
+
+        if _wd_view.startswith("📇"):
+            # ── Option A: flow arrow cards ───────────────────────────
+            for _, w in wshow.sort_values("strength", ascending=False).head(12).iterrows():
+                up = "UP" in w.call
+                dcol = GREEN if up else RED
+                scol = GREEN if w.source_z > 0 else RED
+                inv = (w.edge_ic < 0)
+                track = ("strong" if w.strength >= 0.25 else
+                         "solid" if w.strength >= 0.18 else "moderate")
+                hit = float(w.hit_rate) if np.isfinite(w.hit_rate) else 0.5
+                hitc = GREEN if hit >= 0.60 else (DIM if hit >= 0.50 else RED)
+                barh = 4 + int(w.strength * 20)
+                st.markdown(
+                    f"""<div style="display:flex;align-items:center;gap:10px;
+                    background:#0c1829;border:1px solid #1d2b40;border-radius:10px;
+                    padding:11px 14px;margin-bottom:8px;">
+                      <div style="text-align:center;width:120px;flex-shrink:0;">
+                        <div style="background:#12233c;border-radius:8px;padding:6px 8px;
+                          font-weight:700;font-size:13px;">{w.source_name}</div>
+                        <div style="font-size:11px;color:{scol};margin-top:3px;">
+                          ⚡ z {w.source_z:+.1f} {'surging' if w.source_z > 0 else 'dumping'}</div>
+                      </div>
+                      <div style="flex:1;text-align:center;">
+                        <div style="height:{barh}px;border-radius:4px;
+                          background:linear-gradient(90deg,{'#1d5a41' if up else '#5a2626'},{dcol});"></div>
+                        <div style="font-size:11px;color:{DIM};margin-top:3px;">
+                          {'inverse ⇄' if inv else 'direct ➜'} · {track} track · IC {w.edge_ic:+.2f} · ~{w.horizon_days} sessions</div>
+                      </div>
+                      <div style="text-align:center;width:120px;flex-shrink:0;">
+                        <div style="background:#12233c;border-radius:8px;padding:6px 8px;
+                          font-weight:700;font-size:13px;">{w.target_name}</div>
+                        <div style="font-size:11px;color:{dcol};margin-top:3px;">{w.call} forecast</div>
+                      </div>
+                      <div style="width:46px;height:46px;border-radius:50%;flex-shrink:0;
+                        background:conic-gradient({hitc} 0 {hit:.0%}, #12233c {hit:.0%} 100%);
+                        display:flex;align-items:center;justify-content:center;">
+                        <div style="width:34px;height:34px;border-radius:50%;background:#0c1829;
+                          display:flex;align-items:center;justify-content:center;
+                          font-size:11px;font-weight:700;">{hit:.0%}</div>
+                      </div>
+                    </div>""", unsafe_allow_html=True)
+            if len(wshow) > 12:
+                st.caption(f"Showing the 12 strongest of {len(wshow)} edges — "
+                           "switch to the Flow map to see all of them at once.")
+        else:
+            # ── Option B: Sankey flow map ────────────────────────────
+            import plotly.graph_objects as go
+            srcs = list(wshow.source_name.unique())
+            tgts = list(wshow.target_name.unique())
+            labels, node_col = [], []
+            for s in srcs:
+                z = float(wshow.loc[wshow.source_name == s, "source_z"].iloc[0])
+                labels.append(f"⚡ {s} (z {z:+.1f})")
+                node_col.append(GREEN if z > 0 else RED)
+            for t in tgts:
+                g = wshow[wshow.target_name == t]
+                nup = int(g.call.str.contains("UP").sum())
+                labels.append(f"{t} · {len(g)} wave{'s' if len(g) > 1 else ''}")
+                node_col.append(GREEN if nup * 2 > len(g) else (RED if nup * 2 < len(g) else "#12233c"))
+            s_ix = {s: i for i, s in enumerate(srcs)}
+            t_ix = {t: len(srcs) + i for i, t in enumerate(tgts)}
+            link_col = [("rgba(63,191,127,0.45)" if "UP" in c else "rgba(224,82,82,0.45)")
+                        for c in wshow.call]
+            fig = go.Figure(go.Sankey(
+                arrangement="snap",
+                node=dict(label=labels, color=node_col, pad=14, thickness=16,
+                          line=dict(color="#1d2b40", width=1)),
+                link=dict(source=[s_ix[s] for s in wshow.source_name],
+                          target=[t_ix[t] for t in wshow.target_name],
+                          value=(wshow.strength * 100).clip(lower=5).tolist(),
+                          color=link_col,
+                          customdata=[f"IC {ic:+.2f} · hit {h:.0%}" if h == h else f"IC {ic:+.2f}"
+                                      for ic, h in zip(wshow.edge_ic, wshow.hit_rate)],
+                          hovertemplate="%{source.label} → %{target.label}<br>%{customdata}<extra></extra>")))
+            fig.update_layout(height=max(340, 26 * max(len(srcs), len(tgts))),
+                              paper_bgcolor="#081325", font_color="#F6F4E9",
+                              font_size=12, margin=dict(l=10, r=10, t=10, b=24))
+            st.plotly_chart(fig, width="stretch")
+            st.caption("Ribbon width = edge strength · green ribbon pushes the target "
+                       "UP, red pushes DOWN · ribbons converging on one target = "
+                       "independent waves agreeing (that's conviction). Hover/tap a "
+                       "ribbon for its IC and hit rate.")
+
+        st.caption("Read it like a weather report: *a front entered [source]; it "
+                   "historically reaches [target] within ~10 sessions, [hit rate] of "
+                   "the time.* Research tool — size positions like forecasts can be "
+                   "wrong, because they can.")
 
     with st.expander("❓ How the Cascade Map works"):
         st.markdown(
