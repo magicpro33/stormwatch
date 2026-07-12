@@ -165,6 +165,16 @@ def _pressure():
     return ce.pressure_system()
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _earnings():
+    return ce.upcoming_earnings(ce.BUYBACK_TITANS)
+
+
+@st.cache_data(ttl=10800, show_spinner="Loading the 5,700-stock nightly dump for follower analysis…")
+def _followers(node: str, _asof: str):
+    return ce.fastest_followers(node, _history())
+
+
 try:
     closes = _history()
 except Exception as e:
@@ -235,6 +245,34 @@ with tab_map:
                             f"- **Stand-down rule:** {pl['invalidation']}")
                         st.caption("Rule-generated from the trigger's own stats and the "
                                    "asset's volatility — a playbook, not personal advice.")
+                        try:
+                            fl = _followers(b.target, asof)
+                            if fl is not None and not fl.empty:
+                                live = ce.alpaca_prices(list(fl.Ticker))
+                                if live:
+                                    fl["Price"] = fl.Ticker.map(live).fillna(fl.Price)
+                                st.markdown("**🏇 Fastest followers** — individual "
+                                            "stocks that historically chase this "
+                                            "node's moves within ~5 sessions "
+                                            "(from the 5,700-stock nightly dump"
+                                            + (", live Alpaca prices" if live else "") + "):")
+                                st.dataframe(
+                                    fl.style.format({"Price": "${:,.2f}",
+                                                     "FollowCorr": "{:+.2f}",
+                                                     "Beta": "{:+.2f}"})
+                                    .map(lambda v: _css_sign(v, dead=0.05),
+                                         subset=["FollowCorr"]),
+                                    width="stretch", hide_index=True,
+                                    column_config={
+                                        "FollowCorr": st.column_config.Column(
+                                            help="Correlation between this node's 5-day move and the stock's 5-day move ONE WEEK LATER — a lagged response, not same-day beta. Higher = chases the node faster and more reliably."),
+                                        "Beta": st.column_config.Column(
+                                            help="Size of the lagged response: node moves 1% → stock historically moves this % the following week."),
+                                        "Price": st.column_config.Column(
+                                            help="Live via Alpaca when a key is configured; otherwise last close from the nightly dump."),
+                                    })
+                        except Exception as _fe:
+                            st.caption(f"Follower analysis unavailable: {_fe}")
                     except Exception as _pe:
                         st.caption(f"Plan unavailable: {_pe}")
         if len(board) > 8:
@@ -400,7 +438,7 @@ with tab_forced:
             "creates (and the reversal after it passes) is one of the few "
             "genuinely knowable things in markets. Each card explains its "
             "own mechanism.")
-    ff = ce.forced_flows(closes=closes)
+    ff = ce.forced_flows(closes=closes, earnings=_earnings())
     for _, ev in ff.iterrows():
         days = (ev.Date - pd.Timestamp.today().date()).days
         st.markdown(

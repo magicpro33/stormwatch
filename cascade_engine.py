@@ -349,8 +349,26 @@ def _third_friday(y, m):
     return d
 
 
+
+def _buyback_buy_line(earnings: dict | None) -> str:
+    """Exact per-ticker dip-buy dates derived from the real earnings calendar."""
+    base = ("🛒 Buy: post-earnings DIPS in the heaviest repurchasers. "
+            "Broad: QQQ/SPY. Pure-play: PKW (Buyback Achievers ETF). ")
+    if not earnings:
+        return (base + "Per-ticker dates: earnings calendar unavailable right "
+                "now — the dip window is 1-2 sessions after each of "
+                "AAPL, GOOGL, MSFT, META, NVDA, JPM, XOM reports.")
+    parts = []
+    for tk, ed in sorted(earnings.items(), key=lambda kv: kv[1]):
+        dip0 = ed + timedelta(days=1)
+        dip1 = ed + timedelta(days=2)
+        parts.append(f"{tk}: reports {ed:%a %b %d} → dip window {dip0:%b %d}–{dip1:%b %d}")
+    return base + "Exact dates — " + "; ".join(parts) + "."
+
+
 def forced_flows(today: date | None = None, days_ahead: int = 45,
-                 closes: pd.DataFrame | None = None) -> pd.DataFrame:
+                 closes: pd.DataFrame | None = None,
+                 earnings: dict | None = None) -> pd.DataFrame:
     """Mechanical, scheduled flows in the next `days_ahead` days — with who
     is forced to trade, what they trade, and what to watch."""
     today = today or date.today()
@@ -399,9 +417,10 @@ def forced_flows(today: date | None = None, days_ahead: int = 45,
            "interest single names (NVDA, TSLA, AAPL).",
            "Expect drift INTO OpEx week, bigger moves the week AFTER. "
            "Fade the pin, don't fight it.",
-           "🛒 Buy: patience. Hold off NEW entries during OpEx week (pinned, "
-           "choppy); place planned buys the Monday-Tuesday AFTER expiry when "
-           "the pin releases — dips then are mechanical, not fundamental.")
+           f"🛒 Buy date: {opex + timedelta(days=3):%a %b %d} (first session "
+           "after expiry). Hold off NEW entries during OpEx week; place "
+           "planned buys that Monday when the pin releases — dips then are "
+           "mechanical, not fundamental.")
         if m in (3, 6, 9, 12):
             ev(opex, "S&P quarterly rebalance (effective at the close)",
                "Every S&P index fund must own the new weights at that close — "
@@ -413,9 +432,9 @@ def forced_flows(today: date | None = None, days_ahead: int = 45,
                "The classic play — buy the add at announcement — has decayed "
                "as it got crowded; the reliable part is the huge closing "
                "auction volume, good for exiting positions with zero impact.",
-               "🛒 Buy: the announced ADD tickers at the announcement (small "
-               "size — decayed edge), sell into the rebalance close. Check "
-               "spglobal.com press releases ~5-10 days before this date.")
+               f"🛒 Buy: the announced ADD tickers on announcement day — watch "
+               f"spglobal.com press releases from {opex - timedelta(days=12):%a %b %d}. "
+               f"Sell into the {opex:%b %d} rebalance close. Small size — decayed edge.")
         last = (date(y, m, 28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
         ev(last, "Month-end pension rebalance window (final 1-3 sessions)",
            "Pensions restore their stock/bond targets: whatever RALLIED this "
@@ -427,7 +446,9 @@ def forced_flows(today: date | None = None, days_ahead: int = 45,
            "Estimate the direction from the month's stock-vs-bond gap; the "
            "flow hits the last 1-3 closes, then pressure vanishes on day 1 "
            "of the new month.",
-           "🛒 " + _pension_buy)
+           "🛒 " + _pension_buy
+           + f" Exact window: {', '.join(d.strftime('%a %b %d') for d in pd.bdate_range(end=last, periods=3))}."
+           )
         if m in (1, 4, 7, 10):
             ev(date(y, m, 15), "Buyback blackout lifts (approx.)",
                "Companies can't repurchase shares in the ~5 weeks before "
@@ -443,9 +464,7 @@ def forced_flows(today: date | None = None, days_ahead: int = 45,
                "Support returns to mega-caps 1-2 days after each one "
                "reports. Post-earnings dips in heavy-buyback names get "
                "bought by the company itself.",
-               "🛒 Buy: post-earnings DIPS in the heaviest repurchasers — "
-               "AAPL, GOOGL, META, NVDA, MSFT, JPM, XOM — 1-2 days after each "
-               "reports. Broad: QQQ/SPY. Pure-play: PKW (Buyback Achievers ETF).")
+               _buyback_buy_line(earnings))
     if today.month <= 6:
         rr = _third_friday(today.year, 6) + timedelta(days=7)
         ev(rr, "Russell reconstitution (late June)",
@@ -488,9 +507,10 @@ def forced_flows(today: date | None = None, days_ahead: int = 45,
            "proxy: IWM vs SPY spread in early January.",
            "Enter the final week of Dec, exit mid-Jan. It's a decayed but "
            "still-positive seasonal — size it small.",
-           "🛒 Buy: your December loser list (equal-weight basket of 10+, "
-           "never one name), or simply IWM, in the final week of Dec. Exit "
-           "mid-January. Small size — decayed seasonal.")
+           f"🛒 Buy dates: {date(today.year, 12, 24):%b %d}–{date(today.year, 12, 31):%b %d} "
+           f"(final Dec week). Exit by {date(today.year + 1, 1, 15):%b %d, %Y}. "
+           "Basket of 10+ December losers equal-weight (never one name), or "
+           "simply IWM. Small size — decayed seasonal.")
 
     df = pd.DataFrame([e for e in events if today <= e["Date"] <= horizon])
     return df.sort_values("Date", ignore_index=True)
@@ -567,3 +587,144 @@ def investment_plan(b, closes: pd.DataFrame) -> dict:
                       "before you enter, or if the Pressure gauge drops to 🔴 "
                       "— waves don't travel in draining liquidity"),
     )
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Stock-level layer: nightly dump + Alpaca + earnings dates
+# ═════════════════════════════════════════════════════════════════════
+DUMP_URL = "https://raw.githubusercontent.com/magicpro33/stock/main/data/stock_data.json.gz"
+LOCAL_DUMP = os.path.join(os.path.dirname(__file__), "data", "dump_panel.npz")
+
+BUYBACK_TITANS = ["AAPL", "GOOGL", "MSFT", "META", "NVDA", "JPM", "XOM"]
+
+
+def load_dump_panel():
+    """5,700-stock daily-close panel from the nightly magicpro33/stock dump.
+    Cached to disk; refetched when >4 days stale. Returns
+    (closes[T,N] float32, tickers[N], sectors[N], med_dollar_vol[N], dates)."""
+    import gzip as _gz
+    if os.path.exists(LOCAL_DUMP):
+        z = np.load(LOCAL_DUMP, allow_pickle=True)
+        dts = pd.to_datetime(z["dates"])
+        if (pd.Timestamp.today() - dts[-1]).days <= 4:
+            return z["closes"], z["tickers"], z["sectors"], z["mdv"], dts
+    r = requests.get(DUMP_URL, timeout=120)
+    r.raise_for_status()
+    data = json.loads(_gz.decompress(r.content).decode())
+    rows = [x for x in data if len(x.get("_hist", {}).get("dates", [])) >= 120]
+    all_d = sorted({d for x in rows for d in x["_hist"]["dates"]})
+    dix = {d: i for i, d in enumerate(all_d)}
+    T, N = len(all_d), len(rows)
+    closes = np.full((T, N), np.nan, dtype=np.float32)
+    vol = np.zeros((T, N), dtype=np.float32)
+    tickers, sectors = [], []
+    for j, x in enumerate(rows):
+        ix = [dix[d] for d in x["_hist"]["dates"]]
+        closes[ix, j] = x["_hist"]["close"]
+        vol[ix, j] = x["_hist"]["volume"]
+        tickers.append(x["Ticker"])
+        sectors.append(x.get("Sector") or "Unknown")
+    closes = pd.DataFrame(closes).ffill(limit=5).values.astype(np.float32)
+    mdv = np.nanmedian((closes * vol)[-21:], axis=0)
+    tickers, sectors = np.array(tickers), np.array(sectors)
+    np.savez_compressed(LOCAL_DUMP, closes=closes, tickers=tickers,
+                        sectors=sectors, mdv=mdv, dates=np.array(all_d))
+    return closes, tickers, sectors, mdv, pd.to_datetime(all_d)
+
+
+def fastest_followers(node_symbol: str, node_closes: pd.DataFrame,
+                      top: int = 5) -> pd.DataFrame:
+    """Which individual stocks (from the nightly dump) historically follow
+    this node's moves the fastest? Score = corr(node 5d move at t,
+    stock 5d move at t+5) — a lagged response, not just same-day beta."""
+    C, tickers, sectors, mdv, dts = load_dump_panel()
+    node = node_closes[node_symbol].dropna()
+    node.index = pd.to_datetime(node.index).tz_localize(None)
+    common = dts.intersection(node.index)
+    if len(common) < 120:
+        return pd.DataFrame()
+    n_ix = {d: i for i, d in enumerate(dts)}
+    rows_ix = np.array([n_ix[d] for d in common])
+    Cc = C[rows_ix]
+    nd = node.reindex(common).values
+    node_r5 = nd[5:] / nd[:-5] - 1.0                    # node 5d move at t
+    stk_r5 = Cc[5:] / Cc[:-5] - 1.0                     # stock 5d move
+    x = node_r5[:-5]                                    # node move at t
+    y = stk_r5[5:]                                      # stock move at t+5
+    ok = (mdv >= 2e6) & np.isfinite(Cc[-1]) & (Cc[-1] >= 3.0)
+    xm = x - np.nanmean(x)
+    ym = y - np.nanmean(y, axis=0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        corr = np.nansum(xm[:, None] * ym, axis=0) / (
+            np.sqrt(np.nansum(xm ** 2) * np.nansum(ym ** 2, axis=0)))
+        beta = np.nansum(xm[:, None] * ym, axis=0) / np.nansum(xm ** 2)
+    corr = np.where(ok, corr, np.nan)
+    idx = np.argsort(-np.nan_to_num(corr, nan=-9))[:top]
+    return pd.DataFrame({
+        "Ticker": tickers[idx], "Sector": sectors[idx],
+        "FollowCorr": corr[idx].round(2), "Beta": beta[idx].round(2),
+        "Price": Cc[-1][idx].round(2),
+    })
+
+
+def alpaca_prices(tickers: list) -> dict:
+    """Fresh prices via Alpaca batch snapshots. {} without keys/network."""
+    pairs = [("ALPACA_API_KEY", "ALPACA_SECRET_KEY"),
+             ("ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY"),
+             ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY")]
+    kid = sec = None
+    getters = [lambda k: os.environ.get(k, "")]
+    try:
+        import streamlit as st
+        getters.insert(0, lambda k: st.secrets.get(k, ""))
+    except Exception:
+        pass
+    for a, b in pairs:
+        for g in getters:
+            try:
+                if g(a) and g(b):
+                    kid, sec = g(a), g(b)
+                    break
+            except Exception:
+                continue
+        if kid:
+            break
+    if not kid:
+        return {}
+    try:
+        r = requests.get("https://data.alpaca.markets/v2/stocks/snapshots",
+                         params={"symbols": ",".join(tickers), "feed": "iex"},
+                         headers={"APCA-API-KEY-ID": kid,
+                                  "APCA-API-SECRET-KEY": sec}, timeout=8)
+        if r.status_code != 200:
+            return {}
+        out = {}
+        for tk, snap in r.json().items():
+            p = (snap.get("latestTrade") or {}).get("p") or                 (snap.get("dailyBar") or {}).get("c")
+            if p:
+                out[tk] = float(p)
+        return out
+    except Exception:
+        return {}
+
+
+def upcoming_earnings(tickers: list) -> dict:
+    """{ticker: next earnings date} via yfinance. {} on any failure."""
+    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+    out = {}
+    try:
+        import yfinance as yf
+        for tk in tickers:
+            try:
+                ed = yf.Ticker(tk).earnings_dates
+                if ed is None or ed.empty:
+                    continue
+                fut = ed.index.tz_localize(None)
+                fut = fut[fut >= pd.Timestamp.today().normalize()]
+                if len(fut):
+                    out[tk] = fut.min().date()
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
