@@ -80,13 +80,13 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
         df = pd.read_parquet(LOCAL_HISTORY)
         df.index = pd.to_datetime(df.index)
         df = df.sort_index()
-        # refetch automatically when the cache goes stale (>4 calendar days)
+        # refetch when stale (>4 calendar days) — but keep the stale copy
+        # unless the fresh download actually succeeds (stale beats empty)
         if (pd.Timestamp.today() - df.index[-1]).days <= 4:
             return df
-        try:
-            os.remove(LOCAL_HISTORY)
-        except OSError:
-            return df
+        stale_df = df
+    else:
+        stale_df = None
     global LAST_HISTORY_SOURCE
     closes = alpaca_history(list(NODES), years)          # ── PRIMARY: Alpaca
     missing = [s for s in NODES if s not in closes.columns
@@ -106,6 +106,11 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
     LAST_HISTORY_SOURCE = ("Alpaca (primary)" + (f" + yfinance ({len(missing)} symbols)" if missing else "")
                            ) if len(missing) < len(NODES) else "yfinance (Alpaca keys not set)"
     closes = closes.dropna(how="all").ffill(limit=5)
+    if len(closes) < 30 or closes.shape[1] < 3:      # download failed
+        if stale_df is not None:
+            LAST_HISTORY_SOURCE = "stale cache (feeds unreachable — will retry)"
+            return stale_df
+        return closes
     try:
         closes.to_parquet(LOCAL_HISTORY)
     except Exception:
@@ -855,3 +860,157 @@ def alpaca_history(symbols: list, years: int = HISTORY_YEARS) -> pd.DataFrame:
     df = pd.DataFrame({k: pd.Series(v) for k, v in out.items()})
     df.index = pd.to_datetime(df.index)
     return df.sort_index().ffill(limit=5)
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Stock Lookup: analog-outcome forecast, upstream drivers, watchlist
+# ═════════════════════════════════════════════════════════════════════
+WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "data", "watchlist.json")
+
+
+def _feature_panels():
+    """Point-in-time features + forward returns for every (day, stock) in the
+    dump — the analog library. Sampled every 3 sessions after warmup."""
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    C, V = panel["c"], np.nan_to_num(panel["v"])
+    T, N = C.shape
+    days = list(range(70, T - 22, 3))
+    feats, fwds = [], []
+    dvol = C * V
+    for t in days:
+        mom = C[t - 5] / C[t - 63] - 1.0
+        mom_pct = pd.Series(mom).rank(pct=True).values
+        lo = np.nanmin(panel["l"][t - 62:t + 1], 0)
+        hi = np.nanmax(panel["h"][t - 62:t + 1], 0)
+        rangepos = (C[t] - lo) / np.where(hi - lo == 0, np.nan, hi - lo)
+        rvol = V[t - 4:t + 1].mean(0) / np.where(V[t - 62:t + 1].mean(0) == 0,
+                                                 np.nan, V[t - 62:t + 1].mean(0))
+        above = (C[t] > np.nanmean(C[t - 49:t + 1], 0)).astype(np.float32)
+        ok = np.isfinite(C[t]) & (C[t] >= 3) &              (np.nanmedian(dvol[max(t - 20, 0):t + 1], 0) >= 2e6)
+        f10 = C[t + 10] / C[t] - 1.0
+        f21 = C[t + 21] / C[t] - 1.0
+        m = ok & np.isfinite(mom_pct) & np.isfinite(rangepos) &             np.isfinite(rvol) & np.isfinite(f21)
+        feats.append(np.column_stack([mom_pct[m], rangepos[m], rvol[m], above[m]]))
+        fwds.append(np.column_stack([f10[m], f21[m]]))
+    F = np.vstack(feats).astype(np.float32)
+    R = np.vstack(fwds).astype(np.float32)
+    return F, R
+
+
+def _now_features(ticker: str):
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    ix = np.where(tickers == ticker)[0]
+    if not len(ix):
+        return None, None
+    j = ix[0]
+    C, V = panel["c"], np.nan_to_num(panel["v"])
+    t = C.shape[0] - 1
+    mom = C[t - 5] / C[t - 63] - 1.0
+    mom_pct = float(pd.Series(mom).rank(pct=True).iloc[j])
+    lo = np.nanmin(panel["l"][t - 62:t + 1, j])
+    hi = np.nanmax(panel["h"][t - 62:t + 1, j])
+    rangepos = float((C[t, j] - lo) / (hi - lo)) if hi > lo else np.nan
+    rv_d = V[t - 62:t + 1, j].mean()
+    rvol = float(V[t - 4:t + 1, j].mean() / rv_d) if rv_d > 0 else np.nan
+    above = float(C[t, j] > np.nanmean(C[t - 49:t + 1, j]))
+    return np.array([mom_pct, rangepos, rvol, above], dtype=np.float32), sectors[j]
+
+
+def outcome_forecast(ticker: str, F=None, R=None) -> dict:
+    """Analog forecast: what happened to every look-alike (day, stock) in the
+    dump. Returns forward-return distribution stats with base-rate lifts."""
+    now, sector = _now_features(ticker)
+    if now is None:
+        return {}
+    if F is None or R is None:
+        F, R = _feature_panels()
+    tol = np.array([0.10, 0.15, 0.50, 0.0])
+    for widen in (1.0, 1.6, 2.4):
+        m = (np.abs(F[:, 0] - now[0]) <= tol[0] * widen) &             (np.abs(F[:, 1] - now[1]) <= tol[1] * widen) &             (np.abs(np.minimum(F[:, 2], 3) - min(now[2], 3)) <= tol[2] * widen) &             (F[:, 3] == now[3])
+        if m.sum() >= 250:
+            break
+    sel = R[m]
+    if len(sel) < 60:
+        return {"n": int(len(sel))}
+    base21 = R[:, 1]
+    return dict(
+        n=int(len(sel)), sector=str(sector),
+        widen=float(widen),
+        med10=float(np.median(sel[:, 0])), med21=float(np.median(sel[:, 1])),
+        mean21=float(sel[:, 1].mean()),
+        p_up=float((sel[:, 1] > 0).mean()),
+        p_pop=float((sel[:, 1] >= 0.15).mean()),
+        p_pop_base=float((base21 >= 0.15).mean()),
+        p_drop=float((sel[:, 1] <= -0.15).mean()),
+        p_drop_base=float((base21 <= -0.15).mean()),
+        q10=float(np.quantile(sel[:, 1], 0.10)),
+        q90=float(np.quantile(sel[:, 1], 0.90)),
+        dist=sel[:, 1],
+        feats=dict(mom_pct=float(now[0]), rangepos=float(now[1]),
+                   rvol=float(now[2]), above_ma50=bool(now[3])),
+    )
+
+
+def upstream_drivers(ticker: str, node_closes: pd.DataFrame, top: int = 5) -> pd.DataFrame:
+    """Which cascade NODES lead this stock? corr(node 5d move at t,
+    stock 5d move at t+5) — plus each node's CURRENT impulse = tailwind."""
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    ix = np.where(tickers == ticker)[0]
+    if not len(ix):
+        return pd.DataFrame()
+    if node_closes is None or node_closes.empty:
+        return pd.DataFrame()
+    s = pd.Series(panel["c"][:, ix[0]], index=dts).dropna()
+    imp_now = impulses(node_closes).iloc[-1]
+    rows = []
+    for node in node_closes.columns:
+        n = node_closes[node].dropna()
+        n.index = pd.to_datetime(n.index).tz_localize(None)
+        common = s.index.intersection(n.index)
+        if len(common) < 120:
+            continue
+        sv, nv = s.reindex(common).values, n.reindex(common).values
+        s5 = sv[5:] / sv[:-5] - 1.0
+        n5 = nv[5:] / nv[:-5] - 1.0
+        x, y = n5[:-5], s5[5:]
+        ok = np.isfinite(x) & np.isfinite(y)
+        if ok.sum() < 100:
+            continue
+        c = float(np.corrcoef(x[ok], y[ok])[0, 1])
+        rows.append(dict(node=node, node_name=NODES.get(node, (node,))[0],
+                         follow_corr=round(c, 2),
+                         node_z=round(float(imp_now.get(node, np.nan)), 2)))
+    df = pd.DataFrame(rows).dropna()
+    if df.empty:
+        return df
+    df = df.reindex(df.follow_corr.abs().sort_values(ascending=False).index).head(top)
+    df["push"] = (df.follow_corr * df.node_z).round(2)
+    return df.reset_index(drop=True)
+
+
+# ── watchlist persistence ────────────────────────────────────────────
+def watchlist_load() -> list:
+    try:
+        with open(WATCHLIST_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def watchlist_save(items: list):
+    try:
+        with open(WATCHLIST_PATH, "w") as f:
+            json.dump(items, f, indent=1)
+    except Exception:
+        pass
+
+
+def watchlist_add(ticker: str, price: float, note: str = ""):
+    items = [w for w in watchlist_load() if w["ticker"] != ticker]
+    items.append(dict(ticker=ticker, added=str(date.today()),
+                      price_at_add=round(float(price), 2), note=note))
+    watchlist_save(items)
+
+
+def watchlist_remove(ticker: str):
+    watchlist_save([w for w in watchlist_load() if w["ticker"] != ticker])

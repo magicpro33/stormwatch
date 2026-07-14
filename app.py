@@ -175,12 +175,28 @@ def _followers(node: str, _asof: str):
     return ce.fastest_followers(node, _history())
 
 
+@st.cache_data(ttl=10800, show_spinner="Building the analog library (every look-alike day in the dump)…")
+def _analog_library(_asof: str):
+    return ce._feature_panels()
+
+
+@st.cache_data(ttl=10800, show_spinner=False)
+def _drivers(tk: str, _asof: str):
+    return ce.upstream_drivers(tk, _history())
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _tk_earnings(tk: str):
+    return ce.upcoming_earnings([tk])
+
+
 
 def _open_analysis(tk: str):
     st.session_state["mw_analyze"] = tk
 
 
-def render_ticker_analysis(tk: str, closes: pd.DataFrame):
+def render_ticker_analysis(tk: str, closes: pd.DataFrame,
+                           state_key: str = "mw_analyze", closable: bool = True):
     """IGNITION-style deep dive: candles + volume + indicator pack.
     Stocks come from the nightly dump (full OHLCV); nodes fall back to the
     close-only history; Alpaca supplies the live print when keyed."""
@@ -208,8 +224,8 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame):
         f"<span style='color:{GREEN if chg >= 0 else RED};font-weight:700;'>{chg:+.2%}</span> "
         f"<span style='color:{DIM};font-size:12px;'>· {'live via Alpaca' if tk in live else src_label}</span>",
         unsafe_allow_html=True)
-    if xc.button("✕ Close", key="mw_close_analysis"):
-        st.session_state.pop("mw_analyze", None)
+    if closable and xc.button("✕ Close", key=f"close_{state_key}"):
+        st.session_state.pop(state_key, None)
         st.rerun()
 
     def _pill(label, txt, css, tip):
@@ -282,7 +298,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame):
                       legend=dict(orientation="h", y=1.05),
                       xaxis_rangeslider_visible=False,
                       margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, width="stretch", key=f"mw_chart_{tk}")
+    st.plotly_chart(fig, width="stretch", key=f"chart_{state_key}_{tk}")
     trend = "above" if stats["price"] > stats["sma50"] else "below"
     st.caption(f"Price is **{trend}** its 50-session average · last 180 sessions shown. "
                "Research view, not investment advice.")
@@ -303,8 +319,8 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
     st.stop()
 
 asof = str(closes.index[-1].date())
-tab_map, tab_pressure, tab_sentinels, tab_forced, tab_lab = st.tabs(
-    ["🌊 Cascade Map", "🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab"])
+tab_map, tab_lookup, tab_pressure, tab_sentinels, tab_forced, tab_lab = st.tabs(
+    ["🌊 Cascade Map", "🔎 Stock Lookup", "🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab"])
 
 
 # ── 🌊 cascade map ───────────────────────────────────────────────────
@@ -544,6 +560,185 @@ with tab_map:
                 "IC": st.column_config.Column(help=HELP["edge_ic"]),
                 "Hit %": st.column_config.Column(help=HELP["hit_rate"]),
             })
+
+
+# ── 🔎 stock lookup ──────────────────────────────────────────────────
+with tab_lookup:
+    st.caption("Search any stock in the 5,700-name nightly universe. The "
+               "outlook is an ANALOG forecast: what actually happened next to "
+               "every (stock, day) in the data that looked like this one does "
+               "today — a measured distribution, not a guess.")
+    lc1, lc2 = st.columns([4, 1], vertical_alignment="bottom")
+    _q = lc1.text_input("Ticker", key="lk_query", placeholder="e.g. NVDA",
+                        label_visibility="collapsed").strip().upper()
+    if lc2.button("🔎 Look up", type="primary", width="stretch") and _q:
+        st.session_state["lk_tk"] = _q
+
+    tk = st.session_state.get("lk_tk")
+    if tk:
+        # IGNITION-style header, pills, candles (shared renderer)
+        render_ticker_analysis(tk, closes, state_key="lk_tk")
+
+        df_tk = ce.dump_ohlcv(tk)
+        if not df_tk.empty:
+            px_now = float(df_tk.Close.iloc[-1])
+            if st.button(f"⭐ Save {tk} to watchlist", key="lk_save"):
+                ce.watchlist_add(tk, px_now)
+                st.toast(f"⭐ {tk} saved at ${px_now:,.2f}")
+
+            # ── outcome forecast ────────────────────────────────────
+            st.subheader("🌦 Outcome forecast (analog method)")
+            try:
+                F, R = _analog_library(asof)
+                oc = ce.outcome_forecast(tk, F, R)
+            except Exception as e:
+                oc, _err = {}, e
+            if not oc or oc.get("n", 0) < 60:
+                st.info("Not enough look-alike history to forecast this one honestly.")
+            else:
+                lift = oc["p_pop"] / max(oc["p_pop_base"], 1e-9)
+                c = st.columns(4)
+                c[0].metric("Median next 21d", f"{oc['med21']:+.1%}",
+                            help="The median outcome across all analog cases — half did better, half worse. The single most honest point estimate.")
+                c[1].metric("Odds of gain", f"{oc['p_up']:.0%}",
+                            help="Share of analog cases that were positive 21 sessions later. 50% = coin flip.")
+                c[2].metric("Explosion odds (+15%)", f"{oc['p_pop']:.0%}",
+                            f"{lift:.2f}x base rate",
+                            help="Share of analogs that gained 15%+ in 21 sessions, vs the all-stock base rate. Lift >1.3x is a real tilt.")
+                c[3].metric("Crash odds (−15%)", f"{oc['p_drop']:.0%}",
+                            f"{oc['p_drop'] / max(oc['p_drop_base'], 1e-9):.2f}x base",
+                            delta_color="inverse",
+                            help="Share of analogs that LOST 15%+ — the other tail. Explosive setups usually carry both tails.")
+                st.caption(f"Based on **{oc['n']:,} analog cases** — stocks that matched "
+                           f"today's profile (momentum pctile {oc['feats']['mom_pct']:.0%}, "
+                           f"range position {oc['feats']['rangepos']:.0%}, "
+                           f"RVOL {oc['feats']['rvol']:.1f}x, "
+                           f"{'above' if oc['feats']['above_ma50'] else 'below'} 50d MA)"
+                           + (f" · match widened {oc['widen']:.1f}×" if oc.get('widen', 1) > 1 else "")
+                           + f" · 80% of analogs landed between {oc['q10']:+.0%} and {oc['q90']:+.0%}.")
+                import plotly.graph_objects as go
+                figh = go.Figure(go.Histogram(x=oc["dist"] * 100, nbinsx=60,
+                                              marker_color=ACCENT, opacity=0.85))
+                figh.add_vline(x=0, line_color="#F6F4E9", line_width=1)
+                figh.add_vline(x=oc["med21"] * 100, line_color=GREEN, line_dash="dash",
+                               annotation_text="median", annotation_font_color=GREEN)
+                figh.update_layout(height=230, paper_bgcolor="#081325",
+                                   plot_bgcolor="#0c1829", font_color="#F6F4E9",
+                                   margin=dict(l=10, r=10, t=10, b=30),
+                                   xaxis_title="return over next 21 sessions (%)",
+                                   showlegend=False)
+                st.plotly_chart(figh, width="stretch", key=f"lk_hist_{tk}")
+
+                # ── cascade context ─────────────────────────────────
+                st.subheader("🌊 Cascade context — what leads this stock")
+                dr = _drivers(tk, asof)
+                if dr.empty:
+                    st.caption("No reliable upstream drivers found in the node graph.")
+                else:
+                    tail = float(dr.push.sum())
+                    st.dataframe(
+                        dr.rename(columns={"node_name": "Driver node",
+                                           "follow_corr": "Leads it (corr)",
+                                           "node_z": "Driver impulse now",
+                                           "push": "Push"})
+                        .drop(columns=["node"])
+                        .style.format({"Leads it (corr)": "{:+.2f}",
+                                       "Driver impulse now": "{:+.2f}",
+                                       "Push": "{:+.2f}"})
+                        .map(lambda v: _css_sign(v, dead=0.3), subset=["Driver impulse now"])
+                        .map(lambda v: _css_sign(v, dead=0.2), subset=["Push"]),
+                        width="stretch", hide_index=True,
+                        column_config={
+                            "Leads it (corr)": st.column_config.Column(
+                                help="How reliably this node's 5-day move shows up in the stock ONE WEEK later. Negative = inverse driver."),
+                            "Driver impulse now": st.column_config.Column(
+                                help="The driver's flow impulse z RIGHT NOW. A firing driver (|z|>1.25) is a wave already in motion toward this stock."),
+                            "Push": st.column_config.Column(
+                                help="corr × current impulse: the direction and rough strength of the pressure arriving over the next ~week."),
+                        })
+                    tcol = GREEN if tail > 0.5 else (RED if tail < -0.5 else DIM)
+                    tlabel = ("tailwind — upstream waves are pushing it UP" if tail > 0.5 else
+                              "headwind — upstream waves are pushing it DOWN" if tail < -0.5 else
+                              "neutral — no meaningful wave pressure")
+                    st.markdown(f"**Net cascade pressure:** "
+                                f"<span style='color:{tcol};font-weight:700;'>{tail:+.2f} · {tlabel}</span>",
+                                unsafe_allow_html=True)
+
+                # ── earnings landmine check ─────────────────────────
+                try:
+                    ed = _tk_earnings(tk).get(tk)
+                except Exception:
+                    ed = None
+                if ed:
+                    days_to = (ed - pd.Timestamp.today().date()).days
+                    if 0 <= days_to <= 21:
+                        st.warning(f"⚠️ **Earnings {ed:%a %b %d} ({days_to}d away)** — a "
+                                   "binary event INSIDE the forecast horizon. Analog "
+                                   "statistics do not apply through earnings gaps; "
+                                   "either exit before, or size for the gap.")
+
+                # ── plain-language verdict ──────────────────────────
+                score = (1 if oc["med21"] > 0.01 else -1 if oc["med21"] < -0.01 else 0)                         + (1 if oc["p_up"] >= 0.56 else -1 if oc["p_up"] <= 0.46 else 0)                         + (1 if not dr.empty and tail > 0.5 else -1 if not dr.empty and tail < -0.5 else 0)
+                v_emo, v_txt, v_col = (
+                    ("🌞", "Favorable — analogs lean positive AND the cascade is pushing the same way.", GREEN) if score >= 2 else
+                    ("🌤", "Mildly favorable — the tilt is real but modest. Half-size territory.", GREEN) if score == 1 else
+                    ("🌧", "Unfavorable — look-alikes lost ground and/or waves are pushing against it.", RED) if score <= -1 else
+                    ("⛅", "Mixed — no measurable edge either way. Doing nothing is a position.", DIM))
+                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-left:4px solid {v_col};border-radius:10px;padding:12px 16px;margin-top:6px;">
+                    <span style="font-size:17px;font-weight:700;">{v_emo} Outlook: </span>
+                    <span style="font-size:14px;">{v_txt}</span><br>
+                    <span style="color:{DIM};font-size:12px;">Analog median {oc['med21']:+.1%} ·
+                    odds up {oc['p_up']:.0%} · cascade pressure {('n/a' if dr.empty else f'{tail:+.2f}')} ·
+                    {oc['n']:,} historical look-alikes. Probability tilt, not prophecy — not investment advice.</span>
+                    </div>""", unsafe_allow_html=True)
+        else:
+            st.info(f"{tk} isn't in the nightly dump universe — node ETFs get chart "
+                    "and stats above, but the analog forecast needs dump stocks.")
+
+    # ── watchlist ────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("⭐ Watchlist")
+    wl = ce.watchlist_load()
+    if not wl:
+        st.caption("Nothing saved yet — look up a stock and hit ⭐ Save. Each save "
+                   "snapshots the price so you can score your calls later.")
+    else:
+        wdf = pd.DataFrame(wl)
+        live = ce.alpaca_prices(list(wdf.ticker))
+        def _nowpx(t):
+            if t in live:
+                return live[t]
+            d = ce.dump_ohlcv(t)
+            return float(d.Close.iloc[-1]) if not d.empty else np.nan
+        wdf["price_now"] = wdf.ticker.map(_nowpx)
+        wdf["since_add"] = wdf.price_now / wdf.price_at_add - 1
+        show = wdf[["ticker", "added", "price_at_add", "price_now", "since_add"]]
+        show.columns = ["Ticker", "Saved", "Price then", "Price now", "Since saved"]
+        _wsel = st.dataframe(
+            show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
+                               "Since saved": "{:+.1%}"})
+            .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"]),
+            width="stretch", hide_index=True,
+            on_select="rerun", selection_mode="single-row", key="wl_table",
+            column_config={"Since saved": st.column_config.Column(
+                help="Your scorecard: return since the day you saved it. Live Alpaca price when keyed.")})
+        _wr = (_wsel.selection.rows if _wsel and getattr(_wsel, "selection", None) else [])
+        if _wr:
+            _wtk = show.iloc[_wr[0]].Ticker
+            if st.session_state.get("_wl_handled") != _wtk:
+                st.session_state["_wl_handled"] = _wtk
+                st.session_state["lk_tk"] = _wtk
+                st.rerun()
+        st.caption("👆 Tap a row to reload its full analysis and a fresh forecast.")
+        rc1, rc2 = st.columns([3, 1], vertical_alignment="bottom")
+        _rm = rc1.selectbox("Remove from watchlist", ["—"] + list(wdf.ticker), key="wl_rm")
+        if rc2.button("🗑 Remove", width="stretch") and _rm != "—":
+            ce.watchlist_remove(_rm)
+            st.rerun()
+        st.caption("ℹ️ The watchlist lives in a file on the app server — it survives "
+                   "restarts but resets if Streamlit Cloud rebuilds the container "
+                   "(redeploys). Download-worthy calls belong in your own notes too.")
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
