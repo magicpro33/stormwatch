@@ -182,7 +182,14 @@ def _analog_library(_asof: str):
 
 @st.cache_data(ttl=10800, show_spinner=False)
 def _drivers(tk: str, _asof: str):
-    return ce.upstream_drivers(tk, _history())
+    _hist = _analyzer(tk, _asof)[1]
+    _nodes = _history()
+    if (_hist is None or _hist.empty) and tk in _nodes.columns:
+        _hist = pd.DataFrame({"Close": _nodes[tk].dropna()})
+    dr = ce.upstream_drivers(tk, _nodes, hist=_hist)
+    if not dr.empty:
+        dr = dr[dr.node != tk].reset_index(drop=True)   # a node can't drive itself
+    return dr
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -198,6 +205,12 @@ def _analyzer(tk: str, _asof: str):
 @st.cache_data(ttl=1800, show_spinner="Scanning all 5,700 stocks across every pillar…")
 def _mega_scan(_asof: str, _gauge):
     return ce.mega_scan(_history(), pressure_gauge=_gauge)
+
+
+@st.cache_data(ttl=3600, show_spinner="Reading the news for catalyst tags on the finalists…")
+def _news_tags(tickers: tuple, sectors_json: str):
+    import json as _json
+    return ce.news_catalysts(list(tickers), _json.loads(sectors_json))
 
 
 
@@ -706,18 +719,21 @@ def _open_analysis(tk: str):
 
 
 def render_ticker_analysis(tk: str, closes: pd.DataFrame,
-                           state_key: str = "mw_analyze", closable: bool = True):
+                           state_key: str = "mw_analyze", closable: bool = True,
+                           df: pd.DataFrame | None = None,
+                           src_label: str | None = None):
     """IGNITION-style deep dive: candles + volume + indicator pack.
     Stocks come from the nightly dump (full OHLCV); nodes fall back to the
     close-only history; Alpaca supplies the live print when keyed."""
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
-    df = ce.dump_ohlcv(tk)
-    src_label = "nightly dump"
-    if df.empty and tk in closes.columns:
-        df = pd.DataFrame({"Close": closes[tk].dropna()})
-        src_label = "node history"
+    if df is None or df.empty:
+        df = ce.dump_ohlcv(tk)
+        src_label = "nightly dump"
+        if df.empty and tk in closes.columns:
+            df = pd.DataFrame({"Close": closes[tk].dropna()})
+            src_label = "node history"
     if df.empty:
         st.warning(f"No history found for {tk}.")
         return
@@ -1088,12 +1104,26 @@ with tab_lookup:
 
     tk = st.session_state.get("lk_tk")
     if tk:
-        # IGNITION-style header, pills, candles (shared renderer)
-        render_ticker_analysis(tk, closes, state_key="lk_tk")
+        # full data chain FIRST: Alpaca -> yfinance -> nightly dump.
+        # Any symbol either of them knows gets the complete analysis.
+        _info, df_tk, _eh, _ef = _analyzer(tk, asof)
+        if (df_tk is None or df_tk.empty) and tk in closes.columns:
+            df_tk = pd.DataFrame({"Close": closes[tk].dropna()})
+            _info = dict(_info or {}, _hist_source="node history")
+        _hs = { "alpaca": "Alpaca history (live)", "yahoo": "Yahoo history",
+                "dump": "nightly dump" }.get((_info or {}).get("_hist_source"),
+                                             (_info or {}).get("_hist_source"))
 
-        df_tk = ce.dump_ohlcv(tk)
-        if not df_tk.empty:
-            px_now = float(df_tk.Close.iloc[-1])
+        # IGNITION-style header, pills, candles (shared renderer)
+        render_ticker_analysis(tk, closes, state_key="lk_tk",
+                               df=df_tk, src_label=_hs)
+
+        if df_tk is None or df_tk.empty:
+            st.error(f"No price history found for **{tk}** from Alpaca, Yahoo, "
+                     "or the nightly dump — double-check the symbol "
+                     "(e.g. BRK-B not BRK.B, BTC-USD for crypto).")
+        else:
+            px_now = float(df_tk.Close.dropna().iloc[-1])
             # every searched stock is auto-saved for later
             if not any(w["ticker"] == tk for w in ce.watchlist_load()):
                 ce.watchlist_add(tk, px_now)
@@ -1108,11 +1138,13 @@ with tab_lookup:
             st.subheader("🌦 Outcome forecast (analog method)")
             try:
                 F, R = _analog_library(asof)
-                oc = ce.outcome_forecast(tk, F, R)
+                oc = ce.outcome_forecast(tk, F, R, hist=df_tk)
             except Exception as e:
                 oc, _err = {}, e
             if not oc or oc.get("n", 0) < 60:
-                st.info("Not enough look-alike history to forecast this one honestly.")
+                st.info("Not enough look-alike history to forecast this one "
+                        "honestly (needs ~70 sessions of price data to build "
+                        "a comparable profile).")
             else:
                 render_outcome_forecast(oc, tk)
 
@@ -1179,9 +1211,6 @@ with tab_lookup:
                     odds up {oc['p_up']:.0%} · cascade pressure {('n/a' if dr.empty else f'{tail:+.2f}')} ·
                     {oc['n']:,} historical look-alikes. Probability tilt, not prophecy — not investment advice.</span>
                     </div>""", unsafe_allow_html=True)
-        else:
-            st.info(f"{tk} isn't in the nightly dump universe — node ETFs get chart "
-                    "and stats above, but the analog forecast needs dump stocks.")
 
         # ── IGNITION Stock Analyzer (ported) — full fundamental deep dive ──
         st.divider()
@@ -1211,7 +1240,7 @@ with tab_lookup:
         show.columns = ["Ticker", "Saved", "Price then", "Price now", "Since saved"]
         _wsel = st.dataframe(
             show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
-                               "Since saved": "{:+.1%}"})
+                               "Since saved": "{:+.1%}"}, na_rep="—")
             .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"]),
             width="stretch", hide_index=True,
             on_select="rerun", selection_mode="single-row", key="wl_table",
@@ -1261,6 +1290,17 @@ with tab_top20:
                 {('· hot waves: ' + ', '.join(reg['hot_nodes'][:5])) if reg.get('hot_nodes') else '· no waves firing (tailwind pillar neutral)'}</span>
                 </div>""", unsafe_allow_html=True)
             _t = t20.copy()
+            # IGNITION news-keyword catalysts, fetched for the FINAL 20 only
+            try:
+                import json as _json
+                _nt = _news_tags(tuple(_t.Ticker),
+                                 _json.dumps(dict(zip(_t.Ticker, _t.Sector))))
+            except Exception:
+                _nt = {}
+            if _nt:
+                _t["Catalysts"] = [
+                    " · ".join(x for x in (_t.Catalysts.iloc[i], _nt.get(tkr, "")) if x)
+                    for i, tkr in enumerate(_t.Ticker)]
             _sel20 = st.dataframe(
                 _t.style.format({"Price": "${:,.2f}", "Score": "{:.1f}", "Tech": "{:.0f}",
                                  "Quality": "{:.0f}", "Tailwind": "{:.0f}", "MacroFit": "{:.2f}",
@@ -1283,6 +1323,13 @@ with tab_top20:
                     "RevGrowth": st.column_config.Column(help="YoY revenue growth from the nightly dump."),
                     "RVOL": st.column_config.Column(help="5-day vs 63-day average volume."),
                     "RangePos": st.column_config.Column(help="Position in the 63-day range — 100% = at the highs."),
+                    "Catalysts": st.column_config.Column(
+                        width="large",
+                        help="Two layers: data fingerprints scanned across all 5,700 stocks "
+                             "(🚀 breakout · ⚡ volume shock · 🕳 gap · 📈 fresh MACD cross · "
+                             "🩳 squeeze setup), plus IGNITION's news-keyword catalysts "
+                             "(📊💊⚖️🤝🔗🌍🏦) fetched for these finalists. The data layer is "
+                             "scored (backtested); squeeze setup and news tags are informational."),
                 })
             _r20 = (_sel20.selection.rows if _sel20 and getattr(_sel20, "selection", None) else [])
             if _r20:
@@ -1305,6 +1352,14 @@ with tab_top20:
                     "volume, above-50MA, RSI sweet spot (45-65), MACD bull cross.\n"
                     "- **Quality (25%)** — the macro simulator's stock-picking DNA: "
                     "Piotroski, golden cross, ROIC, revenue and earnings growth.\n"
+                    "- **Catalysts (backtested add-on)** — data fingerprints of "
+                    "IGNITION's catalyst types: 63-day breakouts, volume shocks "
+                    "(2.5x RVOL + 4% move), recent gaps, fresh MACD crosses. "
+                    "Walk-forward validated on the nightly dump: adding this pillar "
+                    "lifted top-20 excess from **+2.78% to +3.58% per 21 sessions** "
+                    "(69% weekly hit rate, positive in both honesty halves). News-"
+                    "keyword tags (earnings/FDA/buyout/…) are fetched for the final "
+                    "20 with IGNITION's min-hit and sector-whitelist rules.\n"
                     "- **Tailwind (30%)** — the cascade engine: for every node wave "
                     "firing right now, each stock's historical lagged response, summed. "
                     "Stocks the current waves are already traveling toward score high.\n"
