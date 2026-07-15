@@ -586,6 +586,121 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
             az_section("Nightly Scan Signals")
             mtable(scan_rows)
 
+
+
+
+
+def render_outcome_forecast(oc, tk):
+    """Think-tank forecast display: weather-dial headline + landing-zone bar,
+    with the 100-dots waffle and full histogram behind an expander."""
+    import math
+    med, pu = oc["med21"], oc["p_up"]
+    n = oc["n"]
+    mcol = GREEN if med > 0.005 else (RED if med < -0.005 else DIM)
+    acol = GREEN if pu >= 0.55 else (RED if pu < 0.45 else "#d0b040")
+    frac = min(max(pu, 0.02), 0.98)
+    ang = math.pi * (1 - frac)
+    ax, ay = 80 + 65 * math.cos(ang), 85 - 65 * math.sin(ang)
+    p_lift = oc["p_pop"] / max(oc["p_pop_base"], 1e-9)
+    d_lift = oc["p_drop"] / max(oc["p_drop_base"], 1e-9)
+    p_lc = GREEN if p_lift >= 1.15 else (RED if p_lift <= 0.85 else DIM)
+    d_lc = RED if d_lift >= 1.15 else (GREEN if d_lift <= 0.85 else DIM)
+
+    st.markdown(f"""<div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;
+      background:#0c1829;border:1px solid #1d2b40;border-radius:10px;padding:14px 18px;">
+      <div title="Share of the {n:,} analog cases that were positive 21 sessions later. 50% = coin flip.">
+        <svg viewBox="0 0 160 95" style="width:165px;">
+          <path d="M15,85 A65,65 0 0 1 145,85" fill="none" stroke="#12233c" stroke-width="14" stroke-linecap="round"/>
+          <path d="M15,85 A65,65 0 0 1 {ax:.1f},{ay:.1f}" fill="none" stroke="{acol}" stroke-width="14" stroke-linecap="round"/>
+          <text x="80" y="68" text-anchor="middle" font-size="24" font-weight="700" fill="#F6F4E9">{pu:.0%}</text>
+          <text x="80" y="88" text-anchor="middle" font-size="10" fill="{DIM}">odds of gain - 21 sessions</text>
+        </svg>
+      </div>
+      <div style="flex:1;min-width:220px;">
+        <div style="font-size:13px;color:{DIM};">typical (median) analog outcome</div>
+        <div style="font-size:34px;font-weight:800;color:{mcol};line-height:1.15;"
+             title="The median across all {n:,} analog cases: half did better, half worse. The most honest point estimate.">{med:+.1%}</div>
+        <div style="font-size:12px;color:{DIM};margin-bottom:10px;">across {n:,} look-alike cases</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <span title="Share of analogs that gained 15%+ in 21 sessions vs the all-stock base rate. Lift above 1.3x is a real tilt."
+                style="background:#0d2215;border:1px solid #1e6b35;color:#4dd880;border-radius:6px;font-size:12px;padding:3px 10px;">
+            🚀 pop +15%: {oc['p_pop']:.0%} <span style="color:{p_lc};">({p_lift:.1f}x base)</span></span>
+          <span title="Share of analogs that LOST 15%+, the other tail. Explosive setups usually carry both."
+                style="background:#220d0d;border:1px solid #a03535;color:#ff6b6b;border-radius:6px;font-size:12px;padding:3px 10px;">
+            💥 crash −15%: {oc['p_drop']:.0%} <span style="color:{d_lc};">({d_lift:.1f}x base)</span></span>
+        </div>
+      </div>
+    </div>""", unsafe_allow_html=True)
+
+    q10, q90 = oc["q10"], oc["q90"]
+    span = (q90 - q10) or 1e-9
+    pos = lambda v: min(max((v - q10) / span, 0.0), 1.0) * 100
+    z, m = pos(0.0), pos(med)
+    zl = min(max(z, 6), 94)
+    ml = min(max(m, 8), 92)
+    if q10 >= 0:
+        segs = "<div style='position:absolute;top:26px;left:0;width:100%;height:12px;background:#1d5a41;border-radius:6px;'></div>"
+    elif q90 <= 0:
+        segs = "<div style='position:absolute;top:26px;left:0;width:100%;height:12px;background:#5a2626;border-radius:6px;'></div>"
+    else:
+        segs = (f"<div style='position:absolute;top:26px;left:0;width:{z:.1f}%;height:12px;background:#5a2626;border-radius:6px 0 0 6px;'></div>"
+                f"<div style='position:absolute;top:26px;left:{z:.1f}%;width:{100-z:.1f}%;height:12px;background:#1d5a41;border-radius:0 6px 6px 0;'></div>"
+                f"<div style='position:absolute;top:20px;left:{z:.1f}%;width:2px;height:24px;background:#F6F4E9;'></div>"
+                f"<div style='position:absolute;top:46px;left:{zl:.1f}%;transform:translateX(-50%);font-size:11px;color:{DIM};margin-top:4px;'>0%</div>")
+    st.markdown(f"""<div style="margin-top:10px;">
+      <div style="font-size:13px;color:{DIM};margin-bottom:2px;"
+           title="The 10th-to-90th percentile of analog outcomes: 8 of 10 look-alikes finished inside this range.">
+        Landing zone — where 80% of the {n:,} look-alikes finished:</div>
+      <div style="position:relative;height:76px;margin:0 10px;">
+        {segs}
+        <div style="position:absolute;top:14px;left:{m:.1f}%;width:3px;height:36px;background:{mcol};border-radius:2px;"></div>
+        <div style="position:absolute;top:0;left:{ml:.1f}%;transform:translateX(-50%);font-size:12px;font-weight:700;color:{mcol};white-space:nowrap;">median {med:+.1%}</div>
+        <div style="position:absolute;top:46px;left:6%;transform:translateX(-50%);font-size:11px;color:#ff6b6b;margin-top:4px;text-align:center;">{q10:+.0%}<br><span style="color:{DIM};">worst 10%</span></div>
+        <div style="position:absolute;top:46px;left:94%;transform:translateX(-50%);font-size:11px;color:#4dd880;margin-top:4px;text-align:center;">{q90:+.0%}<br><span style="color:{DIM};">best 10%</span></div>
+      </div>
+    </div>""", unsafe_allow_html=True)
+
+    st.caption(f"Matched on: momentum pctile {oc['feats']['mom_pct']:.0%} · "
+               f"range position {oc['feats']['rangepos']:.0%} · "
+               f"RVOL {oc['feats']['rvol']:.1f}x · "
+               f"{'above' if oc['feats']['above_ma50'] else 'below'} 50d MA"
+               + (f" · match widened {oc['widen']:.1f}×" if oc.get('widen', 1) > 1 else ""))
+
+    with st.expander("🔬 More views — 100 look-alikes & full distribution"):
+        n_pop = int(round(oc["p_pop"] * 100))
+        n_up = max(int(round(pu * 100)) - n_pop, 0)
+        n_crash = int(round(oc["p_drop"] * 100))
+        n_dn = max(100 - n_pop - n_up - n_crash, 0)
+        n_crash = 100 - n_pop - n_up - n_dn
+        dots = []
+        for cnt, col in ((n_pop, "#4dd880"), (n_up, "#1d5a41"),
+                         (n_dn, "#5a2626"), (n_crash, "#ff4444")):
+            dots += [f"<span style='width:14px;height:14px;border-radius:50%;background:{col};'></span>"] * cnt
+        w1, w2 = st.columns([1, 1.2])
+        w1.markdown("<div style='display:grid;grid-template-columns:repeat(10,14px);gap:4px;'>"
+                    + "".join(dots) + "</div>", unsafe_allow_html=True)
+        w2.markdown(f"""<div style="font-size:14px;line-height:2;">
+          <div><span style="color:#4dd880;font-weight:700;">● {n_pop}</span> <span style="color:{DIM};">exploded +15% or more</span></div>
+          <div><span style="color:{GREEN};font-weight:700;">● {n_up}</span> <span style="color:{DIM};">gained</span></div>
+          <div><span style="color:{RED};font-weight:700;">● {n_dn}</span> <span style="color:{DIM};">lost</span></div>
+          <div><span style="color:#ff4444;font-weight:700;">● {n_crash}</span> <span style="color:{DIM};">crashed −15% or worse</span></div>
+          <div style="font-size:12px;color:{DIM};border-top:1px solid #1d2b40;padding-top:6px;margin-top:4px;">
+            100 dots summarising {n:,} real historical cases</div></div>""",
+                    unsafe_allow_html=True)
+        import plotly.graph_objects as go
+        figh = go.Figure(go.Histogram(x=oc["dist"] * 100, nbinsx=60,
+                                      marker_color=ACCENT, opacity=0.85))
+        figh.add_vline(x=0, line_color="#F6F4E9", line_width=1)
+        figh.add_vline(x=med * 100, line_color=GREEN, line_dash="dash",
+                       annotation_text="median", annotation_font_color=GREEN)
+        figh.update_layout(height=220, paper_bgcolor="#081325",
+                           plot_bgcolor="#0c1829", font_color="#F6F4E9",
+                           margin=dict(l=10, r=10, t=10, b=30),
+                           xaxis_title="return over next 21 sessions (%)",
+                           showlegend=False)
+        st.plotly_chart(figh, width="stretch", key=f"lk_hist_{tk}")
+
+
 def _open_analysis(tk: str):
     st.session_state["mw_analyze"] = tk
 
@@ -678,11 +793,13 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         fig.add_trace(go.Scatter(x=d.index, y=d.Close, mode="lines",
                                  line=dict(color=ACCENT, width=2), name=tk),
                       row=1, col=1)
-    c = d["Close"]
-    fig.add_trace(go.Scatter(x=d.index, y=c.rolling(20).mean(), name="SMA20",
-                             line=dict(color="#7fb2ff", width=1)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=d.index, y=c.rolling(50).mean(), name="SMA50",
-                             line=dict(color=ACCENT, width=1)), row=1, col=1)
+    c_full = df["Close"]
+    fig.add_trace(go.Scatter(x=d.index, y=c_full.rolling(150).mean().reindex(d.index),
+                             name="SMA150", line=dict(color="#7fb2ff", width=1)),
+                  row=1, col=1)
+    fig.add_trace(go.Scatter(x=d.index, y=c_full.rolling(50).mean().reindex(d.index),
+                             name="SMA50", line=dict(color=ACCENT, width=1)),
+                  row=1, col=1)
     if has_vol:
         vcol = np.where(d.Close.diff().fillna(0) >= 0, GREEN, RED)
         fig.add_trace(go.Bar(x=d.index, y=d.Volume, marker_color=vcol,
@@ -997,38 +1114,7 @@ with tab_lookup:
             if not oc or oc.get("n", 0) < 60:
                 st.info("Not enough look-alike history to forecast this one honestly.")
             else:
-                lift = oc["p_pop"] / max(oc["p_pop_base"], 1e-9)
-                c = st.columns(4)
-                c[0].metric("Median next 21d", f"{oc['med21']:+.1%}",
-                            help="The median outcome across all analog cases — half did better, half worse. The single most honest point estimate.")
-                c[1].metric("Odds of gain", f"{oc['p_up']:.0%}",
-                            help="Share of analog cases that were positive 21 sessions later. 50% = coin flip.")
-                c[2].metric("Explosion odds (+15%)", f"{oc['p_pop']:.0%}",
-                            f"{lift:.2f}x base rate",
-                            help="Share of analogs that gained 15%+ in 21 sessions, vs the all-stock base rate. Lift >1.3x is a real tilt.")
-                c[3].metric("Crash odds (−15%)", f"{oc['p_drop']:.0%}",
-                            f"{oc['p_drop'] / max(oc['p_drop_base'], 1e-9):.2f}x base",
-                            delta_color="inverse",
-                            help="Share of analogs that LOST 15%+ — the other tail. Explosive setups usually carry both tails.")
-                st.caption(f"Based on **{oc['n']:,} analog cases** — stocks that matched "
-                           f"today's profile (momentum pctile {oc['feats']['mom_pct']:.0%}, "
-                           f"range position {oc['feats']['rangepos']:.0%}, "
-                           f"RVOL {oc['feats']['rvol']:.1f}x, "
-                           f"{'above' if oc['feats']['above_ma50'] else 'below'} 50d MA)"
-                           + (f" · match widened {oc['widen']:.1f}×" if oc.get('widen', 1) > 1 else "")
-                           + f" · 80% of analogs landed between {oc['q10']:+.0%} and {oc['q90']:+.0%}.")
-                import plotly.graph_objects as go
-                figh = go.Figure(go.Histogram(x=oc["dist"] * 100, nbinsx=60,
-                                              marker_color=ACCENT, opacity=0.85))
-                figh.add_vline(x=0, line_color="#F6F4E9", line_width=1)
-                figh.add_vline(x=oc["med21"] * 100, line_color=GREEN, line_dash="dash",
-                               annotation_text="median", annotation_font_color=GREEN)
-                figh.update_layout(height=230, paper_bgcolor="#081325",
-                                   plot_bgcolor="#0c1829", font_color="#F6F4E9",
-                                   margin=dict(l=10, r=10, t=10, b=30),
-                                   xaxis_title="return over next 21 sessions (%)",
-                                   showlegend=False)
-                st.plotly_chart(figh, width="stretch", key=f"lk_hist_{tk}")
+                render_outcome_forecast(oc, tk)
 
                 # ── cascade context ─────────────────────────────────
                 st.subheader("🌊 Cascade context — what leads this stock")
