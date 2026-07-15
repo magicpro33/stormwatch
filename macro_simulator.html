@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Macro Market Simulator v4 — Brad's Playbook</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+/* Google Fonts loaded async — system fonts used as immediate fallback */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+:root{--bg:#080c14;--sur:#0d1420;--sur2:#111b2e;--bdr:#1e2d45;--ac:#00e5ff;--ac2:#ff6b35;--ac3:#39ff14;--gold:#ffd700;--red:#ff3b5c;--pur:#a855f7;--tx:#e8edf5;--mu:#6b7fa3;--cd:#0f1928}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--tx);font-family:'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,229,255,.028) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,.028) 1px,transparent 1px);background-size:44px 44px;pointer-events:none;z-index:0}
+.wrap{position:relative;z-index:1;max-width:1420px;margin:0 auto;padding:0 20px}
+header{padding:28px 0 20px;border-bottom:1px solid var(--bdr);margin-bottom:22px}
+.htop{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.eye{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ac);letter-spacing:3px;text-transform:uppercase;margin-bottom:3px}
+h1{font-size:clamp(18px,3.5vw,32px);font-weight:700;background:linear-gradient(135deg,#fff 0%,var(--ac) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.sub{color:var(--mu);font-size:11px;margin-top:3px}
+.sbadge{display:flex;align-items:center;gap:8px;background:var(--sur2);border:1px solid var(--bdr);border-radius:100px;padding:7px 14px;font-size:11px;font-weight:500}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--ac3);animation:pu 2s infinite}
+@keyframes pu{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.3)}}
+.tabs{display:flex;gap:7px;margin-bottom:20px;flex-wrap:wrap}
+.tab{padding:8px 16px;border-radius:8px;border:1px solid var(--bdr);background:var(--sur);color:var(--mu);cursor:pointer;font-size:12px;font-weight:500;transition:all .2s;font-family:'Space Grotesk',sans-serif}
+.tab.on{background:var(--ac);color:#000;border-color:var(--ac);font-weight:700}
+.tab:hover:not(.on){border-color:var(--ac);color:var(--ac)}
+.sliders{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:11px;margin-bottom:22px}
+.scard{background:var(--cd);border:1px solid var(--bdr);border-radius:12px;padding:12px;transition:all .25s}
+.scard:hover{border-color:var(--ac)}
+#spread-card.steep{border-color:rgba(57,255,20,.45);background:rgba(57,255,20,.03)}
+#spread-card.flat{border-color:rgba(255,215,0,.45)}
+#spread-card.inv{border-color:rgba(255,59,92,.45);background:rgba(255,59,92,.03)}
+.slbl{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.sval{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--ac);margin-bottom:6px}
+input[type=range]{width:100%;-webkit-appearance:none;height:4px;border-radius:2px;background:var(--bdr);outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--ac);cursor:pointer;box-shadow:0 0 8px var(--ac)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:15px}
+@media(max-width:880px){.g2{grid-template-columns:1fr}}
+.panel{background:var(--cd);border:1px solid var(--bdr);border-radius:14px;padding:16px}
+.fp{background:var(--cd);border:1px solid var(--bdr);border-radius:14px;padding:16px;margin-bottom:15px}
+.pt{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mu);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.pt::after{content:'';flex:1;height:1px;background:var(--bdr)}
+.cw{position:relative;height:240px}
+.sgg{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:7px}
+@media(max-width:680px){.sgg{grid-template-columns:repeat(3,1fr)}}
+.sgc{background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:10px 6px;text-align:center;transition:all .3s}
+.sgc.bu{border-color:var(--ac3);background:rgba(57,255,20,.05)}
+.sgc.be{border-color:var(--red);background:rgba(255,59,92,.05)}
+.sgc.ne{border-color:var(--gold);background:rgba(255,215,0,.05)}
+.si{font-size:20px;margin-bottom:4px}
+.sn{font-size:9px;color:var(--mu);margin-bottom:2px}
+.ss{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700}
+.narr{background:var(--sur2);border-left:3px solid var(--ac);border-radius:0 8px 8px 0;padding:13px;font-size:12px;line-height:1.7;color:var(--tx);margin-bottom:18px}
+.narr strong{color:var(--ac)}
+.oil-alert{background:rgba(255,107,53,.1);border:1px solid rgba(255,107,53,.4);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;display:none;line-height:1.5}
+.oil-alert.show{display:block}
+.oil-alert strong{color:var(--ac2)}
+.ob{margin-bottom:9px}
+.obl{display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px}
+.bt{height:7px;background:var(--bdr);border-radius:4px;overflow:hidden}
+.bf{height:100%;border-radius:4px;transition:width .5s ease}
+.bf.p{background:linear-gradient(90deg,#39ff14,#00e5ff)}
+.bf.n{background:linear-gradient(90deg,#ff3b5c,#ff6b35)}
+.sh{font-size:11px;font-weight:700;color:var(--ac);margin:18px 0 9px;display:flex;align-items:center;gap:7px;text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
+.sg{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:8px}
+.sc{background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:10px 12px;transition:all .2s;cursor:pointer}
+.sc{cursor:pointer}.sc:hover{border-color:var(--ac);transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,229,255,.1)}
+.st{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:13px;margin-bottom:1px}
+.st a{color:inherit;text-decoration:none}
+.st a:hover{text-decoration:underline;text-underline-offset:3px}
+.snam{font-size:10px;color:var(--mu);margin-bottom:5px}
+.sp{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700}
+.sp.u{color:var(--ac3)}.sp.d{color:var(--red)}.sp.nt{color:var(--gold)}
+.sm{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.mc{font-size:9px;font-family:'JetBrains Mono',monospace;background:var(--bdr);color:var(--mu);padding:2px 5px;border-radius:3px}
+.mc.hi{color:var(--ac3)}
+.sr{font-size:10px;color:var(--mu);margin-top:3px;line-height:1.4}
+.aec{background:rgba(57,255,20,.04);border:1px solid rgba(57,255,20,.18);border-radius:10px;padding:10px 12px;cursor:pointer;transition:all .2s}
+.aec:hover{border-color:var(--ac3);transform:translateY(-2px)}
+.avc{background:rgba(255,59,92,.06);border:1px solid rgba(255,59,92,.22);border-radius:10px;padding:10px 12px;cursor:pointer;transition:all .2s}
+.avc:hover{border-color:var(--red)}
+.dsec{margin-bottom:20px}
+.dt{font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--red);margin-bottom:7px;font-weight:700;text-transform:uppercase;letter-spacing:1px}
+.dd{font-size:11px;color:var(--mu);margin-bottom:9px;line-height:1.5;background:rgba(255,59,92,.04);padding:9px 12px;border-radius:7px;border-left:2px solid rgba(255,59,92,.3)}
+.agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(265px,1fr));gap:11px;margin-bottom:18px}
+.acard{background:var(--sur2);border:1px solid var(--bdr);border-radius:12px;padding:13px}
+.albl{font-size:10px;font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}
+.atit{font-weight:700;margin-bottom:5px;font-size:13px}
+.abod{font-size:11px;color:var(--mu);line-height:1.6}
+.atks{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+.tp{background:var(--bdr);color:var(--ac);font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px}
+.tl{display:flex;overflow-x:auto;padding-bottom:6px;margin-bottom:18px}
+.tli{flex:1;min-width:100px;text-align:center;position:relative;padding:0 5px}
+.tli::before{content:'';position:absolute;top:11px;left:50%;right:-50%;height:2px;background:var(--bdr);z-index:0}
+.tli:last-child::before{display:none}
+.tld{width:23px;height:23px;border-radius:50%;background:var(--sur2);border:2px solid var(--bdr);margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;position:relative;z-index:1;transition:all .3s}
+.tld.on{background:var(--ac);border-color:var(--ac);color:#000;box-shadow:0 0 10px var(--ac)}
+.tll{font-size:9px;color:var(--mu);margin-bottom:2px}
+.tle{font-size:8px;font-family:'JetBrains Mono',monospace;color:var(--tx)}
+.mbar{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
+.mch{padding:4px 11px;border-radius:100px;font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:500;border:1px solid;transition:all .3s}
+.rbtn{background:transparent;border:1px solid var(--bdr);color:var(--mu);padding:3px 9px;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer;transition:all .2s}
+.rbtn:hover{border-color:var(--ac);color:var(--ac)}
+/* ── HELP ICON & TOOLTIP ── */
+.hlp{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:rgba(107,127,163,.2);border:1px solid var(--bdr);color:var(--mu);font-size:9px;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s;margin-left:4px;flex-shrink:0;line-height:1;font-weight:700}
+.hlp:hover{background:rgba(0,229,255,.15);border-color:var(--ac);color:var(--ac)}
+.hlp-wrap{position:relative;display:inline-flex;align-items:center}
+.hlp-tip{display:none;position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
+  background:#0a1628;border:1px solid var(--ac);border-radius:10px;padding:11px 14px;
+  width:260px;font-size:11px;line-height:1.6;color:var(--tx);z-index:50;
+  box-shadow:0 8px 32px rgba(0,0,0,.6);font-family:'Space Grotesk',sans-serif;font-weight:400;pointer-events:none}
+.hlp-tip::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
+  border:6px solid transparent;border-top-color:var(--ac)}
+.hlp-tip strong{color:var(--ac);display:block;margin-bottom:4px;font-size:12px}
+.hlp-tip .tip-why{color:var(--mu);font-size:10px;margin-top:5px;padding-top:5px;border-top:1px solid var(--bdr)}
+.hlp-wrap:hover .hlp-tip,.hlp-wrap:focus-within .hlp-tip{display:block}
+footer{border-top:1px solid var(--bdr);padding:16px 0;margin-top:22px;color:var(--mu);font-size:11px;text-align:center;line-height:1.6}
+footer a{color:inherit;text-decoration:none}
+footer a:hover{color:var(--ac)}
+.sc{cursor:pointer}
+.sc.expanded,.aec.expanded,.avc.expanded{
+  grid-column:1/-1;background:var(--sur);
+  border-color:var(--ac);box-shadow:0 0 0 1px var(--ac),0 8px 40px rgba(0,229,255,.15);
+  cursor:default;transform:none;
+}
+.exp-inner{display:none}
+.sc.expanded .exp-inner,.aec.expanded .exp-inner,.avc.expanded .exp-inner{
+  display:block;margin-top:12px;border-top:1px solid var(--bdr);padding-top:12px}
+.exp-close{float:right;background:var(--bdr);border:none;color:var(--tx);
+  width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:14px;
+  line-height:22px;text-align:center;margin:-2px -2px 8px 10px}
+.exp-close:hover{background:var(--red);color:#fff}
+.exp-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:7px;margin-bottom:11px}
+.exp-stat{background:var(--sur2);border-radius:7px;padding:9px 10px}
+.exp-slbl{font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--mu);
+  text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.exp-sval{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700}
+.exp-all-ret{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:11px}
+.exp-ret{background:var(--sur2);border-radius:7px;padding:8px;text-align:center}
+.exp-ret-lbl{font-size:9px;color:var(--mu);font-family:'JetBrains Mono',monospace;
+  margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px}
+.exp-ret-val{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700}
+.exp-desc{font-size:11px;color:var(--mu);line-height:1.7;margin-bottom:11px;
+  background:var(--sur2);border-radius:7px;padding:10px 12px;border-left:2px solid var(--ac)}
+.exp-links{display:flex;gap:7px;flex-wrap:wrap}
+.exp-lnk{padding:5px 14px;border-radius:6px;font-size:10px;font-family:'JetBrains Mono',monospace;
+  font-weight:700;text-decoration:none;transition:all .2s;border:1px solid;display:inline-block}
+.exp-lnk.yf{color:var(--ac);border-color:var(--ac);background:rgba(0,229,255,.08)}
+.exp-lnk.yf:hover{background:rgba(0,229,255,.2)}
+.exp-lnk.tv{color:var(--gold);border-color:var(--gold);background:rgba(255,215,0,.08)}
+.exp-lnk.tv:hover{background:rgba(255,215,0,.2)}
+.exp-lnk.fv{color:var(--ac3);border-color:var(--ac3);background:rgba(57,255,20,.08)}
+.exp-lnk.fv:hover{background:rgba(57,255,20,.2)}
+.exp-live-row{background:linear-gradient(135deg,rgba(0,229,255,.08),rgba(57,255,20,.04));
+  border:1px solid rgba(0,229,255,.2);border-radius:8px;padding:10px 14px;
+  margin-bottom:10px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.exp-live-price{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:var(--ac)}
+.exp-live-chg{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600}
+.lpx{font-family:'JetBrains Mono',monospace;font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle;display:inline-block}
+.lpx.live{color:var(--ac);background:rgba(0,229,255,.12)}
+.lpx.up{color:var(--ac3);background:rgba(57,255,20,.12)}
+.lpx.dn{color:var(--red);background:rgba(255,59,92,.12)}
+.lpx.flat{color:var(--mu);background:rgba(107,127,163,.12)}
+/* ── LIVE stats inside modal ── */
+.live-row{background:linear-gradient(135deg,rgba(0,229,255,.08),rgba(57,255,20,.04));border:1px solid rgba(0,229,255,.2);border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.live-row .lprice{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:var(--ac)}
+.live-row .lchg{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600}
+.live-row .lsrc{font-size:10px;color:var(--mu);margin-left:auto}
+/* progress bar during load */
+.prog-wrap{width:100%;height:3px;background:var(--bdr);border-radius:2px;overflow:hidden;margin-top:4px}
+.prog-bar{height:100%;background:linear-gradient(90deg,var(--ac),var(--ac3));border-radius:2px;transition:width .3s ease;width:0%}
+</style>
+</head>
+<body>
+<!-- expanded-card: no overlay needed -->
+<div class="wrap">
+<header>
+  <div class="htop">
+    <div>
+      <div class="eye">// Brad's Playbook v6.0 &mdash; Bretton Woods 2.0 &bull; July 2 2026 Recal &bull; 6-Scenario Simulator</div>
+      <h1>Macro Market Simulator</h1>
+      <p class="sub">Warsh Fed &middot; Bretton Woods 2.0 &middot; Strong Dollar &middot; Iran Deal &middot; AI Buildout &middot; July 2026 Calibrated</p>
+    </div>
+    <div class="sbadge"><div class="pulse"></div><span id="live-scen">SCENARIO: BASE CASE</span></div>
+  </div>
+</header>
+<div class="livebar" id="livebar">
+  <div class="ld spin" id="ld"></div>
+  <span class="lb-label">Live Data</span>
+  <div style="flex:1;min-width:160px">
+    <div class="lb-stat" id="lb-stat">Initialising...</div>
+    <div class="prog-wrap"><div class="prog-bar" id="prog-bar"></div></div>
+  </div>
+  <span class="lb-time" id="lb-time"></span>
+  <button class="rfbtn" id="rfbtn" onclick="doRefresh()" disabled>&#8635; REFRESH</button>
+</div>
+
+<div class="tabs">
+  <button class="tab on" onclick="setScen('base',this)">&#128202; Base Case</button>
+  <button class="tab" onclick="setScen('bull',this)">&#128640; Bull: Deal Works</button>
+  <button class="tab" onclick="setScen('bear',this)">&#128293; Bear: Deal Fails</button>
+  <button class="tab" onclick="setScen('qe',this)">&#128176; QE Machine</button>
+  <button class="tab" onclick="setScen('stag',this)">&#128128; Stagflation</button>
+  <button class="tab" onclick="setScen('strong',this)">&#x1F4AA; Strong Dollar</button>
+</div>
+<div class="narr" id="narr"></div>
+<div class="oil-alert" id="oil-alert"><strong>&#9889; HIGH OIL ALERT (WTI $90+):</strong> Alternative Energy section below is now in play. Solar, nuclear, wind &amp; storage names gain strategic tailwind as energy independence becomes a national priority. High short interest in solar = potential squeeze.</div>
+<div class="sliders">
+  <div class="scard"><div class="slbl">WTI Oil Price <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>WTI Crude Oil Price ($/barrel)</strong>West Texas Intermediate — the US benchmark for crude oil. Directly drives CPI (gas prices), energy sector earnings, tanker rates, and the Iran deal narrative. Above $90 activates the Alt Energy section.<div class="tip-why">Why it matters: Oil is the single biggest swing variable. A $30 move in oil changes CPI by ~1.5%, alters Fed policy, and flips sector leadership from tech to energy.</div></div></span><button class="rbtn" onclick="rv('sl-oil',68)">RST</button></div><div class="sval" id="v-oil">$68</div><input type="range" min="40" max="140" value="74" id="sl-oil" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$40</span><span>$140</span></div></div>
+  <div class="scard"><div class="slbl">Fed Funds Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Fed Funds Rate (%)</strong>The interest rate the Federal Reserve charges banks for overnight lending. Set by the FOMC. Under Warsh, this is tied to new real-time PCE data — cuts require inflation to fall first.<div class="tip-why">Why it matters: The single most powerful lever in all of finance. Every 25bps cut adds ~2-3% to S&P forward P/E multiples and unlocks bank carry trades via SLR deregulation.</div></div></span><button class="rbtn" onclick="rv('sl-fed',363)">RST</button></div><div class="sval" id="v-fed">5.25%</div><input type="range" min="150" max="700" value="525" id="sl-fed" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.5%</span><span>7.0%</span></div></div>
+  <div class="scard"><div class="slbl">Iran Deal % <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Iran Deal Status (%)</strong>Probability the Iran nuclear deal holds and the Strait of Hormuz stays open. 0% = full closure, supply shock. 100% = deal signed, Iranian oil floods market, WTI crashes to $55-60.<div class="tip-why">Why it matters: ~20% of global oil supply transits Hormuz. A closure would spike oil $30-40/barrel within weeks, re-accelerating inflation and trapping the Fed.</div></div></span><button class="rbtn" onclick="rv('sl-iran',50)">RST</button></div><div class="sval" id="v-iran">50%</div><input type="range" min="0" max="100" value="50" id="sl-iran" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>Collapsed</span><span>Signed</span></div></div>
+  <div class="scard"><div class="slbl">CPI Inflation <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>CPI Inflation (% YoY)</strong>Consumer Price Index — year-over-year price change for a basket of goods. The Fed's stated target is 2.0%. Current: 4.2% (May 2026). Warsh uses a new trimmed-mean PCE variant.<div class="tip-why">Why it matters: Inflation above 3.5% keeps the Fed on hold. Below 2.5% unlocks cuts. It's the gatekeeper between the current environment and the QE machine scenario.</div></div></span><button class="rbtn" onclick="rv('sl-cpi',42)">RST</button></div><div class="sval" id="v-cpi">4.2%</div><input type="range" min="10" max="120" value="42" id="sl-cpi" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>12%</span></div></div>
+  <div class="scard"><div class="slbl">10-Year Yield <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>10-Year Treasury Yield (%)</strong>The yield on 10-year US government bonds — the world's risk-free benchmark. Drives mortgage rates, corporate bond rates, and REIT valuations. Current: ~4.50%.<div class="tip-why">Why it matters: The 10Y is the long anchor of the yield curve. Rising = bond market revolt (inflation fear). Falling = QE/growth optimism. Directly sets the 2Y-10Y spread.</div></div></span><button class="rbtn" onclick="rv('sl-yield',450)">RST</button></div><div class="sval" id="v-yield">4.50%</div><input type="range" min="200" max="700" value="450" id="sl-yield" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>2.0%</span><span>7.0%</span></div></div>
+  <div class="scard" id="spread-card"><div class="slbl">2-Year Yield <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>2-Year Treasury Yield (%)</strong>The yield on 2-year US Treasuries — the bond market's real-time prediction of where Fed Funds will be in 2 years. More honest than the Fed's own dot plot. Current: ~4.24%.<div class="tip-why">Why it matters: The 2Y-10Y spread (shown below) is the #1 recession predictor. When 2Y > 10Y (inverted), banks lose money on lending and credit tightens. Every recession since 1955 was preceded by inversion.</div></div></span><button class="rbtn" onclick="rv('sl-y2',424)">RST</button></div><div class="sval" id="v-y2">4.24%</div><input type="range" min="100" max="700" value="424" id="sl-y2" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>7.0%</span></div><div id="spread-display" style="margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:10px"></div></div>
+  <div class="scard"><div class="slbl">DXY Dollar Index <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>US Dollar Index (DXY)</strong>Measures the USD against a basket of 6 currencies (EUR, JPY, GBP, CAD, SEK, CHF). A weaker dollar is Groman Signal #1 — it means liquidity is expanding globally.<div class="tip-why">Why it matters: DXY below 100 is bullish for gold, commodities, and emerging markets. QE scenarios push DXY to 88-92. Dollar strength (DXY 105+) crushes everything denominated in USD abroad.</div></div></span><button class="rbtn" onclick="rv('sl-dxy',1013)">RST</button></div><div class="sval" id="v-dxy">101.3</div><input type="range" min="800" max="1200" value="1025" id="sl-dxy" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>80</span><span>120</span></div></div>
+  <div class="scard"><div class="slbl">QE Probability <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>QE Probability (%)</strong>Probability the Fed resumes Quantitative Easing — buying bonds to expand the money supply. Currently indirect via SLR deregulation: banks buy treasuries with leverage, creating 'covert QE.'<div class="tip-why">Why it matters: Every major asset rally since 2008 has been powered by QE. When this flips above 80%, hard assets (gold, BTC, commodities) historically rip 30-90% within 12 months.</div></div></span><button class="rbtn" onclick="rv('sl-qe',45)">RST</button></div><div class="sval" id="v-qe">45%</div><input type="range" min="0" max="100" value="45" id="sl-qe" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0%</span><span>100%</span></div></div>
+  <div class="scard"><div class="slbl">SLR Deregulation <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>SLR Deregulation (%)</strong>Supplementary Leverage Ratio — a rule limiting how much banks can lever up. Deregulating it lets banks exclude US Treasuries from their leverage calculations, effectively letting JPM/GS/BAC buy unlimited bonds.<div class="tip-why">Why it matters: This is the mechanism of Warsh's 'covert QE.' Banks borrow at the 2Y rate, buy 10Y bonds, pocket the spread. At 95% deregulation + QE, banks could absorb $800B+ in new Treasury supply.</div></div></span><button class="rbtn" onclick="rv('sl-slr',40)">RST</button></div><div class="sval" id="v-slr">40%</div><input type="range" min="0" max="100" value="40" id="sl-slr" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>None</span><span>Full Dereg</span></div></div>
+</div>
+<div class="fp"><div class="pt">Groman 5-Signal Macro Dashboard</div><div class="sgg" id="sigs"></div><div style="font-size:10px;color:var(--mu);margin-top:5px">All 5 GREEN = QE confirmed &bull; All RED = plan failing &bull; Watch for divergence between signals</div></div>
+<div class="g2"><div class="panel"><div class="pt">S&amp;P 500 &mdash; 12-Month Projection</div><div class="cw"><canvas id="spxC"></canvas></div></div><div class="panel"><div class="pt">Asset Class 12M Return (%)</div><div class="cw"><canvas id="assetC"></canvas></div></div></div>
+<div class="g2"><div class="panel"><div class="pt">Sector Rotation Radar</div><div class="cw"><canvas id="sectorC"></canvas></div></div><div class="panel"><div class="pt">Yield Curve: Current vs 12M Projected</div><div class="cw"><canvas id="yieldC"></canvas></div></div></div>
+<div class="fp"><div class="pt">Projected Moves &mdash; Key Instruments (Click for Details)</div><div id="obs"></div></div>
+<div class="mbar" id="mbar"></div>
+<div class="fp"><div class="pt">Macro Event Timeline</div><div class="tl" id="tl"></div></div>
+
+<!-- BUY LISTS -->
+<div class="fp">
+  <div class="pt">BUY LIST &mdash; Screened from 5,637 Stocks <span class="scan-badge">REAL DATA</span></div>
+  <div class="sh"><span class="dot" style="background:var(--gold)"></span>GOLD &amp; PRECIOUS METALS &mdash; Inflation Hedge + Dollar Weakness Play</div>
+  <div class="sg" id="g-gold"></div>
+  <div class="sh"><span class="dot" style="background:var(--ac)"></span>FINANCIALS &mdash; Bank Deregulation + SLR + QE Play</div>
+  <div class="sg" id="g-banks"></div>
+  <div class="sh"><span class="dot" style="background:var(--pur)"></span>AI &amp; TECH &mdash; Disinflationary Buildout + AI Infrastructure</div>
+  <div class="sg" id="g-tech"></div>
+  <div class="sh"><span class="dot" style="background:var(--ac2)"></span>ENERGY &mdash; Tankers + E&amp;P + Refiners (Top Screened Picks)</div>
+  <div class="sg" id="g-energy"></div>
+  <div class="sh"><span class="dot" style="background:var(--ac3)"></span>PRICING POWER &mdash; Inflation Pass-Through + Consumer Necessities</div>
+  <div class="sg" id="g-pricing"></div>
+  <div class="sh"><span class="dot" style="background:var(--mu)"></span>ETF BROAD EXPOSURE &mdash; One-Click Scenario Plays</div>
+  <div class="sg" id="g-etf"></div>
+  <div class="sh"><span class="dot" style="background:#22d3ee"></span>TOP SCREENER PICKS &mdash; Composite Score: ROIC + Momentum + Golden Cross</div>
+  <div class="sg" id="g-scan"></div>
+</div>
+
+<!-- ALT ENERGY -->
+<div class="fp">
+  <div class="pt" style="color:var(--ac3)">ALT ENERGY &mdash; High Oil ($90+) Activation Section</div>
+  <div style="background:rgba(57,255,20,.05);border:1px solid rgba(57,255,20,.2);border-radius:9px;padding:11px;margin-bottom:14px;font-size:11px;line-height:1.6;color:var(--tx)">When oil stays elevated above $90, three forces accelerate simultaneously: <strong style="color:var(--ac3)">government subsidies increase</strong> (IRA enforcement + new allocations), <strong style="color:var(--ac3)">corporate procurement shifts</strong> (companies lock in renewable PPAs to escape oil exposure), and <strong style="color:var(--ac3)">retail rotation intensifies</strong> (high gas prices = emotional narrative). Nuclear is the sleeper &mdash; AI data centers need clean baseload power and there&apos;s only one scalable source. Solar has high short interest = squeeze potential. Grid buildout wins regardless of which energy source wins.</div>
+  <div class="sh"><span class="dot" style="background:#22c55e"></span>NUCLEAR &mdash; AI Data Center Baseload + Clean Power Contracts</div>
+  <div class="sg" id="g-nuke"></div>
+  <div class="sh"><span class="dot" style="background:#facc15"></span>SOLAR &mdash; IRA Moat + Short Squeeze Potential on Oil Spike</div>
+  <div class="sg" id="g-solar"></div>
+  <div class="sh"><span class="dot" style="background:#38bdf8"></span>WIND / GRID / STORAGE &mdash; Infrastructure Build Beneficiaries</div>
+  <div class="sg" id="g-wind"></div>
+</div>
+
+<!-- DANGER ZONE -->
+<div class="fp" id="strong-panel">
+  <div class="pt" style="color:var(--ac2)">&#x1F4AA; STRONG DOLLAR PLAYBOOK <span id="strong-badge" style="font-size:9px;background:rgba(255,107,53,.15);border:1px solid rgba(255,107,53,.4);border-radius:4px;padding:2px 8px;margin-left:6px;color:var(--ac2);font-family:'JetBrains Mono',monospace;letter-spacing:.5px">DXY 107+</span></div>
+  <div style="background:rgba(255,107,53,.06);border:1px solid rgba(255,107,53,.2);border-radius:9px;padding:12px 14px;margin-bottom:14px;font-size:11px;line-height:1.7;color:var(--tx)">
+    <strong style="color:var(--ac2)">Bretton Woods 2.0 thesis (source: transcript analysis):</strong> The US has engineered a global dollar shortage. World chaos forces nations to spend on rebuilding -- buying US goods and arms -- requiring dollars. 27 countries sought emergency dollar access in June 2026 (World Bank). DXY targeting 110+.<br><br>
+    <strong style="color:var(--ac3)">WINNERS when DXY strong:</strong> Defense contractors (USD contracts), Regional banks (NIM + capital inflows), Small caps (80% domestic revenue), UUP ETF (direct DXY play).<br>
+    <strong style="color:var(--red)">AVOID when DXY strong:</strong> Gold miners (-20%), Bitcoin (-30%), Commodities (-12%), AAPL/KO/PG/MSFT (50-65% overseas revenue = EPS headwind). Every 10% DXY rise = -2% to -4% S&P 500 EPS (BlackRock/Financer June 2026).
+  </div>
+  <div id="strong-trigger-msg" style="display:none;background:rgba(57,255,20,.06);border:1px solid rgba(57,255,20,.2);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11px;color:var(--ac3);font-family:'JetBrains Mono',monospace">
+    &#9889; ACTIVE: DXY 107+ detected. Bretton Woods 2.0 playbook is live right now.
+  </div>
+  <div class="sh"><span class="dot" style="background:var(--pur)"></span>DEFENSE -- USD Contracts + Geopolitical Spending Surge</div>
+  <div class="sg" id="g-strong-defense"></div>
+  <div class="sh"><span class="dot" style="background:var(--ac)"></span>DOMESTIC REVENUE -- Zero Overseas EPS Drag From Strong Dollar</div>
+  <div class="sg" id="g-strong-domestic"></div>
+  <div class="sh"><span class="dot" style="background:var(--gold)"></span>DOLLAR-LINKED -- Financial + ETF Plays on USD Strength</div>
+  <div class="sg" id="g-strong-financial"></div>
+</div>
+
+<div class="fp" id="hioil-panel">
+  <div class="pt" style="color:var(--ac2)">&#9981; HIGH OIL + HIGH DOLLAR BUY LIST <span id="hioil-badge" style="font-size:9px;background:rgba(255,107,53,.15);border:1px solid rgba(255,107,53,.4);border-radius:4px;padding:2px 8px;margin-left:6px;color:var(--ac2);font-family:'JetBrains Mono',monospace;letter-spacing:.5px">WTI $90+ / DXY 100+</span></div>
+  <div style="background:rgba(255,107,53,.06);border:1px solid rgba(255,107,53,.2);border-radius:9px;padding:12px 14px;margin-bottom:14px;font-size:11px;line-height:1.7;color:var(--tx)">The <strong style="color:var(--ac2)">high oil + strong dollar</strong> scenario: Iran deal fails or collapses, WTI stays above $90, and the dollar remains elevated as a flight-to-safety trade. This pressures consumers globally but creates clear winners: <strong style="color:var(--tx)">energy producers with USD revenues, domestic consumer necessities, defense contractors, and companies with proven pricing power</strong> that can pass input costs through. These stocks outperformed in 2022 (oil spike), 1990 (Gulf War), and the 1973-74 oil shock.</div>
+  <div id="hioil-trigger-msg" style="display:none;background:rgba(57,255,20,.06);border:1px solid rgba(57,255,20,.2);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11px;color:var(--ac3);font-family:'JetBrains Mono',monospace">&#9889; ACTIVE: WTI $90+ AND DXY 100+ detected. This scenario is live right now.</div>
+  <div class="sh"><span class="dot" style="background:var(--ac2)"></span>ENERGY -- USD Revenue Producers + Refiners</div>
+  <div class="sg" id="g-hioil-energy"></div>
+  <div class="sh"><span class="dot" style="background:var(--ac3)"></span>CONSUMER NECESSITIES -- Pricing Power + Domestic Revenue</div>
+  <div class="sg" id="g-hioil-consumer"></div>
+  <div class="sh"><span class="dot" style="background:var(--pur)"></span>DEFENSE -- Geopolitical Tension Beneficiaries</div>
+  <div class="sg" id="g-hioil-defense"></div>
+</div>
+
+<div class="fp">
+  <div class="pt" style="color:var(--red)">DANGER ZONE &mdash; Avoid / Short by Sector</div>
+
+  <div class="dsec">
+    <div class="dt">&#9888; SECTOR: LONG-DURATION BONDS &mdash; Rate Risk Traps</div>
+    <div class="dd">The most dangerous trade in any scenario except a confirmed Fed pivot. Long bonds are leveraged bets that Warsh cuts rates soon. If QE is delayed OR the deal fails and inflation re-accelerates, these get destroyed. The 30-year bond lost 50%+ from 2020 to 2023. That can happen again. Wait for the first confirmed cut before touching duration. Watch Groman Signal #3 (10Y yield).</div>
+    <div class="sg" id="av-bonds"></div>
+  </div>
+
+  <div class="dsec">
+    <div class="dt">&#9888; SECTOR: UNPROFITABLE TECH / HIGH-BURN EV &mdash; QE-Dependent</div>
+    <div class="dd">These companies have negative ROIC, burn through cash, and are entirely dependent on cheap capital to fund operations. In your own screener, PLUG showed -79.62% ROIC &mdash; the screener itself screamed avoid. Without QE, the funding window closes. High-burn EVs need rates below 3% to refinance. Avoid until Groman signals 1, 3, and 5 all flip green simultaneously.</div>
+    <div class="sg" id="av-tech"></div>
+  </div>
+
+  <div class="dsec">
+    <div class="dt">&#9888; SECTOR: CONSUMER CYCLICAL &mdash; Discretionary Spending Collapses</div>
+    <div class="dd">When oil stays high, gas eats $200-$400/month of household budgets. Discretionary spending dies first &mdash; furniture, cars, gym equipment, restaurants all see demand destruction. These names face a double compression: earnings fall AND investors reprice the multiple down simultaneously. In stagflation, consumer cyclicals can lose 35-65% peak-to-trough.</div>
+    <div class="sg" id="av-cons"></div>
+  </div>
+
+  <div class="dsec">
+    <div class="dt">&#9888; SECTOR: REAL ESTATE / REITs &mdash; Leveraged Bond Proxies</div>
+    <div class="dd">REITs are essentially bond proxies with leverage. Every 25bps increase in the 10Y yield compresses REIT valuations ~3-5%. Office REITs face a structural catastrophe on top of the rate problem: WFH permanently reduced demand. Medical REITs have tenant stress (Steward Health bankruptcy). Only flip long on REITs AFTER the first confirmed Warsh rate cut AND Groman signal #3 turns green.</div>
+    <div class="sg" id="av-reit"></div>
+  </div>
+
+  <div class="dsec">
+    <div class="dt">&#9888; SECTOR: STORY STOCKS / NO MOAT &mdash; QE-Era Zombies</div>
+    <div class="dd">The zero-interest-rate policy era funded thousands of companies that had stories but no economics. No pricing power, no ROIC, no Piotroski score worth noting. These are structural shorts in tight-money environments. The QE era that created them is not coming back until Groman signals all flip green. Until then, these are cash incinerators with good PowerPoint decks.</div>
+    <div class="sg" id="av-story"></div>
+  </div>
+
+  <div class="dsec">
+    <div class="dt">&#9888; SECTOR: SMALL-CAP INDUSTRIALS WITH NEGATIVE ROIC TREND &mdash; Input Cost Squeeze</div>
+    <div class="dd">Small industrials with weak balance sheets get crushed when input costs (energy, steel, labor) spike and they lack the pricing power to pass those costs through. Your screener&apos;s ROIC Trend field identifies the ones deteriorating. Combined with high debt and no moat, these face margin compression from both sides simultaneously in stagflation or bear scenarios.</div>
+    <div class="sg" id="av-ind"></div>
+  </div>
+</div>
+
+<!-- ANGLES -->
+<div class="fp"><div class="pt">Investment Angles by Scenario</div><div class="agrid" id="angles"></div></div>
+
+<footer>&#9888; Educational simulator only &mdash; Not financial advice. Screened from 5,637 stocks using ROIC, Piotroski, Golden Cross, OBV &amp; MFI composite scoring. Built for Brad @ <a href="https://aiupscalellc.netlify.app/" target="_blank" rel="noopener">AI Upscale LLC</a>. All projected returns are hypothetical model outputs. DYOR.</footer>
+</div>
+
+
+<script>
+
+(function(){
+"use strict";
+
+// ============================================================
+// STOCK DATABASE — all figures from real scan data
+// ============================================================
+const DB = {
+gold:[
+ {t:'NEM',n:'Newmont Corp',sec:'Basic Materials',base:14,bull:20,bear:-8,qe:32,stag:28,strong:-20,
+  roic:'20.89%',revy:'+45.8%',earny:'+78.6%',piotr:6,gc:1,mcap:'$110.8B',price:'$103.79',div:'1.0%',pe:'13.5',score:53.5,
+  r:"Piotr:6, GC:1, ROIC 20.89% — world's largest gold miner; top quality signal combination",
+  desc:"World's largest gold mining company. Operates mines across Americas, Africa, and Australia. Piotroski 6 confirms fortress fundamentals. Primary beneficiary of dollar weakness and QE environments. 20.89% ROIC means it prints gold economics even before the gold price helps."},
+ {t:'AEM',n:'Agnico Eagle Mines',sec:'Basic Materials',base:12,bull:18,bear:-6,qe:30,stag:26,strong:-18,
+  roic:'18.27%',revy:'+66.1%',earny:'+108.6%',piotr:6,gc:0.5,mcap:'$83.3B',price:'$166.66',div:'0.9%',pe:'15.7',score:54.0,
+  r:'Piotr:6, ROIC 18.27%, RevG +66% — safe-jurisdiction gold miner; best-in-class quality',
+  desc:'Agnico Eagle operates exclusively in safe jurisdictions (Canada, Finland, Mexico, Australia). Lowest political risk among senior gold miners. Best management track record in the sector. Piotroski 6 = exceptional financial health.'},
+ {t:'WPM',n:'Wheaton Precious Metals',sec:'Basic Materials',base:15,bull:22,bear:-4,qe:38,stag:30,strong:-16,
+  roic:'17.16%',revy:'+91.6%',earny:'+128.8%',piotr:null,gc:1,mcap:'$54.3B',price:'$119.58',div:'0.6%',pe:'30.2',score:45.7,
+  r:'ROIC 17.16%, RevG +91.6%, GC:1 — gold/silver streaming royalty; asset-light model',
+  desc:'Wheaton Precious Metals is a streaming company — pays miners upfront for the right to buy gold and silver at fixed low prices. Asset-light model with ~70%+ margins. No operational mining risk, pure price exposure with superior economics.'},
+ {t:'AG',n:'First Majestic Silver',sec:'Basic Materials',base:20,bull:35,bear:-5,qe:50,stag:32,strong:-25,
+  roic:'9.41%',revy:'+95.4%',earny:'+5068.7%',piotr:5,gc:1,mcap:'$8.9B',price:'$18.00',div:'0.2%',pe:'30.5',score:552.1,
+  r:'SCORE:552 — Piotr:5, GC:1, ROIC 9.41%, EarnG +5069% — #1 Basic Materials scan pick',
+  desc:"First Majestic Silver is your screener's #1 Basic Materials pick by composite score (552.1). Pure silver play with growing gold production. Extremely high earnings growth signals operating leverage turning on. High beta to precious metal prices in QE environments."},
+ {t:'IAG',n:'IAMGOLD Corp',sec:'Basic Materials',base:16,bull:32,bear:-5,qe:48,stag:30,strong:-22,
+  roic:'17.28%',revy:'+115.9%',earny:'+822.9%',piotr:5,gc:1,mcap:'$9.8B',price:'$16.88',div:'0.0%',pe:'9.9',score:138.4,
+  r:'ROIC 17.28%, RevG +115.9%, EarnG +822%, Piotr:5, GC:1 — high-beta mid-tier miner',
+  desc:'IAMGOLD is a mid-tier gold miner with significant growth via the Cote Gold mine ramp in Canada. PE of 9.9 is cheap for a miner with 17%+ ROIC and Piotroski 5. Golden Cross confirmed on momentum.'},
+ {t:'AGI',n:'Alamos Gold',sec:'Basic Materials',base:14,bull:26,bear:-3,qe:40,stag:28,strong:-18,
+  roic:'16.74%',revy:'+79.2%',earny:'+1144.7%',piotr:3,gc:1,mcap:'$15.3B',price:'$36.34',div:'0.3%',pe:'14.5',score:158.7,
+  r:'ROIC 16.74%, EarnG +1145%, Piotr:3, GC:1 — low-cost producer, Island Gold expansion',
+  desc:'Alamos Gold is a low-cost senior gold producer with mines in Canada, Mexico, and Turkey. Island Gold mine Phase 3 expansion is a major production catalyst. Strong ROIC with consistent dividend growth.'},
+],
+banks:[
+ {t:'JPM',n:'JPMorgan Chase',sec:'Financial Services',base:12,bull:30,bear:-18,qe:35,stag:-12,
+  roic:'N/A',revy:'+12.7%',earny:'+17.2%',piotr:null,gc:0.5,mcap:'$871B',price:'$325.22',div:'1.8%',pe:'15.6',score:25.8,
+  r:'RevG +12.7%, EarnG +17.2%, GC:0.5, $871B mcap — SLR deregulation #1 beneficiary',
+  desc:"JPMorgan Chase is the largest US bank by assets. As the primary SLR deregulation beneficiary, it can deploy the most leverage into US treasuries. Jamie Dimon's fortress balance sheet and diversified revenue streams make it the most resilient bank in any scenario."},
+ {t:'GS',n:'Goldman Sachs',sec:'Financial Services',base:11,bull:32,bear:-22,qe:40,stag:-16,
+  roic:'N/A',revy:'+14.5%',earny:'+24.2%',piotr:null,gc:1,mcap:'$323B',price:'$1,096',div:'1.4%',pe:'20.0',score:30.7,
+  r:'RevG +14.5%, EarnG +24.2%, GC:1 — capital markets boom when QE fires',
+  desc:'Goldman Sachs is the premier investment bank. When QE fires, capital markets activity surges (IPOs, M&A, debt issuance). Goldman is the prime beneficiary of every liquidity expansion cycle since 1869.'},
+ {t:'MS',n:'Morgan Stanley',sec:'Financial Services',base:10,bull:30,bear:-20,qe:38,stag:-15,
+  roic:'N/A',revy:'+16.3%',earny:'+31.9%',piotr:null,gc:1,mcap:'$352B',price:'$223.17',div:'1.8%',pe:'20.2',score:32.3,
+  r:'RevG +16.3%, EarnG +31.9%, GC:1 — $5T+ AUM wealth mgmt + IB dual engine',
+  desc:'Morgan Stanley has $5T+ in wealth management AUM providing recurring fee income. Investment banking provides cyclical upside. Best combination of defensive recurring revenue + offensive cyclical exposure in financials.'},
+ {t:'AFL',n:'Aflac',sec:'Financial Services',base:10,bull:22,bear:-5,qe:25,stag:2,
+  roic:'N/A',revy:'+27.9%',earny:'+3860%',piotr:null,gc:1,mcap:'$58.8B',price:'$115.47',div:'2.0%',pe:'13.2',score:404.3,
+  r:'SCORE:404 — RevG +27.9%, EarnG +3860%, GC:1 — #2 Financial scan pick; insurance pricing power',
+  desc:"Aflac is your screener's #2 Financial pick (score 404.3). Supplemental insurance with pricing power that persists through all economic cycles. Benefits from rising investment portfolio yields. More defensive than banks — insurance premiums are sticky cash flows."},
+ {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,
+  roic:'44.25%',revy:'+17.1%',earny:'+35.5%',piotr:3,gc:0,mcap:'$622B',price:'$327.24',div:'0.8%',pe:'28.5',score:36.6,
+  r:'ROIC 44.25%, RevG +17.1%, Piotr:3 — transaction volume grows nominally WITH inflation',
+  desc:"Visa is a global payment network with 73% gross margins. Every price increase in the economy means more Visa revenue — it's a royalty on all commerce. Network effects make it functionally impossible to displace. True pricing power through any inflationary environment."},
+ {t:'MA',n:'Mastercard',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,
+  roic:'73.20%',revy:'+15.8%',earny:'+21.2%',piotr:3,gc:0,mcap:'$433B',price:'$489.79',div:'0.7%',pe:'28.3',score:46.1,
+  r:'ROIC 73.20% — highest quality financial in scan; irreplaceable payment network royalty',
+  desc:'Mastercard has a 73.20% ROIC — one of the highest in your entire 5,637-stock scan. Global payment network with Visa creates a practical duopoly. Every transaction is royalty income with near-zero marginal cost. Ultimate pricing power moat.'},
+ {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,
+  roic:'25.75%',revy:'+8.1%',earny:'+7.8%',piotr:5,gc:0,mcap:'$78.7B',price:'$450.67',div:'0.8%',pe:'32.4',score:33.3,
+  r:'ROIC 25.75%, Piotr:5 — ratings boom on bond issuance; pricing power duopoly with SPGI',
+  desc:"Moody's is one of two dominant credit rating agencies. Every bond issued globally requires a rating — and Moody's charges for it. Revenue scales directly with debt issuance volume, which explodes during QE cycles. 25.75% ROIC confirms the monopoly economics."},
+],
+tech:[
+ {t:'NVDA',n:'NVIDIA',sec:'Technology',base:20,bull:55,bear:-28,qe:45,stag:-18,
+  roic:'68.25%',revy:'+85.2%',earny:'+214.5%',piotr:3,gc:1,mcap:'$5,103B',price:'$210.69',div:'0.0%',pe:'32.3',score:76.4,
+  r:'ROIC 68.25%, RevG +85.2%, EarnG +214%, GC:1 — AI infrastructure core pick',
+  desc:'NVIDIA dominates AI GPU market with 80%+ data center share. CUDA software ecosystem creates massive switching costs — the entire AI industry is built on CUDA. H100/B200 demand outstrips supply for the foreseeable future. 68.25% ROIC confirms monopoly pricing on compute.'},
+ {t:'MSFT',n:'Microsoft',sec:'Technology',base:12,bull:28,bear:-10,qe:22,stag:-4,strong:-14,
+  roic:'22.24%',revy:'+18.3%',earny:'+23.4%',piotr:4,gc:0,mcap:'$2,818B',price:'$379.40',div:'0.9%',pe:'22.6',score:24.4,
+  r:'ROIC 22.24%, RevG +18.3%, Piotr:4 — Azure cloud + Copilot AI monetization across Office',
+  desc:'Microsoft Azure is #2 cloud with growing market share. Copilot AI across Office 365 creates massive new monetization. 22.24% ROIC and Piotroski 4 confirm quality. Recurring subscription model provides inflation protection through any macro environment.'},
+ {t:'PLTR',n:'Palantir',sec:'Technology',base:18,bull:60,bear:-18,qe:40,stag:-8,strong:5,
+  roic:'17.73%',revy:'+84.7%',earny:'+325%',piotr:null,gc:0,mcap:'$308B',price:'$128.47',div:'0.0%',pe:'144.3',score:55.3,
+  r:'ROIC 17.73%, RevG +84.7%, EarnG +325% — Fed data thesis partner; government AI',
+  desc:"Palantir builds AI data analytics platforms for government and enterprise. Direct connection to Warsh's Fed data task force thesis — PLTR is literally the company that processes the new real-time data Warsh is using to justify rate decisions. Government contracts provide floor."},
+ {t:'GOOGL',n:'Alphabet',sec:'Communication Services',base:12,bull:30,bear:-12,qe:22,stag:-6,strong:-16,
+  roic:'27.29%',revy:'+21.8%',earny:'+82%',piotr:3,gc:1,mcap:'$4,491B',price:'$368.03',div:'0.2%',pe:'28.1',score:40.8,
+  r:'ROIC 27.29%, RevG +21.8%, EarnG +82%, GC:1 — search monopoly + Gemini AI + Cloud',
+  desc:'Alphabet owns Google Search (90%+ market share), YouTube, and Google Cloud. 27.29% ROIC confirms monopoly economics across all three. Gemini AI integrations protect search dominance. $100B+ cash provides downside protection in any scenario.'},
+ {t:'AAPL',n:'Apple',sec:'Technology',base:10,bull:22,bear:-8,qe:18,stag:-3,strong:-18,
+  roic:'66.66%',revy:'+16.6%',earny:'+21.8%',piotr:5,gc:1,mcap:'$4,377B',price:'$298.01',div:'0.3%',pe:'36.1',score:53.6,
+  r:'ROIC 66.66%, RevG +16.6%, Piotr:5, GC:1 — fortress balance sheet + AI OS integration',
+  desc:'Apple has a 66.66% ROIC and the most powerful consumer ecosystem ever built. Services business (40%+ margins) growing to 25%+ of total revenue. Apple Intelligence AI integration creates the next upgrade cycle. Share buyback machine protects downside.'},
+ {t:'MU',n:'Micron Technology',sec:'Technology',base:16,bull:40,bear:-20,qe:30,stag:-15,
+  roic:'12.97%',revy:'+196.3%',earny:'+756%',piotr:4,gc:1,mcap:'$1,279B',price:'$1,134',div:'0.1%',pe:'53.5',score:143.1,
+  r:'SCORE:143 — ROIC 12.97%, RevG +196%, EarnG +756%, GC:1 — AI memory demand surge',
+  desc:'Micron manufactures DRAM and NAND memory. AI model training requires enormous memory bandwidth — HBM3e is the critical scarce resource for AI chips. Your screener score of 143 places Micron among the top Technology picks by composite score.'},
+ {t:'APP',n:'Applovin',sec:'Communication Services',base:20,bull:45,bear:-15,qe:35,stag:5,
+  roic:'95.57%',revy:'+59%',earny:'+113.1%',piotr:5,gc:0,mcap:'$158B',price:'$469.71',div:'0.0%',pe:'40.8',score:69.0,
+  r:'ROIC 95.57%, RevG +59%, Piotr:5 — top scan pick; AI-powered ad-tech with exceptional ROIC',
+  desc:"Applovin built an AI-powered mobile advertising platform that dramatically outperforms traditional ad networks. 95.57% ROIC is exceptional — one of the highest in your entire scan. The platform's AI continuously improves targeting, creating a compounding advantage."},
+ {t:'CIEN',n:'Ciena Corp',sec:'Technology',base:15,bull:30,bear:-10,qe:22,stag:-5,
+  roic:'5.66%',revy:'+39.5%',earny:'+2383%',piotr:5,gc:1,mcap:'$60.6B',price:'$428.22',div:'0.0%',pe:'142.7',score:270.6,
+  r:'SCORE:271 — ROIC 5.66%, RevG +39.5%, EarnG +2383%, Piotr:5, GC:1 — fiber AI play',
+  desc:'Ciena makes optical networking equipment that carries AI data traffic. AI data centers require 100x more fiber bandwidth than traditional compute. Score of 270.6 places it #4 in all Technology. Picks and shovels for the AI infrastructure buildout.'},
+],
+energy:[
+ {t:'FRO',n:'Frontline PLC',sec:'Energy',base:15,bull:-8,bear:55,qe:10,stag:50,
+  roic:'9.72%',revy:'+66.9%',earny:'+1580%',piotr:5,gc:1,mcap:'$9.1B',price:'$40.93',div:'8.1%',pe:'10.1',score:210.4,
+  r:'SCORE:210 — ROIC 9.72%, EarnG +1580%, Piotr:5, GC:1, 8.1% div — #1 Energy scan pick',
+  desc:"Frontline is the world's largest oil tanker company and your screener's #1 Energy pick (score 210.4). When Hormuz is threatened, tanker routes extend thousands of miles and day rates explode. 8.1% dividend yield means you get paid while you wait for the oil shock."},
+ {t:'STNG',n:'Scorpio Tankers',sec:'Energy',base:12,bull:-6,bear:50,qe:8,stag:45,
+  roic:'10.67%',revy:'+46.2%',earny:'+254.1%',piotr:5,gc:1,mcap:'$4.1B',price:'$81.66',div:'2.1%',pe:'8.1',score:76.2,
+  r:'ROIC 10.67%, EarnG +254%, Piotr:5, GC:1 — product tanker; supply disruption play',
+  desc:'Scorpio Tankers operates a modern fleet of product tankers carrying refined petroleum products. PE of 8.1 is cheap. Supply disruption forces longer rerouting = rate spike for months. 10.67% ROIC confirms operational efficiency of fleet.'},
+ {t:'DHT',n:'DHT Holdings',sec:'Energy',base:12,bull:-6,bear:48,qe:8,stag:44,
+  roic:'12.30%',revy:'+78.1%',earny:'+277.8%',piotr:5,gc:1,mcap:'$3.0B',price:'$18.89',div:'8.1%',pe:'9.2',score:78.6,
+  r:'ROIC 12.30%, RevG +78.1%, Piotr:5, GC:1, 8.1% div — VLCC operator; Iran hedge',
+  desc:'DHT Holdings operates Very Large Crude Carriers (VLCCs). High beta to crude tanker spot rates. 8.1% dividend yield. Conservative balance sheet vs peers. Score 78.6 with 12.3% ROIC confirms real profitability, not just rate hope.'},
+ {t:'GLNG',n:'Golar LNG',sec:'Energy',base:10,bull:-5,bear:45,qe:6,stag:40,
+  roic:'3.08%',revy:'+120.1%',earny:'+882.5%',piotr:5,gc:1,mcap:'$5.1B',price:'$49.89',div:'2.0%',pe:'37.2',score:139.1,
+  r:'RevG +120%, EarnG +882%, Piotr:5, GC:1 — LNG transport surges on Hormuz disruption',
+  desc:'Golar LNG transports liquefied natural gas and operates Floating LNG infrastructure. When Hormuz disruption pushes buyers to reroute energy flows, LNG demand spikes globally. Score 139 puts it near the top of Energy sector picks.'},
+ {t:'LPG',n:'Dorian LPG',sec:'Energy',base:10,bull:-5,bear:42,qe:7,stag:38,
+  roic:'12.66%',revy:'+105.2%',earny:'+897.6%',piotr:5,gc:1,mcap:'$1.7B',price:'$39.56',div:'7.4%',pe:'8.7',score:136.1,
+  r:'ROIC 12.66%, RevG +105%, EarnG +897%, Piotr:5, GC:1, 7.4% div — LPG tanker operator',
+  desc:'Dorian LPG operates LPG tankers. ROIC 12.66% and earnings growth +897% confirm the tanker rate cycle is in full force. PE of 8.7 is cheap. 7.4% dividend while you hold. Score 136.1 makes it a top 5 Energy screener pick.'},
+ {t:'EOG',n:'EOG Resources',sec:'Energy',base:8,bull:-4,bear:38,qe:5,stag:35,
+  roic:'11.92%',revy:'+15.6%',earny:'+39.6%',piotr:3,gc:1,mcap:'$69.2B',price:'$129.98',div:'3.0%',pe:'12.8',score:30.4,
+  r:'ROIC 11.92%, RevG +15.6%, Piotr:3, GC:1 — best quality US shale; low break-even',
+  desc:'EOG Resources is consistently ranked the best-run US shale company. Break-even below $40/barrel. 11.92% ROIC even at current oil prices. 3.0% dividend growing. Most defensive E&P in a oil downturn while still having upside on oil spikes.'},
+ {t:'MPC',n:'Marathon Petroleum',sec:'Energy',base:9,bull:4,bear:32,qe:8,stag:28,
+  roic:'10.98%',revy:'+8.8%',earny:'+0%',piotr:5,gc:1,mcap:'$70.9B',price:'$242.91',div:'1.6%',pe:'16.0',score:28.9,
+  r:'ROIC 10.98%, Piotr:5, GC:1 — refining margins spike on crude supply crunch',
+  desc:"Marathon Petroleum is the largest US refiner. Counter-intuitive: refining margins (crack spreads) actually INCREASE when crude supply is disrupted. Refiners charge more for scarce refined products. Piotroski 5 confirms strong financial health."},
+ {t:'EQT',n:'EQT Corporation',sec:'Energy',base:8,bull:-2,bear:40,qe:6,stag:36,
+  roic:'6.89%',revy:'+49.9%',earny:'+490%',piotr:6,gc:0.5,mcap:'$31.7B',price:'$50.72',div:'1.3%',pe:'9.6',score:84.2,
+  r:'ROIC 6.89%, RevG +49.9%, EarnG +490%, Piotr:6 — largest US nat gas; LNG export',
+  desc:'EQT is the largest US natural gas producer. Natural gas demand spikes when oil disruption forces power grid switching. Piotroski 6 = exceptional financial health. LNG export thesis accelerates when Hormuz threatens global energy supply chains.'},
+],
+pricing:[
+ {t:'COST',n:'Costco',sec:'Consumer Defensive',base:8,bull:14,bear:2,qe:10,stag:9,strong:5,
+  roic:'33.56%',revy:'+21.5%',earny:'+45.5%',piotr:5,gc:1,mcap:'$422B',price:'$951.45',div:'0.6%',pe:'47.8',score:45.0,
+  r:'ROIC 33.56%, RevG +21.5%, Piotr:5, GC:1 — membership moat; passes ALL costs through',
+  desc:'Costco membership model means consumers pay annually regardless of spending. Massive purchasing power passed to members. 33.56% ROIC confirms the economics are exceptional. Works in every scenario — recession, inflation, stagflation. The ultimate pricing power moat.'},
+ {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,
+  roic:'15.31%',revy:'+7.3%',earny:'+19.4%',piotr:4,gc:1,mcap:'$933B',price:'$117.18',div:'0.8%',pe:'41.3',score:40.1,
+  r:'ROIC 15.31%, RevG +7.3%, Piotr:4, GC:1 — consumers shift TO Walmart in recessions',
+  desc:"Walmart is the world's largest retailer with dominant grocery market share. Consumers shift TO Walmart in economic stress from more expensive alternatives. Inflation pass-through proven across six decades. 15.31% ROIC for a traditional retailer is exceptional."},
+ {t:'KO',n:'Coca-Cola',sec:'Consumer Defensive',base:4,bull:10,bear:3,qe:8,stag:7,strong:-12,
+  roic:'19.03%',revy:'+12.1%',earny:'+18.2%',piotr:5,gc:1,mcap:'$342B',price:'$79.39',div:'2.6%',pe:'25.0',score:36.2,
+  r:'ROIC 19.03%, RevG +12.1%, Piotr:5, GC:1, 2.6% div — 130-year brand; global pricing power',
+  desc:"Coca-Cola's 130-year brand has proven pricing power through every inflationary cycle in recorded US history. Sells in 200+ countries. 2.6% dividend paid and grown for 60+ consecutive years. Piotroski 5 confirms exceptional financial health."},
+ {t:'PG',n:'Procter & Gamble',sec:'Consumer Defensive',base:5,bull:9,bear:2,qe:7,stag:6,
+  roic:'20.91%',revy:'+7.4%',earny:'+5.8%',piotr:3,gc:0.5,mcap:'$350B',price:'$150.38',div:'2.8%',pe:'22.0',score:42.4,
+  r:'ROIC 20.91%, RevG +7.4% — Tide, Gillette, Pampers empire; 80% category leaders',
+  desc:"Procter & Gamble owns Tide, Gillette, Pampers, and 65+ other category-leading brands. 80%+ of products are #1 or #2 in their categories. 20.91% ROIC confirms genuine pricing power. Dividend Aristocrat for 60+ consecutive years of dividend growth."},
+ {t:'TSN',n:'Tyson Foods',sec:'Consumer Defensive',base:6,bull:12,bear:1,qe:9,stag:8,
+  roic:'3.31%',revy:'+4.4%',earny:'+3602%',piotr:4,gc:1,mcap:'$19.5B',price:'$55.46',div:'3.6%',pe:'43.7',score:385.4,
+  r:'SCORE:385 — EarnG +3602%, Piotr:4, GC:1 — #4 Consumer Defensive scan; protein pricing power',
+  desc:"Tyson Foods is your screener's #4 Consumer Defensive pick (score 385). Largest US meat processor. Protein demand is inelastic — people keep buying chicken and beef even in recessions. 3.6% dividend. Pricing power when input costs rise as consumers can't substitute."},
+ {t:'MKC',n:'McCormick & Co',sec:'Consumer Defensive',base:5,bull:10,bear:2,qe:8,stag:6,
+  roic:'8.73%',revy:'+16.7%',earny:'+528.3%',piotr:4,gc:0,mcap:'$12.5B',price:'$46.64',div:'3.9%',pe:'7.6',score:80.2,
+  r:'ROIC 8.73%, EarnG +528%, Piotr:4, PE:7.6 — spice monopoly; zero switching costs exist',
+  desc:'McCormick sells spices and flavor solutions to every restaurant and food manufacturer globally. PE of 7.6 with 8.73% ROIC and 3.9% dividend is genuinely cheap for a monopoly-like brand. Consumers and chefs do not switch spice brands regardless of price.'},
+ {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,
+  roic:'44.25%',revy:'+17.1%',earny:'+35.5%',piotr:3,gc:0,mcap:'$622B',price:'$327.24',div:'0.8%',pe:'28.5',score:36.6,
+  r:'ROIC 44.25% — every price increase in economy = more Visa revenue; pure pricing royalty',
+  desc:"Visa is a royalty on all global commerce. Every price increase in the economy means more Visa revenue — it's inflation-indexed by nature. 73% gross margins. Network effects make displacement practically impossible. The purest pricing power business model in existence."},
+ {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,
+  roic:'25.75%',revy:'+8.1%',earny:'+7.8%',piotr:5,gc:0,mcap:'$78.7B',price:'$450.67',div:'0.8%',pe:'32.4',score:33.3,
+  r:'ROIC 25.75%, Piotr:5 — bond issuance = mandatory rating; pricing power by regulatory mandate',
+  desc:"Moody's has pricing power by regulatory mandate — every bond issuance requires a rating and there are only two agencies. Revenue scales with global debt issuance, which explodes during QE cycles. 25.75% ROIC confirms the monopoly economics are very real."},
+],
+etf:[
+ {t:'GDX',n:'VanEck Gold Miners ETF',sec:'ETF',base:18,bull:28,bear:-10,qe:42,stag:35,strong:-22,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$45',div:'~0.9%',pe:'—',score:0,
+  r:'Holds NEM, AEM, AGI, WPM — ~1.5x leveraged beta to gold price moves',
+  desc:'GDX holds 40+ gold mining companies including Newmont, Agnico Eagle, and Alamos Gold. Provides approximately 1.5x leveraged exposure to gold prices — when gold moves 10%, miners typically move 15-20% due to operating leverage.'},
+ {t:'XLE',n:'Energy Select SPDR ETF',sec:'ETF',base:2,bull:-8,bear:42,qe:8,stag:38,strong:-5,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$90',div:'~3.2%',pe:'—',score:0,
+  r:'Holds XOM, CVX, COP, EOG, MPC — simplest oil spike / bear scenario hedge',
+  desc:'XLE holds all major US energy companies. Simplest way to own oil/energy exposure without single-stock risk. Top holdings include XOM, CVX, COP, EOG, and SLB. Inverse relationship with Iran deal probability — bear scenario primary beneficiary.'},
+ {t:'QQQ',n:'Invesco Nasdaq 100 ETF',sec:'ETF',base:8,bull:28,bear:-20,qe:22,stag:-14,strong:-10,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$480',div:'~0.5%',pe:'—',score:0,
+  r:'NVDA, AAPL, MSFT, META, GOOGL — core AI/tech exposure; bull and QE scenarios',
+  desc:'QQQ tracks Nasdaq 100. Top holdings are your screener favorites: NVDA, AAPL, MSFT, META, GOOGL. Core tech and AI exposure. Dominant in bull and QE scenarios. Underperforms in stagflation when real rates stay high and compress growth multiples.'},
+ {t:'SCHD',n:'Schwab Dividend ETF',sec:'ETF',base:7,bull:14,bear:-4,qe:12,stag:6,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$28',div:'~3.5%',pe:'—',score:0,
+  r:'Quality dividend + pricing power names — defensive income with compounding; 3.5% yield',
+  desc:'SCHD holds high-quality dividend companies with strong free cash flow. 3.5% yield with consistent dividend growth. More defensive than QQQ. Pricing power names throughout holdings. Works in base case and mild inflation. Outperforms bonds in stagflation.'},
+ {t:'TIP',n:'iShares TIPS Bond ETF',sec:'ETF',base:8,bull:5,bear:18,qe:18,stag:28,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$107',div:'~4.5%',pe:'—',score:0,
+  r:'Principal adjusts WITH CPI — the most direct bond-market inflation hedge available',
+  desc:'TIPS principal adjusts with CPI inflation. When CPI rises, your principal and interest payments both rise. The most direct bond-market inflation hedge. Essential in the bear and stagflation scenarios where inflation surprises to the upside.'},
+ {t:'DBC',n:'Invesco Commodity ETF',sec:'ETF',base:4,bull:15,bear:28,qe:20,stag:32,strong:-12,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$23',div:'~0.0%',pe:'—',score:0,
+  r:'Oil + gold + nat gas + grains + metals — one-click broad commodity inflation hedge',
+  desc:'DBC holds a diversified basket of oil, gold, natural gas, corn, soybeans, copper, and other commodities. One-stop commodity inflation hedge. Performs best in bear and stagflation scenarios. Provides portfolio diversification away from stocks and bonds simultaneously.'},
+ {t:'KRE',n:'SPDR Regional Banks ETF',sec:'ETF',base:5,bull:20,bear:-28,qe:26,stag:-22,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$62',div:'~2.8%',pe:'—',score:0,
+  r:'100+ regional banks — high-beta SLR deregulation + steeper yield curve play',
+  desc:'KRE holds 100+ regional banks. High-beta play on SLR deregulation and steeper yield curve. These banks benefit most from rate normalization but also hurt most in the bear scenario. Use as a confirmation trade once Groman signals 1 and 3 both flip green.'},
+ {t:'IBIT',n:'iShares Bitcoin ETF',sec:'ETF',base:10,bull:58,bear:-42,qe:72,stag:-25,strong:-30,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$55',div:'0.0%',pe:'—',score:0,
+  r:"Pure BTC — Groman's 5th signal; responds violently to liquidity expansion",
+  desc:"BlackRock's Bitcoin ETF is the most liquid BTC exposure. BTC is Groman's 5th signal — it responds violently to liquidity changes. Down 30%+ when tightening, up 80-90% when QE fires. The hardest asset in existence with fixed supply. Highest risk, highest reward in QE scenario."},
+],
+scan:[
+ {t:'SBLK',n:'Star Bulk Carriers',sec:'Industrials',base:14,bull:-5,bear:50,qe:10,stag:45,
+  roic:'4.14%',revy:'+21.9%',earny:'+13118%',piotr:5,gc:1,mcap:'$2.9B',price:'$26.29',div:'4.0%',pe:'21.0',score:1340.7,
+  r:'SCORE:1341 — #1 Industrials scan pick; EarnG +13118%, Piotr:5, GC:1 — dry bulk shipping',
+  desc:"Star Bulk Carriers is your screener's #1 Industrial pick with a composite score of 1340.7 — by far the highest in the sector. Earnings growth of +13,118% signals a full cyclical recovery. Dry bulk shipping surges when commodity trade spikes. 4% dividend while you wait."},
+ {t:'GEV',n:'GE Vernova',sec:'Industrials',base:16,bull:35,bear:-5,qe:25,stag:8,
+  roic:'8.32%',revy:'+16.3%',earny:'+1816%',piotr:2,gc:1,mcap:'$298B',price:'$1,109',div:'0.1%',pe:'32.5',score:216.1,
+  r:'SCORE:216 — EarnG +1816%, GC:1, $298B mcap — grid infra + power for AI data centers',
+  desc:'GE Vernova was spun from GE to own wind turbines, gas turbines, and electrical grid equipment. AI data centers need massive power infrastructure. GEV builds all three power vectors simultaneously. Score of 216 puts it #2 in Industrials screener.'},
+ {t:'FSLR',n:'First Solar',sec:'Technology',base:12,bull:8,bear:32,qe:18,stag:28,
+  roic:'15.54%',revy:'+23.6%',earny:'+65.1%',piotr:6,gc:0.5,mcap:'$27.7B',price:'$257.70',div:'0.0%',pe:'16.6',score:47.6,
+  r:'ROIC 15.54%, Piotr:6 — ONLY US solar manufacturer; tariff-protected IRA moat',
+  desc:'First Solar is the only major US solar panel manufacturer. Protected from Chinese competition by tariffs. IRA tax credits created a 3-year demand backlog. Piotroski 6 = exceptional financial health. Wins in bear AND stagflation through energy independence narrative.'},
+ {t:'MTZ',n:'MasTec Inc',sec:'Industrials',base:10,bull:25,bear:-5,qe:18,stag:5,
+  roic:'8.69%',revy:'+34.5%',earny:'+508%',piotr:3,gc:1,mcap:'$30B',price:'$379.66',div:'0.0%',pe:'66.7',score:85.2,
+  r:'ROIC 8.69%, RevG +34.5%, EarnG +508%, GC:1 — builds grid/telecom/pipeline for all scenarios',
+  desc:'MasTec is the largest US infrastructure construction company. Builds power lines, pipelines, telecom towers, and data center connections. Benefits from energy, AI, and telecom infrastructure themes simultaneously. Wins in nearly every scenario except severe stagflation.'},
+ {t:'CEG',n:'Constellation Energy',sec:'Utilities',base:14,bull:18,bear:20,qe:18,stag:18,
+  roic:'6.96%',revy:'+63.8%',earny:'+1091%',piotr:4,gc:0,mcap:'$97.9B',price:'$274.06',div:'0.6%',pe:'23.8',score:139.3,
+  r:'SCORE:139 — ROIC 6.96%, RevG +63.8%, EarnG +1091% — nuclear power for AI data centers',
+  desc:'Constellation Energy is the largest US nuclear power operator. Microsoft signed a 20-year power purchase agreement for Three Mile Island restart to power AI data centers. Nuclear is the only scalable clean baseload power. Wins in oil-high scenarios as energy independence narrative drives nuclear demand.'},
+ {t:'AFL',n:'Aflac',sec:'Financial Services',base:10,bull:22,bear:-5,qe:25,stag:2,
+  roic:'N/A',revy:'+27.9%',earny:'+3860%',piotr:null,gc:1,mcap:'$58.8B',price:'$115.47',div:'2.0%',pe:'13.2',score:404.3,
+  r:'SCORE:404 — RevG +27.9%, EarnG +3860%, GC:1 — #2 Financial scan; defensive income',
+  desc:"Aflac is your screener's #2 Financial pick by composite score. Insurance pricing power persists through all economic cycles. More defensive than banks — premiums are sticky. Benefits from rising investment portfolio yields. 2% dividend with consistent growth."},
+ {t:'ARIS',n:'ARIS Water Solutions',sec:'Basic Materials',base:12,bull:20,bear:5,qe:18,stag:10,
+  roic:'10.72%',revy:'+136.5%',earny:'+4600.5%',piotr:5,gc:1,mcap:'$3.4B',price:'$16.62',div:'0.0%',pe:'19.1',score:513.2,
+  r:'SCORE:513 — ROIC 10.72%, RevG +136%, EarnG +4600%, Piotr:5, GC:1 — #2 Basic Materials',
+  desc:"ARIS Water Solutions is your screener's #2 Basic Materials pick (score 513.2). Provides water handling and recycling services to the oil and gas industry. Benefits from energy activity. 10.72% ROIC and exceptional earnings growth from improving unit economics at scale."},
+ {t:'BLBD',n:'Blue Bird Corp',sec:'Industrials',base:8,bull:15,bear:0,qe:12,stag:3,
+  roic:'87.75%',revy:'-1.7%',earny:'+13.9%',piotr:6,gc:1,mcap:'$2.3B',price:'$74.13',div:'0.0%',pe:'18.2',score:72.4,
+  r:'ROIC 87.75%, Piotr:6, GC:1 — highest ROIC Industrials pick in scan; EV school bus monopoly',
+  desc:'Blue Bird Corp has an 87.75% ROIC — the highest in the entire Industrials sector scan. Makes electric school buses with a near-monopoly position in the government procurement cycle. Piotroski 6 = fortress financial health. Underappreciated quality compounder.'},
+],
+nuke:[
+ {t:'CEG',n:'Constellation Energy',sec:'Utilities',base:14,bull:18,bear:20,qe:18,stag:18,
+  roic:'6.96%',revy:'+63.8%',earny:'+1091%',piotr:4,gc:0,mcap:'$97.9B',price:'$274.06',div:'0.6%',pe:'23.8',score:139.3,
+  r:'ROIC 6.96%, RevG +63.8%, EarnG +1091% — nuclear leader; Microsoft AI power deal signed',
+  desc:'Constellation Energy is the largest US nuclear power operator. The Microsoft Three Mile Island restart is a template — AI hyperscalers desperately need clean baseload power and nuclear is the only scalable option. High oil accelerates the nuclear narrative further.'},
+ {t:'AES',n:'AES Corporation',sec:'Utilities',base:10,bull:15,bear:6,qe:14,stag:10,
+  roic:'2.79%',revy:'+8.7%',earny:'+951.1%',piotr:3,gc:1,mcap:'$10.4B',price:'$14.62',div:'4.8%',pe:'7.6',score:123.4,
+  r:'SCORE:123 — EarnG +951%, GC:1, 4.8% div, PE:7.6 — diversified clean utility; rate-cut play',
+  desc:'AES Corporation operates natural gas, solar, wind, and energy storage assets globally. Score of 123.4 is strong for a utility. 4.8% dividend yield at a PE of 7.6 is extremely cheap. Rate-cut beneficiary as a bond-like asset that becomes more attractive when yields fall.'},
+ {t:'NEE',n:'NextEra Energy',sec:'Utilities',base:6,bull:14,bear:-5,qe:16,stag:3,
+  roic:'3.84%',revy:'+7.3%',earny:'+160%',piotr:4,gc:1,mcap:'$181B',price:'$86.75',div:'2.7%',pe:'22.0',score:52.2,
+  r:"ROIC 3.84%, RevG +7.3%, EarnG +160%, Piotr:4, GC:1 — world's largest renewable utility",
+  desc:"NextEra Energy is the world's largest operator of wind and solar power. Florida Power & Light provides stable regulated utility revenue. Largest and most profitable renewable utility globally. Rate-cut beneficiary with 2.7% dividend and consistent growth."},
+ {t:'TLN',n:'Talen Energy',sec:'Utilities',base:12,bull:18,bear:8,qe:15,stag:12,
+  roic:'—',revy:'+96.7%',earny:'+0%',piotr:2,gc:0.5,mcap:'$20.8B',price:'$436.06',div:'0.0%',pe:'—',score:43.5,
+  r:'RevG +96.7%, GC:0.5 — nuclear + gas power; AI data center contracts developing',
+  desc:'Talen Energy operates nuclear and natural gas power plants with AI data center power purchase contracts in development. Revenue growth of 96.7% signals operational ramp. Nuclear scarcity premium increases as AI power demand explodes beyond grid capacity.'},
+],
+solar:[
+ {t:'FSLR',n:'First Solar',sec:'Technology',base:12,bull:10,bear:32,qe:18,stag:28,
+  roic:'15.54%',revy:'+23.6%',earny:'+65.1%',piotr:6,gc:0.5,mcap:'$27.7B',price:'$257.70',div:'0.0%',pe:'16.6',score:47.6,
+  r:'ROIC 15.54%, Piotr:6 — only US solar manufacturer; tariff wall + IRA backlog = moat',
+  desc:'First Solar is the only major US solar panel manufacturer. Chinese competition is blocked by tariffs. IRA tax credits created a demand backlog extending years into the future. Piotroski 6 is the best fundamental score in the solar sector. Quality pick regardless of oil price.'},
+ {t:'ENPH',n:'Enphase Energy',sec:'Technology',base:5,bull:12,bear:22,qe:15,stag:28,
+  roic:'9.33%',revy:'-20.6%',earny:'+0%',piotr:4,gc:1,mcap:'$7.1B',price:'$53.71',div:'0.0%',pe:'53.2',score:25.9,
+  r:'ROIC 9.33%, ShortSq:0.70, GC:1 — residential solar; HIGH short squeeze potential on oil spike',
+  desc:'Enphase makes microinverters for residential solar. Short squeeze score of 0.70 is very high — heavy short interest means oil spike = homeowner energy bill pain = solar demand surge = potential violent squeeze. US manufacturing benefits from tariff protection.'},
+ {t:'RUN',n:'Sunrun',sec:'Technology',base:3,bull:8,bear:18,qe:12,stag:22,
+  roic:'-0.69%',revy:'+43.2%',earny:'+214.4%',piotr:3,gc:0,mcap:'$3.2B',price:'$13.49',div:'0.0%',pe:'6.3',score:0,
+  r:'RevG +43%, EarnG +214%, ShortSq:0.70 — residential solar installer; oil-spike squeeze play',
+  desc:'Sunrun is the largest US residential solar installer. Revenue growing 43%+ as homeowners seek energy independence. PE of 6.3 is cheap for 43% revenue growth. Very high short interest creates potential squeeze when oil spikes and the energy independence narrative catches fire.'},
+ {t:'SEDG',n:'SolarEdge Technologies',sec:'Technology',base:2,bull:8,bear:20,qe:10,stag:25,
+  roic:'-32.45%',revy:'+41.5%',earny:'+0%',piotr:4,gc:1,mcap:'$3.5B',price:'$58.20',div:'0.0%',pe:'—',score:0,
+  r:'RevG +41.5%, ShortSq:0.50, GC:1 — solar inverter; speculative high-oil narrative play',
+  desc:'SolarEdge makes solar inverters and optimizers. Revenue growing 41.5% with Golden Cross confirmed. Speculative — negative ROIC is a real risk — but oil-spike narrative can drive violent short-term moves given the short interest. Higher risk, higher potential reward.'},
+],
+wind:[
+ {t:'BE',n:'Bloom Energy',sec:'Industrials',base:8,bull:15,bear:10,qe:12,stag:14,
+  roic:'-1.83%',revy:'+130.4%',earny:'+0%',piotr:3,gc:1,mcap:'$93.6B',price:'$328.91',div:'0.0%',pe:'—',score:0,
+  r:'RevG +130.4%, GC:1 — fuel cell clean energy; AI data center backlog building rapidly',
+  desc:'Bloom Energy makes solid oxide fuel cells for clean, reliable on-site power generation. 130% revenue growth signals accelerating demand. Growing backlog from data centers seeking power independence from the grid. Golden Cross confirmed on strong volume.'},
+ {t:'CWEN',n:'Clearway Energy',sec:'Utilities',base:5,bull:12,bear:4,qe:10,stag:8,
+  roic:'1.09%',revy:'+18.8%',earny:'+0%',piotr:4,gc:1,mcap:'$9.0B',price:'$37.42',div:'4.9%',pe:'374.2',score:0,
+  r:'RevG +18.8%, GC:1, 4.9% div — wind/solar yieldco; contracted revenue + income play',
+  desc:'Clearway Energy is a yieldco owning wind and solar projects under long-term contracted revenue streams. 4.9% dividend yield with growth trajectory. Rate-cut beneficiary — these are bond-like assets that re-rate significantly when yields fall after the Warsh pivot.'},
+ {t:'GEV',n:'GE Vernova',sec:'Industrials',base:16,bull:35,bear:5,qe:25,stag:12,
+  roic:'8.32%',revy:'+16.3%',earny:'+1816%',piotr:2,gc:1,mcap:'$298B',price:'$1,109',div:'0.1%',pe:'32.5',score:216.1,
+  r:'SCORE:216 — RevG +16.3%, EarnG +1816%, GC:1 — wind + gas + grid; wins in all energy scenarios',
+  desc:'GE Vernova manufactures wind turbines AND gas turbines AND electrical grid equipment. If oil stays high, ALL three segments benefit simultaneously. The one stock that wins in multiple energy scenarios. Score 216 is second highest in all Industrials.'},
+ {t:'MTZ',n:'MasTec',sec:'Industrials',base:10,bull:25,bear:3,qe:18,stag:8,
+  roic:'8.69%',revy:'+34.5%',earny:'+508%',piotr:3,gc:1,mcap:'$30B',price:'$379.66',div:'0.0%',pe:'66.7',score:85.2,
+  r:'ROIC 8.69%, RevG +34.5%, GC:1 — builds the grid connections for ALL renewable sources',
+  desc:'MasTec builds the transmission lines, substations, and grid connections that all renewable energy sources need to connect to the grid. Picks and shovels for every energy source — wins regardless of which source wins the long-term energy mix.'},
+ {t:'EOSE',n:'Eos Energy',sec:'Industrials',base:3,bull:10,bear:8,qe:8,stag:12,
+  roic:'—',revy:'+444.7%',earny:'+0%',piotr:3,gc:0,mcap:'$2.6B',price:'$7.55',div:'0.0%',pe:'—',score:0,
+  r:'RevG +444.7% — zinc battery storage; early stage but 444% RevG signals real demand',
+  desc:'Eos Energy makes zinc-based battery storage systems for utility and commercial customers. 444.7% revenue growth is explosive and signals real market adoption. Very early stage with high risk, but if oil stays high, energy storage becomes strategically critical.'},
+],
+avBonds:[
+ {t:'TLT',n:'iShares 20+ Yr Treasury',sec:'Bond ETF',bp:-38,sp:-50,
+  why:"Maximum duration = maximum rate risk. If QE is delayed or deal fails, this gets crushed. The 30-year lost 50%+ from 2020-2023. It can happen again. Stay out until Warsh's first cut is confirmed and Groman signal #3 (10Y yield) turns green."},
+ {t:'ZROZ',n:'PIMCO Zero Coupon Bond',sec:'Bond ETF',bp:-42,sp:-55,
+  why:'Zero coupon = zero income while you wait AND maximum duration risk. Devastating in any high-inflation scenario. The mathematical worst case: rates stay high and you get nothing while principal erodes in real terms.'},
+ {t:'IEF',n:'iShares 7-10 Yr Treasury',sec:'Bond ETF',bp:-18,sp:-25,
+  why:'Medium duration rate risk. Only safe after confirmed Fed pivot. Moderate losses in bear, severe in stagflation. Wait for first cut then rotate from TIPS to IEF as yields normalize.'},
+ {t:'LQD',n:'iShares Corp Bond ETF',sec:'Bond ETF',bp:-22,sp:-30,
+  why:'Credit spread widening PLUS rate risk creates double whammy. Corporate bonds fall from both directions in bear/stagflation — rising rates AND widening credit risk premiums simultaneously.'},
+],
+avTech:[
+ {t:'ARKK',n:'ARK Innovation ETF',sec:'Speculative Tech',bp:-48,sp:-62,
+  why:'High-duration speculative basket entirely dependent on QE to function. No revenue shield. Your screener principles (ROIC, Piotroski) would eliminate every holding. Down 50%+ in bear, 62%+ in stagflation. Avoid until all 5 Groman signals flip green.'},
+ {t:'LCID',n:'Lucid Group',sec:'EV / Auto',bp:-58,sp:-72,
+  why:"EV maker with massive burn rate, no profit, and existential dependence on cheap capital. ROIC deeply negative. Tight Fed = funding crisis. Negative ROIC is the screener's clearest avoid signal."},
+ {t:'RIVN',n:'Rivian Automotive',sec:'EV / Auto',bp:-52,sp:-68,
+  why:'Same burn problem as Lucid. Amazon delivery contract provides floor but insufficient revenue. Rate squeeze compresses ability to refinance. Avoid until profitable with positive ROIC and Piotroski above 4.'},
+ {t:'PLUG',n:'Plug Power',sec:'Clean Energy',bp:-55,sp:-70,
+  why:'Your own screener shows ROIC = -79.62%. This is the clearest avoid signal in the scan. Hydrogen fuel cells with massive burn, no profit, subsidy-dependent business model. The screener identified this before the thesis broke down.'},
+ {t:'TDOC',n:'Teladoc Health',sec:'Telehealth',bp:-40,sp:-55,
+  why:'No moat, losing market share to competitors, high debt. Revenue growth stalling. No inflation protection and no pricing power against rising healthcare cost pressures. Classic ZIRP-era story stock now exposed.'},
+],
+avCons:[
+ {t:'W',n:'Wayfair',sec:'E-Commerce',bp:-50,sp:-65,
+  why:'Online furniture is first discretionary cut when gas eats household budgets. High debt, no moat, razor-thin margins. Double compression: earnings fall AND investors reprice the multiple simultaneously. Stagflation = existential threat.'},
+ {t:'CVNA',n:'Carvana',sec:'Auto Retail',bp:-45,sp:-60,
+  why:'Used car market is rate-sensitive. High inventory financing costs plus consumer credit stress equals margin collapse. Already came close to bankruptcy once. High rate environment is existentially threatening again.'},
+ {t:'PTON',n:'Peloton',sec:'Consumer Disc',bp:-40,sp:-55,
+  why:'Discretionary fitness spend evaporates when real wages fall and energy bills rise. Brand recovery story has failed repeatedly. Avoid legacy turnarounds in stagflation — the macro compounds the operational difficulty.'},
+ {t:'DRI',n:'Darden Restaurants',sec:'Restaurants',bp:-22,sp:-35,
+  why:'Restaurant spending is cut when oil eats household budgets. Labor cost inflation plus food cost inflation simultaneously compresses margins. Multiple compression follows earnings compression.'},
+],
+avReit:[
+ {t:'VNQ',n:'Vanguard Real Estate ETF',sec:'REIT ETF',bp:-25,sp:-32,
+  why:'Entire REIT sector acts as leveraged long bond. Every 25bps increase in 10Y yield compresses REIT valuations 3-5%. Hold only after first confirmed Fed cut. Watch Groman signal #3.'},
+ {t:'SLG',n:'SL Green Realty',sec:'Office REIT',bp:-35,sp:-45,
+  why:'NYC office REIT facing WFH occupancy crisis PLUS rate pressure. Double structural headwind. Office real estate is in secular decline regardless of macro environment. Avoid entirely.'},
+ {t:'BXP',n:'BXP Inc',sec:'Office REIT',bp:-30,sp:-40,
+  why:'Premium office REIT with high leverage and remote work secular headwind. Rate-sensitive debt structure makes this a spread product in a bad spread environment. Structural and cyclical headwinds simultaneously.'},
+ {t:'MPW',n:'Medical Props Trust',sec:'Healthcare REIT',bp:-38,sp:-50,
+  why:'Healthcare REIT with tenant stress (Steward Health Chapter 11 bankruptcy). Dividend at risk. Avoid until balance sheet clarity restored and rate environment improves significantly.'},
+],
+avStory:[
+ {t:'CHPT',n:'ChargePoint Holdings',sec:'EV Infra',bp:-48,sp:-65,
+  why:'EV charging infrastructure with no profit and heavy subsidy dependence. Tesla Supercharger network becoming industry standard creates structural competitive disadvantage. No moat, no ROIC, no path to profitability without QE.'},
+ {t:'BYND',n:'Beyond Meat',sec:'Food Tech',bp:-45,sp:-60,
+  why:'Revenue declining, negative ROIC, no pricing power, fading brand. Plant-based food premium disappears first when consumers feel squeezed. No moat in any scenario. Classic ZIRP-era story stock fully exposed.'},
+ {t:'SMCI',n:'Super Micro Computer',sec:'Technology',bp:-40,sp:-55,
+  why:'Accounting concerns and governance issues create existential risk beyond the macro. Even in QE scenario, company-specific risk dominates. Avoid story stocks with governance red flags regardless of AI narrative.'},
+],
+avInd:[
+ {t:'GE',n:'GE Aerospace',sec:'Industrial',bp:-20,sp:-28,
+  why:'Spun-off aerospace at stretched valuation post-GEV separation. Defense budget uncertainty plus rate exposure to pension obligations. Prefer GEV over GE for energy infrastructure theme.'},
+ {t:'RIDE',n:'Lordstown Motors',sec:'EV Truck',bp:-70,sp:-85,
+  why:"EV truck startup with negative ROIC, no production scale, and funding crisis. Existential in any tight-money environment. Your screener's signals (ROIC, Piotroski) all fail simultaneously."},
+ {t:'NKLA',n:'Nikola Corp',sec:'EV/Hydrogen',bp:-65,sp:-80,
+  why:'Hydrogen truck startup with history of fraud allegations, no revenue, massive burn rate. Avoid entirely — company-specific risk plus macro headwind creates double danger.'}
+],
+hioil:[
+ {t:'XOM',n:'ExxonMobil',sec:'Energy',base:8,bull:-8,bear:40,qe:5,stag:38,
+  roic:'11.2%',revy:'+5.1%',earny:'+12.3%',piotr:5,gc:1,mcap:'$488B',price:'$109.82',div:'3.4%',pe:'14.2',score:42.1,
+  r:'ROIC 11.2%, Piotr:5, GC:1, 3.4% div -- high oil = peak earnings; USD revenues dominate',
+  desc:'ExxonMobil generates ~70% of revenue in USD. High oil directly expands margins -- every $10/barrel increase adds ~$4B to annual earnings. Strong dollar means international competitors are less competitive. 3.4% dividend is secure at $60+ oil.'},
+ {t:'CVX',n:'Chevron',sec:'Energy',base:7,bull:-6,bear:35,qe:4,stag:33,
+  roic:'9.8%',revy:'+3.2%',earny:'+8.1%',piotr:5,gc:1,mcap:'$268B',price:'$143.11',div:'4.1%',pe:'13.8',score:38.4,
+  r:'ROIC 9.8%, 4.1% div -- Permian Basin low break-even; high oil + strong dollar = cash machine',
+  desc:'Chevron is the lowest break-even major oil company. Permian Basin operations generate strong free cash flow at $60+ oil. At $90+, Chevron becomes a cash machine. 4.1% dividend growing. Strong balance sheet -- can buy back stock aggressively at high oil prices.'},
+ {t:'OXY',n:'Occidental Petroleum',sec:'Energy',base:10,bull:-6,bear:48,qe:6,stag:44,
+  roic:'8.9%',revy:'+4.5%',earny:'+18.2%',piotr:4,gc:1,mcap:'$48B',price:'$53.22',div:'1.9%',pe:'12.1',score:34.7,
+  r:'Buffett-backed; high oil = massive FCF; OxyChem chemical division benefits from USD strength',
+  desc:'Buffett owns 28%+ of OXY -- when oil is high, the cash flow is extraordinary. OxyChem (chemicals) benefits from USD strength as competing global producers face FX headwinds. Most leveraged to oil price of the majors.'},
+ {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,
+  roic:'15.31%',revy:'+7.3%',earny:'+19.4%',piotr:4,gc:1,mcap:'$933B',price:'$117.18',div:'0.8%',pe:'41.3',score:40.1,
+  r:'ROIC 15.31%, GC:1 -- consumers shift TO Walmart when energy costs squeeze budgets',
+  desc:'When gas prices are high and real incomes fall, consumers trade down to Walmart. Domestic US revenue base protects from dollar strength. Grocery dominance = inelastic demand. The classic high-oil defensive play.'},
+ {t:'COST',n:'Costco',sec:'Consumer Defensive',base:8,bull:14,bear:2,qe:10,stag:9,strong:5,
+  roic:'33.56%',revy:'+21.5%',earny:'+45.5%',piotr:5,gc:1,mcap:'$422B',price:'$951.45',div:'0.6%',pe:'47.8',score:45.0,
+  r:'ROIC 33.56%, Piotr:5, GC:1 -- bulk buying saves members money; membership fee is inflation-proof',
+  desc:'Costco bulk model is designed for high-cost environments. Members join to beat inflation. Annual membership fee is recession-proof recurring revenue. Domestic US bias protects from dollar headwinds. 33.56% ROIC is exceptional for retail.'},
+ {t:'MPC',n:'Marathon Petroleum',sec:'Energy',base:9,bull:4,bear:32,qe:8,stag:28,
+  roic:'10.98%',revy:'+8.8%',earny:'+0%',piotr:5,gc:1,mcap:'$70.9B',price:'$242.91',div:'1.6%',pe:'16.0',score:28.9,
+  r:'ROIC 10.98%, Piotr:5, GC:1 -- refiner margins widen when crude stays high; USD revenues',
+  desc:'Refiners like Marathon benefit from supply-constrained high oil because crack spreads (refining margins) widen. They buy crude and sell refined products, both priced in USD. Strong dollar makes imported refined products more expensive, protecting domestic margins.'},
+ {t:'PG',n:'Procter and Gamble',sec:'Consumer Defensive',base:5,bull:9,bear:2,qe:7,stag:6,
+  roic:'20.91%',revy:'+7.4%',earny:'+5.8%',piotr:3,gc:0.5,mcap:'$350B',price:'$150.38',div:'2.8%',pe:'22.0',score:42.4,
+  r:'ROIC 20.91%, 2.8% div -- Tide/Gillette/Pampers have 60yr proven pricing power through oil shocks',
+  desc:'P&G has raised prices through every inflationary cycle since 1962 without losing market share. USD revenue base benefits from dollar strength. Essential products like Tide, diapers, and toothpaste have near-zero demand elasticity regardless of oil prices.'},
+ {t:'LMT',n:'Lockheed Martin',sec:'Industrials',base:8,bull:5,bear:22,qe:6,stag:20,
+  roic:'N/A',revy:'+5.8%',earny:'+9.2%',piotr:null,gc:1,mcap:'$114B',price:'$476.82',div:'2.9%',pe:'17.3',score:28.0,
+  r:'GC:1, 2.9% div -- high oil = Middle East tension = defense budgets surge; USD contracts only',
+  desc:'Lockheed is a direct geopolitical tension beneficiary. High oil from Middle East instability always triggers defense budget increases across NATO and Gulf states. 100% USD-denominated contracts -- dollar strength is a direct tailwind. F-35 and missile defense backlog extends 5+ years.'},
+ {t:'RTX',n:'RTX Corporation',sec:'Industrials',base:7,bull:4,bear:20,qe:5,stag:18,
+  roic:'N/A',revy:'+8.9%',earny:'+15.2%',piotr:null,gc:1,mcap:'$163B',price:'$142.37',div:'2.1%',pe:'22.4',score:25.0,
+  r:'GC:1 -- Patriot/Tomahawk/Pratt+Whitney; Iran tension = defense demand spike; all USD contracts',
+  desc:'RTX makes Patriot missile systems, Tomahawk cruise missiles, and Pratt & Whitney jet engines. Iran tensions directly drive demand for Raytheon air defense systems. All US government contracts in USD. High oil = more Middle East tension = more defense orders.'},
+ {t:'KO',n:'Coca-Cola',sec:'Consumer Defensive',base:4,bull:10,bear:3,qe:8,stag:7,strong:-12,
+  roic:'19.03%',revy:'+12.1%',earny:'+18.2%',piotr:5,gc:1,mcap:'$342B',price:'$79.39',div:'2.6%',pe:'25.0',score:36.2,
+  r:'ROIC 19.03%, Piotr:5, 2.6% div -- 130yr brand; passes oil-driven input costs through every time',
+  desc:'Coca-Cola has survived and profited through every oil shock in history. When transportation and packaging costs rise (both oil-driven), KO raises prices and consumers keep buying. The dividend has grown for 62 consecutive years through every inflationary cycle. Recession-proof cash flow machine.'},
+ {t:'MKC',n:'McCormick and Co',sec:'Consumer Defensive',base:5,bull:10,bear:2,qe:8,stag:6,
+  roic:'8.73%',revy:'+16.7%',earny:'+528.3%',piotr:4,gc:0,mcap:'$12.5B',price:'$46.64',div:'3.9%',pe:'7.6',score:80.2,
+  r:'ROIC 8.73%, PE:7.6, 3.9% div -- spice/flavor monopoly; zero substitution under cost pressure',
+  desc:'McCormick supplies spices and flavorings to every major food manufacturer globally. They cannot be substituted. PE of 7.6 is extremely cheap for a monopoly. In high-oil scenarios, food companies pass costs through and McCormick rides along with 3.9% yield.'},
+ {t:'EOG',n:'EOG Resources',sec:'Energy',base:8,bull:-4,bear:38,qe:5,stag:35,
+  roic:'11.92%',revy:'+15.6%',earny:'+39.6%',piotr:3,gc:1,mcap:'$69.2B',price:'$129.98',div:'3.0%',pe:'12.8',score:30.4,
+  r:'ROIC 11.92%, Piotr:3, GC:1 -- break-even below $40; high oil = extraordinary FCF; USD revenues',
+  desc:'EOG is the best-run US shale company. Break-even below $40/barrel means at $90+ oil, EOG generates extraordinary free cash flow. Pays a growing dividend and buys back stock aggressively. Pure USD revenue stream -- dollar strength is neutral to positive.'},
+]
+,strongdollar:[
+ {t:'LMT',n:'Lockheed Martin',sec:'Industrials',base:10,bull:5,bear:28,qe:6,stag:22,strong:30,
+  roic:'N/A',revy:'+5.8%',earny:'+9.2%',piotr:null,gc:1,mcap:'$114B',price:'$476.82',div:'2.9%',pe:'17.3',score:28.0,
+  r:'GC:1, 2.9% div -- Bretton Woods 2.0 core pick; 100% USD contracts + world chaos = peak defense spending',
+  desc:'Lockheed Martin is the ultimate Bretton Woods 2.0 beneficiary. World chaos forces nations to buy US defense (F-35, Patriot, THAAD) all priced in USD. Strong dollar = cheaper for foreign buyers in local currency. Every geopolitical dollar spent flows through LMT. 5-year backlog expanding.'},
+ {t:'RTX',n:'RTX Corporation',sec:'Industrials',base:8,bull:4,bear:25,qe:5,stag:20,strong:28,
+  roic:'N/A',revy:'+8.9%',earny:'+15.2%',piotr:null,gc:1,mcap:'$163B',price:'$142.37',div:'2.1%',pe:'22.4',score:25.0,
+  r:'GC:1 -- Patriot missiles + Pratt engines; Iran tension + strong dollar = demand surge; all USD contracts',
+  desc:'RTX Corporation (Raytheon + Pratt & Whitney) benefits from Iran-driven tension AND dollar strength. Foreign nations need USD to buy Patriot systems -- increasing dollar demand while boosting RTX. The Bretton Woods 2.0 thesis and RTX revenues are literally the same trade.'},
+ {t:'NOC',n:'Northrop Grumman',sec:'Industrials',base:8,bull:4,bear:25,qe:5,stag:20,strong:26,
+  roic:'N/A',revy:'+4.2%',earny:'+8.5%',piotr:null,gc:1,mcap:'$72B',price:'$490.21',div:'1.7%',pe:'18.5',score:22.0,
+  r:'GC:1 -- B-21 Raider stealth bomber + space systems; pure US government USD revenue stream',
+  desc:'Northrop Grumman makes the B-21 stealth bomber, space systems, and nuclear command infrastructure. 100% US government USD revenue -- zero overseas translation risk. Strong dollar = more foreign defense spending flows to US firms = Northrop wins alongside LMT and RTX.'},
+ {t:'UUP',n:'Invesco USD Bullish ETF',sec:'ETF',base:2,bull:-8,bear:8,qe:-14,stag:5,strong:18,
+  roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$30',div:'--',pe:'--',score:0,
+  r:'Direct DXY long ETF -- the cleanest pure-play on the Bretton Woods 2.0 thesis in one ticker',
+  desc:'UUP tracks long USD vs basket of currencies. The simplest, most direct way to invest in the strong dollar thesis from the video. When DXY goes from 101 to 110, UUP gains proportionally. Inverse to GLD, IBIT, and DBC. When you believe the thesis, this is the clearest expression.'},
+ {t:'IWM',n:'iShares Russell 2000 ETF',sec:'ETF',base:5,bull:18,bear:-18,qe:22,stag:-14,strong:12,
+  roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$220',div:'~1.4%',pe:'--',score:0,
+  r:'Small caps = 80%+ domestic US revenue -- direct strong dollar beneficiary vs S&P multinationals',
+  desc:'The Russell 2000 small cap index is the single strongest historical beneficiary of DXY strength. Small companies average 80%+ domestic US revenue vs S&P 500 at ~60% domestic. No EPS headwind from currency translation. When DXY rises 10%, S&P loses 2-4% EPS, IWM loses near zero.'},
+ {t:'KRE',n:'SPDR Regional Banks ETF',sec:'ETF',base:5,bull:25,bear:-22,qe:38,stag:-30,strong:20,
+  roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$62',div:'~2.8%',pe:'--',score:0,
+  r:'Regional banks: 100% domestic revenue + high US rates = NIM expansion + foreign capital inflows seeking yield',
+  desc:'Regional banks have almost entirely domestic revenue with no overseas EPS translation drag. Higher US rates (which support the dollar via rate differential) expand net interest margins. Foreign capital flows into the US seeking higher yields directly increases bank deposits. Triple benefit.'},
+ {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,
+  roic:'15.31%',revy:'+7.3%',earny:'+19.4%',piotr:4,gc:1,mcap:'$933B',price:'$117.18',div:'0.8%',pe:'41.3',score:40.1,
+  r:'ROIC 15.31%, GC:1 -- 90%+ domestic US revenue; strong dollar = zero EPS headwind + consumer flight to value',
+  desc:'Walmart derives ~90% of revenue from domestic US operations -- near-zero overseas translation drag from a rising dollar. Strong dollar often coincides with consumer price pressure globally, pushing domestic shoppers toward discount retailers. Grocery dominance = inelastic demand regardless.'},
+ {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,
+  roic:'25.75%',revy:'+8.1%',earny:'+7.8%',piotr:5,gc:0,mcap:'$78.7B',price:'$450.67',div:'0.8%',pe:'32.4',score:33.3,
+  r:'ROIC 25.75%, Piotr:5 -- 27 countries seeking emergency dollar access (World Bank June 2026) = bond issuance surge',
+  desc:"Moody's benefits directly from Bretton Woods 2.0: as nations scramble for dollar access, they issue dollar-denominated sovereign bonds -- each requiring a Moody's rating. The 27 countries seeking emergency dollar access (World Bank June 2026) are all potential sovereign rating clients."},
+ {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,
+  roic:'44.25%',revy:'+17.1%',earny:'+35.5%',piotr:3,gc:0,mcap:'$622B',price:'$327.24',div:'0.8%',pe:'28.5',score:36.6,
+  r:'ROIC 44.25% -- global USD transaction volume; strong dollar = more USD cross-border fee value per transaction',
+  desc:'Counter-intuitive strong dollar play: Visa processes global transactions in USD. Strong dollar = each foreign-to-USD transaction conversion is worth more. Cross-border fees are a fixed % of transaction value in USD. Historically, strong DXY periods see Visa EPS beat as dollar-denominated fees amplify.'},
+ {t:'CEG',n:'Constellation Energy',sec:'Utilities',base:14,bull:18,bear:20,qe:18,stag:18,strong:15,
+  roic:'6.96%',revy:'+63.8%',earny:'+1091%',piotr:4,gc:0,mcap:'$97.9B',price:'$274.06',div:'0.6%',pe:'23.8',score:139.3,
+  r:'Nuclear power: 100% domestic USD revenue; AI data center contracts denominated in USD; wins in all scenarios',
+  desc:'Constellation Energy is scenario-agnostic because nuclear power is contracted in USD for US data centers. Strong dollar does not affect CEG as Microsoft and other hyperscaler contracts are denominated domestically. Nuclear is also an energy independence play -- reduces exposure to foreign oil.'},
+]
+};
+
+// ============================================================
+const SCENS = {
+ base:  {oil:68,  fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40},
+ bull:  {oil:58,  fed:275, iran:92, cpi:25, yield:330, y2:270, dxy:920,  qe:72, slr:82},
+ bear:  {oil:105, fed:425, iran:5,  cpi:68, yield:510, y2:455, dxy:1065, qe:12, slr:12},
+ qe:    {oil:68,  fed:250, iran:75, cpi:28, yield:310, y2:210, dxy:900,  qe:95, slr:95},
+ stag:  {oil:115, fed:400, iran:0,  cpi:82, yield:615, y2:415, dxy:1065, qe:8,  slr:8 },
+ strong:{oil:72,  fed:425, iran:50, cpi:45, yield:500, y2:448, dxy:1100, qe:15, slr:30},
+};const NARRS = {
+ base:'<strong>BASE CASE:</strong> Iran deal partially holds, oil settles $70-$80. Warsh stays hawkish through Q3, pivots Q4 as trimmed PCE data justifies cuts. Banks get SLR exemption in pipeline. Covert QE begins Q1 2027. Dollar weakens gradually. Markets chop sideways then rip higher late 2026.',
+ bull:"<strong>BULL &mdash; DEAL WORKS:</strong> Iran signed, Strait opens, oil crashes to $60s. Warsh's new real-time PCE shows 2.4% inflation. He cuts 75bps. Banks lever into treasuries via SLR deregulation. Dollar drops hard. Every Groman signal turns green simultaneously. S&P rips 20%+. Gold, BTC, Banks, Tech all win at once.",
+ bear:'<strong>BEAR &mdash; DEAL COLLAPSES:</strong> Israel escalates, Hormuz partially closes, oil spikes $100+. Warsh trapped &mdash; CPI re-accelerates to 6%+. Bond market revolts. 2Y hits 5.5%. S&P corrects 15-25% by Q4. Only energy tankers (FRO, STNG, DHT), gold miners, and commodities survive. New Fed chair -12% historical average in play.',
+ qe:'<strong>QE MACHINE FIRES:</strong> SLR deregulation passes. Banks buy $800B+ in US treasuries using leverage. Warsh points to new real-time AI data showing 2.1% inflation. Cuts 100bps. Balance sheet technically shrinks but covert QE surges. Dollar collapses. Bitcoin hits new ATH. Gold $3,500+. Stocks rip nominally while real purchasing power quietly erodes.',
+ stag:'<strong>STAGFLATION &mdash; 1970s REPLAY:</strong> Oil at $115, GDP stalls, CPI stuck at 6%+. Fed cannot cut (bond market revolt) or raise much further (debt load). Trapped. Real wages fall. This is the Volcker moment Warsh fears becoming. Only gold, energy, and consumer necessities provide real shelter. Bonds are the death trade.',
+ strong:'<strong>&#x1F4AA; STRONG DOLLAR (Bretton Woods 2.0):</strong> Engineered global dollar shortage. DXY targeting 110. World chaos forces nations to spend on US goods and arms, requiring dollars. 27 countries sought emergency dollar access (World Bank June 2026). De-dollarization trade is DEAD. <strong style="color:var(--ac2)">WINNERS: Defense (LMT +30%), Regional Banks (KRE +20%), Small Caps (IWM +12%), UUP ETF (+18%).</strong> <strong style="color:var(--red)">AVOID: Gold (-15%), BTC (-30%), AAPL/KO/PG/MSFT (50-65% overseas revenue = EPS headwind).</strong>',
+};
+const ANGLES = [
+ {s:'BULL',c:'var(--ac3)',t:'Iran Deal + Oil Crash + Rate Cuts',b:'Oil to $58, Warsh pivots Q4, Groman signals green. S&P +16%, gold +20% (rebounds from $4100 ATH pullback), BTC +58% on dollar weakness. Buy the sequence: energy hedge OFF, gold ON, banks ON, tech ON.',tks:['NEM','AG','IBIT','JPM','GS','NVDA']},
+ {s:'BEAR',c:'var(--red)',t:'Deal Collapses -- DXY Spikes, Gold FALLS',b:'Oil $100+, Warsh hikes. DXY to 106 = dollar shortage intensifies. CRITICAL: gold falls in bear (DXY inverse confirmed). Only tankers, energy, and SHORT gold miners survive.',tks:['FRO','STNG','XLE','EQT','DBC','UUP']},
+ {s:'QE',c:'var(--ac)',t:'Covert QE via SLR -- Dollar Collapses',b:'Banks buy bonds. Dollar collapses (DXY 90). ONLY scenario where gold/BTC win. BTC ATH. Gold $5000+. QE reverses the strong dollar thesis completely. Play hard assets hard.',tks:['IBIT','GDX','AG','WPM','JPM','KRE']},
+ {s:'STAG',c:'var(--gold)',t:'Stagflation -- 1970s Replay',b:'Oil high, growth stalls, Fed trapped. DXY elevated (flight to safety) but real returns crushed. Bonds are the death trade. Only gold, energy, and necessities protect real wealth. Gold beats in stag even with strong dollar.',tks:['NEM','AEM','WPM','XOM','WMT','TIP']},
+ {s:'STRONG',c:'var(--ac2)',t:'Bretton Woods 2.0 -- Engineered Dollar Shortage',b:'DXY targeting 110. World chaos forces spending on US goods/arms. Nations need dollars. 27 countries seeking emergency dollar access (World Bank June 2026). De-dollarization trade is DEAD. Buy domestic US revenue. Sell multinationals.',tks:['LMT','RTX','KRE','IWM','UUP','NOC']},
+ {s:'STRONG',c:'var(--ac2)',t:'Strong Dollar Winners vs Losers -- The Key Distinction',b:'Every 10% DXY rise shaves 2-4% off S&P EPS concentrated in multinationals. AVOID: AAPL (60% overseas), KO (65%), PG (55%), MSFT (50%). BUY: small caps, defense, regional banks, domestic staples. Rotate before the move.',tks:['IWM','KRE','WMT','COST','LMT','UUP']},
+];
+
+
+let CH={};
+const CARD_STORE={};
+// Stores the most recently fetched live macro values
+// doRefresh() populates this; rv() restores from it
+const LIVE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40};
+
+function rv(id, hardcoded){
+  // Map slider id → LIVE_MACRO key
+  const keyMap = {
+    'sl-oil':'oil','sl-fed':'fed','sl-iran':'iran','sl-cpi':'cpi',
+    'sl-yield':'yield','sl-y2':'y2','sl-dxy':'dxy','sl-qe':'qe','sl-slr':'slr'
+  };
+  const k = keyMap[id];
+  // Use live-fetched value if available, otherwise fall back to hardcoded
+  const val = (k && LIVE_MACRO[k] != null) ? LIVE_MACRO[k] : hardcoded;
+  document.getElementById(id).value = val;
+  upd();
+}
+
+function gv(){
+ const y10    = +document.getElementById('sl-yield').value / 100;
+ const y2     = +document.getElementById('sl-y2').value / 100;
+ const spread = +(y10 - y2).toFixed(2); // 2Y-10Y term spread: key recession/bank/QE signal
+ // Update spread card border color (green=steep, amber=flat, red=inverted)
+ const _sc = document.getElementById('spread-card');
+ if(_sc){ _sc.className = 'scard ' + (spread > 0.5 ? 'steep' : spread > 0 ? 'flat' : 'inv'); }
+ // Update spread display inside slider card
+ const sdEl = document.getElementById('spread-display');
+ if(sdEl){
+   const sc = spread > 0.5 ? 'var(--ac3)' : spread > 0 ? 'var(--gold)' : 'var(--red)';
+   const label = spread > 0.5 ? 'STEEP ✓' : spread > 0 ? '~ FLAT' : '⚠ INVERTED';
+   sdEl.innerHTML = `<span style="color:${sc}">Spread: ${spread>=0?'+':''}${spread.toFixed(2)}% — ${label}</span>`;
+ }
+ return{
+  oil:  +document.getElementById('sl-oil').value,
+  fed:  +document.getElementById('sl-fed').value / 100,
+  iran: +document.getElementById('sl-iran').value,
+  cpi:  +document.getElementById('sl-cpi').value / 10,
+  y10, y2, spread,
+  dxy:  +document.getElementById('sl-dxy').value / 10,
+  qe:   +document.getElementById('sl-qe').value,
+  slr:  +document.getElementById('sl-slr').value,
+};}
+
+function gkey(v){
+ const sp = v.spread !== undefined ? v.spread : (v.y10 - (v.y2 || v.y10));
+ if(v.qe>80 && v.slr>80)                         return 'qe';
+ if(v.oil>95 && v.cpi>55)                         return 'stag';
+ if(v.iran>75 && v.oil<70)                        return 'bull';
+ if(v.iran<20 && v.oil>90)                        return 'bear';
+ if(v.dxy>=1070 && v.fed>=4.0 && v.qe<30)        return 'strong';
+ return 'base';
+}
+
+function setScen(s,el){
+ document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+ if(el)el.classList.add('on');
+ const p=SCENS[s];
+ document.getElementById('sl-oil').value=p.oil;
+ document.getElementById('sl-fed').value=p.fed;
+ document.getElementById('sl-iran').value=p.iran;
+ document.getElementById('sl-cpi').value=p.cpi;
+ document.getElementById('sl-yield').value=p.yield;
+ document.getElementById('sl-dxy').value=p.dxy;
+ document.getElementById('sl-qe').value=p.qe;
+ document.getElementById('sl-slr').value=p.slr;
+ upd();
+}
+
+function buildExpanded(t,n,d,k){
+ const lp=PX[t]||BASE_PX[t], bp=BASE_PX[t];
+ const pct=(lp&&bp)?((lp-bp)/bp*100):null;
+ const sign=pct!==null?(pct>=0?'+':''):'';
+ const lcol=pct===null?'var(--ac)':pct>0?'var(--ac3)':pct<0?'var(--red)':'var(--mu)';
+ const fmt=v=>!v||v==='--'?'--':(v<10?'$'+v.toFixed(2):v<1000?'$'+v.toFixed(2):'$'+v.toFixed(0));
+ const liveRow=lp?`<div class="exp-live-row">
+  <div><div style="font-size:9px;font-family:JetBrains Mono,monospace;color:var(--mu);text-transform:uppercase;margin-bottom:2px">Live Price</div>
+  <div class="exp-live-price">${fmt(lp)}</div></div>
+  ${pct!==null?`<div class="exp-live-chg" style="color:${lcol}">${sign}${pct.toFixed(2)}%<div style="font-size:9px;color:var(--mu);font-weight:400">vs Jun 23 baseline</div></div>`:''}
+  ${bp&&lp!==bp?`<div><div style="font-size:9px;font-family:JetBrains Mono,monospace;color:var(--mu)">Baseline</div><div style="font-family:JetBrains Mono,monospace;font-size:14px;color:var(--mu)">${fmt(bp)}</div></div>`:''}
+  <div style="margin-left:auto;font-size:9px;color:var(--mu);font-family:JetBrains Mono,monospace">via Stooq</div>
+ </div>`:'';
+ const scens=[{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'}];
+ const allRet=scens.map(sc=>{
+  const v=d[sc.key];
+  if(v==null)return '';
+  const c=v>0?'var(--ac3)':v<0?'var(--red)':'var(--mu)';
+  const s=v>=0?'+':'';
+  const active=sc.key===k?'border:1px solid var(--ac)':'';
+  return `<div class="exp-ret" style="${active}"><div class="exp-ret-lbl">${sc.lbl}</div><div class="exp-ret-val" style="color:${c}">${s}${v}%</div></div>`;
+ }).join('');
+ const stats=[
+  ['Ticker',t,'var(--ac)'],
+  ['Sector',d.sec||'--'],
+  ['Live Price',lp?fmt(lp):'--','var(--ac)'],
+  ['Baseline',bp?fmt(bp):'--'],
+  ['Market Cap',d.mcap||'--'],
+  ['P/E Ratio',d.pe||'--'],
+  ['ROIC',d.roic||'--','var(--ac)'],
+  ['Rev Growth',d.revy||'--'],
+  ['Earn Growth',d.earny||'--'],
+  ['Dividend',d.div||'--'],
+  ['Piotroski',d.piotr!=null?d.piotr+'/9':'--',d.piotr>=5?'var(--ac3)':null],
+  ['Golden Cross',d.gc!=null?(d.gc>=1?'YES ✓':'NO ✗'):'--',d.gc>=1?'var(--ac3)':'var(--mu)'],
+  ['Screen Score',d.score>0?d.score.toFixed(1):'--','var(--gold)'],
+ ].filter(x=>x[1]!=='--'&&x[1]!=null);
+ const statsHTML=stats.map(([lbl,val,col])=>`<div class="exp-stat"><div class="exp-slbl">${lbl}</div><div class="exp-sval"${col?` style="color:${col}"`:''}>${val}</div></div>`).join('');
+ return `<div class="exp-inner">
+  <button class="exp-close" onclick="event.stopPropagation();collapseAll()">&#10005;</button>
+  ${liveRow}
+  <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mu);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">All Scenario Returns</div>
+  <div class="exp-all-ret">${allRet}</div>
+  <div class="exp-stats">${statsHTML}</div>
+  <div class="exp-desc">${d.desc||d.r||d.why||''}</div>
+  <div class="exp-links">
+   <a class="exp-lnk yf" href="https://finance.yahoo.com/quote/${t}" target="_blank" rel="noopener" onclick="event.stopPropagation()">&#128200; Yahoo Finance</a>
+   <a class="exp-lnk tv" href="https://www.tradingview.com/chart/?symbol=${t}" target="_blank" rel="noopener" onclick="event.stopPropagation()">&#128202; TradingView</a>
+   <a class="exp-lnk fv" href="https://finviz.com/quote.ashx?t=${t}" target="_blank" rel="noopener" onclick="event.stopPropagation()">&#128269; Finviz</a>
+  </div>
+ </div>`;
+}
+function expandCard(cardEl,t,n,d,k){
+ const prev=document.querySelector('.sc.expanded,.aec.expanded,.avc.expanded');
+ if(prev&&prev!==cardEl){prev.classList.remove('expanded');const pi=prev.querySelector('.exp-inner');if(pi)pi.remove();}
+ if(cardEl.classList.contains('expanded')){cardEl.classList.remove('expanded');const ei=cardEl.querySelector('.exp-inner');if(ei)ei.remove();return;}
+ cardEl.classList.add('expanded');
+ cardEl.insertAdjacentHTML('beforeend',buildExpanded(t,n,d,k));
+ setTimeout(()=>cardEl.scrollIntoView({behavior:'smooth',block:'nearest'}),50);
+}
+function collapseAll(){
+ document.querySelectorAll('.sc.expanded,.aec.expanded,.avc.expanded').forEach(el=>{
+  el.classList.remove('expanded');const ei=el.querySelector('.exp-inner');if(ei)ei.remove();
+ });
+}
+function openModal(){}
+function closeModal(){collapseAll();}
+
+function mkGrid(arr,key,cid,cls){
+ cls=cls||'sc';
+ const el=document.getElementById(cid);
+ if(!el)return;
+ el.innerHTML=arr.map((s,i)=>{
+  const val=s[key]!=null?s[key]:(s.base||0);
+  const pcls=val>0?'u':val<0?'d':'nt';
+  const sign=val>=0?'+':'';
+  const col=val>0?'var(--ac3)':val<0?'var(--red)':'var(--gold)';
+  const gcB=s.gc!=null?'<span class="mc '+(s.gc>=1?'hi':'')+'">GC'+(s.gc>=1?'✓':'✗')+'</span>':'';
+  const pB=s.piotr!=null?'<span class="mc '+(s.piotr>=5?'hi':'')+'">P:'+s.piotr+'</span>':'';
+  const rB=(s.roic&&s.roic!='--'&&s.roic!='N/A'&&s.roic!='—')?'<span class="mc hi">'+s.roic+'</span>':'';
+  const dB=(s.div&&s.div!='0.0%'&&s.div!='—'&&s.div!='--')?'<span class="mc">'+s.div+'</span>':'';
+  const scB=(s.score>50?'<span class="mc hi">SC:'+Math.round(s.score)+'</span>':'');
+  const cardId=cid+'-'+i;
+  CARD_STORE[cardId]={t:s.t,n:s.n,d:s,k:key};
+  return '<div class="'+cls+'" data-card="'+cardId+'">'
+   +'<div class="st" style="color:'+col+'">'+s.t+livePriceBadge(s.t)+'</div>'
+   +'<div class="snam">'+s.n+'</div>'
+   +'<div class="sp '+pcls+'">'+sign+val+'%</div>'
+   +'<div class="sm">'+rB+gcB+pB+dB+scB+'</div>'
+   +'<div class="sr">'+s.r+'</div>'
+   +'</div>';
+ }).join('');
+}
+
+function mkAvoid(arr,cid){
+ const el=document.getElementById(cid);
+ if(!el)return;
+ el.innerHTML=arr.map((s,i)=>{
+  const cardId=cid+'-'+i;
+  CARD_STORE[cardId]={t:s.t,n:s.n,d:{r:s.why,sec:s.sec,base:s.bp,bear:s.bp,stag:s.sp,bull:0,qe:0,price:'--',mcap:'--',roic:'N/A',revy:'--',pe:'--',div:'--',score:0,desc:s.why},k:'bear'};
+  return '<div class="avc" data-card="'+cardId+'">'
+   +'<div class="st" style="color:var(--red)">'+s.t+'</div>'
+   +'<div class="snam">'+s.n+'</div>'
+   +'<div class="sp d">Bear:'+s.bp+'% / Stag:'+s.sp+'%</div>'
+   +'<div style="font-size:9px;color:var(--mu);margin:3px 0 4px;background:rgba(255,59,92,.1);padding:2px 6px;border-radius:3px;display:inline-block">'+s.sec+'</div>'
+   +'<div class="sr">'+s.why+'</div>'
+   +'</div>';
+ }).join('');
+}
+
+function updSigs(v){
+ const sp = v.spread !== undefined ? v.spread : (v.y10 - (v.y2||v.y10));
+ const spreadBull = sp > 0.50;
+ const spreadBear = sp < 0.00;
+ const sig=[
+  {ic:'&#x1F4B5;',nm:'Dollar (DXY)',    bu:v.dxy<98,              be:v.dxy>104,    sub:''},
+  {ic:'&#x1F4C8;',nm:'Stocks (Risk)',   bu:v.qe>60&&v.iran>60,    be:v.oil>95,     sub:''},
+  {ic:'&#x1F4C9;',nm:'10Y Yield',       bu:v.y10<4.0,             be:v.y10>4.8,    sub:''},
+  {ic:'&#x1F947;',nm:'Gold',            bu:v.dxy<98&&v.qe>50,     be:v.dxy>105,    sub:''},
+  {ic:'&#x20BF;', nm:'Bitcoin',         bu:v.qe>65&&v.dxy<100,    be:v.qe<20,      sub:''},
+  {ic:'&#x1F4CA;',nm:'2Y-10Y Spread',   bu:spreadBull,            be:spreadBear,
+   sub:(sp>=0?'+':'')+sp.toFixed(2)+'%'},
+ ];
+ document.getElementById('sigs').innerHTML=sig.map(s=>{
+  const cls=s.bu?'bu':s.be?'be':'ne';
+  const st=(s.bu?'BULLISH':s.be?'BEARISH':'NEUTRAL')+(s.sub?' '+s.sub:'');
+  return'<div class="sgc '+cls+'"><div class="si">'+s.ic+'</div><div class="sn">'+s.nm+'</div><div class="ss">'+st+'</div></div>';
+ }).join('');
+}
+
+function initCharts(){
+ const mo=['Now','M+1','M+2','M+3','M+4','M+5','M+6','M+7','M+8','M+9','M+10','M+11'];
+ const co={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#6b7fa3',font:{family:'JetBrains Mono',size:10}}}},scales:{x:{grid:{color:'rgba(30,45,69,.7)'},ticks:{color:'#6b7fa3',font:{family:'JetBrains Mono',size:9}}},y:{grid:{color:'rgba(30,45,69,.7)'},ticks:{color:'#6b7fa3',font:{family:'JetBrains Mono',size:9}}}}};
+ CH.spx=new Chart(document.getElementById('spxC'),{type:'line',data:{labels:mo,datasets:[
+  {label:'Bull',data:[],borderColor:'#39ff14',borderWidth:2,pointRadius:2,tension:.4,fill:false},
+  {label:'Projected',data:[],borderColor:'#00e5ff',borderWidth:2.5,pointRadius:3,tension:.4,fill:false},
+  {label:'Bear',data:[],borderColor:'#ff3b5c',borderWidth:2,pointRadius:2,tension:.4,fill:false},
+ ]},options:co});
+ CH.asset=new Chart(document.getElementById('assetC'),{type:'bar',data:{labels:['S&P 500','Gold','Bitcoin','Oil','10Y Bond','USD'],datasets:[{label:'12M Return %',data:[],backgroundColor:[]}]},options:{...co,indexAxis:'y'}});
+ CH.sector=new Chart(document.getElementById('sectorC'),{type:'radar',data:{labels:['Financials','Energy','Technology','Materials','Utilities','Healthcare','Real Estate','Cons Def'],datasets:[{label:'Sector Score',data:[],borderColor:'#00e5ff',backgroundColor:'rgba(0,229,255,.07)',pointBackgroundColor:'#00e5ff'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#6b7fa3'}}},scales:{r:{grid:{color:'rgba(30,45,69,.7)'},ticks:{color:'#6b7fa3',backdropColor:'transparent',font:{size:7}},pointLabels:{color:'#e8edf5',font:{size:9,family:'JetBrains Mono'}},min:0,max:100}}}});
+ CH.yield=new Chart(document.getElementById('yieldC'),{type:'line',data:{labels:['1M','3M','6M','1Y','2Y','5Y','10Y','20Y','30Y'],datasets:[
+  {label:'Current',data:[],borderColor:'#00e5ff',borderWidth:2,tension:.4,fill:false,pointRadius:3},
+  {label:'12M Proj',data:[],borderColor:'#39ff14',borderWidth:2,tension:.4,fill:false,borderDash:[5,3],pointRadius:3},
+ ]},options:co});
+}
+
+function updCharts(v,k){
+ const bull=[4500,4620,4790,4960,5140,5360,5560,5720,5880,6020,6190,6370];
+ const bear=[4500,4390,4240,4090,3940,3790,3710,3670,3690,3750,3810,3890];
+ const m  = v.iran/100;
+ const dm = Math.max(1-(v.oil-60)/100, .28);
+ const sp = v.spread !== undefined ? v.spread : (v.y10 - (v.y2||v.y10));
+ const spreadMult = 1 + Math.max(Math.min(sp * 0.35, 0.25), -0.20);
+ const proj=bull.map((b,i)=>Math.round((b*m*dm*.5+4570*.35+bear[i]*(1-m)*.15)*spreadMult));
+ CH.spx.data.datasets[0].data=bull;CH.spx.data.datasets[1].data=proj;CH.spx.data.datasets[2].data=bear;CH.spx.update('none');
+ const RET={
+ //               [S&P, Gold,  BTC,  Oil, Bond,  USD]
+ // July 2 2026: WTI $68 (falling), DXY 101.3 (rising), Gold $4100 (from $5595 ATH)
+ // KEY: strong DXY = INVERSE to gold, BTC, commodities -- confirmed by live data
+ bull:   [ 16,  20,  58, -22,  12, -10],
+ bear:   [ -8,  -5, -42,  38, -20,   8],  // bear = DXY spike -> gold FALLS (dollar dominates)
+ qe:     [ 22,  32,  72,  -5,  16, -14],
+ stag:   [-10,  22, -28,  42, -32,   8],
+ base:   [  6,   8,  12,  -5,  -3,   2],  // July 2026: oil falling, DXY rising slight
+ strong: [ -5, -15, -30,  -8, -10,  18],  // Strong dollar: kills gold/BTC, USD ETF wins
+}; const r=RET[k]||RET.base;
+ CH.asset.data.datasets[0].data=r;
+ CH.asset.data.datasets[0].backgroundColor=r.map((rv,i)=>rv>=0?['#39ff14','#ffd700','#f97316','#6b7fa3','#a855f7','#22d3ee'][i]:['#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c'][i]);
+ CH.asset.update('none');
+ const SD={
+ // [Financials, Energy, Technology, Materials, Utilities, Healthcare, Real Estate, Consumer Def]
+ // Strong dollar: Tech/Materials HURT (overseas EPS), Financials/Healthcare/Defense WIN
+ bull:   [80, 48, 88, 55, 62, 50, 75, 60],
+ bear:   [38, 88, 45, 82, 60, 65, 25, 52],
+ qe:     [90, 52, 72, 68, 68, 50, 88, 58],
+ stag:   [25, 80, 35, 88, 65, 72, 18, 52],
+ base:   [62, 58, 62, 56, 52, 56, 50, 55],
+ strong: [72, 42, 48, 32, 65, 72, 55, 68],  // Tech -48 (overseas EPS), Defense inside Industrials wins
+}; CH.sector.data.datasets[0].data=SD[k]||SD.base;CH.sector.update('none');
+ const y2   = v.y2 || (v.y10 - 0.26);
+ const y10  = v.y10;
+ const ycSp = y10 - y2;  // local yield curve spread (renamed to avoid redeclaring sp)
+ const y1m  = +(v.fed + 0.05).toFixed(2);
+ const y3m  = +(v.fed + 0.10).toFixed(2);
+ const y6m  = +(v.fed + 0.15).toFixed(2);
+ const y1y  = +(y2 - 0.35).toFixed(2);
+ const y5y  = +(y2 + ycSp * 0.55).toFixed(2);
+ const y20y = +(y10 + 0.25).toFixed(2);
+ const y30y = +(y10 + 0.45).toFixed(2);
+ const yc = [y1m, y3m, y6m, y1y, y2, y5y, y10, y20y, y30y];
+ const shifts = {
+   bull: [-0.80,-0.80,-0.70,-0.65,-0.55,-0.40,-0.25,-0.15,-0.10],
+   bear: [ 0.30, 0.30, 0.25, 0.20, 0.15, 0.25, 0.35, 0.45, 0.50],
+   qe:   [-1.20,-1.20,-1.10,-1.00,-0.90,-0.65,-0.45,-0.30,-0.20],
+   stag: [ 0.05, 0.05, 0.08, 0.05, 0.00, 0.60, 1.20, 1.60, 1.80],
+   base: [-0.20,-0.18,-0.15,-0.12,-0.10,-0.05, 0.00, 0.05, 0.08],
+ };
+ const sh = shifts[k] || shifts.base;
+ const yp = yc.map((y,i) => +(y + sh[i]).toFixed(2));
+ CH.yield.data.datasets[0].data=yc;CH.yield.data.datasets[1].data=yp;CH.yield.update('none');
+}
+
+function updBars(k){
+ const items=[
+ // RECALIBRATED July 2 2026 with Strong Dollar column
+ // KEY CHANGE: bear gold = NEGATIVE (DXY spike suppresses gold -- confirmed inverse)
+ ['FRO','Frontline Tankers',    {bull:-20,bear:55,qe:8,stag:50,base:5, strong:-5 }],
+ ['NEM','Newmont Gold',         {bull:18, bear:-8,qe:32,stag:22,base:5, strong:-20}],
+ ['LMT','Lockheed Martin',      {bull:5,  bear:28,qe:6,stag:22,base:10, strong:30 }],
+ ['NVDA','NVIDIA',              {bull:55, bear:-28,qe:45,stag:-22,base:18,strong:-12}],
+ ['JPM','JPMorgan',             {bull:32, bear:-15,qe:40,stag:-18,base:12,strong:14}],
+ ['IBIT','Bitcoin ETF',         {bull:58, bear:-42,qe:72,stag:-28,base:10,strong:-30}],
+ ['XLE','Energy ETF',           {bull:-12,bear:38,qe:6,stag:35,base:0, strong:-5 }],
+ ['CEG','Constellation Nuke',   {bull:18, bear:20,qe:18,stag:18,base:14,strong:15 }],
+ ['GDX','Gold Miners ETF',      {bull:25, bear:-10,qe:40,stag:20,base:5, strong:-22}],
+ ['KRE','Regional Banks ETF',   {bull:22, bear:-22,qe:38,stag:-30,base:5, strong:20}],
+ ['UUP','USD Bullish ETF',      {bull:-8, bear:8, qe:-14,stag:5, base:2, strong:18}],
+ ['PLTR','Palantir',            {bull:60, bear:-18,qe:40,stag:-8, base:18,strong:5 }],
+]; let h='';
+ items.forEach(([t,nm,ret])=>{
+  const r=ret[k]||0;
+  const pct=Math.min(Math.abs(r)/90*100,100);
+  const sign=r>=0?'+':'';
+  const col=r>=0?'var(--ac3)':'var(--red)';
+  const link='https://finance.yahoo.com/quote/'+t.replace('/','');
+  h+='<div class="ob"><div class="obl">'
+   +'<span style="font-family:JetBrains Mono,monospace;font-weight:700;font-size:11px"><a href="'+link+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">'+t+'</a> <span style="color:var(--mu);font-weight:400;font-size:10px">'+nm+'</span></span>'
+   +'<span style="font-family:JetBrains Mono,monospace;font-size:12px;color:'+col+'">'+sign+r+'%</span>'
+   +'</div><div class="bt"><div class="bf '+(r>=0?'p':'n')+'" style="width:'+pct+'%"></div></div></div>';
+ });
+ document.getElementById('obs').innerHTML=h;
+}
+
+function updMbar(v,k){
+ const sp = v.spread !== undefined ? v.spread : (v.y10 - (v.y2||v.y10));
+ const spreadStr = (sp>=0?'+':'')+sp.toFixed(2)+'%';
+ const chips=[
+  ['⛽ $'+v.oil,         v.oil<80],
+  ['Fed '+v.fed.toFixed(2)+'%', v.fed<4.5],
+  ['2Y '+v.y2.toFixed(2)+'%',   v.y2<4.0],
+  ['10Y '+v.y10.toFixed(2)+'%', v.y10<4.2],
+  ['Spread '+spreadStr,         sp>0.5],
+  ['CPI '+v.cpi.toFixed(1)+'%', v.cpi<3.5],
+  ['DXY '+v.dxy.toFixed(1),     v.dxy<100],
+  ['Iran '+v.iran+'%',          v.iran>70],
+  ['QE '+v.qe+'%',              v.qe>60],
+  ['SLR '+v.slr+'%',            v.slr>60],
+ ];
+ document.getElementById('mbar').innerHTML=chips.map(([l,ok])=>{const c=ok?'var(--ac3)':'var(--red)';return'<div class="mch" style="color:'+c+';border-color:'+c+'">'+l+'</div>';}).join('');
+}
+
+function updTL(k){
+ const TL={
+  base:[{a:1,l:'Now',e:'Warsh hawkish'},{a:0,l:'Q3 2026',e:'Iran deal limbo'},{a:0,l:'Q3 2026',e:'New PCE data'},{a:0,l:'Q4 2026',e:'First cut'},{a:0,l:'Q1 2027',e:'SLR dereg'},{a:0,l:'Q2 2027',e:'Covert QE fires'}],
+  bull:[{a:1,l:'Now',e:'Warsh hawkish'},{a:1,l:'M+1',e:'Deal signed'},{a:1,l:'M+2',e:'Oil $60s'},{a:1,l:'M+3',e:'PCE: 2.4%'},{a:1,l:'M+4',e:'Cut 75bps'},{a:0,l:'EOY',e:'S&P +20%'}],
+  bear:[{a:1,l:'Now',e:'Warsh hawkish'},{a:0,l:'M+1',e:'Deal collapses'},{a:0,l:'M+2',e:'Oil $100+'},{a:0,l:'M+3',e:'CPI 6%+'},{a:0,l:'M+4',e:'S&P -20%'},{a:0,l:'Q4',e:'Bond revolt'}],
+  qe:[{a:1,l:'Now',e:'Warsh hawkish'},{a:1,l:'M+2',e:'SLR passed'},{a:1,l:'M+3',e:'Banks buy bonds'},{a:1,l:'M+4',e:'New PCE fires'},{a:1,l:'M+5',e:'Cut 100bps'},{a:1,l:'M+6',e:'BTC ATH'}],
+  stag:[{a:1,l:'Now',e:'Warsh hawkish'},{a:0,l:'M+2',e:'Oil $115+'},{a:0,l:'M+3',e:'Growth stalls'},{a:0,l:'M+4',e:'Fed trapped'},{a:0,l:'M+6',e:'S&P -25%'},{a:0,l:'EOY',e:'Gold $3000+'}],
+ };
+ const tl=TL[k]||TL.base;
+ document.getElementById('tl').innerHTML=tl.map(i=>'<div class="tli"><div class="tld '+(i.a?'on':'')+'">'+( i.a?'✓':'○')+'</div><div class="tll">'+i.l+'</div><div class="tle">'+i.e+'</div></div>').join('');
+}
+
+function bldAngles(){
+ document.getElementById('angles').innerHTML=ANGLES.map(a=>'<div class="acard"><div class="albl" style="color:'+a.c+'">'+a.s+' ANGLE</div><div class="atit">'+a.t+'</div><div class="abod">'+a.b+'</div><div class="atks">'+a.tks.map(t=>'<span class="tp">'+t+'</span>').join('')+'</div></div>').join('');
+}
+
+function upd(){
+ Object.keys(CARD_STORE).forEach(k=>delete CARD_STORE[k]);
+ const v=gv();
+ const k=gkey(v);
+ document.getElementById('v-oil').textContent='$'+v.oil;
+ document.getElementById('v-fed').textContent=v.fed.toFixed(2)+'%';
+ document.getElementById('v-iran').textContent=v.iran+'%';
+ document.getElementById('v-cpi').textContent=v.cpi.toFixed(1)+'%';
+ document.getElementById('v-yield').textContent=v.y10.toFixed(2)+'%';
+ if(document.getElementById('v-y2')) document.getElementById('v-y2').textContent=v.y2.toFixed(2)+'%';
+ document.getElementById('v-dxy').textContent=v.dxy.toFixed(1);
+ document.getElementById('v-qe').textContent=v.qe+'%';
+ document.getElementById('v-slr').textContent=v.slr+'%';
+ document.getElementById('live-scen').textContent='SCENARIO: '+k.toUpperCase();
+ document.getElementById('narr').innerHTML=NARRS[k]||NARRS.base;
+ const al=document.getElementById('oil-alert');
+ v.oil>=90?al.classList.add('show'):al.classList.remove('show');
+ updSigs(v);updCharts(v,k);updBars(k);updMbar(v,k);updTL(k);
+ mkGrid(DB.gold,k,'g-gold');
+ mkGrid(DB.banks,k,'g-banks');
+ mkGrid(DB.tech,k,'g-tech');
+ mkGrid(DB.energy,k,'g-energy');
+ mkGrid(DB.pricing,k,'g-pricing');
+ mkGrid(DB.etf,k,'g-etf');
+ mkGrid(DB.scan,k,'g-scan');
+ mkGrid(DB.nuke,k,'g-nuke','aec');
+ mkGrid(DB.solar,k,'g-solar','aec');
+ mkGrid(DB.wind,k,'g-wind','aec');
+ mkAvoid(DB.avBonds,'av-bonds');
+ mkAvoid(DB.avTech,'av-tech');
+ mkAvoid(DB.avCons,'av-cons');
+ mkAvoid(DB.avReit,'av-reit');
+ mkAvoid(DB.avStory,'av-story');
+ mkAvoid(DB.avInd,'av-ind');
+ // High Oil + High Dollar section -- split into 3 grids by category
+ const energyTks  = ['XOM','CVX','OXY','MPC','EOG'];
+ const consumerTks = ['WMT','COST','PG','KO','MKC'];
+ const defenseTks  = ['LMT','RTX'];
+ const hioilE = DB.hioil.filter(s=>energyTks.includes(s.t));
+ const hioilC = DB.hioil.filter(s=>consumerTks.includes(s.t));
+ const hioilD = DB.hioil.filter(s=>defenseTks.includes(s.t));
+ mkGrid(DB.strongdollar.filter(s=>['LMT','RTX','NOC'].includes(s.t)), k, 'g-strong-defense');
+ mkGrid(DB.strongdollar.filter(s=>['IWM','WMT','CEG'].includes(s.t)), k, 'g-strong-domestic');
+ mkGrid(DB.strongdollar.filter(s=>['UUP','KRE','MCO','V'].includes(s.t)), k, 'g-strong-financial');
+ // Strong dollar active badge
+ const strongActive = v.dxy >= 107 && v.fed >= 4.0 && v.qe < 30;
+ const sTrig = document.getElementById('strong-trigger-msg');
+ if(sTrig) sTrig.style.display = strongActive ? 'block' : 'none';
+ const sBadge = document.getElementById('strong-badge');
+ if(sBadge){
+   sBadge.style.background  = strongActive ? 'rgba(57,255,20,.15)' : 'rgba(255,107,53,.15)';
+   sBadge.style.borderColor = strongActive ? 'rgba(57,255,20,.4)'  : 'rgba(255,107,53,.4)';
+   sBadge.style.color       = strongActive ? 'var(--ac3)'          : 'var(--ac2)';
+   sBadge.textContent       = strongActive ? 'ACTIVE NOW'          : 'DXY 107+';
+ }
+ mkGrid(hioilE, k, 'g-hioil-energy');
+ mkGrid(hioilC, k, 'g-hioil-consumer');
+ mkGrid(hioilD, k, 'g-hioil-defense');
+ // Active indicator when both conditions are met
+ const hioilActive = v.oil >= 90 && v.dxy >= 100;
+ const trigMsg = document.getElementById('hioil-trigger-msg');
+ if(trigMsg) trigMsg.style.display = hioilActive ? 'block' : 'none';
+ const badge = document.getElementById('hioil-badge');
+ if(badge){
+   badge.style.background  = hioilActive ? 'rgba(57,255,20,.15)' : 'rgba(255,107,53,.15)';
+   badge.style.borderColor = hioilActive ? 'rgba(57,255,20,.4)'  : 'rgba(255,107,53,.4)';
+   badge.style.color       = hioilActive ? 'var(--ac3)'          : 'var(--ac2)';
+   badge.textContent       = hioilActive ? 'ACTIVE NOW'          : 'WTI $90+ / DXY 100+';
+ }
+}
+
+
+// ═══════════════════════════════════════════════════════════
+//  LIVE DATA ENGINE  —  Stooq only, zero API keys, public-safe
+//  Sources:
+//    Macro (oil, 10Y, DXY)  →  stooq.com/q/l/ CSV endpoint
+//    All 82 stock prices     →  stooq.com/q/l/ CSV endpoint
+//    Fed Rate / CPI / Iran   →  hardcoded current values
+//                               (these don't move intraday)
+// ═══════════════════════════════════════════════════════════
+
+// ── Hardcoded baselines (June 23 2026 close / known values) ─
+const BASE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40};
+
+// Stooq symbol map  →  tickers that need remapping
+const SQ_MAP = {
+  'GOOGL':'GOOGL.US', 'BRK.B':'BRK.B.US', 'GE':'GE.US',
+};
+function sqSym(t){ return SQ_MAP[t] || (t + '.US'); }
+
+// Baseline prices (June 23 2026 — shown while live data loads)
+const BASE_PX = {
+  NEM:103.79,AEM:166.66,WPM:119.58,AG:18.00,IAG:16.88,AGI:36.34,
+  JPM:325.22,GS:1096.56,MS:223.17,AFL:115.47,V:327.24,MA:489.79,MCO:450.67,
+  NVDA:210.69,MSFT:379.40,PLTR:128.47,GOOGL:368.03,AAPL:298.01,MU:1133.99,APP:469.71,CIEN:428.22,
+  FRO:40.93,STNG:81.66,DHT:18.89,GLNG:49.89,LPG:39.56,EOG:129.98,MPC:242.91,EQT:50.72,
+  COST:951.45,WMT:117.18,KO:79.39,PG:150.38,TSN:55.46,MKC:46.64,
+  GDX:45.10,XLE:90.20,QQQ:480.50,SCHD:28.10,TIP:107.20,DBC:23.40,KRE:62.30,IBIT:55.80,
+  SBLK:26.29,GEV:1109.73,FSLR:257.70,MTZ:379.66,CEG:274.06,ARIS:16.62,BLBD:74.13,
+  AES:14.62,NEE:86.75,TLN:436.06,ENPH:53.71,RUN:13.49,SEDG:58.20,BE:328.91,CWEN:37.42,EOSE:7.55,
+  TLT:86.40,ZROZ:52.10,IEF:95.30,LQD:108.20,
+  ARKK:46.20,LCID:2.28,RIVN:10.45,PLUG:2.85,TDOC:8.38,
+  W:42.10,CVNA:185.50,PTON:3.82,DRI:148.30,
+  VNQ:85.20,SLG:44.10,BXP:58.30,MPW:3.18,
+  CHPT:1.22,BYND:4.48,SMCI:32.10,GE:220.40,RIDE:0.31,NKLA:0.82
+};
+
+// All 82 tickers
+const ALL_TKS = Object.keys(BASE_PX);
+
+// Macro stooq symbols
+const MACRO_SQ = {
+  oil:  {s:'@CL.F', lo:20,  hi:200, scale:1,    key:'oil'},
+  y10:  {s:'10US.B',lo:0.5, hi:12,  scale:100,  key:'yield'},
+  y2:   {s:'2US.B', lo:0.5, hi:12,  scale:100,  key:'y2'},
+  dxy:  {s:'DXY.F', lo:70,  hi:130, scale:10,   key:'dxy'},
+};
+
+// Live price store (starts with baseline, updated live)
+const PX = {...BASE_PX};
+let liveCount  = 0;   // how many tickers returned live
+let macroLive  = 0;   // how many macro series returned live
+let lastUpdate = null;
+let busy       = false;
+
+// ── Stooq single-symbol fetch ────────────────────────────────
+async function sqFetch(sym){
+  const url = `https://stooq.com/q/l/?s=${encodeURIComponent(sym)}&f=sd2t2ohlcv&h&e=csv`;
+  const r   = await fetch(url, {cache:'no-store', mode:'cors'});
+  if (!r.ok) throw new Error(r.status);
+  const txt  = await r.text();
+  const rows = txt.trim().split('\n');
+  if (rows.length < 2) throw new Error('empty');
+  const cols  = rows[1].split(',');
+  const close = parseFloat(cols[4]);
+  if (!isFinite(close) || close <= 0) throw new Error('bad');
+  return close;
+}
+
+// ── Progress bar helper ──────────────────────────────────────
+function setProgress(pct){ document.getElementById('prog-bar').style.width = pct + '%'; }
+function setStat(txt){     document.getElementById('lb-stat').textContent   = txt; }
+function setTime(txt,cls){ const el=document.getElementById('lb-time'); el.textContent=txt; el.className='lb-time'+(cls?' '+cls:''); }
+function setDot(cls){      document.getElementById('ld').className = 'ld '+(cls||''); }
+
+// ── Update a single price badge on the page ──────────────────
+function updateBadge(ticker){
+  const live = PX[ticker];
+  const base = BASE_PX[ticker];
+  if (!live || !base) return;
+  const el = document.getElementById('lpx-' + ticker);
+  if (!el) return;
+  const pct  = ((live - base) / base * 100);
+  const sign = pct >= 0 ? '+' : '';
+  const fmt  = live < 10 ? live.toFixed(2) : live < 1000 ? live.toFixed(2) : live.toFixed(0);
+  el.textContent = `$${fmt}`;
+  el.className   = 'lpx ' + (Math.abs(pct) < 0.05 ? 'flat' : pct > 0 ? 'up' : 'dn');
+  el.title       = `${sign}${pct.toFixed(2)}% vs baseline`;
+}
+
+// ── Main refresh ─────────────────────────────────────────────
+async function doRefresh(){
+  if (busy) return;
+  busy = true;
+  const btn = document.getElementById('rfbtn');
+  btn.disabled = true;
+  setDot('spin');
+  setProgress(0);
+  liveCount = 0; macroLive = 0;
+
+  // ── Phase 1: Macro (oil, 10Y yield, DXY) ──────────────────
+  setStat('Fetching macro data (oil · yields · dollar)...');
+  const macroOut = {...BASE_MACRO};
+
+  // Wrap each stooq fetch in a 6-second timeout — GitHub/CORS failures hang indefinitely
+  const sqFetchT = (sym, cfg) => Promise.race([
+    sqFetch(sym).then(v => {
+      if(v >= cfg.lo && v <= cfg.hi){ macroOut[cfg.key] = Math.round(v * cfg.scale); macroLive++; }
+    }).catch(()=>{}),
+    new Promise(res => setTimeout(res, 6000)) // 6s timeout per fetch
+  ]);
+
+  await Promise.allSettled(Object.values(MACRO_SQ).map(cfg => sqFetchT(cfg.s, cfg)));
+
+  // Apply macro to sliders AND store as live reference for RST buttons
+  ['oil','fed','iran','cpi','yield','y2','dxy','qe','slr'].forEach(k => {
+    const id = k==='y2'?'sl-y2':'sl-'+k;
+    const el = document.getElementById(id);
+    if (el && macroOut[k] != null){
+      el.value = macroOut[k];
+      LIVE_MACRO[k] = macroOut[k]; // store for RST button restore
+    }
+  });
+  setProgress(8);
+
+  // ── Phase 2: All 82 stock prices in parallel ───────────────
+  setStat(`Fetching ${ALL_TKS.length} stock prices from Stooq...`);
+  const step = 90 / ALL_TKS.length;
+
+  await Promise.allSettled(ALL_TKS.map(async (tk, i) => {
+    try {
+      const v = await Promise.race([
+        sqFetch(sqSym(tk)),
+        new Promise((_,rej) => setTimeout(()=>rej(new Error('timeout')), 8000))
+      ]);
+      if (v > 0){ PX[tk] = v; liveCount++; }
+    } catch(_){}
+    setProgress(8 + Math.round((i + 1) * step));
+    updateBadge(tk);
+  }));
+
+  setProgress(100);
+
+  // ── Phase 3: Status bar ────────────────────────────────────
+  lastUpdate = new Date();
+  const ts = lastUpdate.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+  const ds = lastUpdate.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+
+  const macroStr = `WTI $${macroOut.oil} · 10Y ${(macroOut.yield/100).toFixed(2)}% · DXY ${(macroOut.dxy/10).toFixed(1)} · Fed ${(macroOut.fed/100).toFixed(2)}% · CPI ${(macroOut.cpi/10).toFixed(1)}% · Iran ${macroOut.iran}%`;
+
+  if (liveCount > 40){
+    setDot('');
+    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live`);
+    setTime(`Updated ${ds} ${ts}`);
+  } else if (liveCount > 0){
+    setDot('');
+    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} live (Stooq partial)`);
+    setTime(`Updated ${ds} ${ts}`, 'stale');
+  } else {
+    setDot('err');
+    setStat(`Live data unavailable (CORS/network) — baseline Jun 23 2026 · ${macroStr}`);
+    setTime('Baseline prices shown', 'stale');
+  }
+
+  btn.disabled = false;
+  btn.textContent = '⟳ REFRESH';
+  busy = false;
+
+  upd(); // re-render all stock cards + charts with fresh scenario
+}
+
+// ── Helper: return formatted live price badge HTML for a ticker ─
+function livePriceBadge(ticker){
+  const p = PX[ticker] || BASE_PX[ticker];
+  if (!p) return '';
+  const fmt = p < 10 ? p.toFixed(2) : p < 1000 ? p.toFixed(2) : p.toFixed(0);
+  // cls set to 'live' initially; updateBadge() will colour it after fetch
+  return `<span class="lpx live" id="lpx-${ticker}" title="Loading live price...">$${fmt}</span>`;
+}
+
+// ── Card click delegation ─────────────────────────────────────
+document.addEventListener('click',function(e){
+ if(e.target.closest('a[href]')) return; // let real links through unchanged
+ const card=e.target.closest('[data-card]');
+ if(!card) return;
+ const c=CARD_STORE[card.dataset.card];
+ if(c) expandCard(card,c.t,c.n,c.d,c.k);
+});
+
+window.addEventListener('load',()=>{
+  initCharts();
+  bldAngles();
+  upd();          // render cards immediately with baseline data — never wait for network
+  doRefresh();    // then fetch live data in background; upd() called again when done
+});
+// ── Expose ALL functions called from HTML attributes ────────────
+window.rv          = rv;
+window.upd         = upd;         // oninput="upd()" on every slider
+window.setScen     = setScen;
+window.doRefresh   = doRefresh;
+window.collapseAll = collapseAll;
+})();
+
+</script>
+</body>
+</html>
