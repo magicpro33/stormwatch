@@ -881,7 +881,20 @@ with tab_map:
     if st.session_state.get("mw_analyze"):
         render_ticker_analysis(st.session_state["mw_analyze"], closes)
         st.divider()
-    st.caption(f"Data through {asof} · history source: "
+    _cc1, _cc2 = st.columns([6, 1], vertical_alignment="center")
+    if _cc2.button("🔄 Refresh", key="mw_refresh", width="stretch",
+                   help="Redownload the node history right now (Alpaca → Yahoo), "
+                        "re-estimate every storm track, and rescan for waves — "
+                        "ignoring all caches. Takes ~1-2 minutes on the download. "
+                        "If the feeds are unreachable, your previous data is kept."):
+        with st.spinner("Refreshing node history and re-estimating the cascade…"):
+            try:
+                ce.refresh_history()
+            except Exception:
+                pass
+            st.cache_data.clear()
+        st.rerun()
+    _cc1.caption(f"Data through {asof} · history source: "
                f"{getattr(ce, 'LAST_HISTORY_SOURCE', 'cached parquet')} · "
                f"edges re-estimated on the trailing "
                f"{ce.EDGE_TRAIN} sessions · forecasts look {ce.EDGE_HORIZON} "

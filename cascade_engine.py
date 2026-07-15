@@ -119,11 +119,28 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
 
 
 def refresh_history():
+    """Force a fresh download, but restore the previous cache if the feeds
+    fail — a manual refresh should never leave you with less than you had."""
+    backup = None
+    try:
+        backup = pd.read_parquet(LOCAL_HISTORY)
+        backup.index = pd.to_datetime(backup.index)
+    except Exception:
+        pass
     try:
         os.remove(LOCAL_HISTORY)
     except FileNotFoundError:
         pass
-    return fetch_history()
+    fresh = fetch_history()
+    if (fresh is None or len(fresh) < 30) and backup is not None:
+        global LAST_HISTORY_SOURCE
+        try:
+            backup.to_parquet(LOCAL_HISTORY)
+        except Exception:
+            pass
+        LAST_HISTORY_SOURCE = "previous cache (refresh failed — feeds unreachable)"
+        return backup
+    return fresh
 
 
 # ── impulse + graph ──────────────────────────────────────────────────
@@ -1485,7 +1502,8 @@ def _node_follow_corr(node: str, node_closes: pd.DataFrame):
     return corr
 
 
-def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20) -> tuple:
+def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
+              regime_override: str | None = None) -> tuple:
     """THE combined screener: IGNITION technicals + macro-simulator quality
     DNA + cascade tailwind + macro-regime sector fit, over the whole dump
     (all markets). Returns (top-N DataFrame, regime dict)."""
@@ -1569,7 +1587,12 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20) -> 
     tail_pct = _pct(tail) if len(used_nodes) else np.full(N, 0.5)
 
     # ── pillar 4: macro-regime sector fit ────────────────────────────
-    regime = macro_regime(node_closes, pressure_gauge)
+    if regime_override and regime_override in REGIME_LABELS:
+        regime = dict(regime=regime_override, label=REGIME_LABELS[regime_override],
+                      drivers=["manual scenario override — matched to your "
+                               "Macro Sim sliders, not live detection"])
+    else:
+        regime = macro_regime(node_closes, pressure_gauge)
     tilts = SECTOR_TILTS.get(regime["regime"], {})
     macro_mult = np.array([tilts.get(s, 1.0) for s in sectors])
 
