@@ -190,6 +190,401 @@ def _tk_earnings(tk: str):
     return ce.upcoming_earnings([tk])
 
 
+@st.cache_data(ttl=900, show_spinner="Running the full analyzer chain (Alpaca → Yahoo → dump)…")
+def _analyzer(tk: str, _asof: str):
+    return ce.fetch_analyzer(tk)
+
+
+@st.cache_data(ttl=1800, show_spinner="Scanning all 5,700 stocks across every pillar…")
+def _mega_scan(_asof: str, _gauge):
+    return ce.mega_scan(_history(), pressure_gauge=_gauge)
+
+
+
+
+# ═════════ IGNITION Stock Analyzer (ported) ═════════
+def az_pill(label, good):
+    bg = "#0d2215" if good is True else ("#220d0d" if good is False else "#1a1500")
+    col = "#4dd880" if good is True else ("#ff4444" if good is False else "#d0b040")
+    bc = "#1e6b35" if good is True else ("#a03535" if good is False else "#907020")
+    return (f"<span style='display:inline-block;background:{bg};color:{col};"
+            f"border:1px solid {bc};border-radius:4px;font-family:monospace;"
+            f"font-size:11px;padding:2px 9px;margin:2px 4px 2px 0'>{label}</span>")
+
+
+def az_tag(v, hi, lo, fmt="{:.2f}", suffix=""):
+    try:
+        fv = float(v)
+        col = "#4dd880" if fv >= hi else ("#d0b040" if fv >= lo else "#ff4444")
+        return f"<span style='font-family:monospace;color:{col}'>{fmt.format(fv)}{suffix}</span>"
+    except Exception:
+        return "--"
+
+
+def az_tag_inv(v, hi, lo, fmt="{:.2f}", suffix=""):
+    try:
+        fv = float(v)
+        col = "#ff4444" if fv >= hi else ("#d0b040" if fv >= lo else "#4dd880")
+        return f"<span style='font-family:monospace;color:{col}'>{fmt.format(fv)}{suffix}</span>"
+    except Exception:
+        return "--"
+
+
+def mrow(label, tooltip, value):
+    return (f"<tr style='border-bottom:1px solid #122540'>"
+            f"<td style='padding:8px 10px;font-size:13px;color:#b0c8e8;width:44%'>"
+            f"<span title='{tooltip}' style='cursor:help;border-bottom:1px dashed #1e3a5f'>{label}</span></td>"
+            f"<td style='padding:8px 10px;font-size:13px;font-family:monospace;color:#F6F4E9'>{value}</td></tr>")
+
+
+def mtable(rows):
+    st.markdown("<table style='width:100%;border-collapse:collapse'>" + "".join(rows)
+                + "</table>", unsafe_allow_html=True)
+
+
+def az_section(title):
+    st.markdown(f"<div style='font-weight:700;font-size:13px;letter-spacing:1px;"
+                f"text-transform:uppercase;color:#f5a623;border-bottom:1px solid #1e3a5f;"
+                f"padding-bottom:4px;margin:14px 0 8px'>{title}</div>", unsafe_allow_html=True)
+
+
+def pct_color(v):
+    if v is None:
+        return "--"
+    col = "#4dd880" if v >= 0 else "#ff4444"
+    return f"<span style='font-family:monospace;color:{col}'>{'+' if v >= 0 else ''}{v:.2f}%</span>"
+
+
+def render_eps_trend(eps_history, eps_forward=None, why=""):
+    eps_forward = eps_forward or []
+    timeline = []
+    for q in eps_history:
+        if q["actual"] is not None:
+            beat = q["surprise"]
+            kind = "beat" if (beat is None or beat >= 0) else "miss"
+            timeline.append({"label": (q["quarter"].split()[0] if q["quarter"] else ""),
+                             "value": q["actual"], "kind": kind, "est": q["estimate"]})
+    for f in [f for f in eps_forward if "Qtr" in f["period"]]:
+        timeline.append({"label": "Next Q" if f["period"] == "Next Qtr" else "Q+2",
+                         "value": f["estimate"], "kind": "projected", "est": None})
+    if not timeline:
+        st.caption(f"Quarterly EPS history unavailable — {why or 'no earnings records returned'}")
+        return
+    n = len(timeline); W, H = 320, 110
+    pad_l, pad_r, pad_t, pad_b = 8, 8, 10, 22
+    plot_w, plot_h = W - pad_l - pad_r, H - pad_t - pad_b
+    slot = plot_w / n; bar_w = min(slot * 0.55, 26)
+    vals = [t["value"] for t in timeline if t["value"] is not None] +            [t["est"] for t in timeline if t.get("est") is not None]
+    if not vals:
+        st.caption("Quarterly EPS history unavailable")
+        return
+    vmax, vmin = max(max(vals), 0.0), min(min(vals), 0.0)
+    vr = (vmax - vmin) or 1.0
+    y_of = lambda v: pad_t + plot_h * (1 - (v - vmin) / vr)
+    zy = y_of(0.0); bars, labs = [], []
+    for i, t in enumerate(timeline):
+        cx = pad_l + slot * i + slot / 2
+        if t.get("est") is not None:
+            ey = y_of(t["est"])
+            bars.append(f"<line x1='{cx-bar_w/2-2:.1f}' y1='{ey:.1f}' x2='{cx+bar_w/2+2:.1f}' "
+                        f"y2='{ey:.1f}' stroke='#7a9ab8' stroke-width='1.5' stroke-dasharray='2,2'/>")
+        if t["value"] is not None:
+            ay = y_of(t["value"]); top = min(ay, zy); hh = abs(ay - zy)
+            fill = ("fill='#4dd880'" if t["kind"] == "beat" else
+                    "fill='#ff4444'" if t["kind"] == "miss" else
+                    "fill='#f5a623' fill-opacity='0.55' stroke='#f5a623' stroke-dasharray='3,2'")
+            bars.append(f"<rect x='{cx-bar_w/2:.1f}' y='{top:.1f}' width='{bar_w:.1f}' "
+                        f"height='{max(hh,1):.1f}' rx='2' {fill}/>")
+        lc = "#f5a623" if t["kind"] == "projected" else "#7a9ab8"
+        labs.append(f"<text x='{cx:.1f}' y='{H-6}' text-anchor='middle' "
+                    f"font-family='monospace' font-size='7' fill='{lc}'>{t['label']}</text>")
+    st.markdown(f"<svg width='100%' height='{H}' viewBox='0 0 {W} {H}' style='max-width:360px'>"
+                f"<line x1='{pad_l}' y1='{zy:.1f}' x2='{W-pad_r}' y2='{zy:.1f}' stroke='#1e3a5f'/>"
+                + "".join(bars) + "".join(labs) + "</svg>", unsafe_allow_html=True)
+    st.caption("green = beat estimates · red = miss · amber dashed = analyst projection · "
+               "grey ticks = the estimate each quarter")
+
+
+def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
+    """The IGNITION Stock Analyzer, ported: Alpaca → yfinance → dump chain,
+    three-column deep dive."""
+    info, hist, eps_history, eps_forward = _analyzer(tk, asof)
+
+    px = float(info.get("currentPrice") or info.get("regularMarketPrice") or
+               info.get("previousClose") or
+               (hist.Close.iloc[-1] if not hist.empty else 0) or 0)
+    live = ce.alpaca_prices([tk])
+    if tk in live:
+        px = live[tk]
+    name = info.get("shortName") or info.get("longName") or tk
+    sec = info.get("sector") or ""
+    ind = info.get("industry") or ""
+    sec_display = f"{sec} / {ind}" if (sec and ind) else (sec or ind or "--")
+    mcap = info.get("marketCap"); pe = info.get("trailingPE"); fwpe = info.get("forwardPE")
+    pb = info.get("priceToBook"); ps = info.get("priceToSalesTrailing12Months")
+    beta = info.get("beta")
+    hi52 = info.get("fiftyTwoWeekHigh") or (float(hist.High.max()) if not hist.empty and "High" in hist else 0)
+    lo52 = info.get("fiftyTwoWeekLow") or (float(hist.Low.min()) if not hist.empty and "Low" in hist else 0)
+    spf = info.get("shortPercentOfFloat"); sratio = info.get("shortRatio")
+    am = info.get("targetMeanPrice"); al = info.get("targetLowPrice"); ah = info.get("targetHighPrice")
+    nana = info.get("numberOfAnalystOpinions") or 0
+    rg = info.get("revenueGrowth"); eg = info.get("earningsGrowth")
+    pm = info.get("profitMargins"); om = info.get("operatingMargins")
+    roe = info.get("returnOnEquity"); roa = info.get("returnOnAssets")
+    deq = info.get("debtToEquity"); cr = info.get("currentRatio")
+    dy = info.get("_divYieldPct"); drate = info.get("dividendRate")
+    aus = ((am - px) / px * 100) if (am and px > 0) else None
+    rng52 = ((px - lo52) / (hi52 - lo52) * 100) if (hi52 and lo52 and hi52 != lo52) else None
+
+    # technicals from history
+    rsi_v = ma50_v = ma200_v = macd_v = macd_s = vol_avg = vol_td = None
+    pct1d = pct5d = pct1m = pct3m = atr = bb_u = bb_m = bb_l = None
+    if not hist.empty and len(hist) >= 35:
+        cl = hist["Close"].dropna()
+        vl = hist["Volume"].dropna() if "Volume" in hist else pd.Series(dtype=float)
+        try:
+            dlt = cl.diff(); g = dlt.clip(lower=0).rolling(14).mean()
+            ls = (-dlt.clip(upper=0)).rolling(14).mean()
+            r3 = (100 - 100 / (1 + g / ls.replace(0, np.nan))).dropna()
+            rsi_v = float(r3.iloc[-1]) if not r3.empty else None
+        except Exception: pass
+        try:
+            e12 = cl.ewm(span=12, adjust=False).mean(); e26 = cl.ewm(span=26, adjust=False).mean()
+            ml = e12 - e26; macd_v = float(ml.iloc[-1])
+            macd_s = float(ml.ewm(span=9, adjust=False).mean().iloc[-1])
+        except Exception: pass
+        if len(cl) >= 50: ma50_v = float(cl.rolling(50).mean().iloc[-1])
+        if len(cl) >= 200: ma200_v = float(cl.rolling(200).mean().iloc[-1])
+        if len(vl) >= 21:
+            vol_avg = float(vl.iloc[-21:-1].mean()); vol_td = float(vl.iloc[-1])
+        for att, nn in (("pct1d", 2), ("pct5d", 6), ("pct1m", 22), ("pct3m", 66)):
+            if len(cl) >= nn:
+                locals_v = (float(cl.iloc[-1]) - float(cl.iloc[-nn])) / float(cl.iloc[-nn]) * 100
+                if att == "pct1d": pct1d = locals_v
+                elif att == "pct5d": pct5d = locals_v
+                elif att == "pct1m": pct1m = locals_v
+                else: pct3m = locals_v
+        try:
+            if {"High", "Low"}.issubset(hist.columns):
+                hi = hist["High"].dropna(); lo = hist["Low"].dropna()
+                tr = pd.concat([hi - lo, (hi - cl.shift()).abs(), (lo - cl.shift()).abs()], axis=1).max(axis=1)
+                atr = float(tr.rolling(14).mean().iloc[-1])
+        except Exception: pass
+        if len(cl) >= 20:
+            bm = cl.rolling(20).mean(); bs = cl.rolling(20).std()
+            bb_m = float(bm.iloc[-1]); bb_u = float((bm + 2 * bs).iloc[-1]); bb_l = float((bm - 2 * bs).iloc[-1])
+
+    # cascade push (substitute for Ignition score)
+    try:
+        _dr = _drivers(tk, asof)
+        cpush = float(_dr.push.sum()) if not _dr.empty else None
+    except Exception:
+        cpush = None
+
+    # signal pills
+    pills = ""
+    if rsi_v is not None:
+        if rsi_v < 30: pills += az_pill("RSI Oversold", True)
+        elif rsi_v > 70: pills += az_pill("RSI Overbought", False)
+        elif 45 < rsi_v < 65: pills += az_pill("RSI Sweet Spot", True)
+        else: pills += az_pill("RSI Neutral", None)
+    if macd_v is not None and macd_s is not None:
+        pills += az_pill("MACD Bullish" if macd_v > macd_s else "MACD Bearish", macd_v > macd_s)
+    if ma50_v and ma200_v:
+        pills += az_pill("Golden Cross" if ma50_v > ma200_v else "Death Cross", ma50_v > ma200_v)
+    elif info.get("_scan_golden_cross") is not None:
+        pills += az_pill("Golden Cross" if info["_scan_golden_cross"] >= 1 else "No Golden Cross",
+                         info["_scan_golden_cross"] >= 1)
+    if vol_avg and vol_td:
+        if vol_td > vol_avg * 1.5: pills += az_pill("High Volume", True)
+        elif vol_td < vol_avg * 0.5: pills += az_pill("Low Volume", None)
+    if spf and spf > 0.15: pills += az_pill("High Short Interest", None)
+    if aus is not None and aus > 15: pills += az_pill(f"Analyst Upside {aus:.0f}%", True)
+    elif aus is not None and aus < -10: pills += az_pill(f"Above Target {aus:.0f}%", False)
+    if cpush is not None and cpush > 0.5: pills += az_pill("Cascade Tailwind", True)
+    elif cpush is not None and cpush < -0.5: pills += az_pill("Cascade Headwind", False)
+
+    st.markdown("<div style='font-size:20px;font-weight:700;letter-spacing:.6px;"
+                "margin:16px 0 4px'>🔥 Stock Analyzer</div>", unsafe_allow_html=True)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1.metric("Price", f"${px:,.2f}" if px else "--")
+    m2.metric("Cascade Push", f"{cpush:+.2f}" if cpush is not None else "--",
+              help="Sum of (driver-node lead correlation × its current impulse). Positive = waves pushing it up. IGNITION's Ignition-score slot, powered by the cascade engine.")
+    m3.metric("RVOL", f"{(vol_td / vol_avg):.1f}x" if vol_avg and vol_td else "--",
+              help="Latest volume vs the trailing 20-day average.")
+    m4.metric("52W Pos", f"{rng52:.0f}%" if rng52 is not None else "--",
+              help="Where price sits in its 52-week range. 100% = at the highs.")
+    m5.metric("Target", f"${am:,.2f}" if am else "--",
+              delta=f"{aus:.1f}%" if aus is not None else None,
+              help="Analyst consensus mean target and implied upside.")
+    m6.metric("Ann. Vol", f"{(hist.Close.pct_change().tail(21).std() * (252 ** 0.5)):.0%}"
+              if not hist.empty and len(hist) > 22 else "--",
+              help="Annualised 21-day volatility.")
+    st.markdown(f"<div style='margin:6px 0 4px'><strong>{name}</strong>  "
+                f"<span style='color:{DIM};font-size:13px'>{sec_display}</span></div>",
+                unsafe_allow_html=True)
+    if pills:
+        st.markdown(f"<div style='margin:6px 0 12px'>{pills}</div>", unsafe_allow_html=True)
+
+    # data source badges — the Alpaca → Yahoo → dump chain, made visible
+    hs = info.get("_hist_source")
+    badge = lambda txt, col, bc: (f"<span style='font-family:monospace;font-size:10px;color:{col};"
+                                  f"border:1px solid {bc};border-radius:3px;padding:1px 7px'>{txt}</span>")
+    parts = []
+    if hs == "alpaca": parts.append(badge("Alpaca history (live)", "#4dd880", "#1e6b35"))
+    elif hs == "yahoo": parts.append(badge("Yahoo history", "#7a9ab8", "#1e3a5f"))
+    elif hs == "dump": parts.append(badge("nightly-dump history", "#d0b040", "#907020"))
+    if info.get("_from_scan_dump"):
+        parts.append(badge(f"dump filled {len(info.get('_dump_fields', []))} fields", "#d0b040", "#907020"))
+    if tk in live:
+        parts.append(badge("Alpaca live price", "#4dd880", "#1e6b35"))
+    st.markdown("<div style='display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px'>"
+                + "".join(parts) + "</div>", unsafe_allow_html=True)
+    for iss in info.get("_data_issues", []):
+        st.caption(f"⚠️ {iss}")
+    st.markdown("<hr style='border-color:#1e3a5f;margin:10px 0'>", unsafe_allow_html=True)
+
+    colA, colB, colC = st.columns(3)
+    with colA:
+        az_section("Price Range Analysis")
+        if hi52 and lo52 and px:
+            pp = max(0.0, min(1.0, (px - lo52) / (hi52 - lo52))) if hi52 != lo52 else 0.5
+            bc = "#4dd880" if pp > 0.7 else ("#d0b040" if pp > 0.35 else "#ff4444")
+            st.markdown(
+                f"<div style='background:#0d1e33;border:1px solid #1e3a5f;border-radius:8px;padding:12px 14px;margin-bottom:10px'>"
+                f"<div style='display:flex;justify-content:space-between;font-family:monospace;font-size:11px;color:#7a9ab8;margin-bottom:6px'>"
+                f"<span>52W Low ${lo52:,.2f}</span><span>52W High ${hi52:,.2f}</span></div>"
+                f"<div style='background:#081325;border-radius:4px;height:10px;position:relative'>"
+                f"<div style='background:{bc};height:10px;border-radius:4px;width:{int(pp*100)}%'></div></div>"
+                f"<div style='text-align:center;font-family:monospace;font-size:12px;color:{bc};margin-top:6px'>"
+                f"${px:,.2f} · {int(pp*100)}% of range</div></div>", unsafe_allow_html=True)
+        az_section("Price Performance")
+        mtable([mrow("1 Day", "Daily price change vs yesterday's close.", pct_color(pct1d)),
+                mrow("5 Day", "Five trading days — roughly one week.", pct_color(pct5d)),
+                mrow("1 Month", "~22 trading days. Near-term trend.", pct_color(pct1m)),
+                mrow("3 Month", "~66 trading days (one quarter).", pct_color(pct3m))])
+        az_section("Technical Signals")
+        rows = []
+        if rsi_v is not None:
+            rc = "#4dd880" if 45 < rsi_v < 65 else ("#ff4444" if rsi_v > 70 else "#d0b040")
+            ri = "oversold" if rsi_v < 30 else ("overbought" if rsi_v > 70 else "sweet spot" if 45 < rsi_v < 65 else "neutral")
+            rows.append(mrow("RSI (14d)", "0-100. Below 30 oversold, above 70 overbought, 45-65 momentum sweet spot.",
+                             f"<span style='color:{rc};font-family:monospace'>{rsi_v:.1f}</span> <span style='font-size:11px;color:#7a9ab8'>{ri}</span>"))
+        if macd_v is not None:
+            mc = "#4dd880" if macd_v > macd_s else "#ff4444"
+            rows.append(mrow("MACD", "MACD above its signal line = buyers in control.",
+                             f"<span style='color:{mc};font-family:monospace'>{macd_v:.3f}</span> <span style='font-size:11px;color:#7a9ab8'>{'bullish' if macd_v > macd_s else 'bearish'}</span>"))
+        if ma50_v:
+            pvs = (px - ma50_v) / ma50_v * 100
+            rows.append(mrow("50-Day MA", "Price just above = support; below = watch for reclaim.",
+                             f"${ma50_v:,.2f} <span style='color:{'#4dd880' if pvs >= 0 else '#ff4444'};font-size:11px'>({pvs:+.1f}%)</span>"))
+        if ma200_v:
+            gi = "golden cross" if (ma50_v and ma50_v > ma200_v) else "below 50MA"
+            rows.append(mrow("200-Day MA", "Golden Cross (50MA over 200MA) = major trend signal.",
+                             f"${ma200_v:,.2f} <span style='font-size:11px;color:#7a9ab8'>{gi}</span>"))
+        if vol_avg and vol_td:
+            vr = vol_td / vol_avg
+            vc = "#4dd880" if vr > 1.5 else ("#7a9ab8" if vr > 0.5 else "#d0b040")
+            rows.append(mrow("Volume", "Latest volume vs 20-day average — high volume confirms moves.",
+                             f"<span style='color:{vc};font-family:monospace'>{vr:.2f}x avg</span>"))
+        if atr:
+            rows.append(mrow("ATR (14d)", "Average True Range — typical daily travel in dollars.",
+                             f"<span style='font-family:monospace;color:#b0c8e8'>${atr:,.2f}</span>"))
+        if bb_u:
+            bpos = "above upper" if px > bb_u else ("below lower" if px < bb_l else "inside")
+            rows.append(mrow("Bollinger 20/2", "Price vs 2-sigma bands: outside the bands = stretched.",
+                             f"<span style='font-family:monospace;color:#b0c8e8'>{bpos}</span> <span style='font-size:11px;color:#7a9ab8'>${bb_l:,.0f}–${bb_u:,.0f}</span>"))
+        if rows:
+            mtable(rows)
+
+    with colB:
+        az_section("Short Interest & Growth")
+        rows = []
+        if spf is not None:
+            rows.append(mrow("Short % Float", "% of float sold short. 15%+ = squeeze fuel if price runs.",
+                             az_tag_inv(spf * 100, 20, 10, "{:.1f}", "%")))
+        if sratio is not None:
+            rows.append(mrow("Days to Cover", "Shares short / avg volume. High = shorts forced to chase.",
+                             az_tag_inv(sratio, 5, 3, "{:.1f}", "d")))
+        if rg is not None:
+            rows.append(mrow("Revenue Growth", "YoY revenue growth. Double-digit attracts institutions.",
+                             az_tag(rg * 100, 10, 3, "{:.1f}", "%")))
+        if eg is not None:
+            rows.append(mrow("Earnings Growth", "YoY EPS growth — faster than revenue = margin expansion.",
+                             az_tag(eg * 100, 10, 3, "{:.1f}", "%")))
+        _last = next((q for q in reversed(eps_history) if q.get("surprise") is not None), None)
+        if _last:
+            ec = "#4dd880" if _last["surprise"] >= 0 else "#ff4444"
+            rows.append(mrow("Earnings Surprise", "Last quarter EPS vs estimates. 10%+ beat = momentum fuel.",
+                             f"<span style='font-family:monospace;color:{ec}'>{_last['surprise']:+.1f}%</span> vs estimates"))
+        if rows:
+            mtable(rows)
+        else:
+            st.caption("No short-interest or growth data from any source.")
+        az_section("Earnings Breakdown (EPS Trend)")
+        render_eps_trend(eps_history, eps_forward,
+                         why=next((i for i in info.get("_data_issues", []) if "EPS" in i), ""))
+        az_section("Dividend")
+        if dy or drate:
+            mtable([mrow("Dividend Yield", "Annual dividend as % of price (nightly dump).",
+                         az_tag(dy, 3, 1, "{:.2f}", "%") if dy is not None else "--"),
+                    mrow("Dividend Rate", "Annual dividend per share in dollars.",
+                         f"<span style='font-family:monospace;color:#b0c8e8'>${drate:,.2f}</span>" if drate else "--")])
+        else:
+            st.caption("No dividend.")
+
+    with colC:
+        az_section("Valuation")
+        rows = []
+        if mcap:
+            tier = ("mega" if mcap >= 2e11 else "large" if mcap >= 1e10 else
+                    "mid" if mcap >= 2e9 else "small" if mcap >= 3e8 else "micro")
+            rows.append(mrow("Market Cap", "Share price × shares outstanding.",
+                             f"<span style='font-family:monospace;color:#b0c8e8'>${mcap/1e9:,.1f}B</span> <span style='font-size:11px;color:#7a9ab8'>{tier} cap</span>"))
+        if pe:
+            rows.append(mrow("P/E Ratio", "Price per dollar of trailing earnings.",
+                             az_tag_inv(pe, 40, 25, "{:.1f}", "x")))
+        if fwpe:
+            rows.append(mrow("Forward P/E", "P/E on next-12-month estimates. Below trailing = growth expected.",
+                             f"<span style='font-family:monospace;color:#b0c8e8'>{fwpe:.1f}x</span>"))
+        if pb:
+            rows.append(mrow("P/B Ratio", "Below 1 = under book value; above 3 = premium.",
+                             az_tag_inv(pb, 6, 3, "{:.2f}", "x")))
+        if ps:
+            rows.append(mrow("P/S Ratio", "Below 2x reasonable; above 10x = growth premium.",
+                             az_tag_inv(ps, 10, 5, "{:.2f}", "x")))
+        if beta is not None:
+            rows.append(mrow("Beta", "Sensitivity to the market. 1 = moves with SPY; 2 = twice the swing.",
+                             f"<span style='font-family:monospace;color:#b0c8e8'>{beta:.2f}</span>"))
+        if rows:
+            mtable(rows)
+        else:
+            st.caption("No valuation data from any source.")
+        if any(x is not None for x in (pm, om, roe, roa, deq, cr)):
+            az_section("Financial Health")
+            rows = []
+            if pm is not None: rows.append(mrow("Profit Margin", "Net income / revenue.", az_tag(pm * 100, 15, 5, "{:.1f}", "%")))
+            if om is not None: rows.append(mrow("Operating Margin", "Operating income / revenue.", az_tag(om * 100, 15, 5, "{:.1f}", "%")))
+            if roe is not None: rows.append(mrow("ROE", "Return on equity.", az_tag(roe * 100, 15, 8, "{:.1f}", "%")))
+            if roa is not None: rows.append(mrow("ROA", "Return on assets.", az_tag(roa * 100, 8, 4, "{:.1f}", "%")))
+            if deq is not None: rows.append(mrow("Debt / Equity", "Leverage — lower is safer.", az_tag_inv(deq, 150, 80, "{:.0f}", "%")))
+            if cr is not None: rows.append(mrow("Current Ratio", "Short-term assets / liabilities. Above 1.5 healthy.", az_tag(cr, 1.5, 1.0, "{:.2f}", "x")))
+            mtable(rows)
+        scan_rows = []
+        for lab, key, hi, lo, fmt, suf, tip in (
+            ("Piotroski", "_scan_piotroski", 7, 5, "{:.0f}", "/9", "9-point fundamental health score from the nightly scan. 7+ = fortress."),
+            ("Golden Cross", "_scan_golden_cross", 1, 0.5, "{:.1f}", "", "1 = 50MA above 200MA in the nightly scan."),
+            ("ROIC", "_scan_roic", 0.15, 0.08, "{:.1%}", "", "Return on invested capital — the macro simulator's #1 quality marker."),
+            ("MFI", "_scan_mfi", 55, 45, "{:.0f}", "", "Money Flow Index from the nightly scan."),
+            ("Squeeze Score", "_scan_squeeze", 60, 40, "{:.0f}", "", "Nightly short-squeeze composite."),
+            ("Clean Setup", "_scan_clean_setup", 60, 40, "{:.0f}", "", "Your Clean Setup preset score from the nightly scan."),
+        ):
+            v = info.get(key)
+            if v is not None and np.isfinite(v):
+                scan_rows.append(mrow(lab, tip, az_tag(v, hi, lo, fmt, suf)))
+        if scan_rows:
+            az_section("Nightly Scan Signals")
+            mtable(scan_rows)
 
 def _open_analysis(tk: str):
     st.session_state["mw_analyze"] = tk
@@ -319,8 +714,8 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
     st.stop()
 
 asof = str(closes.index[-1].date())
-tab_map, tab_lookup, tab_pressure, tab_sentinels, tab_forced, tab_lab = st.tabs(
-    ["🌊 Cascade Map", "🔎 Stock Lookup", "🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab"])
+tab_map, tab_lookup, tab_top20, tab_pressure, tab_sentinels, tab_forced, tab_lab = st.tabs(
+    ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab"])
 
 
 # ── 🌊 cascade map ───────────────────────────────────────────────────
@@ -582,9 +977,15 @@ with tab_lookup:
         df_tk = ce.dump_ohlcv(tk)
         if not df_tk.empty:
             px_now = float(df_tk.Close.iloc[-1])
-            if st.button(f"⭐ Save {tk} to watchlist", key="lk_save"):
+            # every searched stock is auto-saved for later
+            if not any(w["ticker"] == tk for w in ce.watchlist_load()):
                 ce.watchlist_add(tk, px_now)
-                st.toast(f"⭐ {tk} saved at ${px_now:,.2f}")
+                try:
+                    st.toast(f"⭐ {tk} auto-saved to your watchlist at ${px_now:,.2f}")
+                except Exception:
+                    pass
+            st.caption(f"⭐ {tk} is on your watchlist — every search is saved "
+                       "automatically so you can score it later.")
 
             # ── outcome forecast ────────────────────────────────────
             st.subheader("🌦 Outcome forecast (analog method)")
@@ -696,6 +1097,13 @@ with tab_lookup:
             st.info(f"{tk} isn't in the nightly dump universe — node ETFs get chart "
                     "and stats above, but the analog forecast needs dump stocks.")
 
+        # ── IGNITION Stock Analyzer (ported) — full fundamental deep dive ──
+        st.divider()
+        try:
+            render_ignition_analyzer(tk, closes)
+        except Exception as _ae:
+            st.caption(f"Analyzer unavailable: {_ae}")
+
     # ── watchlist ────────────────────────────────────────────────────
     st.divider()
     st.subheader("⭐ Watchlist")
@@ -739,6 +1147,88 @@ with tab_lookup:
         st.caption("ℹ️ The watchlist lives in a file on the app server — it survives "
                    "restarts but resets if Streamlit Cloud rebuilds the container "
                    "(redeploys). Download-worthy calls belong in your own notes too.")
+
+
+# ── 🏆 top 20 mega screener ──────────────────────────────────────────
+with tab_top20:
+    st.caption("One screener, four brains: IGNITION technicals + the macro "
+               "simulator's quality DNA + the cascade engine's wave tailwind "
+               "+ the live macro regime — scored across the ENTIRE nightly "
+               "dump (all markets, ~5,700 stocks).")
+    try:
+        _gauge = _pressure().get("gauge")
+    except Exception:
+        _gauge = None
+    if st.button("🚀 Scan now", type="primary", key="top20_scan"):
+        st.session_state["top20_go"] = True
+    if st.session_state.get("top20_go"):
+        try:
+            t20, reg = _mega_scan(asof, _gauge)
+        except Exception as e:
+            st.error(f"Scan failed: {e}")
+            t20, reg = pd.DataFrame(), {}
+        if not t20.empty:
+            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                <span style="font-weight:700;">Macro regime: {reg['label']}</span><br>
+                <span style="color:{DIM};font-size:12px;">Detected from: {' · '.join(reg['drivers'])}
+                {('· hot waves: ' + ', '.join(reg['hot_nodes'][:5])) if reg.get('hot_nodes') else '· no waves firing (tailwind pillar neutral)'}</span>
+                </div>""", unsafe_allow_html=True)
+            _t = t20.copy()
+            _sel20 = st.dataframe(
+                _t.style.format({"Price": "${:,.2f}", "Score": "{:.1f}", "Tech": "{:.0f}",
+                                 "Quality": "{:.0f}", "Tailwind": "{:.0f}", "MacroFit": "{:.2f}",
+                                 "Piotroski": "{:.0f}", "RevGrowth": "{:+.0%}",
+                                 "RVOL": "{:.2f}x", "RangePos": "{:.0%}"}, na_rep="—")
+                .map(lambda v: f"color:{ACCENT};font-weight:700"
+                     if isinstance(v, (int, float)) and len(_t) and v >= _t.Score.iloc[min(4, len(_t) - 1)]
+                     else "", subset=["Score"])
+                .map(lambda v: _css_sign(v - 50, dead=10) if isinstance(v, (int, float)) else "",
+                     subset=["Tech", "Quality", "Tailwind"]),
+                width="stretch", hide_index=True, height=740,
+                on_select="rerun", selection_mode="single-row", key="top20_table",
+                column_config={
+                    "Score": st.column_config.Column(help="Combined score: 45% technicals + 25% quality + 30% cascade tailwind, multiplied by the macro-regime sector fit."),
+                    "Tech": st.column_config.Column(help="IGNITION technical percentile: momentum, range position, relative volume, trend, RSI sweet spot, MACD."),
+                    "Quality": st.column_config.Column(help="Macro-simulator quality DNA: Piotroski, golden cross, ROIC, revenue & earnings growth."),
+                    "Tailwind": st.column_config.Column(help="Cascade engine: how strongly the currently-firing waves historically push THIS stock over the next week (percentile)."),
+                    "MacroFit": st.column_config.Column(help="Regime sector multiplier from the macro simulator's playbook — >1 means this sector historically leads in the current regime."),
+                    "Piotroski": st.column_config.Column(help="9-point fundamental health score from the nightly dump."),
+                    "RevGrowth": st.column_config.Column(help="YoY revenue growth from the nightly dump."),
+                    "RVOL": st.column_config.Column(help="5-day vs 63-day average volume."),
+                    "RangePos": st.column_config.Column(help="Position in the 63-day range — 100% = at the highs."),
+                })
+            _r20 = (_sel20.selection.rows if _sel20 and getattr(_sel20, "selection", None) else [])
+            if _r20:
+                _tk20 = _t.iloc[_r20[0]].Ticker
+                if st.session_state.get("_t20_handled") != _tk20:
+                    st.session_state["_t20_handled"] = _tk20
+                    st.session_state["lk_tk"] = _tk20
+                    st.rerun()
+            if st.session_state.get("lk_tk"):
+                st.info(f"🔎 **{st.session_state['lk_tk']}** loaded — open the "
+                        "**Stock Lookup** tab for the full analysis, forecast, and analyzer.")
+            st.caption("👆 Tap any row to load it into Stock Lookup. Scores refresh "
+                       "with the nightly dump; the tailwind and regime refresh live.")
+            with st.expander("❓ How the Top 20 is chosen"):
+                st.markdown(
+                    "- **Universe:** every tradeable stock in the nightly dump — all "
+                    "markets, price ≥ $3, median dollar volume ≥ $2M.\n"
+                    "- **Tech (45%)** — the IGNITION signal stack, computed fresh from "
+                    "the dump's full OHLCV: 63-day momentum, range position, relative "
+                    "volume, above-50MA, RSI sweet spot (45-65), MACD bull cross.\n"
+                    "- **Quality (25%)** — the macro simulator's stock-picking DNA: "
+                    "Piotroski, golden cross, ROIC, revenue and earnings growth.\n"
+                    "- **Tailwind (30%)** — the cascade engine: for every node wave "
+                    "firing right now, each stock's historical lagged response, summed. "
+                    "Stocks the current waves are already traveling toward score high.\n"
+                    "- **× MacroFit** — the whole score is multiplied by the sector's "
+                    "regime multiplier, translated from the macro simulator's six-"
+                    "regime playbook (QE / stagflation / melt-up / shock / strong "
+                    "dollar / base) detected from live oil, dollar, VIX, and the "
+                    "pressure gauge.\n\n"
+                    "It's a ranking, not a prophecy — validate ideas in Stock Lookup's "
+                    "analog forecast before acting. Not investment advice.")
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────

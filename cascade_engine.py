@@ -610,7 +610,12 @@ def investment_plan(b, closes: pd.DataFrame) -> dict:
 # Stock-level layer: nightly dump + Alpaca + earnings dates
 # ═════════════════════════════════════════════════════════════════════
 DUMP_URL = "https://raw.githubusercontent.com/magicpro33/stock/main/data/stock_data.json.gz"
-LOCAL_DUMP = os.path.join(os.path.dirname(__file__), "data", "dump_panel_v2.npz")
+LOCAL_DUMP = os.path.join(os.path.dirname(__file__), "data", "dump_panel_v3.npz")
+
+FUND_FIELDS = ["ShortPctFloat", "DaysToCover", "P/E", "RevenueGrowth",
+               "EarningsGrowth", "MarketCap", "Piotroski", "GoldenCross",
+               "ROIC", "DividendYieldPct", "DividendRate", "ShortSqueeze",
+               "CleanSetupScore", "MFI", "OE_Yield", "PCV"]
 
 BUYBACK_TITANS = ["AAPL", "GOOGL", "MSFT", "META", "NVDA", "JPM", "XOM"]
 
@@ -637,18 +642,46 @@ def load_dump_panel():
              for f in ("o", "h", "l", "c", "v")}
     key = dict(o="open", h="high", l="low", c="close", v="volume")
     tickers, sectors = [], []
+    funds = {f: np.full(N, np.nan, dtype=np.float64) for f in FUND_FIELDS}
     for j, x in enumerate(rows):
         ix = [dix[d] for d in x["_hist"]["dates"]]
         for f, kk in key.items():
             panel[f][ix, j] = x["_hist"][kk]
         tickers.append(x["Ticker"])
         sectors.append(x.get("Sector") or "Unknown")
+        for f in FUND_FIELDS:
+            v = x.get(f)
+            if v is not None:
+                try:
+                    funds[f][j] = float(v)
+                except (TypeError, ValueError):
+                    pass
     panel["c"] = pd.DataFrame(panel["c"]).ffill(limit=5).values.astype(np.float32)
     mdv = np.nanmedian((panel["c"] * np.nan_to_num(panel["v"]))[-21:], axis=0)
     tickers, sectors = np.array(tickers), np.array(sectors)
     np.savez_compressed(LOCAL_DUMP, tickers=tickers, sectors=sectors,
-                        mdv=mdv, dates=np.array(all_d), **panel)
+                        mdv=mdv, dates=np.array(all_d), **panel,
+                        **{f"fund_{i}": funds[f] for i, f in enumerate(FUND_FIELDS)})
     return panel, tickers, sectors, mdv, pd.to_datetime(all_d)
+
+
+def dump_fundamentals_all():
+    """All dump fundamentals as {field: array} aligned to load_dump_panel tickers."""
+    load_dump_panel()   # ensure the npz exists / is fresh
+    z = np.load(LOCAL_DUMP, allow_pickle=True)
+    return {f: z[f"fund_{i}"] for i, f in enumerate(FUND_FIELDS)}
+
+
+def dump_fundamentals(ticker: str) -> dict:
+    """One stock's nightly-dump fundamentals (NaNs dropped)."""
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    ix = np.where(tickers == ticker)[0]
+    if not len(ix):
+        return {}
+    fa = dump_fundamentals_all()
+    out = {f: float(fa[f][ix[0]]) for f in FUND_FIELDS if np.isfinite(fa[f][ix[0]])}
+    out["Sector"] = str(sectors[ix[0]])
+    return out
 
 
 def dump_ohlcv(ticker: str) -> pd.DataFrame:
@@ -1014,3 +1047,396 @@ def watchlist_add(ticker: str, price: float, note: str = ""):
 
 def watchlist_remove(ticker: str):
     watchlist_save([w for w in watchlist_load() if w["ticker"] != ticker])
+
+
+# ═════════════════════════════════════════════════════════════════════
+# IGNITION analyzer data chain: Alpaca → yfinance → nightly dump
+# ═════════════════════════════════════════════════════════════════════
+def _alpaca_ohlcv(ticker: str, days: int = 400) -> pd.DataFrame:
+    """Single-symbol daily OHLCV bars from Alpaca (IEX feed)."""
+    kid, sec = _alpaca_keys_simple()
+    if not kid:
+        return pd.DataFrame()
+    hdr = {"APCA-API-KEY-ID": kid, "APCA-API-SECRET-KEY": sec}
+    start = (date.today() - timedelta(days=days)).isoformat()
+    rows, token = [], None
+    while True:
+        p = {"symbols": ticker, "timeframe": "1Day", "start": start,
+             "limit": 10000, "adjustment": "split", "feed": "iex"}
+        if token:
+            p["page_token"] = token
+        try:
+            r = requests.get("https://data.alpaca.markets/v2/stocks/bars",
+                             params=p, headers=hdr, timeout=30)
+            if r.status_code != 200:
+                return pd.DataFrame()
+            j = r.json()
+        except Exception:
+            return pd.DataFrame()
+        rows += (j.get("bars") or {}).get(ticker, [])
+        token = j.get("next_page_token")
+        if not token:
+            break
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame([{ "Date": b["t"][:10], "Open": b["o"], "High": b["h"],
+                         "Low": b["l"], "Close": b["c"], "Volume": b["v"]} for b in rows])
+    df.index = pd.to_datetime(df.Date)
+    return df.drop(columns=["Date"]).astype(float).sort_index()
+
+
+# dump field → yfinance-style info key (IGNITION SCAN_FIELD_MAP equivalent)
+DUMP_INFO_MAP = {
+    "ShortPctFloat":   "shortPercentOfFloat",
+    "DaysToCover":     "shortRatio",
+    "P/E":             "trailingPE",
+    "RevenueGrowth":   "revenueGrowth",
+    "EarningsGrowth":  "earningsGrowth",
+    "MarketCap":       "marketCap",
+    "DividendYieldPct": "_divYieldPct",
+    "DividendRate":    "dividendRate",
+    "Piotroski":       "_scan_piotroski",
+    "GoldenCross":     "_scan_golden_cross",
+    "ROIC":            "_scan_roic",
+    "ShortSqueeze":    "_scan_squeeze",
+    "CleanSetupScore": "_scan_clean_setup",
+    "MFI":             "_scan_mfi",
+    "OE_Yield":        "_scan_oe_yield",
+    "PCV":             "_scan_pcv",
+}
+
+
+def fetch_analyzer(ticker: str):
+    """IGNITION Stock Analyzer data chain, ported: Alpaca history first,
+    yfinance for history fallback + fundamentals + EPS, nightly dump for
+    anything still missing. Returns (info, hist, eps_history, eps_forward)."""
+    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+    _issues, info = [], {}
+
+    # ── Step 1: price history — Alpaca → yfinance → dump ────────────
+    hist = _alpaca_ohlcv(ticker)
+    hist_src = "alpaca" if len(hist) >= 50 else None
+    if hist_src is None:
+        hist = pd.DataFrame()
+    tk = None
+    try:
+        import yfinance as yf
+        tk = yf.Ticker(ticker)
+    except Exception:
+        pass
+    if hist.empty and tk is not None:
+        try:
+            h = tk.history(period="1y", interval="1d")
+            if h is not None and not h.empty:
+                if isinstance(h.columns, pd.MultiIndex):
+                    h.columns = h.columns.get_level_values(0)
+                hist, hist_src = h, "yahoo"
+        except Exception:
+            pass
+    if hist.empty:
+        d = dump_ohlcv(ticker)
+        if not d.empty:
+            hist, hist_src = d, "dump"
+    if hist.empty:
+        _issues.append("price history: no bars from Alpaca, Yahoo, or the nightly dump")
+
+    # ── Step 2: fundamentals from yfinance ───────────────────────────
+    if tk is not None:
+        try:
+            info = tk.info or {}
+            if not info or len(info) < 3:
+                info = {}
+                _issues.append("fundamentals: yfinance returned empty (rate-limited or no profile)")
+        except Exception as _ie:
+            m = str(_ie)[:80]
+            if "404" in m or "Not Found" in m:
+                _issues.append("fundamentals: not published for this symbol (ETFs/funds have none)")
+            elif "429" in m or "rate" in m.lower():
+                _issues.append("fundamentals: yfinance rate limit — retry shortly")
+            else:
+                _issues.append(f"fundamentals: {m}")
+
+    # ── Step 3: nightly dump fills whatever is still missing ─────────
+    df_funds = dump_fundamentals(ticker)
+    filled = []
+    for dk, ik in DUMP_INFO_MAP.items():
+        v = df_funds.get(dk)
+        if v is None:
+            continue
+        if ik.startswith("_scan_") or ik.startswith("_div") or not info.get(ik):
+            info[ik] = v
+            filled.append(dk)
+    if df_funds.get("Sector") and not info.get("sector"):
+        info["sector"] = df_funds["Sector"]
+    if filled:
+        info["_from_scan_dump"] = True
+        info["_dump_fields"] = filled
+
+    # ── Step 4: EPS history — earnings_history → income stmt fallback ─
+    # (NEVER tk.quarterly_earnings: deprecated + crash-prone upstream)
+    eps_history = []
+    if tk is not None:
+        try:
+            eh = getattr(tk, "earnings_history", None)
+            if eh is not None and hasattr(eh, "empty") and not eh.empty:
+                cols = {c.lower(): c for c in eh.columns}
+                ac = cols.get("epsactual"); ec = cols.get("epsestimate")
+                sc = cols.get("surprisepercent")
+                for idx, row in eh.iterrows():
+                    a = row.get(ac) if ac else None
+                    e = row.get(ec) if ec else None
+                    s = row.get(sc) if sc else None
+                    if a is None and e is None:
+                        continue
+                    if s is None and a is not None and e not in (None, 0):
+                        try: s = (float(a) - float(e)) / abs(float(e)) * 100
+                        except Exception: s = None
+                    try:
+                        qd = pd.to_datetime(idx, errors="coerce")
+                        ql = qd.strftime("%b %Y") if pd.notna(qd) else str(idx)
+                    except Exception:
+                        ql = str(idx)
+                    eps_history.append(dict(quarter=ql,
+                                            actual=float(a) if a is not None and pd.notna(a) else None,
+                                            estimate=float(e) if e is not None and pd.notna(e) else None,
+                                            surprise=float(s) if s is not None and pd.notna(s) else None))
+                eps_history = eps_history[-8:]
+        except Exception:
+            eps_history = []
+    if not eps_history and tk is not None:
+        try:
+            qis = getattr(tk, "quarterly_income_stmt", None)
+            if qis is not None and hasattr(qis, "empty") and not qis.empty:
+                ri = {str(i).strip().lower(): i for i in qis.index}
+                er = ri.get("diluted eps") or ri.get("basic eps")
+                if er is not None:
+                    for col in qis.columns:
+                        v = qis.loc[er, col]
+                        if pd.isna(v):
+                            continue
+                        try:
+                            qd = pd.to_datetime(col, errors="coerce")
+                            ql = qd.strftime("%b %Y") if pd.notna(qd) else str(col)
+                        except Exception:
+                            ql = str(col)
+                        eps_history.append(dict(quarter=ql, actual=float(v),
+                                                estimate=None, surprise=None))
+                    eps_history = list(reversed(eps_history))[-8:]
+        except Exception:
+            pass
+    if not eps_history:
+        _issues.append("EPS history: earnings records unavailable (thin coverage, ETF, or feed blocked)")
+
+    # ── Forward EPS estimates ─────────────────────────────────────────
+    eps_forward = []
+    if tk is not None:
+        try:
+            ee = getattr(tk, "earnings_estimate", None)
+            if ee is not None and hasattr(ee, "empty") and not ee.empty:
+                labels = {"0q": "Next Qtr", "+1q": "Qtr After",
+                          "0y": "This Year", "+1y": "Next Year"}
+                cols = {c.lower(): c for c in ee.columns}
+                av = cols.get("avg") or cols.get("average")
+                nn = cols.get("numberofanalysts")
+                for pk in ["0q", "+1q", "0y", "+1y"]:
+                    if pk in ee.index:
+                        row = ee.loc[pk]
+                        est = row.get(av) if av else None
+                        na = row.get(nn) if nn else None
+                        if est is not None and pd.notna(est):
+                            eps_forward.append(dict(period=labels[pk], estimate=float(est),
+                                                    n_analysts=int(na) if na is not None and pd.notna(na) else None,
+                                                    is_forward=True))
+        except Exception:
+            pass
+    if not eps_forward and info:
+        try:
+            cy, ny = info.get("epsCurrentYear"), info.get("epsNextYear") or info.get("forwardEps")
+            if cy is not None:
+                eps_forward.append(dict(period="This Year (est)", estimate=float(cy),
+                                        n_analysts=info.get("numberOfAnalystOpinions"), is_forward=True))
+            if ny is not None and ny != cy:
+                eps_forward.append(dict(period="Next Year (est)", estimate=float(ny),
+                                        n_analysts=info.get("numberOfAnalystOpinions"), is_forward=True))
+        except Exception:
+            pass
+
+    info["_hist_source"] = hist_src
+    if _issues:
+        info["_data_issues"] = _issues
+    return info, hist, eps_history, eps_forward
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Macro regime (ported from the macro simulator's gkey logic) + mega scan
+# ═════════════════════════════════════════════════════════════════════
+# The simulator keys six regimes off oil, CPI, dollar, QE/SLR and the curve.
+# Live translation: oil = USO trend, dollar = UUP trend, QE-ness = the
+# pressure gauge (net liquidity + stablecoins + credit), shock = VIX impulse.
+REGIME_LABELS = {
+    "qe":     "💧 QE / liquidity flood — high-beta growth, gold, small caps lead",
+    "stag":   "🔥 Stagflation — energy & hard assets lead, cyclicals lag",
+    "bull":   "🌞 Calm melt-up — cyclicals, tech, small caps lead",
+    "bear":   "🌩 Shock / risk-off — energy, defense, gold; cut high beta",
+    "strong": "💵 Strong dollar squeeze — domestic quality; gold & EM lag",
+    "base":   "⛅ Base case — no dominant macro force, quality wins",
+}
+
+# regime → sector multiplier (distilled from the simulator's per-stock
+# base/bull/bear/qe/stag/strong expected-return DB)
+SECTOR_TILTS = {
+    "qe":     {"Technology": 1.20, "Communication Services": 1.12, "Consumer Cyclical": 1.10,
+               "Basic Materials": 1.18, "Financial Services": 1.10, "Real Estate": 1.08,
+               "Industrials": 1.02, "Healthcare": 0.98, "Energy": 0.95,
+               "Consumer Defensive": 0.88, "Utilities": 0.88},
+    "stag":   {"Energy": 1.25, "Basic Materials": 1.18, "Consumer Defensive": 1.10,
+               "Utilities": 1.06, "Healthcare": 1.02, "Industrials": 0.95,
+               "Financial Services": 0.92, "Technology": 0.85,
+               "Communication Services": 0.88, "Consumer Cyclical": 0.80, "Real Estate": 0.82},
+    "bull":   {"Consumer Cyclical": 1.18, "Technology": 1.15, "Industrials": 1.10,
+               "Financial Services": 1.10, "Communication Services": 1.08,
+               "Basic Materials": 1.00, "Real Estate": 1.02, "Healthcare": 0.96,
+               "Energy": 0.90, "Consumer Defensive": 0.88, "Utilities": 0.88},
+    "bear":   {"Energy": 1.15, "Consumer Defensive": 1.15, "Utilities": 1.12,
+               "Healthcare": 1.08, "Basic Materials": 1.05, "Industrials": 1.00,
+               "Financial Services": 0.90, "Communication Services": 0.90,
+               "Technology": 0.85, "Real Estate": 0.85, "Consumer Cyclical": 0.80},
+    "strong": {"Financial Services": 1.10, "Utilities": 1.06, "Consumer Defensive": 1.05,
+               "Healthcare": 1.04, "Technology": 1.00, "Communication Services": 1.00,
+               "Industrials": 0.95, "Consumer Cyclical": 0.95, "Real Estate": 0.92,
+               "Energy": 0.92, "Basic Materials": 0.85},
+    "base":   {},
+}
+
+
+def macro_regime(closes: pd.DataFrame, pressure_gauge=None) -> dict:
+    """Classify the live macro state — same decision order as the simulator's
+    gkey(): qe → stag → bull → bear → strong → base."""
+    def r63(sym):
+        if sym not in closes.columns:
+            return np.nan
+        s = closes[sym].dropna()
+        return float(s.iloc[-1] / s.iloc[-64] - 1) if len(s) > 64 else np.nan
+    imp = impulses(closes).iloc[-1]
+    oil, uup, tlt = r63("USO"), r63("UUP"), r63("TLT")
+    vix_z = float(imp.get("^VIX", np.nan))
+    gold = r63("GLD")
+    drivers = []
+    if pressure_gauge is not None and pressure_gauge >= 2:
+        reg = "qe"; drivers.append(f"pressure gauge +{pressure_gauge} (liquidity building)")
+    elif np.isfinite(oil) and oil > 0.15 and (not np.isfinite(tlt) or tlt < 0):
+        reg = "stag"; drivers.append(f"oil +{oil:.0%}/63d with bonds soft")
+    elif np.isfinite(oil) and oil < -0.05 and (not np.isfinite(vix_z) or vix_z < 0.5):
+        reg = "bull"; drivers.append(f"oil {oil:+.0%}/63d, vol calm")
+    elif np.isfinite(vix_z) and vix_z >= 1.25:
+        reg = "bear"; drivers.append(f"VIX impulse z {vix_z:+.1f} (shock)")
+    elif np.isfinite(uup) and uup > 0.04:
+        reg = "strong"; drivers.append(f"dollar +{uup:.0%}/63d")
+    else:
+        reg = "base"; drivers.append("no dominant macro force")
+    if np.isfinite(gold):
+        drivers.append(f"gold {gold:+.0%}/63d")
+    return dict(regime=reg, label=REGIME_LABELS[reg], drivers=drivers)
+
+
+def _node_follow_corr(node: str, node_closes: pd.DataFrame):
+    """Vectorized lagged corr of one node vs EVERY dump stock (t → t+5)."""
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    C = panel["c"]
+    n = node_closes[node].dropna()
+    n.index = pd.to_datetime(n.index).tz_localize(None)
+    common = dts.intersection(n.index)
+    if len(common) < 120:
+        return None
+    n_ix = {d: i for i, d in enumerate(dts)}
+    rows_ix = np.array([n_ix[d] for d in common])
+    Cc = C[rows_ix]
+    nd = n.reindex(common).values
+    node_r5 = nd[5:] / nd[:-5] - 1.0
+    stk_r5 = Cc[5:] / Cc[:-5] - 1.0
+    x = node_r5[:-5]; y = stk_r5[5:]
+    xm = x - np.nanmean(x)
+    ym = y - np.nanmean(y, axis=0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        corr = np.nansum(xm[:, None] * ym, axis=0) / (
+            np.sqrt(np.nansum(xm ** 2) * np.nansum(ym ** 2, axis=0)))
+    return corr
+
+
+def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20) -> tuple:
+    """THE combined screener: IGNITION technicals + macro-simulator quality
+    DNA + cascade tailwind + macro-regime sector fit, over the whole dump
+    (all markets). Returns (top-N DataFrame, regime dict)."""
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    funds = dump_fundamentals_all()
+    C, V = panel["c"], np.nan_to_num(panel["v"])
+    T, N = C.shape
+    px = C[-1]
+    tradeable = np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6)
+
+    def _pct(a):
+        s = pd.Series(np.where(tradeable, a, np.nan))
+        return s.rank(pct=True).values
+
+    # ── pillar 1: IGNITION technicals (vectorized from OHLCV) ────────
+    mom63 = C[-6] / C[-64] - 1.0
+    lo63 = np.nanmin(panel["l"][-63:], 0); hi63 = np.nanmax(panel["h"][-63:], 0)
+    rangepos = (px - lo63) / np.where(hi63 - lo63 == 0, np.nan, hi63 - lo63)
+    rvol = V[-5:].mean(0) / np.where(V[-63:].mean(0) == 0, np.nan, V[-63:].mean(0))
+    ma50 = np.nanmean(C[-50:], 0)
+    above50 = (px > ma50).astype(float)
+    cl = pd.DataFrame(C)
+    d = cl.diff()
+    up = d.clip(lower=0).rolling(14).mean(); dn = (-d.clip(upper=0)).rolling(14).mean()
+    rsi = (100 - 100 / (1 + up / dn.replace(0, np.nan))).iloc[-1].values
+    rsi_sweet = ((rsi > 45) & (rsi < 65)).astype(float)
+    e12 = cl.ewm(span=12, adjust=False).mean(); e26 = cl.ewm(span=26, adjust=False).mean()
+    macd = (e12 - e26)
+    macd_bull = (macd.iloc[-1].values >
+                 macd.ewm(span=9, adjust=False).mean().iloc[-1].values).astype(float)
+    tech = (0.30 * _pct(mom63) + 0.22 * _pct(rangepos) + 0.18 * _pct(np.minimum(rvol, 5))
+            + 0.10 * above50 + 0.10 * rsi_sweet + 0.10 * macd_bull)
+
+    # ── pillar 2: quality DNA (macro-simulator scoring philosophy) ───
+    piotr = funds["Piotroski"]; gc = funds["GoldenCross"]
+    roic = funds["ROIC"]; rg = funds["RevenueGrowth"]; eg = funds["EarningsGrowth"]
+    quality = (0.35 * np.clip(np.nan_to_num(piotr, nan=4.0) / 9.0, 0, 1)
+               + 0.15 * np.clip(np.nan_to_num(gc, nan=0.0), 0, 1)
+               + 0.20 * _pct(np.clip(np.nan_to_num(roic), -1, 2))
+               + 0.15 * _pct(np.clip(np.nan_to_num(rg), -1, 3))
+               + 0.15 * _pct(np.clip(np.nan_to_num(eg), -2, 5)))
+
+    # ── pillar 3: cascade tailwind (waves already moving toward it) ──
+    imp = impulses(node_closes).iloc[-1]
+    tail = np.zeros(N)
+    hot = [(nsym, float(z)) for nsym, z in imp.items()
+           if np.isfinite(z) and abs(z) >= 1.0 and nsym in node_closes.columns]
+    used_nodes = []
+    for nsym, z in hot:
+        corr = _node_follow_corr(nsym, node_closes)
+        if corr is None:
+            continue
+        c = np.where(np.abs(corr) >= 0.12, corr, 0.0)
+        tail += np.nan_to_num(c) * np.clip(z, -3, 3)
+        used_nodes.append(NODES.get(nsym, (nsym,))[0])
+    tail_pct = _pct(tail) if len(used_nodes) else np.full(N, 0.5)
+
+    # ── pillar 4: macro-regime sector fit ────────────────────────────
+    regime = macro_regime(node_closes, pressure_gauge)
+    tilts = SECTOR_TILTS.get(regime["regime"], {})
+    macro_mult = np.array([tilts.get(s, 1.0) for s in sectors])
+
+    score = (45 * tech + 25 * quality + 30 * tail_pct) * macro_mult
+    score = np.where(tradeable, score, -np.inf)
+    order = np.argsort(-score)[:top]
+    df = pd.DataFrame({
+        "Ticker": tickers[order], "Sector": np.array(sectors)[order],
+        "Price": px[order].round(2), "Score": score[order].round(1),
+        "Tech": (tech[order] * 100).round(0), "Quality": (quality[order] * 100).round(0),
+        "Tailwind": (tail_pct[order] * 100).round(0),
+        "MacroFit": macro_mult[order].round(2),
+        "Piotroski": piotr[order], "RevGrowth": rg[order],
+        "RVOL": np.round(rvol[order], 2), "RangePos": np.round(rangepos[order], 2),
+    })
+    regime["hot_nodes"] = used_nodes
+    return df.reset_index(drop=True), regime
