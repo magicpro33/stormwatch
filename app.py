@@ -100,6 +100,25 @@ HELP = {
         "has killed prettier backtests than this one — respect it.",
 }
 
+CREATOR_NAME = "AIupscale"
+CREATOR_URL = "https://aiupscalellc.netlify.app/"
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "aiupscale_logo.png")
+
+
+def _clickable_logo(width: int = 150) -> None:
+    """AI Upscale logo linking to the site — same as the hybrid screener."""
+    if not os.path.isfile(LOGO_PATH):
+        return
+    import base64
+    encoded = base64.b64encode(open(LOGO_PATH, "rb").read()).decode()
+    st.markdown(
+        f'<a href="{CREATOR_URL}" target="_blank" rel="noopener noreferrer">'
+        f'<img src="data:image/png;base64,{encoded}" width="{width}" '
+        f'style="cursor:pointer;" alt="{CREATOR_NAME}"></a>',
+        unsafe_allow_html=True,
+    )
+
+
 ACCENT = "#E87722"
 GREEN = "#3fbf7f"
 RED = "#e05252"
@@ -132,21 +151,25 @@ def _css_hit(v):
         return f"color:{DIM}"
     return f"color:{RED};font-weight:600"
 
-st.markdown(
-    f"""
-    <div style="padding:6px 0 2px;">
-      <span style="font-size:30px;font-weight:700;">🌩 Money Weather</span>
-      <span style="color:{ACCENT};font-size:15px;margin-left:10px;">
-        the global flow cascade map</span>
-    </div>
-    <div style="color:#9aa8bd;font-size:13px;margin-bottom:10px;">
-      Money doesn't teleport — it propagates. Track the pressure, watch the
-      sentinels, follow the storm tracks. Probability tilts, not prophecy.
-      <br><span style="color:#3fbf7f;">■ green = supportive / working</span> ·
-      <span style="color:#e05252;">■ red = draining / against you</span> ·
-      <span style="color:#9aa8bd;">■ dim = neutral noise</span>
-    </div>
-    """, unsafe_allow_html=True)
+_hl, _ht = st.columns([1, 6], vertical_alignment="center")
+with _hl:
+    _clickable_logo(140)
+with _ht:
+    st.markdown(
+        """
+        <div style="padding:6px 0 2px;">
+          <span style="font-size:30px;font-weight:700;">🌩 Money Weather</span>
+          <span style="color:#E87722;font-size:15px;margin-left:10px;">
+            the global flow cascade map</span>
+        </div>
+        <div style="color:#9aa8bd;font-size:13px;margin-bottom:10px;">
+          Money doesn't teleport — it propagates. Track the pressure, watch the
+          sentinels, follow the storm tracks. Probability tilts, not prophecy.
+          <br><span style="color:#3fbf7f;">■ green = supportive / working</span> ·
+          <span style="color:#e05252;">■ red = draining / against you</span> ·
+          <span style="color:#9aa8bd;">■ dim = neutral noise</span>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 # ── data ─────────────────────────────────────────────────────────────
@@ -203,8 +226,8 @@ def _analyzer(tk: str, _asof: str):
 
 
 @st.cache_data(ttl=1800, show_spinner="Scanning all 5,700 stocks across every pillar…")
-def _mega_scan(_asof: str, _gauge):
-    return ce.mega_scan(_history(), pressure_gauge=_gauge)
+def _mega_scan(_asof: str, _gauge, _override=None):
+    return ce.mega_scan(_history(), pressure_gauge=_gauge, regime_override=_override)
 
 
 @st.cache_data(ttl=3600, show_spinner="Reading the news for catalyst tags on the finalists…")
@@ -1277,18 +1300,28 @@ with tab_top20:
         st.session_state["_gauge_cache"] = _gauge
     except Exception:
         _gauge = None
-    if st.button("🚀 Scan now", type="primary", key="top20_scan"):
+    _scn_opts = {"📡 Auto — use the live-detected regime": None}
+    _scn_opts.update({f"🎛 {v}": k for k, v in ce.REGIME_LABELS.items()})
+    _sc1, _sc2 = st.columns([3, 1], vertical_alignment="bottom")
+    _scn_label = _sc1.selectbox(
+        "Macro scenario", list(_scn_opts), key="top20_scenario",
+        help="Auto uses the regime the app detects from live oil, dollar, VIX "
+             "and the pressure gauge. Pick a scenario to run the Top 20 under "
+             "YOUR Macro Sim setup instead — the sector multipliers switch to "
+             "that regime's playbook.")
+    _override = _scn_opts[_scn_label]
+    if _sc2.button("🚀 Scan now", type="primary", key="top20_scan", width="stretch"):
         st.session_state["top20_go"] = True
     if st.session_state.get("top20_go"):
         try:
-            t20, reg = _mega_scan(asof, _gauge)
+            t20, reg = _mega_scan(asof, _gauge, _override)
         except Exception as e:
             st.error(f"Scan failed: {e}")
             t20, reg = pd.DataFrame(), {}
         if not t20.empty:
             st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
                 border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
-                <span style="font-weight:700;">Macro regime: {reg['label']}</span><br>
+                <span style="font-weight:700;">{'🎛 Scenario override' if _override else '📡 Detected regime'}: {reg['label']}</span><br>
                 <span style="color:{DIM};font-size:12px;">Detected from: {' · '.join(reg['drivers'])}
                 {('· hot waves: ' + ', '.join(reg['hot_nodes'][:5])) if reg.get('hot_nodes') else '· no waves firing (tailwind pillar neutral)'}</span>
                 </div>""", unsafe_allow_html=True)
@@ -1388,8 +1421,8 @@ with tab_macro:
             border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin-bottom:8px;">
             <span style="font-weight:700;">📡 Live regime (app-detected): {_reg_live['label']}</span><br>
             <span style="color:{DIM};font-size:12px;">From: {' · '.join(_reg_live['drivers'])} —
-            set the simulator's sliders to match (or to your what-if) and compare its
-            per-stock playbook against the Top 20 tab.</span></div>""",
+            set the simulator's sliders to match (or to your what-if), then run the
+            Top 20 tab under that same scenario with its Macro scenario picker.</span></div>""",
             unsafe_allow_html=True)
     except Exception:
         pass
