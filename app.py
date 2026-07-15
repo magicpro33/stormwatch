@@ -847,8 +847,10 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
     st.stop()
 
 asof = str(closes.index[-1].date())
-tab_map, tab_lookup, tab_top20, tab_pressure, tab_sentinels, tab_forced, tab_lab = st.tabs(
-    ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab"])
+(tab_map, tab_lookup, tab_top20, tab_macro, tab_pressure, tab_sentinels,
+ tab_forced, tab_lab) = st.tabs(
+    ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "🧪 Macro Sim",
+     "🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab"])
 
 
 # ── 🌊 cascade map ───────────────────────────────────────────────────
@@ -1272,6 +1274,7 @@ with tab_top20:
                "dump (all markets, ~5,700 stocks).")
     try:
         _gauge = _pressure().get("gauge")
+        st.session_state["_gauge_cache"] = _gauge
     except Exception:
         _gauge = None
     if st.button("🚀 Scan now", type="primary", key="top20_scan"):
@@ -1370,6 +1373,44 @@ with tab_top20:
                     "pressure gauge.\n\n"
                     "It's a ranking, not a prophecy — validate ideas in Stock Lookup's "
                     "analog forecast before acting. Not investment advice.")
+
+
+# ── 🧪 macro simulator (the original, embedded whole) ────────────────
+with tab_macro:
+    st.caption("Your full Macro Market Simulator, embedded as-is — every "
+               "slider, scenario, and stock in its DB works exactly like the "
+               "standalone version (it runs in your browser, including its "
+               "live feeds). This is the playbook the Top 20's MacroFit "
+               "multipliers were distilled from.")
+    try:
+        _reg_live = ce.macro_regime(closes, pressure_gauge=st.session_state.get("_gauge_cache"))
+        st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+            border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin-bottom:8px;">
+            <span style="font-weight:700;">📡 Live regime (app-detected): {_reg_live['label']}</span><br>
+            <span style="color:{DIM};font-size:12px;">From: {' · '.join(_reg_live['drivers'])} —
+            set the simulator's sliders to match (or to your what-if) and compare its
+            per-stock playbook against the Top 20 tab.</span></div>""",
+            unsafe_allow_html=True)
+    except Exception:
+        pass
+    try:
+        _sim_path = os.path.join(os.path.dirname(__file__), "macro_simulator.html")
+        if not os.path.exists(_sim_path):
+            raise FileNotFoundError(_sim_path)
+        try:
+            st.iframe(_sim_path, height=1700)          # Streamlit >= 1.5x
+        except Exception:
+            import streamlit.components.v1 as components
+            with open(_sim_path, encoding="utf-8") as _f:
+                components.html(_f.read(), height=1700, scrolling=True)
+        st.caption("Scroll inside the panel for the full simulator. Its live "
+                   "feeds load in YOUR browser, so they work even when the "
+                   "server's feeds are rate-limited.")
+    except FileNotFoundError:
+        st.error("macro_simulator.html not found next to app.py — include it "
+                 "in the repo to enable this tab.")
+    except Exception as _me:
+        st.error(f"Simulator embed failed: {_me}")
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
