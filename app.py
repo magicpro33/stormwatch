@@ -230,6 +230,11 @@ def _mega_scan(_asof: str, _gauge, _override=None):
     return ce.mega_scan(_history(), pressure_gauge=_gauge, regime_override=_override)
 
 
+@st.cache_data(ttl=1800, show_spinner="🎩 Running the five-test quality checklist on all 5,700 stocks…")
+def _felix_scan(_asof: str):
+    return ce.felix_scan()
+
+
 @st.cache_data(ttl=3600, show_spinner="Reading the news for catalyst tags on the finalists…")
 def _news_tags(tickers: tuple, sectors_json: str):
     import json as _json
@@ -1325,7 +1330,61 @@ with tab_top20:
     _override = _scn_opts[_scn_label]
     if _sc2.button("🚀 Scan now", type="primary", key="top20_scan", width="stretch"):
         st.session_state["top20_go"] = True
-    if st.session_state.get("top20_go"):
+        st.session_state["top20_mode"] = "cascade"
+    if st.button("🎩 Felix — the five-test quality checklist", key="felix_scan_btn",
+                 width="stretch",
+                 help="The investment-banker checklist from the hybrid screener, run "
+                      "across the whole dump: (1) Return on capital — ROIC 15%+; "
+                      "(2) Moat — proxied here by ROIC + its trend (the nightly dump "
+                      "carries no gross margin); (3) Cash — real owner-earnings yield; "
+                      "(4) Stability — Piotroski health; (5) Sane price — hard P/E gate "
+                      "0-50. Regime-agnostic on purpose: quality doesn't rotate with "
+                      "the weather, so the scenario picker and tailwind don't apply."):
+        st.session_state["top20_go"] = True
+        st.session_state["top20_mode"] = "felix"
+    if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "felix":
+        try:
+            f20 = _felix_scan(asof)
+        except Exception as e:
+            st.error(f"Felix scan failed: {e}")
+            f20 = pd.DataFrame()
+        if not f20.empty:
+            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                <span style="font-weight:700;">🎩 Felix mode — quality checklist leaderboard</span><br>
+                <span style="color:{DIM};font-size:12px;">Only ~3% of US stocks pass all five
+                tests. Tests column: ROIC ≥ 15% · Piotroski ≥ 7 · OE yield ≥ 4% · ROIC trend
+                improving (the P/E ≤ 50 gate already filtered everyone here).</span></div>""",
+                unsafe_allow_html=True)
+            _f = f20.copy()
+            _fsel = st.dataframe(
+                _f.style.format({"Price": "${:,.2f}", "Felix": "{:.1f}",
+                                 "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
+                                 "Piotroski": "{:.0f}", "ROIC Trend": "{:+.2f}",
+                                 "P/E": "{:.1f}", "RevGrowth": "{:+.0%}"}, na_rep="—")
+                .map(lambda v: _css_sign(v - 0.15, dead=0.0) if isinstance(v, float) else "",
+                     subset=["ROIC"])
+                .map(lambda v: f"color:{GREEN};font-weight:600" if v == "4/4"
+                     else (f"color:{DIM}" if v in ("2/4", "3/4") else f"color:{RED}"),
+                     subset=["Tests"]),
+                width="stretch", hide_index=True, height=740,
+                on_select="rerun", selection_mode="single-row", key="felix_table",
+                column_config={
+                    "Felix": st.column_config.Column(help="Weighted checklist score, mirroring the screener preset exactly: ROIC x5, OE Yield x4, Piotroski x4, ROIC Trend x2, growth x1 each — percentile-ranked, P/E-gated."),
+                    "Tests": st.column_config.Column(help="How many of the four measurable quality bars this stock clears."),
+                    "OE Yield": st.column_config.Column(help="Owner-earnings yield — real cash generated relative to price. Revenue is vanity, cash is sanity."),
+                    "ROIC Trend": st.column_config.Column(help="Direction of return on capital — a real moat keeps returns from eroding."),
+                })
+            _fr = (_fsel.selection.rows if _fsel and getattr(_fsel, "selection", None) else [])
+            if _fr:
+                _ftk = _f.iloc[_fr[0]].Ticker
+                if st.session_state.get("_flx_handled") != _ftk:
+                    st.session_state["_flx_handled"] = _ftk
+                    st.session_state["lk_tk"] = _ftk
+                    st.rerun()
+            st.caption("👆 Tap any row to load it into Stock Lookup for the full "
+                       "analysis and analog forecast.")
+    if st.session_state.get("top20_go") and st.session_state.get("top20_mode", "cascade") == "cascade":
         try:
             t20, reg = _mega_scan(asof, _gauge, _override)
         except Exception as e:
@@ -1392,6 +1451,37 @@ with tab_top20:
                         "**Stock Lookup** tab for the full analysis, forecast, and analyzer.")
             st.caption("👆 Tap any row to load it into Stock Lookup. Scores refresh "
                        "with the nightly dump; the tailwind and regime refresh live.")
+
+            # ── catalyst key ──────────────────────────────────────────
+            def _krow(tag, desc):
+                return (f"<div style='display:flex;gap:8px;font-size:12px;line-height:1.9;'>"
+                        f"<span style='min-width:118px;font-weight:600;'>{tag}</span>"
+                        f"<span style='color:{DIM};'>{desc}</span></div>")
+            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                border-radius:10px;padding:12px 16px;margin-top:6px;">
+                <div style="font-weight:700;font-size:13px;margin-bottom:4px;">🔑 Catalyst key</div>
+                <div style="color:{ACCENT};font-size:11px;letter-spacing:1px;text-transform:uppercase;margin:4px 0 2px;">
+                  Data fingerprints — scanned across all 5,700 stocks (scored)</div>
+                {_krow("🚀 breakout", "closed at a new 63-day high — momentum entering fresh territory")}
+                {_krow("⚡ vol shock", "2.5x+ normal volume with a 4%+ move — 'something just happened', whatever the news was")}
+                {_krow("🕳 gap", "opened 3%+ away from the prior close within the last 5 sessions — an overnight repricing")}
+                {_krow("📈 MACD cross", "momentum flipped bullish within the last 3 sessions — fresh, not stale")}
+                {_krow("🩳 squeeze setup", "15%+ of the float sold short while price is RISING — fuel for a forced-covering rally (shown, not scored)")}
+                <div style="color:{ACCENT};font-size:11px;letter-spacing:1px;text-transform:uppercase;margin:8px 0 2px;">
+                  News catalysts — IGNITION keyword scan on the final 20 (informational)</div>
+                {_krow("📊 earnings", "results, guidance, or EPS coverage in recent headlines")}
+                {_krow("📈 earn_growth", "record-quarter / beat-estimates language — the strongest earnings flavor")}
+                {_krow("💊 fda", "trial, approval, or regulatory news (healthcare names only)")}
+                {_krow("⚖️ legal", "lawsuit, settlement, or investigation coverage")}
+                {_krow("🤝 buyout", "M&amp;A, takeover, or strategic-review chatter")}
+                {_krow("🔗 partnership", "deals, contracts, joint ventures, licensing")}
+                {_krow("🩳 squeeze", "short-interest coverage in the news itself")}
+                {_krow("🌍 geopolitical", "tariffs, sanctions, defense, supply chains (relevant sectors only)")}
+                {_krow("🏦 rate", "Fed / rates / inflation coverage (rate-sensitive sectors only)")}
+                <div style="color:{DIM};font-size:11px;margin-top:6px;">
+                  Data fingerprints feed the score (backtested: +3.58% vs +2.78% excess without them).
+                  News tags and squeeze setup are context only — read them, don't count them.</div>
+                </div>""", unsafe_allow_html=True)
             with st.expander("❓ How the Top 20 is chosen"):
                 st.markdown(
                     "- **Universe:** every tradeable stock in the nightly dump — all "
