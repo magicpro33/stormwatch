@@ -56,10 +56,61 @@ NODES = {
     "BTC-USD": ("Bitcoin", "crypto"), "ETH-USD": ("Ethereum", "crypto"),
     "SOL-USD": ("Solana", "crypto"),
     "^VIX": ("VIX", "vol"),
+    # ── wide-net expansion ──
+    "XOP": ("Oil & Gas E&P", "theme"), "OIH": ("Oil Services", "theme"),
+    "XME": ("Metals & Mining", "theme"), "KWEB": ("China Internet", "theme"),
+    "IGV": ("Software", "theme"), "CIBR": ("Cybersecurity", "theme"),
+    "XHB": ("Homebuilders", "theme"), "JETS": ("Airlines", "theme"),
+    "XRT": ("Retail", "theme"), "PBW": ("Clean Energy", "theme"),
+    "LIT": ("Lithium/Battery", "theme"), "IBB": ("Biotech LC", "theme"),
+    "RSP": ("S&P Equal Weight", "breadth"),
+    "EWY": ("South Korea", "country"), "EWT": ("Taiwan", "country"),
+    "EWU": ("UK", "country"), "EWC": ("Canada", "country"),
+    "EWA": ("Australia", "country"), "EWW": ("Mexico", "country"),
+    "SHY": ("2y Treasuries", "rates"), "EMB": ("EM Debt", "rates"),
+    "MBB": ("Mortgages", "rates"), "BKLN": ("Bank Loans", "rates"),
+    "PPLT": ("Platinum", "commodity"), "CORN": ("Corn", "commodity"),
+    "WEAT": ("Wheat", "commodity"),
+    "FXB": ("British Pound", "fx"),
 }
 
 # canonical upstream sentinels (fast, frictionless)
-SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX"]
+ENGINE_VERSION = "2.6"   # app.py checks this — push both files together
+
+SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
+             "KRE", "EMB", "UUP", "TLT"]
+
+# ratio sentinels — relationships that lead, computed from node closes
+RATIO_SENTINELS = {
+    "SMH/SPY":  ("Semis vs Market", "the AI-cycle leader — semis roll over before the index does"),
+    "XLY/XLP":  ("Discretionary vs Staples", "consumer risk appetite — falling = defensive rotation"),
+    "HYG/IEF":  ("Junk vs Treasuries", "credit risk appetite — the bond market's fear gauge"),
+    "CPER/GLD": ("Copper vs Gold", "growth vs fear — Dr. Copper against the bunker asset"),
+    "RSP/SPY":  ("Equal vs Cap Weight", "breadth — narrow rallies (falling ratio) are fragile"),
+    "IWM/SPY":  ("Small vs Large", "risk breadth — small caps lead risk-on and risk-off"),
+    "EEM/SPY":  ("EM vs US", "global liquidity reach — EM outperforms when dollars flow out"),
+}
+
+
+def ratio_sentinel_impulses(closes: pd.DataFrame) -> pd.DataFrame:
+    """Impulse z + 63d trend for each ratio sentinel available in the data."""
+    rows = []
+    for pair, (name, meaning) in RATIO_SENTINELS.items():
+        a, b = pair.split("/")
+        if a not in closes.columns or b not in closes.columns:
+            continue
+        r = (closes[a] / closes[b]).dropna()
+        if len(r) < IMPULSE_Z_WIN:
+            continue
+        imp5 = r.pct_change(IMPULSE_W)
+        mu = imp5.rolling(IMPULSE_Z_WIN, min_periods=60).mean()
+        sd = imp5.rolling(IMPULSE_Z_WIN, min_periods=60).std()
+        z = float(((imp5 - mu) / sd).iloc[-1])
+        t63 = float(r.iloc[-1] / r.iloc[-64] - 1) if len(r) > 64 else np.nan
+        rows.append(dict(pair=pair, name=name, meaning=meaning,
+                         z=round(z, 2) if np.isfinite(z) else np.nan,
+                         trend63=round(t63, 4) if np.isfinite(t63) else np.nan))
+    return pd.DataFrame(rows)
 
 LOCAL_HISTORY = os.path.join(os.path.dirname(__file__), "data", "history.parquet")
 HISTORY_YEARS = 3
@@ -663,12 +714,12 @@ def investment_plan(b, closes: pd.DataFrame) -> dict:
 # Stock-level layer: nightly dump + Alpaca + earnings dates
 # ═════════════════════════════════════════════════════════════════════
 DUMP_URL = "https://raw.githubusercontent.com/magicpro33/stock/main/data/stock_data.json.gz"
-LOCAL_DUMP = os.path.join(os.path.dirname(__file__), "data", "dump_panel_v3.npz")
+LOCAL_DUMP = os.path.join(os.path.dirname(__file__), "data", "dump_panel_v4.npz")
 
 FUND_FIELDS = ["ShortPctFloat", "DaysToCover", "P/E", "RevenueGrowth",
                "EarningsGrowth", "MarketCap", "Piotroski", "GoldenCross",
                "ROIC", "DividendYieldPct", "DividendRate", "ShortSqueeze",
-               "CleanSetupScore", "MFI", "OE_Yield", "PCV"]
+               "CleanSetupScore", "MFI", "OE_Yield", "PCV", "ROIC_Trend"]
 
 BUYBACK_TITANS = ["AAPL", "GOOGL", "MSFT", "META", "NVDA", "JPM", "XOM"]
 
@@ -1295,6 +1346,62 @@ def fetch_analyzer(ticker: str):
             else:
                 _issues.append(f"fundamentals: {m}")
 
+    # ── Step 2b: extended profitability from the statements ──────────
+    # ROCE + the margin suite. Statements beat info-fields; info-fields
+    # fill the gaps (grossMargins / operatingMargins).
+    def _srow(df_, *names):
+        try:
+            if df_ is None or not hasattr(df_, "empty") or df_.empty:
+                return None
+            ri = {str(i).strip().lower(): i for i in df_.index}
+            for nm in names:
+                k = ri.get(nm.lower())
+                if k is not None:
+                    col = df_.loc[k].dropna()
+                    if len(col):
+                        return float(col.iloc[0])   # most recent period
+        except Exception:
+            pass
+        return None
+
+    if tk is not None:
+        try:
+            fin = getattr(tk, "financials", None)
+            bs = getattr(tk, "balance_sheet", None)
+            cf = getattr(tk, "cashflow", None)
+            rev = _srow(fin, "Total Revenue", "Operating Revenue")
+            opinc = _srow(fin, "Operating Income", "EBIT")
+            gp = _srow(fin, "Gross Profit")
+            ta = _srow(bs, "Total Assets")
+            cliab = _srow(bs, "Current Liabilities",
+                          "Total Current Liabilities")
+            ocf = _srow(cf, "Operating Cash Flow",
+                        "Total Cash From Operating Activities",
+                        "Cash Flow From Continuing Operating Activities")
+            fcf = _srow(cf, "Free Cash Flow")
+            if fcf is None and ocf is not None:
+                capex = _srow(cf, "Capital Expenditure")
+                if capex is not None:
+                    fcf = ocf + capex if capex < 0 else ocf - capex
+            if opinc and ta and cliab and (ta - cliab) > 0:
+                info["_roce"] = opinc / (ta - cliab)
+            if rev and rev > 0:
+                if gp is not None:
+                    info["_gross_margin"] = gp / rev
+                if opinc is not None:
+                    info["_op_margin"] = opinc / rev
+                if ocf is not None:
+                    info["_cf_margin"] = ocf / rev
+                if fcf is not None:
+                    info["_fcf_margin"] = fcf / rev
+        except Exception:
+            pass
+    # info-field fallbacks (TTM ratios from the profile)
+    if info.get("_gross_margin") is None and info.get("grossMargins"):
+        info["_gross_margin"] = info["grossMargins"]
+    if info.get("_op_margin") is None and info.get("operatingMargins"):
+        info["_op_margin"] = info["operatingMargins"]
+
     # ── Step 3: nightly dump fills whatever is still missing ─────────
     df_funds = dump_fundamentals(ticker)
     filled = []
@@ -1690,3 +1797,46 @@ def news_catalysts(tickers: list, sectors: dict | None = None) -> dict:
         if tags:
             out[tk] = " · ".join(tags[:4])
     return out
+
+
+def felix_scan(top: int = 20) -> pd.DataFrame:
+    """🎩 Felix — the investment-banker quality checklist from the hybrid
+    screener, run across the entire nightly dump. Five tests: return on
+    capital (ROIC), moat (proxied by ROIC + its trend — the dump carries no
+    gross margin), cash (owner-earnings yield), stability (Piotroski), sane
+    price (hard P/E gate 0-50). Regime-agnostic by design — quality doesn't
+    rotate with the weather. Weights mirror the screener preset exactly:
+    ROIC x5, OE_Yield x4, Piotroski x4, ROIC_Trend x2, growth x1 each."""
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    funds = dump_fundamentals_all()
+    px = panel["c"][-1]
+    pe = funds["P/E"]
+    roic = funds["ROIC"]; oe = funds["OE_Yield"]; pio = funds["Piotroski"]
+    rt = funds["ROIC_Trend"]; rg = funds["RevenueGrowth"]; eg = funds["EarningsGrowth"]
+    ok = (np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6)
+          & np.isfinite(pe) & (pe > 0) & (pe <= 50)          # Test 5: sane price
+          & np.isfinite(roic) & np.isfinite(pio))
+
+    def _pct(a):
+        return pd.Series(np.where(ok, a, np.nan)).rank(pct=True).values
+
+    score = (5 * _pct(roic)
+             + 4 * _pct(oe)
+             + 4 * np.clip(np.nan_to_num(pio, nan=0) / 9.0, 0, 1)
+             + 2 * _pct(np.nan_to_num(rt))
+             + 1 * _pct(np.clip(np.nan_to_num(rg), -1, 3))
+             + 1 * _pct(np.clip(np.nan_to_num(eg), -2, 5))) / 17 * 100
+    score = np.where(ok, score, -np.inf)
+    order = np.argsort(-score)[:top]
+    tests = ((np.nan_to_num(roic) >= 0.15).astype(int)
+             + (np.nan_to_num(pio) >= 7).astype(int)
+             + (np.nan_to_num(oe) >= 0.04).astype(int)
+             + (np.nan_to_num(rt) > 0).astype(int))
+    return pd.DataFrame({
+        "Ticker": tickers[order], "Sector": np.array(sectors)[order],
+        "Price": px[order].round(2), "Felix": np.round(score[order], 1),
+        "Tests": [f"{t}/4" for t in tests[order]],
+        "ROIC": roic[order], "OE Yield": oe[order],
+        "Piotroski": pio[order], "ROIC Trend": rt[order],
+        "P/E": pe[order], "RevGrowth": rg[order],
+    }).reset_index(drop=True)

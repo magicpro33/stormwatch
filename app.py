@@ -20,6 +20,17 @@ import streamlit as st
 
 import cascade_engine as ce
 
+REQUIRED_ENGINE = "2.6"
+_engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
+if _engine_v != REQUIRED_ENGINE:
+    st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
+             f"v{REQUIRED_ENGINE}, but the deployed engine is **{_engine_v}**. "
+             "This is exactly what causes errors like *'module cascade_engine "
+             "has no attribute felix_scan'*. Fix: push **both** app.py AND "
+             "cascade_engine.py from the same moneyweather.zip to the repo, "
+             "then reboot the app.")
+    st.stop()
+
 st.set_page_config(page_title="Money Weather", page_icon="🌩", layout="wide")
 
 
@@ -374,6 +385,9 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
     roe = info.get("returnOnEquity"); roa = info.get("returnOnAssets")
     deq = info.get("debtToEquity"); cr = info.get("currentRatio")
     dy = info.get("_divYieldPct"); drate = info.get("dividendRate")
+    roce = info.get("_roce"); gm = info.get("_gross_margin")
+    opm = info.get("_op_margin"); cfm = info.get("_cf_margin")
+    fcfm = info.get("_fcf_margin")
     aus = ((am - px) / px * 100) if (am and px > 0) else None
     rng52 = ((px - lo52) / (hi52 - lo52) * 100) if (hi52 and lo52 and hi52 != lo52) else None
 
@@ -601,11 +615,17 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
             mtable(rows)
         else:
             st.caption("No valuation data from any source.")
-        if any(x is not None for x in (pm, om, roe, roa, deq, cr)):
+        if any(x is not None for x in (pm, om, roe, roa, deq, cr,
+                                       roce, gm, opm, cfm, fcfm)):
             az_section("Financial Health")
             rows = []
+            if roce is not None: rows.append(mrow("ROCE", "Return on Capital Employed: operating income / (total assets − current liabilities). Felix's favorite capital-efficiency lens — 15%+ is elite.", az_tag(roce * 100, 15, 8, "{:.1f}", "%")))
+            if gm is not None: rows.append(mrow("Gross Margin", "Gross profit / revenue — the moat test. 60%+ means pricing power nobody can compete away.", az_tag(gm * 100, 50, 30, "{:.1f}", "%")))
+            if opm is not None: rows.append(mrow("Operating Margin", "Operating income / revenue — what's left after running the business.", az_tag(opm * 100, 15, 5, "{:.1f}", "%")))
+            elif om is not None: rows.append(mrow("Operating Margin", "Operating income / revenue.", az_tag(om * 100, 15, 5, "{:.1f}", "%")))
+            if cfm is not None: rows.append(mrow("Cash Flow Margin", "Operating cash flow / revenue — earnings are an opinion, cash is a fact.", az_tag(cfm * 100, 15, 8, "{:.1f}", "%")))
+            if fcfm is not None: rows.append(mrow("FCF Margin", "Free cash flow / revenue — cash left after capex; what owners actually keep.", az_tag(fcfm * 100, 10, 5, "{:.1f}", "%")))
             if pm is not None: rows.append(mrow("Profit Margin", "Net income / revenue.", az_tag(pm * 100, 15, 5, "{:.1f}", "%")))
-            if om is not None: rows.append(mrow("Operating Margin", "Operating income / revenue.", az_tag(om * 100, 15, 5, "{:.1f}", "%")))
             if roe is not None: rows.append(mrow("ROE", "Return on equity.", az_tag(roe * 100, 15, 8, "{:.1f}", "%")))
             if roa is not None: rows.append(mrow("ROA", "Return on assets.", az_tag(roa * 100, 8, 4, "{:.1f}", "%")))
             if deq is not None: rows.append(mrow("Debt / Equity", "Leverage — lower is safer.", az_tag_inv(deq, 150, 80, "{:.0f}", "%")))
@@ -876,9 +896,10 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
 
 asof = str(closes.index[-1].date())
 (tab_map, tab_lookup, tab_top20, tab_macro, tab_pressure, tab_sentinels,
- tab_forced, tab_lab) = st.tabs(
+ tab_forced, tab_lab, tab_guide) = st.tabs(
     ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "🧪 Macro Sim",
-     "🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab"])
+     "🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab",
+     "📖 Guide"])
 
 
 # ── 🌊 cascade map ───────────────────────────────────────────────────
@@ -1626,6 +1647,36 @@ with tab_sentinels:
 
 
 # ── 📅 forced flows ──────────────────────────────────────────────────
+with tab_sentinels:
+    st.markdown("#### 🔭 Ratio sentinels — relationships that lead")
+    st.caption("Two assets divided by each other strip out the market and "
+               "leave the message. These ratios historically turn before "
+               "the index does.")
+    try:
+        _rs = ce.ratio_sentinel_impulses(closes)
+    except Exception:
+        _rs = pd.DataFrame()
+    if _rs.empty:
+        st.info("Ratio sentinels need their components in the node history — "
+                "hit 🔄 Refresh on the Cascade Map after deploying the "
+                "expanded node list.")
+    else:
+        for _, r in _rs.iterrows():
+            zc = GREEN if r.z >= 1.0 else (RED if r.z <= -1.0 else DIM)
+            arrow = "▲" if (pd.notna(r.trend63) and r.trend63 > 0) else "▼"
+            ac = GREEN if arrow == "▲" else RED
+            st.markdown(f"""<div style="display:flex;align-items:center;gap:12px;
+                background:#0c1829;border:1px solid #1d2b40;border-radius:8px;
+                padding:8px 14px;margin-bottom:6px;">
+                <span style="font-family:monospace;font-weight:700;min-width:96px;">{r['pair']}</span>
+                <span style="min-width:150px;font-size:13px;">{r['name']}</span>
+                <span style="font-family:monospace;color:{zc};min-width:76px;"
+                      title="Impulse z of the ratio's 5-day move vs its own 6-month history — same wave math as the nodes.">z {r.z:+.1f}</span>
+                <span style="font-family:monospace;color:{ac};min-width:66px;"
+                      title="63-session trend of the ratio.">{arrow} {r.trend63:+.1%}</span>
+                <span style="color:{DIM};font-size:12px;flex:1;">{r['meaning']}</span>
+                </div>""", unsafe_allow_html=True)
+
 with tab_forced:
     st.caption("The closest thing to prophecy that legally exists: flows that "
                "are scheduled and price-insensitive. They don't care what the "
@@ -1710,3 +1761,85 @@ with tab_lab:
     st.caption("One year is one regime. Cascade edges break when regimes "
                "flip — that is why they are re-estimated every week and why "
                "this tab exists. Not investment advice.")
+
+
+# ── 📖 guide: every wave, every term, every key ──────────────────────
+with tab_guide:
+    _cats = {"core": "🏛 Core Indices", "sector": "🏭 Sectors",
+             "theme": "🎯 Themes & Industries", "factor": "🧬 Factors",
+             "breadth": "📊 Breadth", "country": "🌍 Countries",
+             "commodity": "⛏ Commodities", "rates": "🏦 Rates & Credit",
+             "fx": "💱 Currencies", "crypto": "₿ Crypto", "vol": "🌪 Volatility"}
+    _by_cat = {}
+    for sym, meta in ce.NODES.items():
+        _by_cat.setdefault(meta[1] if len(meta) > 1 else "other", []).append(
+            (sym, meta[0]))
+    st.markdown(f"### 🌊 All {len(ce.NODES)} waves the cascade watches")
+    st.caption(f"Any of these whose 5-day flow impulse crosses ±{ce.WAVE_Z} z "
+               "becomes an active wave (the Top 20's tailwind pillar listens "
+               "at a looser ±1.0). This list renders straight from the engine, "
+               "so it can never go stale.")
+    for cat, label in _cats.items():
+        if cat not in _by_cat:
+            continue
+        chips = " ".join(
+            f"<span style='display:inline-block;background:#0c1829;border:1px solid "
+            f"#1d2b40;border-radius:6px;padding:2px 10px;margin:2px;font-size:12px;'>"
+            f"<b style='font-family:monospace;'>{s}</b> "
+            f"<span style='color:{DIM};'>{n}</span></span>"
+            for s, n in _by_cat[cat])
+        st.markdown(f"<div style='margin:6px 0;'><span style='color:{ACCENT};"
+                    f"font-size:12px;letter-spacing:1px;text-transform:uppercase;'>"
+                    f"{label} ({len(_by_cat[cat])})</span><br>{chips}</div>",
+                    unsafe_allow_html=True)
+
+    st.divider()
+    st.markdown("### 🛰 Sentinels")
+    st.caption("Fast, frictionless assets that react to pressure changes first — "
+               "plus ratio sentinels, where two assets divided by each other "
+               "strip out the market and leave the message.")
+    st.markdown("**Single-asset sentinels:** " + " · ".join(
+        f"`{s}` {ce.NODES.get(s, (s,))[0]}" for s in ce.SENTINELS))
+    st.markdown("**Ratio sentinels:**")
+    for pair, (nm, meaning) in ce.RATIO_SENTINELS.items():
+        st.markdown(f"- **{pair}** ({nm}) — {meaning}")
+
+    st.divider()
+    st.markdown("### 📖 Glossary — every term in the app")
+    for term, defn in [
+        ("Flow impulse (z)", "A node's 5-day return, scored against its own last 6 months. z = +2 means a move twice as unusual as typical — money arriving fast."),
+        ("Wave", f"A node whose |impulse z| ≥ {ce.WAVE_Z}. That's the 'storm forming' threshold."),
+        ("Storm track (edge)", f"A validated lead-lag path: when node A surges, node B historically follows within ~{ce.EDGE_HORIZON} sessions. Estimated walk-forward, kept only when |IC| ≥ {ce.EDGE_MIN_ABS_IC}."),
+        ("IC (information coefficient)", "Rank correlation between the leader's move and the follower's later move. 0 = useless, 0.2 = strong for markets. Sign gives direction."),
+        ("Hit rate", "When the leader fired hard historically, how often the follower moved the predicted way. 60%+ on many samples is a real tilt."),
+        ("Tailwind / Cascade Push", "Sum over active waves of (this stock's historical response to that wave × the wave's current strength). Positive = the water is already flowing toward it."),
+        ("Analog forecast", "We find every past (day, stock) that looked like this one does now — same momentum percentile, range position, volume buzz, trend — and report what actually happened to them next. A distribution, not a prophecy."),
+        ("Landing zone", "The middle 80% of analog outcomes (10th to 90th percentile). Its WIDTH is the risk."),
+        ("Pop / crash odds", "Share of analogs that gained/lost 15%+ in 21 sessions, with the lift vs an average stock's base rate."),
+        ("Macro regime", "The app's live read of the environment (QE / stagflation / melt-up / shock / strong dollar / base) from oil, dollar, VIX, and the pressure gauge — the same six regimes as your Macro Simulator."),
+        ("MacroFit", "The sector multiplier the current regime's playbook applies to a stock's score."),
+        ("Pressure gauge", "Net Fed liquidity + stablecoin flows + credit spreads combined into −3…+3. Positive = money looking for a home."),
+        ("RVOL", "Recent volume vs its own average. 2.5x+ means attention arrived."),
+        ("Piotroski", "9-point fundamental health checklist. 7+ = fortress."),
+        ("ROIC / ROCE", "Return on invested capital / capital employed — how much profit each dollar in the business generates. Felix's favorite lenses; 15%+ is elite."),
+        ("OE Yield", "Owner-earnings yield — real cash generated relative to price."),
+        ("Catalysts (scored vs shown)", "Data fingerprints (breakout, vol shock, gap, fresh MACD) are backtested and scored. News tags and squeeze setup are context only — read them, don't count them."),
+    ]:
+        st.markdown(f"- **{term}** — {defn}")
+
+    st.divider()
+    st.markdown("### ⚙️ How the data flows")
+    st.markdown(
+        f"- **Stock Lookup chain:** Alpaca (live) → Yahoo → nightly dump — the "
+        "source badges on every lookup show which fed the screen.\n"
+        "- **Node history:** Alpaca batch + Yahoo gap-fill, cached ~1h; the 🔄 "
+        "button on the Cascade Map forces a fresh pull (and keeps your old data "
+        "if the feeds fail).\n"
+        "- **Nightly dump:** ~5,700 stocks with OHLCV + fundamentals from your "
+        "scan pipeline — refreshes once a day and powers the Top 20, Felix, "
+        "analog library, and fastest-followers.\n"
+        f"- **Versions:** engine v{getattr(ce, 'ENGINE_VERSION', '?')} — app and "
+        "engine check each other at startup, so a half-deployed update fails "
+        "loudly instead of mysteriously.")
+    st.caption("Probability tilts, not prophecy. Position sizing is the only "
+               "opinion that matters. Not investment advice.")
