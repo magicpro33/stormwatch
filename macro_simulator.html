@@ -33,6 +33,10 @@ h1{font-size:clamp(18px,3.5vw,32px);font-weight:700;background:linear-gradient(1
 #spread-card.steep{border-color:rgba(57,255,20,.45);background:rgba(57,255,20,.03)}
 #spread-card.flat{border-color:rgba(255,215,0,.45)}
 #spread-card.inv{border-color:rgba(255,59,92,.45);background:rgba(255,59,92,.03)}
+#carry-card.safe{border-color:rgba(57,255,20,.45);background:rgba(57,255,20,.03)}
+#usdjpy-card.safe{border-color:rgba(57,255,20,.45);background:rgba(57,255,20,.03)}
+#carry-card.watch,#usdjpy-card.watch{border-color:rgba(255,215,0,.45)}
+#carry-card.unwind,#usdjpy-card.unwind{border-color:rgba(255,59,92,.5);background:rgba(255,59,92,.05)}
 .slbl{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mu);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
 .sval{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;color:var(--ac);margin-bottom:6px}
 input[type=range]{width:100%;-webkit-appearance:none;height:4px;border-radius:2px;background:var(--bdr);outline:none;cursor:pointer}
@@ -44,8 +48,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .pt{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mu);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px}
 .pt::after{content:'';flex:1;height:1px;background:var(--bdr)}
 .cw{position:relative;height:240px}
-.sgg{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:7px}
-@media(max-width:680px){.sgg{grid-template-columns:repeat(3,1fr)}}
+.sgg{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:7px}
+@media(max-width:780px){.sgg{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:480px){.sgg{grid-template-columns:repeat(2,1fr)}}
 .sgc{background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:10px 6px;text-align:center;transition:all .3s}
 .sgc.bu{border-color:var(--ac3);background:rgba(57,255,20,.05)}
 .sgc.be{border-color:var(--red);background:rgba(255,59,92,.05)}
@@ -181,9 +186,9 @@ footer a:hover{color:var(--ac)}
 <header>
   <div class="htop">
     <div>
-      <div class="eye">// Brad's Playbook v6.0 &mdash; Bretton Woods 2.0 &bull; July 2 2026 Recal &bull; 6-Scenario Simulator</div>
+      <div class="eye">// Brad's Playbook v7.0 &mdash; Yen Carry Trade &bull; Bretton Woods 2.0 &bull; 7-Scenario Simulator</div>
       <h1>Macro Market Simulator</h1>
-      <p class="sub">Warsh Fed &middot; Bretton Woods 2.0 &middot; Strong Dollar &middot; Iran Deal &middot; AI Buildout &middot; July 2026 Calibrated</p>
+      <p class="sub">Warsh Fed &middot; Yen Carry Trade &middot; Bretton Woods 2.0 &middot; Strong Dollar &middot; Iran Deal &middot; July 2026 Calibrated</p>
     </div>
     <div class="sbadge"><div class="pulse"></div><span id="live-scen">SCENARIO: BASE CASE</span></div>
   </div>
@@ -206,6 +211,7 @@ footer a:hover{color:var(--ac)}
   <button class="tab" onclick="setScen('qe',this)">&#128176; QE Machine</button>
   <button class="tab" onclick="setScen('stag',this)">&#128128; Stagflation</button>
   <button class="tab" onclick="setScen('strong',this)">&#x1F4AA; Strong Dollar</button>
+  <button class="tab" onclick="setScen('carry',this)">&#x1F1EF;&#x1F1F5; Yen Carry Unwind</button>
 </div>
 <div class="narr" id="narr"></div>
 <div class="oil-alert" id="oil-alert"><strong>&#9889; HIGH OIL ALERT (WTI $90+):</strong> Alternative Energy section below is now in play. Solar, nuclear, wind &amp; storage names gain strategic tailwind as energy independence becomes a national priority. High short interest in solar = potential squeeze.</div>
@@ -219,6 +225,8 @@ footer a:hover{color:var(--ac)}
   <div class="scard"><div class="slbl">DXY Dollar Index <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>US Dollar Index (DXY)</strong>Measures the USD against a basket of 6 currencies (EUR, JPY, GBP, CAD, SEK, CHF). A weaker dollar is Groman Signal #1 — it means liquidity is expanding globally.<div class="tip-why">Why it matters: DXY below 100 is bullish for gold, commodities, and emerging markets. QE scenarios push DXY to 88-92. Dollar strength (DXY 105+) crushes everything denominated in USD abroad.</div></div></span><button class="rbtn" onclick="rv('sl-dxy',1013)">RST</button></div><div class="sval" id="v-dxy">101.3</div><input type="range" min="800" max="1200" value="1025" id="sl-dxy" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>80</span><span>120</span></div></div>
   <div class="scard"><div class="slbl">QE Probability <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>QE Probability (%)</strong>Probability the Fed resumes Quantitative Easing — buying bonds to expand the money supply. Currently indirect via SLR deregulation: banks buy treasuries with leverage, creating 'covert QE.'<div class="tip-why">Why it matters: Every major asset rally since 2008 has been powered by QE. When this flips above 80%, hard assets (gold, BTC, commodities) historically rip 30-90% within 12 months.</div></div></span><button class="rbtn" onclick="rv('sl-qe',45)">RST</button></div><div class="sval" id="v-qe">45%</div><input type="range" min="0" max="100" value="45" id="sl-qe" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0%</span><span>100%</span></div></div>
   <div class="scard"><div class="slbl">SLR Deregulation <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>SLR Deregulation (%)</strong>Supplementary Leverage Ratio — a rule limiting how much banks can lever up. Deregulating it lets banks exclude US Treasuries from their leverage calculations, effectively letting JPM/GS/BAC buy unlimited bonds.<div class="tip-why">Why it matters: This is the mechanism of Warsh's 'covert QE.' Banks borrow at the 2Y rate, buy 10Y bonds, pocket the spread. At 95% deregulation + QE, banks could absorb $800B+ in new Treasury supply.</div></div></span><button class="rbtn" onclick="rv('sl-slr',40)">RST</button></div><div class="sval" id="v-slr">40%</div><input type="range" min="0" max="100" value="40" id="sl-slr" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>None</span><span>Full Dereg</span></div></div>
+  <div class="scard" id="carry-card"><div class="slbl">BOJ Rate (Japan) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Bank of Japan Policy Rate (%)</strong>Japan's overnight rate, raised to 1.00% in June 2026 after a decade near zero. The BOJ is normalizing slowly while the Fed holds much higher rates.<div class="tip-why">Why it matters: The Fed-BOJ gap funds the global "yen carry trade" -- borrow cheap yen, buy higher-yielding USD assets. When BOJ hikes fast or the gap narrows suddenly, carry trades unwind violently (Aug 2024: Nikkei -12.4% in one day).</div></div></span><button class="rbtn" onclick="rv('sl-boj',100)">RST</button></div><div class="sval" id="v-boj">1.00%</div><input type="range" min="0" max="300" value="100" id="sl-boj" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0.0%</span><span>3.0%</span></div></div>
+  <div class="scard" id="usdjpy-card"><div class="slbl">USD/JPY Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>USD/JPY Exchange Rate</strong>How many yen buy one dollar. Currently ~163.8 -- yen near 40-year lows despite BOJ hiking, because broad dollar strength (oil crisis, Fed still hawkish) is overwhelming the narrowing rate differential.<div class="tip-why">Why it matters: A falling USD/JPY (yen strengthening fast) signals the carry trade unwinding -- leveraged funds rush to buy back yen, forcing liquidation of the risk assets (tech stocks, BTC, EM) that carry funded. Below 145 with a BOJ hike = danger zone.</div></div></span><button class="rbtn" onclick="rv('sl-usdjpy',1638)">RST</button></div><div class="sval" id="v-usdjpy">163.8</div><input type="range" min="1000" max="1800" value="1638" id="sl-usdjpy" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>100</span><span>180</span></div><div id="carry-display" style="margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:10px"></div></div>
 </div>
 <div class="fp"><div class="pt">Groman 5-Signal Macro Dashboard</div><div class="sgg" id="sigs"></div><div style="font-size:10px;color:var(--mu);margin-top:5px">All 5 GREEN = QE confirmed &bull; All RED = plan failing &bull; Watch for divergence between signals</div></div>
 <div class="g2"><div class="panel"><div class="pt">S&amp;P 500 &mdash; 12-Month Projection</div><div class="cw"><canvas id="spxC"></canvas></div></div><div class="panel"><div class="pt">Asset Class 12M Return (%)</div><div class="cw"><canvas id="assetC"></canvas></div></div></div>
@@ -259,6 +267,23 @@ footer a:hover{color:var(--ac)}
 </div>
 
 <!-- DANGER ZONE -->
+<div class="fp" id="carry-panel">
+  <div class="pt" style="color:var(--pur)">&#x1F1EF;&#x1F1F5; YEN CARRY TRADE UNWIND <span id="carry-badge" style="font-size:9px;background:rgba(168,85,247,.15);border:1px solid rgba(168,85,247,.4);border-radius:4px;padding:2px 8px;margin-left:6px;color:var(--pur);font-family:'JetBrains Mono',monospace;letter-spacing:.5px">BOJ 1.50%+ / USDJPY 145-</span></div>
+  <div style="background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:9px;padding:12px 14px;margin-bottom:14px;font-size:11px;line-height:1.7;color:var(--tx)">
+    <strong style="color:var(--pur)">The trade:</strong> Borrow yen at Japan's near-zero rates, convert to dollars, buy higher-yielding US assets, pocket the spread. Currently Fed 3.63% minus BOJ 1.00% = ~2.63% annual carry -- narrower than the 525bp peak in 2024 but still meaningfully positive.<br><br>
+    <strong style="color:var(--red)">The risk:</strong> On July 31, 2024, the BOJ hiked 25bp and two days later weak US jobs data hit. USD/JPY crashed from 161 to 141.70 in three weeks. The Nikkei fell 12.4% in a single day -- its worst since 1987 -- as leveraged carry funds faced margin calls and forced liquidation cascaded across global markets.<br><br>
+    <strong style="color:var(--ac3)">SAFE HAVENS:</strong> Long yen (FXY), long Treasuries (TLT/IEF -- flight to quality), gold miners (leveraged safe-haven flows).<br>
+    <strong style="color:var(--red)">CARRY-FUNDED LOSERS:</strong> Leveraged AI/tech (NVDA), Bitcoin, Emerging Markets, Regional Banks (funding stress).
+  </div>
+  <div id="carry-trigger-msg" style="display:none;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.4);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11px;color:var(--pur);font-family:'JetBrains Mono',monospace">
+    &#9889; ACTIVE: BOJ 1.50%+ AND USD/JPY 145 or below detected. Carry unwind conditions are live right now.
+  </div>
+  <div class="sh"><span class="dot" style="background:var(--ac3)"></span>SAFE HAVENS -- Unwind Winners</div>
+  <div class="sg" id="g-carry-safe"></div>
+  <div class="sh"><span class="dot" style="background:var(--red)"></span>CARRY-FUNDED -- Unwind Losers (Leveraged Risk Assets)</div>
+  <div class="sg" id="g-carry-loss"></div>
+</div>
+
 <div class="fp" id="strong-panel">
   <div class="pt" style="color:var(--ac2)">&#x1F4AA; STRONG DOLLAR PLAYBOOK <span id="strong-badge" style="font-size:9px;background:rgba(255,107,53,.15);border:1px solid rgba(255,107,53,.4);border-radius:4px;padding:2px 8px;margin-left:6px;color:var(--ac2);font-family:'JetBrains Mono',monospace;letter-spacing:.5px">DXY 107+</span></div>
   <div style="background:rgba(255,107,53,.06);border:1px solid rgba(255,107,53,.2);border-radius:9px;padding:12px 14px;margin-bottom:14px;font-size:11px;line-height:1.7;color:var(--tx)">
@@ -346,7 +371,7 @@ footer a:hover{color:var(--ac)}
 // ============================================================
 const DB = {
 gold:[
- {t:'NEM',n:'Newmont Corp',sec:'Basic Materials',base:14,bull:20,bear:-8,qe:32,stag:28,strong:-20,
+ {t:'NEM',n:'Newmont Corp',sec:'Basic Materials',base:14,bull:20,bear:-8,qe:32,stag:28,strong:-20,carry:15,
   roic:'20.89%',revy:'+45.8%',earny:'+78.6%',piotr:6,gc:1,mcap:'$110.8B',price:'$103.79',div:'1.0%',pe:'13.5',score:53.5,
   r:"Piotr:6, GC:1, ROIC 20.89% — world's largest gold miner; top quality signal combination",
   desc:"World's largest gold mining company. Operates mines across Americas, Africa, and Australia. Piotroski 6 confirms fortress fundamentals. Primary beneficiary of dollar weakness and QE environments. 20.89% ROIC means it prints gold economics even before the gold price helps."},
@@ -372,7 +397,7 @@ gold:[
   desc:'Alamos Gold is a low-cost senior gold producer with mines in Canada, Mexico, and Turkey. Island Gold mine Phase 3 expansion is a major production catalyst. Strong ROIC with consistent dividend growth.'},
 ],
 banks:[
- {t:'JPM',n:'JPMorgan Chase',sec:'Financial Services',base:12,bull:30,bear:-18,qe:35,stag:-12,
+ {t:'JPM',n:'JPMorgan Chase',sec:'Financial Services',base:12,bull:30,bear:-18,qe:35,stag:-12,strong:14,carry:-12,
   roic:'N/A',revy:'+12.7%',earny:'+17.2%',piotr:null,gc:0.5,mcap:'$871B',price:'$325.22',div:'1.8%',pe:'15.6',score:25.8,
   r:'RevG +12.7%, EarnG +17.2%, GC:0.5, $871B mcap — SLR deregulation #1 beneficiary',
   desc:"JPMorgan Chase is the largest US bank by assets. As the primary SLR deregulation beneficiary, it can deploy the most leverage into US treasuries. Jamie Dimon's fortress balance sheet and diversified revenue streams make it the most resilient bank in any scenario."},
@@ -388,7 +413,7 @@ banks:[
   roic:'N/A',revy:'+27.9%',earny:'+3860%',piotr:null,gc:1,mcap:'$58.8B',price:'$115.47',div:'2.0%',pe:'13.2',score:404.3,
   r:'SCORE:404 — RevG +27.9%, EarnG +3860%, GC:1 — #2 Financial scan pick; insurance pricing power',
   desc:"Aflac is your screener's #2 Financial pick (score 404.3). Supplemental insurance with pricing power that persists through all economic cycles. Benefits from rising investment portfolio yields. More defensive than banks — insurance premiums are sticky cash flows."},
- {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,
+ {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,carry:-8,
   roic:'44.25%',revy:'+17.1%',earny:'+35.5%',piotr:3,gc:0,mcap:'$622B',price:'$327.24',div:'0.8%',pe:'28.5',score:36.6,
   r:'ROIC 44.25%, RevG +17.1%, Piotr:3 — transaction volume grows nominally WITH inflation',
   desc:"Visa is a global payment network with 73% gross margins. Every price increase in the economy means more Visa revenue — it's a royalty on all commerce. Network effects make it functionally impossible to displace. True pricing power through any inflationary environment."},
@@ -396,13 +421,13 @@ banks:[
   roic:'73.20%',revy:'+15.8%',earny:'+21.2%',piotr:3,gc:0,mcap:'$433B',price:'$489.79',div:'0.7%',pe:'28.3',score:46.1,
   r:'ROIC 73.20% — highest quality financial in scan; irreplaceable payment network royalty',
   desc:'Mastercard has a 73.20% ROIC — one of the highest in your entire 5,637-stock scan. Global payment network with Visa creates a practical duopoly. Every transaction is royalty income with near-zero marginal cost. Ultimate pricing power moat.'},
- {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,
+ {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,carry:-10,
   roic:'25.75%',revy:'+8.1%',earny:'+7.8%',piotr:5,gc:0,mcap:'$78.7B',price:'$450.67',div:'0.8%',pe:'32.4',score:33.3,
   r:'ROIC 25.75%, Piotr:5 — ratings boom on bond issuance; pricing power duopoly with SPGI',
   desc:"Moody's is one of two dominant credit rating agencies. Every bond issued globally requires a rating — and Moody's charges for it. Revenue scales directly with debt issuance volume, which explodes during QE cycles. 25.75% ROIC confirms the monopoly economics."},
 ],
 tech:[
- {t:'NVDA',n:'NVIDIA',sec:'Technology',base:20,bull:55,bear:-28,qe:45,stag:-18,
+ {t:'NVDA',n:'NVIDIA',sec:'Technology',base:20,bull:55,bear:-28,qe:45,stag:-18,strong:-12,carry:-35,
   roic:'68.25%',revy:'+85.2%',earny:'+214.5%',piotr:3,gc:1,mcap:'$5,103B',price:'$210.69',div:'0.0%',pe:'32.3',score:76.4,
   r:'ROIC 68.25%, RevG +85.2%, EarnG +214%, GC:1 — AI infrastructure core pick',
   desc:'NVIDIA dominates AI GPU market with 80%+ data center share. CUDA software ecosystem creates massive switching costs — the entire AI industry is built on CUDA. H100/B200 demand outstrips supply for the foreseeable future. 68.25% ROIC confirms monopoly pricing on compute.'},
@@ -470,11 +495,11 @@ energy:[
   desc:'EQT is the largest US natural gas producer. Natural gas demand spikes when oil disruption forces power grid switching. Piotroski 6 = exceptional financial health. LNG export thesis accelerates when Hormuz threatens global energy supply chains.'},
 ],
 pricing:[
- {t:'COST',n:'Costco',sec:'Consumer Defensive',base:8,bull:14,bear:2,qe:10,stag:9,strong:5,
+ {t:'COST',n:'Costco',sec:'Consumer Defensive',base:8,bull:14,bear:2,qe:10,stag:9,strong:5,carry:4,
   roic:'33.56%',revy:'+21.5%',earny:'+45.5%',piotr:5,gc:1,mcap:'$422B',price:'$951.45',div:'0.6%',pe:'47.8',score:45.0,
   r:'ROIC 33.56%, RevG +21.5%, Piotr:5, GC:1 — membership moat; passes ALL costs through',
   desc:'Costco membership model means consumers pay annually regardless of spending. Massive purchasing power passed to members. 33.56% ROIC confirms the economics are exceptional. Works in every scenario — recession, inflation, stagflation. The ultimate pricing power moat.'},
- {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,
+ {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,carry:4,
   roic:'15.31%',revy:'+7.3%',earny:'+19.4%',piotr:4,gc:1,mcap:'$933B',price:'$117.18',div:'0.8%',pe:'41.3',score:40.1,
   r:'ROIC 15.31%, RevG +7.3%, Piotr:4, GC:1 — consumers shift TO Walmart in recessions',
   desc:"Walmart is the world's largest retailer with dominant grocery market share. Consumers shift TO Walmart in economic stress from more expensive alternatives. Inflation pass-through proven across six decades. 15.31% ROIC for a traditional retailer is exceptional."},
@@ -494,17 +519,17 @@ pricing:[
   roic:'8.73%',revy:'+16.7%',earny:'+528.3%',piotr:4,gc:0,mcap:'$12.5B',price:'$46.64',div:'3.9%',pe:'7.6',score:80.2,
   r:'ROIC 8.73%, EarnG +528%, Piotr:4, PE:7.6 — spice monopoly; zero switching costs exist',
   desc:'McCormick sells spices and flavor solutions to every restaurant and food manufacturer globally. PE of 7.6 with 8.73% ROIC and 3.9% dividend is genuinely cheap for a monopoly-like brand. Consumers and chefs do not switch spice brands regardless of price.'},
- {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,
+ {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,carry:-8,
   roic:'44.25%',revy:'+17.1%',earny:'+35.5%',piotr:3,gc:0,mcap:'$622B',price:'$327.24',div:'0.8%',pe:'28.5',score:36.6,
   r:'ROIC 44.25% — every price increase in economy = more Visa revenue; pure pricing royalty',
   desc:"Visa is a royalty on all global commerce. Every price increase in the economy means more Visa revenue — it's inflation-indexed by nature. 73% gross margins. Network effects make displacement practically impossible. The purest pricing power business model in existence."},
- {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,
+ {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,carry:-10,
   roic:'25.75%',revy:'+8.1%',earny:'+7.8%',piotr:5,gc:0,mcap:'$78.7B',price:'$450.67',div:'0.8%',pe:'32.4',score:33.3,
   r:'ROIC 25.75%, Piotr:5 — bond issuance = mandatory rating; pricing power by regulatory mandate',
   desc:"Moody's has pricing power by regulatory mandate — every bond issuance requires a rating and there are only two agencies. Revenue scales with global debt issuance, which explodes during QE cycles. 25.75% ROIC confirms the monopoly economics are very real."},
 ],
 etf:[
- {t:'GDX',n:'VanEck Gold Miners ETF',sec:'ETF',base:18,bull:28,bear:-10,qe:42,stag:35,strong:-22,
+ {t:'GDX',n:'VanEck Gold Miners ETF',sec:'ETF',base:18,bull:28,bear:-10,qe:42,stag:35,strong:-22,carry:18,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$45',div:'~0.9%',pe:'—',score:0,
   r:'Holds NEM, AEM, AGI, WPM — ~1.5x leveraged beta to gold price moves',
   desc:'GDX holds 40+ gold mining companies including Newmont, Agnico Eagle, and Alamos Gold. Provides approximately 1.5x leveraged exposure to gold prices — when gold moves 10%, miners typically move 15-20% due to operating leverage.'},
@@ -512,7 +537,7 @@ etf:[
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$90',div:'~3.2%',pe:'—',score:0,
   r:'Holds XOM, CVX, COP, EOG, MPC — simplest oil spike / bear scenario hedge',
   desc:'XLE holds all major US energy companies. Simplest way to own oil/energy exposure without single-stock risk. Top holdings include XOM, CVX, COP, EOG, and SLB. Inverse relationship with Iran deal probability — bear scenario primary beneficiary.'},
- {t:'QQQ',n:'Invesco Nasdaq 100 ETF',sec:'ETF',base:8,bull:28,bear:-20,qe:22,stag:-14,strong:-10,
+ {t:'QQQ',n:'Invesco Nasdaq 100 ETF',sec:'ETF',base:8,bull:28,bear:-20,qe:22,stag:-14,strong:-10,carry:-22,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$480',div:'~0.5%',pe:'—',score:0,
   r:'NVDA, AAPL, MSFT, META, GOOGL — core AI/tech exposure; bull and QE scenarios',
   desc:'QQQ tracks Nasdaq 100. Top holdings are your screener favorites: NVDA, AAPL, MSFT, META, GOOGL. Core tech and AI exposure. Dominant in bull and QE scenarios. Underperforms in stagflation when real rates stay high and compress growth multiples.'},
@@ -520,19 +545,19 @@ etf:[
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$28',div:'~3.5%',pe:'—',score:0,
   r:'Quality dividend + pricing power names — defensive income with compounding; 3.5% yield',
   desc:'SCHD holds high-quality dividend companies with strong free cash flow. 3.5% yield with consistent dividend growth. More defensive than QQQ. Pricing power names throughout holdings. Works in base case and mild inflation. Outperforms bonds in stagflation.'},
- {t:'TIP',n:'iShares TIPS Bond ETF',sec:'ETF',base:8,bull:5,bear:18,qe:18,stag:28,
+ {t:'TIP',n:'iShares TIPS Bond ETF',sec:'ETF',base:8,bull:5,bear:18,qe:18,stag:28,strong:10,carry:15,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$107',div:'~4.5%',pe:'—',score:0,
   r:'Principal adjusts WITH CPI — the most direct bond-market inflation hedge available',
   desc:'TIPS principal adjusts with CPI inflation. When CPI rises, your principal and interest payments both rise. The most direct bond-market inflation hedge. Essential in the bear and stagflation scenarios where inflation surprises to the upside.'},
- {t:'DBC',n:'Invesco Commodity ETF',sec:'ETF',base:4,bull:15,bear:28,qe:20,stag:32,strong:-12,
+ {t:'DBC',n:'Invesco Commodity ETF',sec:'ETF',base:4,bull:15,bear:28,qe:20,stag:32,strong:-12,carry:-10,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$23',div:'~0.0%',pe:'—',score:0,
   r:'Oil + gold + nat gas + grains + metals — one-click broad commodity inflation hedge',
   desc:'DBC holds a diversified basket of oil, gold, natural gas, corn, soybeans, copper, and other commodities. One-stop commodity inflation hedge. Performs best in bear and stagflation scenarios. Provides portfolio diversification away from stocks and bonds simultaneously.'},
- {t:'KRE',n:'SPDR Regional Banks ETF',sec:'ETF',base:5,bull:20,bear:-28,qe:26,stag:-22,
+ {t:'KRE',n:'SPDR Regional Banks ETF',sec:'ETF',base:5,bull:20,bear:-28,qe:26,stag:-22,strong:20,carry:-20,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$62',div:'~2.8%',pe:'—',score:0,
   r:'100+ regional banks — high-beta SLR deregulation + steeper yield curve play',
   desc:'KRE holds 100+ regional banks. High-beta play on SLR deregulation and steeper yield curve. These banks benefit most from rate normalization but also hurt most in the bear scenario. Use as a confirmation trade once Groman signals 1 and 3 both flip green.'},
- {t:'IBIT',n:'iShares Bitcoin ETF',sec:'ETF',base:10,bull:58,bear:-42,qe:72,stag:-25,strong:-30,
+ {t:'IBIT',n:'iShares Bitcoin ETF',sec:'ETF',base:10,bull:58,bear:-42,qe:72,stag:-25,strong:-30,carry:-35,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$55',div:'0.0%',pe:'—',score:0,
   r:"Pure BTC — Groman's 5th signal; responds violently to liquidity expansion",
   desc:"BlackRock's Bitcoin ETF is the most liquid BTC exposure. BTC is Groman's 5th signal — it responds violently to liquidity changes. Down 30%+ when tightening, up 80-90% when QE fires. The hardest asset in existence with fixed supply. Highest risk, highest reward in QE scenario."},
@@ -700,11 +725,11 @@ hioil:[
   roic:'8.9%',revy:'+4.5%',earny:'+18.2%',piotr:4,gc:1,mcap:'$48B',price:'$53.22',div:'1.9%',pe:'12.1',score:34.7,
   r:'Buffett-backed; high oil = massive FCF; OxyChem chemical division benefits from USD strength',
   desc:'Buffett owns 28%+ of OXY -- when oil is high, the cash flow is extraordinary. OxyChem (chemicals) benefits from USD strength as competing global producers face FX headwinds. Most leveraged to oil price of the majors.'},
- {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,
+ {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,carry:4,
   roic:'15.31%',revy:'+7.3%',earny:'+19.4%',piotr:4,gc:1,mcap:'$933B',price:'$117.18',div:'0.8%',pe:'41.3',score:40.1,
   r:'ROIC 15.31%, GC:1 -- consumers shift TO Walmart when energy costs squeeze budgets',
   desc:'When gas prices are high and real incomes fall, consumers trade down to Walmart. Domestic US revenue base protects from dollar strength. Grocery dominance = inelastic demand. The classic high-oil defensive play.'},
- {t:'COST',n:'Costco',sec:'Consumer Defensive',base:8,bull:14,bear:2,qe:10,stag:9,strong:5,
+ {t:'COST',n:'Costco',sec:'Consumer Defensive',base:8,bull:14,bear:2,qe:10,stag:9,strong:5,carry:4,
   roic:'33.56%',revy:'+21.5%',earny:'+45.5%',piotr:5,gc:1,mcap:'$422B',price:'$951.45',div:'0.6%',pe:'47.8',score:45.0,
   r:'ROIC 33.56%, Piotr:5, GC:1 -- bulk buying saves members money; membership fee is inflation-proof',
   desc:'Costco bulk model is designed for high-cost environments. Members join to beat inflation. Annual membership fee is recession-proof recurring revenue. Domestic US bias protects from dollar headwinds. 33.56% ROIC is exceptional for retail.'},
@@ -716,11 +741,11 @@ hioil:[
   roic:'20.91%',revy:'+7.4%',earny:'+5.8%',piotr:3,gc:0.5,mcap:'$350B',price:'$150.38',div:'2.8%',pe:'22.0',score:42.4,
   r:'ROIC 20.91%, 2.8% div -- Tide/Gillette/Pampers have 60yr proven pricing power through oil shocks',
   desc:'P&G has raised prices through every inflationary cycle since 1962 without losing market share. USD revenue base benefits from dollar strength. Essential products like Tide, diapers, and toothpaste have near-zero demand elasticity regardless of oil prices.'},
- {t:'LMT',n:'Lockheed Martin',sec:'Industrials',base:8,bull:5,bear:22,qe:6,stag:20,
+ {t:'LMT',n:'Lockheed Martin',sec:'Industrials',base:8,bull:5,bear:22,qe:6,stag:20,strong:30,carry:-3,
   roic:'N/A',revy:'+5.8%',earny:'+9.2%',piotr:null,gc:1,mcap:'$114B',price:'$476.82',div:'2.9%',pe:'17.3',score:28.0,
   r:'GC:1, 2.9% div -- high oil = Middle East tension = defense budgets surge; USD contracts only',
   desc:'Lockheed is a direct geopolitical tension beneficiary. High oil from Middle East instability always triggers defense budget increases across NATO and Gulf states. 100% USD-denominated contracts -- dollar strength is a direct tailwind. F-35 and missile defense backlog extends 5+ years.'},
- {t:'RTX',n:'RTX Corporation',sec:'Industrials',base:7,bull:4,bear:20,qe:5,stag:18,
+ {t:'RTX',n:'RTX Corporation',sec:'Industrials',base:7,bull:4,bear:20,qe:5,stag:18,strong:28,carry:-4,
   roic:'N/A',revy:'+8.9%',earny:'+15.2%',piotr:null,gc:1,mcap:'$163B',price:'$142.37',div:'2.1%',pe:'22.4',score:25.0,
   r:'GC:1 -- Patriot/Tomahawk/Pratt+Whitney; Iran tension = defense demand spike; all USD contracts',
   desc:'RTX makes Patriot missile systems, Tomahawk cruise missiles, and Pratt & Whitney jet engines. Iran tensions directly drive demand for Raytheon air defense systems. All US government contracts in USD. High oil = more Middle East tension = more defense orders.'},
@@ -737,12 +762,29 @@ hioil:[
   r:'ROIC 11.92%, Piotr:3, GC:1 -- break-even below $40; high oil = extraordinary FCF; USD revenues',
   desc:'EOG is the best-run US shale company. Break-even below $40/barrel means at $90+ oil, EOG generates extraordinary free cash flow. Pays a growing dividend and buys back stock aggressively. Pure USD revenue stream -- dollar strength is neutral to positive.'},
 ]
-,strongdollar:[
- {t:'LMT',n:'Lockheed Martin',sec:'Industrials',base:10,bull:5,bear:28,qe:6,stag:22,strong:30,
+,carrytrade:[
+ {t:'FXY',n:'Invesco CurrencyShares Japanese Yen',sec:'ETF',base:2,bull:-5,bear:8,qe:-10,stag:6,strong:-12,carry:22,
+  roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$57.75',div:'--',pe:'--',score:0,
+  r:'Direct long-yen ETF -- the cleanest pure-play hedge against a carry trade unwind',
+  desc:'FXY holds physical yen deposits and tracks USD/JPY inversely. When the carry trade unwinds and USD/JPY crashes (yen strengthens), FXY rises directly. The simplest, most liquid way to hedge a portfolio against carry-unwind risk without shorting individual stocks.'},
+ {t:'EEM',n:'iShares MSCI Emerging Markets ETF',sec:'ETF',base:5,bull:12,bear:-15,qe:18,stag:-20,strong:-18,carry:-22,
+  roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$44.50',div:'~2.5%',pe:'--',score:0,
+  r:'Classic multi-cycle carry-unwind victim -- EM currencies and equities were funded by the same cheap-yen liquidity',
+  desc:'Emerging markets are financed disproportionately by carry-trade liquidity -- cheap yen (and dollar) borrowing flows into higher-yielding EM assets. Every major carry unwind (1998, 2008, 2015, Aug 2024) hit EM equities and currencies hardest as that liquidity reverses violently.'},
+ {t:'TLT',n:'iShares 20+ Yr Treasury Bond ETF',sec:'ETF',base:-2,bull:5,bear:-10,qe:8,stag:-15,strong:-5,carry:20,
+  roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$86.40',div:'~4.0%',pe:'--',score:0,
+  r:'Flight-to-quality winner -- carry unwind panics send capital into long Treasuries as yields plunge',
+  desc:'When carry trades unwind violently, capital rushes into the safest, most liquid asset on earth: long-duration US Treasuries. Yields fall sharply as investors accept lower returns for safety, driving TLT higher. This was a clear pattern during the August 2024 unwind and the 2008/2015 carry unwinds before it.'},
+ {t:'IEF',n:'iShares 7-10 Yr Treasury Bond ETF',sec:'ETF',base:-1,bull:3,bear:-6,qe:5,stag:-9,strong:-3,carry:14,
+  roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$95.30',div:'~3.6%',pe:'--',score:0,
+  r:'Medium-duration flight-to-quality play -- less volatile than TLT but same safe-haven mechanics',
+  desc:'IEF offers the same flight-to-quality benefit as TLT during a carry unwind but with less duration risk (7-10yr vs 20yr+). A more conservative way to position for carry-unwind tail risk while still capturing the yield-decline benefit.'},
+],strongdollar:[
+ {t:'LMT',n:'Lockheed Martin',sec:'Industrials',base:10,bull:5,bear:28,qe:6,stag:22,strong:30,carry:-3,
   roic:'N/A',revy:'+5.8%',earny:'+9.2%',piotr:null,gc:1,mcap:'$114B',price:'$476.82',div:'2.9%',pe:'17.3',score:28.0,
   r:'GC:1, 2.9% div -- Bretton Woods 2.0 core pick; 100% USD contracts + world chaos = peak defense spending',
   desc:'Lockheed Martin is the ultimate Bretton Woods 2.0 beneficiary. World chaos forces nations to buy US defense (F-35, Patriot, THAAD) all priced in USD. Strong dollar = cheaper for foreign buyers in local currency. Every geopolitical dollar spent flows through LMT. 5-year backlog expanding.'},
- {t:'RTX',n:'RTX Corporation',sec:'Industrials',base:8,bull:4,bear:25,qe:5,stag:20,strong:28,
+ {t:'RTX',n:'RTX Corporation',sec:'Industrials',base:8,bull:4,bear:25,qe:5,stag:20,strong:28,carry:-4,
   roic:'N/A',revy:'+8.9%',earny:'+15.2%',piotr:null,gc:1,mcap:'$163B',price:'$142.37',div:'2.1%',pe:'22.4',score:25.0,
   r:'GC:1 -- Patriot missiles + Pratt engines; Iran tension + strong dollar = demand surge; all USD contracts',
   desc:'RTX Corporation (Raytheon + Pratt & Whitney) benefits from Iran-driven tension AND dollar strength. Foreign nations need USD to buy Patriot systems -- increasing dollar demand while boosting RTX. The Bretton Woods 2.0 thesis and RTX revenues are literally the same trade.'},
@@ -758,19 +800,19 @@ hioil:[
   roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$220',div:'~1.4%',pe:'--',score:0,
   r:'Small caps = 80%+ domestic US revenue -- direct strong dollar beneficiary vs S&P multinationals',
   desc:'The Russell 2000 small cap index is the single strongest historical beneficiary of DXY strength. Small companies average 80%+ domestic US revenue vs S&P 500 at ~60% domestic. No EPS headwind from currency translation. When DXY rises 10%, S&P loses 2-4% EPS, IWM loses near zero.'},
- {t:'KRE',n:'SPDR Regional Banks ETF',sec:'ETF',base:5,bull:25,bear:-22,qe:38,stag:-30,strong:20,
+ {t:'KRE',n:'SPDR Regional Banks ETF',sec:'ETF',base:5,bull:25,bear:-22,qe:38,stag:-30,strong:20,carry:-20,
   roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$62',div:'~2.8%',pe:'--',score:0,
   r:'Regional banks: 100% domestic revenue + high US rates = NIM expansion + foreign capital inflows seeking yield',
   desc:'Regional banks have almost entirely domestic revenue with no overseas EPS translation drag. Higher US rates (which support the dollar via rate differential) expand net interest margins. Foreign capital flows into the US seeking higher yields directly increases bank deposits. Triple benefit.'},
- {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,
+ {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,carry:4,
   roic:'15.31%',revy:'+7.3%',earny:'+19.4%',piotr:4,gc:1,mcap:'$933B',price:'$117.18',div:'0.8%',pe:'41.3',score:40.1,
   r:'ROIC 15.31%, GC:1 -- 90%+ domestic US revenue; strong dollar = zero EPS headwind + consumer flight to value',
   desc:'Walmart derives ~90% of revenue from domestic US operations -- near-zero overseas translation drag from a rising dollar. Strong dollar often coincides with consumer price pressure globally, pushing domestic shoppers toward discount retailers. Grocery dominance = inelastic demand regardless.'},
- {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,
+ {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,carry:-10,
   roic:'25.75%',revy:'+8.1%',earny:'+7.8%',piotr:5,gc:0,mcap:'$78.7B',price:'$450.67',div:'0.8%',pe:'32.4',score:33.3,
   r:'ROIC 25.75%, Piotr:5 -- 27 countries seeking emergency dollar access (World Bank June 2026) = bond issuance surge',
   desc:"Moody's benefits directly from Bretton Woods 2.0: as nations scramble for dollar access, they issue dollar-denominated sovereign bonds -- each requiring a Moody's rating. The 27 countries seeking emergency dollar access (World Bank June 2026) are all potential sovereign rating clients."},
- {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,
+ {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,carry:-8,
   roic:'44.25%',revy:'+17.1%',earny:'+35.5%',piotr:3,gc:0,mcap:'$622B',price:'$327.24',div:'0.8%',pe:'28.5',score:36.6,
   r:'ROIC 44.25% -- global USD transaction volume; strong dollar = more USD cross-border fee value per transaction',
   desc:'Counter-intuitive strong dollar play: Visa processes global transactions in USD. Strong dollar = each foreign-to-USD transaction conversion is worth more. Cross-border fees are a fixed % of transaction value in USD. Historically, strong DXY periods see Visa EPS beat as dollar-denominated fees amplify.'},
@@ -783,12 +825,16 @@ hioil:[
 
 // ============================================================
 const SCENS = {
- base:  {oil:68,  fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40},
- bull:  {oil:58,  fed:275, iran:92, cpi:25, yield:330, y2:270, dxy:920,  qe:72, slr:82},
- bear:  {oil:105, fed:425, iran:5,  cpi:68, yield:510, y2:455, dxy:1065, qe:12, slr:12},
- qe:    {oil:68,  fed:250, iran:75, cpi:28, yield:310, y2:210, dxy:900,  qe:95, slr:95},
- stag:  {oil:115, fed:400, iran:0,  cpi:82, yield:615, y2:415, dxy:1065, qe:8,  slr:8 },
- strong:{oil:72,  fed:425, iran:50, cpi:45, yield:500, y2:448, dxy:1100, qe:15, slr:30},
+ // boj = BOJ policy rate *100 (100=1.00%); usdjpy = USD/JPY *10 (1638=163.8)
+ base:  {oil:68,  fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638},
+ bull:  {oil:58,  fed:275, iran:92, cpi:25, yield:330, y2:270, dxy:920,  qe:72, slr:82, boj:100, usdjpy:1580},
+ bear:  {oil:105, fed:425, iran:5,  cpi:68, yield:510, y2:455, dxy:1065, qe:12, slr:12, boj:100, usdjpy:1680},
+ qe:    {oil:68,  fed:250, iran:75, cpi:28, yield:310, y2:210, dxy:900,  qe:95, slr:95, boj:75,  usdjpy:1720},
+ stag:  {oil:115, fed:400, iran:0,  cpi:82, yield:615, y2:415, dxy:1065, qe:8,  slr:8 , boj:125, usdjpy:1500},
+ strong:{oil:72,  fed:425, iran:50, cpi:45, yield:500, y2:448, dxy:1100, qe:15, slr:30, boj:100, usdjpy:1720},
+ // CARRY: Yen Carry Trade Unwind -- BOJ shock-hikes to 1.75%, USD/JPY crashes 164->132
+ // Mirrors Aug 2024 precedent (BOJ hike + weak US jobs -> Nikkei -12.4% in a day)
+ carry: {oil:74,  fed:363, iran:55, cpi:42, yield:420, y2:390, dxy:960,  qe:35, slr:25, boj:175, usdjpy:1320},
 };const NARRS = {
  base:'<strong>BASE CASE:</strong> Iran deal partially holds, oil settles $70-$80. Warsh stays hawkish through Q3, pivots Q4 as trimmed PCE data justifies cuts. Banks get SLR exemption in pipeline. Covert QE begins Q1 2027. Dollar weakens gradually. Markets chop sideways then rip higher late 2026.',
  bull:"<strong>BULL &mdash; DEAL WORKS:</strong> Iran signed, Strait opens, oil crashes to $60s. Warsh's new real-time PCE shows 2.4% inflation. He cuts 75bps. Banks lever into treasuries via SLR deregulation. Dollar drops hard. Every Groman signal turns green simultaneously. S&P rips 20%+. Gold, BTC, Banks, Tech all win at once.",
@@ -796,6 +842,7 @@ const SCENS = {
  qe:'<strong>QE MACHINE FIRES:</strong> SLR deregulation passes. Banks buy $800B+ in US treasuries using leverage. Warsh points to new real-time AI data showing 2.1% inflation. Cuts 100bps. Balance sheet technically shrinks but covert QE surges. Dollar collapses. Bitcoin hits new ATH. Gold $3,500+. Stocks rip nominally while real purchasing power quietly erodes.',
  stag:'<strong>STAGFLATION &mdash; 1970s REPLAY:</strong> Oil at $115, GDP stalls, CPI stuck at 6%+. Fed cannot cut (bond market revolt) or raise much further (debt load). Trapped. Real wages fall. This is the Volcker moment Warsh fears becoming. Only gold, energy, and consumer necessities provide real shelter. Bonds are the death trade.',
  strong:'<strong>&#x1F4AA; STRONG DOLLAR (Bretton Woods 2.0):</strong> Engineered global dollar shortage. DXY targeting 110. World chaos forces nations to spend on US goods and arms, requiring dollars. 27 countries sought emergency dollar access (World Bank June 2026). De-dollarization trade is DEAD. <strong style="color:var(--ac2)">WINNERS: Defense (LMT +30%), Regional Banks (KRE +20%), Small Caps (IWM +12%), UUP ETF (+18%).</strong> <strong style="color:var(--red)">AVOID: Gold (-15%), BTC (-30%), AAPL/KO/PG/MSFT (50-65% overseas revenue = EPS headwind).</strong>',
+ carry:'<strong>&#x1F1EF;&#x1F1F5; YEN CARRY TRADE UNWIND:</strong> BOJ shock-hikes to 1.75% while a weak US jobs print rattles confidence -- the exact combination that crashed USD/JPY from 161 to 141.70 in three weeks in August 2024 (Nikkei -12.4% in a single day, its worst since 1987). Leveraged funds that borrowed cheap yen to buy US tech, BTC, and EM assets face margin calls and forced liquidation. <strong style="color:var(--ac3)">SAFE HAVENS: Yen itself (FXY +22%), long bonds (flight to quality +20%), gold miners (+18%).</strong> <strong style="color:var(--red)">CARRY-FUNDED LOSERS: Leveraged AI/tech (NVDA -35%), Bitcoin (-35%), Emerging Markets (-22%), Regional Banks funding stress (-20%).</strong>',
 };
 const ANGLES = [
  {s:'BULL',c:'var(--ac3)',t:'Iran Deal + Oil Crash + Rate Cuts',b:'Oil to $58, Warsh pivots Q4, Groman signals green. S&P +16%, gold +20% (rebounds from $4100 ATH pullback), BTC +58% on dollar weakness. Buy the sequence: energy hedge OFF, gold ON, banks ON, tech ON.',tks:['NEM','AG','IBIT','JPM','GS','NVDA']},
@@ -804,6 +851,8 @@ const ANGLES = [
  {s:'STAG',c:'var(--gold)',t:'Stagflation -- 1970s Replay',b:'Oil high, growth stalls, Fed trapped. DXY elevated (flight to safety) but real returns crushed. Bonds are the death trade. Only gold, energy, and necessities protect real wealth. Gold beats in stag even with strong dollar.',tks:['NEM','AEM','WPM','XOM','WMT','TIP']},
  {s:'STRONG',c:'var(--ac2)',t:'Bretton Woods 2.0 -- Engineered Dollar Shortage',b:'DXY targeting 110. World chaos forces spending on US goods/arms. Nations need dollars. 27 countries seeking emergency dollar access (World Bank June 2026). De-dollarization trade is DEAD. Buy domestic US revenue. Sell multinationals.',tks:['LMT','RTX','KRE','IWM','UUP','NOC']},
  {s:'STRONG',c:'var(--ac2)',t:'Strong Dollar Winners vs Losers -- The Key Distinction',b:'Every 10% DXY rise shaves 2-4% off S&P EPS concentrated in multinationals. AVOID: AAPL (60% overseas), KO (65%), PG (55%), MSFT (50%). BUY: small caps, defense, regional banks, domestic staples. Rotate before the move.',tks:['IWM','KRE','WMT','COST','LMT','UUP']},
+ {s:'CARRY',c:'var(--pur)',t:'Yen Carry Trade Unwind -- The August 2024 Playbook Repeats',b:'BOJ hiked 25bp + weak US jobs data crashed USD/JPY from 161 to 141.70 in 3 weeks (Aug 2024), Nikkei -12.4% in a day. Fed-BOJ gap has narrowed from 525bp to ~263bp in 2026 -- less cushion, same trigger risk. Watch for BOJ surprise hikes paired with weak US data.',tks:['FXY','TLT','GDX','NVDA','IBIT','KRE']},
+ {s:'CARRY',c:'var(--pur)',t:'Carry-Funded Assets Are the Hidden Risk in Every Portfolio',b:'Cheap yen leverage has quietly funded much of the 2024-2026 AI/tech rally and crypto positioning. When it unwinds, the assets that rallied hardest on liquidity (NVDA, BTC, high-beta growth) fall hardest. Bonds and yen itself are the natural hedge.',tks:['NVDA','IBIT','EEM','FXY','TLT','IEF']},
 ];
 
 
@@ -811,13 +860,14 @@ let CH={};
 const CARD_STORE={};
 // Stores the most recently fetched live macro values
 // doRefresh() populates this; rv() restores from it
-const LIVE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40};
+const LIVE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638};
 
 function rv(id, hardcoded){
   // Map slider id → LIVE_MACRO key
   const keyMap = {
     'sl-oil':'oil','sl-fed':'fed','sl-iran':'iran','sl-cpi':'cpi',
-    'sl-yield':'yield','sl-y2':'y2','sl-dxy':'dxy','sl-qe':'qe','sl-slr':'slr'
+    'sl-yield':'yield','sl-y2':'y2','sl-dxy':'dxy','sl-qe':'qe','sl-slr':'slr',
+    'sl-boj':'boj','sl-usdjpy':'usdjpy'
   };
   const k = keyMap[id];
   // Use live-fetched value if available, otherwise fall back to hardcoded
@@ -840,6 +890,23 @@ function gv(){
    const label = spread > 0.5 ? 'STEEP ✓' : spread > 0 ? '~ FLAT' : '⚠ INVERTED';
    sdEl.innerHTML = `<span style="color:${sc}">Spread: ${spread>=0?'+':''}${spread.toFixed(2)}% — ${label}</span>`;
  }
+ // ── Japan / Yen Carry Trade block ──────────────────────────
+ const boj     = +document.getElementById('sl-boj').value / 100;
+ const usdjpy  = +document.getElementById('sl-usdjpy').value / 10;
+ const fedVal  = +document.getElementById('sl-fed').value / 100;
+ const carryDiff = +(fedVal - boj).toFixed(2);
+ // Update carry-card + usdjpy-card visual state
+ const ccEl = document.getElementById('carry-card');
+ const ujEl = document.getElementById('usdjpy-card');
+ const carryState = (boj>=1.5 && usdjpy<=145) ? 'unwind' : (carryDiff<1.5 || usdjpy<155) ? 'watch' : 'safe';
+ if(ccEl) ccEl.className = 'scard ' + carryState;
+ if(ujEl) ujEl.className = 'scard ' + carryState;
+ const cdEl = document.getElementById('carry-display');
+ if(cdEl){
+   const cc = carryState==='safe' ? 'var(--ac3)' : carryState==='watch' ? 'var(--gold)' : 'var(--red)';
+   const lbl = carryState==='safe' ? 'CARRY INTACT ✓' : carryState==='watch' ? '~ NARROWING' : '⚠ UNWIND RISK';
+   cdEl.innerHTML = `<span style="color:${cc}">Fed-BOJ Gap: +${carryDiff.toFixed(2)}% — ${lbl}</span>`;
+ }
  return{
   oil:  +document.getElementById('sl-oil').value,
   fed:  +document.getElementById('sl-fed').value / 100,
@@ -849,10 +916,13 @@ function gv(){
   dxy:  +document.getElementById('sl-dxy').value / 10,
   qe:   +document.getElementById('sl-qe').value,
   slr:  +document.getElementById('sl-slr').value,
+  boj, usdjpy,
 };}
 
 function gkey(v){
  const sp = v.spread !== undefined ? v.spread : (v.y10 - (v.y2 || v.y10));
+ // Yen carry unwind is a violent, acute shock (Aug 2024 precedent) -- checked first
+ if(v.boj>=1.5 && v.usdjpy<=145)                 return 'carry';
  if(v.qe>80 && v.slr>80)                         return 'qe';
  if(v.oil>95 && v.cpi>55)                         return 'stag';
  if(v.iran>75 && v.oil<70)                        return 'bull';
@@ -990,6 +1060,9 @@ function updSigs(v){
  const sp = v.spread !== undefined ? v.spread : (v.y10 - (v.y2||v.y10));
  const spreadBull = sp > 0.50;
  const spreadBear = sp < 0.00;
+ const carryGap = v.fed - v.boj;
+ const carryBull = carryGap > 2.0 && v.usdjpy > 155;   // wide, stable gap = carry intact, supports risk assets
+ const carryBear = v.boj >= 1.5 && v.usdjpy <= 145;      // BOJ hiked + yen surging = unwind in progress
  const sig=[
   {ic:'&#x1F4B5;',nm:'Dollar (DXY)',    bu:v.dxy<98,              be:v.dxy>104,    sub:''},
   {ic:'&#x1F4C8;',nm:'Stocks (Risk)',   bu:v.qe>60&&v.iran>60,    be:v.oil>95,     sub:''},
@@ -998,6 +1071,8 @@ function updSigs(v){
   {ic:'&#x20BF;', nm:'Bitcoin',         bu:v.qe>65&&v.dxy<100,    be:v.qe<20,      sub:''},
   {ic:'&#x1F4CA;',nm:'2Y-10Y Spread',   bu:spreadBull,            be:spreadBear,
    sub:(sp>=0?'+':'')+sp.toFixed(2)+'%'},
+  {ic:'&#x1F1EF;&#x1F1F5;',nm:'Yen Carry',bu:carryBull,           be:carryBear,
+   sub:'¥'+v.usdjpy.toFixed(0)},
  ];
  document.getElementById('sigs').innerHTML=sig.map(s=>{
   const cls=s.bu?'bu':s.be?'be':'ne';
@@ -1041,6 +1116,11 @@ function updCharts(v,k){
  stag:   [-10,  22, -28,  42, -32,   8],
  base:   [  6,   8,  12,  -5,  -3,   2],  // July 2026: oil falling, DXY rising slight
  strong: [ -5, -15, -30,  -8, -10,  18],  // Strong dollar: kills gold/BTC, USD ETF wins
+ // CARRY: BOJ shock hike + USD/JPY crash -> forced deleveraging of carry-funded risk assets
+ // Gold dips briefly (margin-call selling of everything) then recovers on safe-haven flows: net +10
+ // Bonds RALLY hard (flight to quality, yields plunge) -- biggest positive in this scenario
+ // BTC crashes on leveraged unwind (Aug 2024 precedent); USD (DXY) falls as JPY (13.6% weight) surges
+ carry:  [-12,  10, -35,  -8,  20,  -8],
 }; const r=RET[k]||RET.base;
  CH.asset.data.datasets[0].data=r;
  CH.asset.data.datasets[0].backgroundColor=r.map((rv,i)=>rv>=0?['#39ff14','#ffd700','#f97316','#6b7fa3','#a855f7','#22d3ee'][i]:['#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c'][i]);
@@ -1054,6 +1134,9 @@ function updCharts(v,k){
  stag:   [25, 80, 35, 88, 65, 72, 18, 52],
  base:   [62, 58, 62, 56, 52, 56, 50, 55],
  strong: [72, 42, 48, 32, 65, 72, 55, 68],  // Tech -48 (overseas EPS), Defense inside Industrials wins
+ // CARRY: Tech crushed (carry-funded AI leverage unwinds), Financials stressed (funding/FX desks)
+ // Utilities/Healthcare/Consumer Def defensive havens; Real Estate mixed (falling yields vs liquidity crunch)
+ carry:  [32, 42, 18, 38, 68, 72, 58, 66],
 }; CH.sector.data.datasets[0].data=SD[k]||SD.base;CH.sector.update('none');
  const y2   = v.y2 || (v.y10 - 0.26);
  const y10  = v.y10;
@@ -1080,20 +1163,20 @@ function updCharts(v,k){
 
 function updBars(k){
  const items=[
- // RECALIBRATED July 2 2026 with Strong Dollar column
+ // RECALIBRATED July 2 2026 with Strong Dollar + Yen Carry Unwind columns
  // KEY CHANGE: bear gold = NEGATIVE (DXY spike suppresses gold -- confirmed inverse)
- ['FRO','Frontline Tankers',    {bull:-20,bear:55,qe:8,stag:50,base:5, strong:-5 }],
- ['NEM','Newmont Gold',         {bull:18, bear:-8,qe:32,stag:22,base:5, strong:-20}],
- ['LMT','Lockheed Martin',      {bull:5,  bear:28,qe:6,stag:22,base:10, strong:30 }],
- ['NVDA','NVIDIA',              {bull:55, bear:-28,qe:45,stag:-22,base:18,strong:-12}],
- ['JPM','JPMorgan',             {bull:32, bear:-15,qe:40,stag:-18,base:12,strong:14}],
- ['IBIT','Bitcoin ETF',         {bull:58, bear:-42,qe:72,stag:-28,base:10,strong:-30}],
- ['XLE','Energy ETF',           {bull:-12,bear:38,qe:6,stag:35,base:0, strong:-5 }],
- ['CEG','Constellation Nuke',   {bull:18, bear:20,qe:18,stag:18,base:14,strong:15 }],
- ['GDX','Gold Miners ETF',      {bull:25, bear:-10,qe:40,stag:20,base:5, strong:-22}],
- ['KRE','Regional Banks ETF',   {bull:22, bear:-22,qe:38,stag:-30,base:5, strong:20}],
- ['UUP','USD Bullish ETF',      {bull:-8, bear:8, qe:-14,stag:5, base:2, strong:18}],
- ['PLTR','Palantir',            {bull:60, bear:-18,qe:40,stag:-8, base:18,strong:5 }],
+ ['FRO','Frontline Tankers',    {bull:-20,bear:55,qe:8,stag:50,base:5, strong:-5,  carry:-8 }],
+ ['NEM','Newmont Gold',         {bull:18, bear:-8,qe:32,stag:22,base:5, strong:-20, carry:15 }],
+ ['LMT','Lockheed Martin',      {bull:5,  bear:28,qe:6,stag:22,base:10, strong:30,  carry:-3 }],
+ ['NVDA','NVIDIA',              {bull:55, bear:-28,qe:45,stag:-22,base:18,strong:-12,carry:-35}],
+ ['JPM','JPMorgan',             {bull:32, bear:-15,qe:40,stag:-18,base:12,strong:14, carry:-12}],
+ ['IBIT','Bitcoin ETF',         {bull:58, bear:-42,qe:72,stag:-28,base:10,strong:-30,carry:-35}],
+ ['XLE','Energy ETF',           {bull:-12,bear:38,qe:6,stag:35,base:0, strong:-5,  carry:-8 }],
+ ['CEG','Constellation Nuke',   {bull:18, bear:20,qe:18,stag:18,base:14,strong:15,  carry:-10}],
+ ['GDX','Gold Miners ETF',      {bull:25, bear:-10,qe:40,stag:20,base:5, strong:-22, carry:18 }],
+ ['KRE','Regional Banks ETF',   {bull:22, bear:-22,qe:38,stag:-30,base:5, strong:20, carry:-20}],
+ ['UUP','USD Bullish ETF',      {bull:-8, bear:8, qe:-14,stag:5, base:2, strong:18,  carry:-8 }],
+ ['PLTR','Palantir',            {bull:60, bear:-18,qe:40,stag:-8, base:18,strong:5,  carry:-18}],
 ]; let h='';
  items.forEach(([t,nm,ret])=>{
   const r=ret[k]||0;
@@ -1112,6 +1195,7 @@ function updBars(k){
 function updMbar(v,k){
  const sp = v.spread !== undefined ? v.spread : (v.y10 - (v.y2||v.y10));
  const spreadStr = (sp>=0?'+':'')+sp.toFixed(2)+'%';
+ const carryGap = v.fed - v.boj;
  const chips=[
   ['⛽ $'+v.oil,         v.oil<80],
   ['Fed '+v.fed.toFixed(2)+'%', v.fed<4.5],
@@ -1120,6 +1204,9 @@ function updMbar(v,k){
   ['Spread '+spreadStr,         sp>0.5],
   ['CPI '+v.cpi.toFixed(1)+'%', v.cpi<3.5],
   ['DXY '+v.dxy.toFixed(1),     v.dxy<100],
+  ['BOJ '+v.boj.toFixed(2)+'%', v.boj<1.5],
+  ['USD/JPY '+v.usdjpy.toFixed(1), v.usdjpy>150],
+  ['Carry Gap +'+carryGap.toFixed(2)+'%', carryGap>2.0],
   ['Iran '+v.iran+'%',          v.iran>70],
   ['QE '+v.qe+'%',              v.qe>60],
   ['SLR '+v.slr+'%',            v.slr>60],
@@ -1154,6 +1241,8 @@ function upd(){
  document.getElementById('v-yield').textContent=v.y10.toFixed(2)+'%';
  if(document.getElementById('v-y2')) document.getElementById('v-y2').textContent=v.y2.toFixed(2)+'%';
  document.getElementById('v-dxy').textContent=v.dxy.toFixed(1);
+ if(document.getElementById('v-boj'))    document.getElementById('v-boj').textContent=v.boj.toFixed(2)+'%';
+ if(document.getElementById('v-usdjpy')) document.getElementById('v-usdjpy').textContent=v.usdjpy.toFixed(1);
  document.getElementById('v-qe').textContent=v.qe+'%';
  document.getElementById('v-slr').textContent=v.slr+'%';
  document.getElementById('live-scen').textContent='SCENARIO: '+k.toUpperCase();
@@ -1184,6 +1273,20 @@ function upd(){
  const hioilE = DB.hioil.filter(s=>energyTks.includes(s.t));
  const hioilC = DB.hioil.filter(s=>consumerTks.includes(s.t));
  const hioilD = DB.hioil.filter(s=>defenseTks.includes(s.t));
+ // Yen Carry Trade Unwind section
+ mkGrid(DB.carrytrade.filter(s=>['FXY','TLT','IEF','GDX'].includes(s.t)).concat(DB.etf.filter(s=>s.t==='GDX')), k, 'g-carry-safe');
+ mkGrid(DB.carrytrade.filter(s=>['EEM'].includes(s.t)).concat(DB.tech.filter(s=>s.t==='NVDA')).concat(DB.etf.filter(s=>s.t==='IBIT'||s.t==='KRE')), k, 'g-carry-loss');
+ // Carry unwind active badge
+ const carryActive = v.boj >= 1.5 && v.usdjpy <= 145;
+ const cTrig = document.getElementById('carry-trigger-msg');
+ if(cTrig) cTrig.style.display = carryActive ? 'block' : 'none';
+ const cBadge = document.getElementById('carry-badge');
+ if(cBadge){
+   cBadge.style.background  = carryActive ? 'rgba(57,255,20,.15)' : 'rgba(168,85,247,.15)';
+   cBadge.style.borderColor = carryActive ? 'rgba(57,255,20,.4)'  : 'rgba(168,85,247,.4)';
+   cBadge.style.color       = carryActive ? 'var(--ac3)'          : 'var(--pur)';
+   cBadge.textContent       = carryActive ? 'ACTIVE NOW'          : 'BOJ 1.50%+ / USDJPY 145-';
+ }
  mkGrid(DB.strongdollar.filter(s=>['LMT','RTX','NOC'].includes(s.t)), k, 'g-strong-defense');
  mkGrid(DB.strongdollar.filter(s=>['IWM','WMT','CEG'].includes(s.t)), k, 'g-strong-domestic');
  mkGrid(DB.strongdollar.filter(s=>['UUP','KRE','MCO','V'].includes(s.t)), k, 'g-strong-financial');
@@ -1225,7 +1328,7 @@ function upd(){
 // ═══════════════════════════════════════════════════════════
 
 // ── Hardcoded baselines (June 23 2026 close / known values) ─
-const BASE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40};
+const BASE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638};
 
 // Stooq symbol map  →  tickers that need remapping
 const SQ_MAP = {
@@ -1247,7 +1350,8 @@ const BASE_PX = {
   ARKK:46.20,LCID:2.28,RIVN:10.45,PLUG:2.85,TDOC:8.38,
   W:42.10,CVNA:185.50,PTON:3.82,DRI:148.30,
   VNQ:85.20,SLG:44.10,BXP:58.30,MPW:3.18,
-  CHPT:1.22,BYND:4.48,SMCI:32.10,GE:220.40,RIDE:0.31,NKLA:0.82
+  CHPT:1.22,BYND:4.48,SMCI:32.10,GE:220.40,RIDE:0.31,NKLA:0.82,
+  FXY:57.75,EEM:44.50
 };
 
 // All 82 tickers
@@ -1255,10 +1359,11 @@ const ALL_TKS = Object.keys(BASE_PX);
 
 // Macro stooq symbols
 const MACRO_SQ = {
-  oil:  {s:'@CL.F', lo:20,  hi:200, scale:1,    key:'oil'},
-  y10:  {s:'10US.B',lo:0.5, hi:12,  scale:100,  key:'yield'},
-  y2:   {s:'2US.B', lo:0.5, hi:12,  scale:100,  key:'y2'},
-  dxy:  {s:'DXY.F', lo:70,  hi:130, scale:10,   key:'dxy'},
+  oil:    {s:'@CL.F',  lo:20,  hi:200, scale:1,   key:'oil'},
+  y10:    {s:'10US.B', lo:0.5, hi:12,  scale:100, key:'yield'},
+  y2:     {s:'2US.B',  lo:0.5, hi:12,  scale:100, key:'y2'},
+  dxy:    {s:'DXY.F',  lo:70,  hi:130, scale:10,  key:'dxy'},
+  usdjpy: {s:'USDJPY', lo:100, hi:180, scale:10,  key:'usdjpy'},  // BOJ rate not on stooq -- stays hardcoded
 };
 
 // Live price store (starts with baseline, updated live)
@@ -1328,7 +1433,7 @@ async function doRefresh(){
   await Promise.allSettled(Object.values(MACRO_SQ).map(cfg => sqFetchT(cfg.s, cfg)));
 
   // Apply macro to sliders AND store as live reference for RST buttons
-  ['oil','fed','iran','cpi','yield','y2','dxy','qe','slr'].forEach(k => {
+  ['oil','fed','iran','cpi','yield','y2','dxy','qe','slr','boj','usdjpy'].forEach(k => {
     const id = k==='y2'?'sl-y2':'sl-'+k;
     const el = document.getElementById(id);
     if (el && macroOut[k] != null){
