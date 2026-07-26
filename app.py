@@ -1648,6 +1648,46 @@ with tab_sentinels:
 
 # ── 📅 forced flows ──────────────────────────────────────────────────
 with tab_sentinels:
+    st.markdown("#### 🇯🇵 Yen carry trade monitor")
+    try:
+        _cm = ce.yen_carry_monitor(closes)
+    except Exception:
+        _cm = {}
+    if _cm:
+        _lc = {"unwind": RED, "stirring": "#d0b040", "carry_on": GREEN,
+               "calm": GREEN, "na": DIM}.get(_cm["level"], DIM)
+        _chip = lambda lab, v, inv=False: (
+            f"<span style='background:#081325;border:1px solid #1d2b40;border-radius:6px;"
+            f"padding:3px 10px;font-size:12px;font-family:monospace;'>"
+            f"{lab} <b style='color:"
+            + (DIM if v is None else (RED if ((v >= 0.75) if inv else (v <= -0.75))
+               else (GREEN if ((v <= -0.75) if inv else (v >= 0.75)) else DIM)))
+            + f";'>{'—' if v is None else f'{v:+.1f}z'}</b></span>")
+        st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+            border-left:5px solid {_lc};border-radius:10px;padding:12px 16px;margin-bottom:8px;">
+            <div style="font-weight:700;font-size:15px;">{_cm['label']}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">
+              {_chip("🇯🇵 Yen (FXY)", _cm['yen_z'])}
+              {_chip("Nikkei", _cm['nikkei_z'])}
+              {_chip("QQQ", _cm['qqq_z'])}
+              {_chip("BTC", _cm['btc_z'])}
+              {_chip("VIX", _cm['vix_z'], inv=True)}
+              <span style='background:#081325;border:1px solid #1d2b40;border-radius:6px;
+                padding:3px 10px;font-size:12px;font-family:monospace;'
+                title="Yen impulse amplified by how many risk assets confirm the drain — the unwind signature is COINCIDENCE, not any single number.">
+                carry stress <b style='color:{_lc};'>{_cm['stress']:.1f}</b></span>
+            </div>
+            <div style="color:{DIM};font-size:12px;">
+              {"Confirming: " + " · ".join(_cm['confirms']) if _cm['confirms'] else "No risk-asset confirmation — yen moves alone are currency noise, not forced deleveraging."}
+            </div>
+            <div style="color:{DIM};font-size:12px;margin-top:6px;">
+              <b>The mechanism:</b> the world borrows at Japan's near-zero rates to fund
+              risk positions everywhere. When the BoJ tightens or the yen surges, every
+              yen-funded long gets margin-called at once — yen ▲ + QQQ/BTC ▼ + VIX ▲
+              <i>simultaneously</i> is the signature (Aug 5, 2024). A weakening yen is
+              the opposite: fresh carry = a global risk tailwind. A true unwind
+              auto-flips the Top 20's regime to 🌩 Shock.
+            </div></div>""", unsafe_allow_html=True)
     st.markdown("#### 🔭 Ratio sentinels — relationships that lead")
     st.caption("Two assets divided by each other strip out the market and "
                "leave the message. These ratios historically turn before "
@@ -1823,6 +1863,7 @@ with tab_guide:
         ("Piotroski", "9-point fundamental health checklist. 7+ = fortress."),
         ("ROIC / ROCE", "Return on invested capital / capital employed — how much profit each dollar in the business generates. Felix's favorite lenses; 15%+ is elite."),
         ("OE Yield", "Owner-earnings yield — real cash generated relative to price."),
+        ("Yen carry trade", "The world's funding trade: borrow at Japan's ~0% rates, buy risk assets globally. A surging yen margin-calls all of it at once — the Sentinels tab watches for the unwind signature (yen ▲ + QQQ/BTC ▼ + VIX ▲ together), and a confirmed unwind forces the regime to Shock."),
         ("Catalysts (scored vs shown)", "Data fingerprints (breakout, vol shock, gap, fresh MACD) are backtested and scored. News tags and squeeze setup are context only — read them, don't count them."),
     ]:
         st.markdown(f"- **{term}** — {defn}")

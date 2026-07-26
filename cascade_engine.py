@@ -72,13 +72,14 @@ NODES = {
     "PPLT": ("Platinum", "commodity"), "CORN": ("Corn", "commodity"),
     "WEAT": ("Wheat", "commodity"),
     "FXB": ("British Pound", "fx"),
+    "^N225": ("Nikkei 225", "country"),
 }
 
 # canonical upstream sentinels (fast, frictionless)
 ENGINE_VERSION = "2.6"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
-             "KRE", "EMB", "UUP", "TLT"]
+             "KRE", "EMB", "UUP", "TLT", "^N225"]
 
 # ratio sentinels — relationships that lead, computed from node closes
 RATIO_SENTINELS = {
@@ -89,6 +90,7 @@ RATIO_SENTINELS = {
     "RSP/SPY":  ("Equal vs Cap Weight", "breadth — narrow rallies (falling ratio) are fragile"),
     "IWM/SPY":  ("Small vs Large", "risk breadth — small caps lead risk-on and risk-off"),
     "EEM/SPY":  ("EM vs US", "global liquidity reach — EM outperforms when dollars flow out"),
+    "FXY/UUP":  ("Yen vs Dollar", "the carry trade's engine — yen surging against the dollar = unwind risk for every yen-funded position on earth"),
 }
 
 
@@ -1576,6 +1578,10 @@ def macro_regime(closes: pd.DataFrame, pressure_gauge=None) -> dict:
         reg = "bull"; drivers.append(f"oil {oil:+.0%}/63d, vol calm")
     elif np.isfinite(vix_z) and vix_z >= 1.25:
         reg = "bear"; drivers.append(f"VIX impulse z {vix_z:+.1f} (shock)")
+    elif (np.isfinite(imp.get("FXY", np.nan)) and imp.get("FXY") >= 1.75
+          and np.isfinite(imp.get("QQQ", np.nan)) and imp.get("QQQ") <= -0.75):
+        reg = "bear"; drivers.append(
+            f"yen carry unwind signature (FXY z {imp.get('FXY'):+.1f}, QQQ draining)")
     elif np.isfinite(uup) and uup > 0.04:
         reg = "strong"; drivers.append(f"dollar +{uup:.0%}/63d")
     else:
@@ -1840,3 +1846,57 @@ def felix_scan(top: int = 20) -> pd.DataFrame:
         "Piotroski": pio[order], "ROIC Trend": rt[order],
         "P/E": pe[order], "RevGrowth": rg[order],
     }).reset_index(drop=True)
+
+
+# ═════════ 🇯🇵 yen carry trade monitor ═════════
+def yen_carry_monitor(closes: pd.DataFrame) -> dict:
+    """The world's biggest funding trade, watched live. Borrowing at Japan's
+    near-zero rates to fund global risk positions works until the yen surges —
+    then every yen-funded long gets margin-called at once (Aug 5, 2024).
+    The unwind SIGNATURE is coincidence: yen impulse UP while risk impulses
+    point DOWN. Yen up alone is a currency move; yen up + QQQ/BTC down +
+    VIX up is forced deleveraging."""
+    imp = impulses(closes).iloc[-1]
+    def z(sym):
+        v = imp.get(sym, np.nan)
+        return float(v) if np.isfinite(v) else np.nan
+    def t63(sym):
+        if sym not in closes.columns:
+            return np.nan
+        s = closes[sym].dropna()
+        return float(s.iloc[-1] / s.iloc[-64] - 1) if len(s) > 64 else np.nan
+
+    yen_z, yen_t = z("FXY"), t63("FXY")
+    nik_z, nik_t = z("^N225"), t63("^N225")
+    qqq_z, btc_z, vix_z = z("QQQ"), z("BTC-USD"), z("^VIX")
+
+    confirms = []
+    if np.isfinite(qqq_z) and qqq_z <= -0.75:
+        confirms.append("QQQ draining")
+    if np.isfinite(btc_z) and btc_z <= -0.75:
+        confirms.append("BTC draining (24/7 canary)")
+    if np.isfinite(vix_z) and vix_z >= 0.75:
+        confirms.append("VIX waking")
+    if np.isfinite(nik_z) and nik_z <= -1.0:
+        confirms.append("Nikkei cracking")
+
+    stress = 0.0
+    if np.isfinite(yen_z) and yen_z > 0:
+        stress = yen_z * (1 + 0.5 * len(confirms))
+    if not np.isfinite(yen_z):
+        level, label = "na", "⚪ No yen data — hit refresh"
+    elif yen_z >= 1.75 and len(confirms) >= 2:
+        level, label = "unwind", "🔴 UNWIND SIGNATURE — yen surging with risk draining in sync"
+    elif yen_z >= 1.0:
+        level, label = "stirring", "🟡 Yen stirring — funding leg tightening, watch for risk confirmation"
+    elif yen_z <= -1.0:
+        level, label = "carry_on", "🟢 Yen weakening — carry trade being ADDED, a tailwind for risk"
+    else:
+        level, label = "calm", "🟢 Carry calm — yen quiet, leveraged longs comfortable"
+    return dict(level=level, label=label, stress=round(stress, 2),
+                yen_z=round(yen_z, 2) if np.isfinite(yen_z) else None,
+                yen_t63=yen_t, nikkei_z=round(nik_z, 2) if np.isfinite(nik_z) else None,
+                nikkei_t63=nik_t, confirms=confirms,
+                qqq_z=round(qqq_z, 2) if np.isfinite(qqq_z) else None,
+                btc_z=round(btc_z, 2) if np.isfinite(btc_z) else None,
+                vix_z=round(vix_z, 2) if np.isfinite(vix_z) else None)
