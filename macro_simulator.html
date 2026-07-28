@@ -5,7 +5,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Macro Market Simulator v4 — Brad's Playbook</title>
+<title>Macro Market Simulator v7.1 — Brad's Playbook</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 /* Google Fonts loaded async — system fonts used as immediate fallback */
@@ -48,7 +48,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .pt{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mu);letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px}
 .pt::after{content:'';flex:1;height:1px;background:var(--bdr)}
 .cw{position:relative;height:240px}
-.sgg{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:7px}
+.sgg{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:7px}
 @media(max-width:780px){.sgg{grid-template-columns:repeat(4,1fr)}}
 @media(max-width:480px){.sgg{grid-template-columns:repeat(2,1fr)}}
 .sgc{background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:10px 6px;text-align:center;transition:all .3s}
@@ -110,6 +110,26 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .mch{padding:4px 11px;border-radius:100px;font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:500;border:1px solid;transition:all .3s}
 .rbtn{background:transparent;border:1px solid var(--bdr);color:var(--mu);padding:3px 9px;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer;transition:all .2s}
 .rbtn:hover{border-color:var(--ac);color:var(--ac)}
+/* ── LIVE DATA BAR (was missing entirely) ── */
+.livebar{display:flex;align-items:center;gap:12px;background:var(--sur2);border:1px solid var(--bdr);border-radius:12px;padding:10px 16px;margin-bottom:12px;flex-wrap:wrap}
+.ld{width:10px;height:10px;border-radius:50%;background:var(--ac3);flex-shrink:0}
+.ld.spin{background:var(--gold);animation:ldspin 1s linear infinite}
+@keyframes ldspin{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.25;transform:scale(.8)}}
+.ld.err{background:var(--red)}
+.lb-label{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--ac);flex-shrink:0}
+.lb-stat{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--tx);line-height:1.5;word-break:break-word}
+.lb-time{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mu);flex-shrink:0}
+.lb-time.stale{color:var(--gold)}
+.rfbtn{background:transparent;border:1px solid var(--ac);color:var(--ac);padding:6px 14px;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;flex-shrink:0}
+.rfbtn:hover:not(:disabled){background:rgba(0,229,255,.12)}
+.rfbtn:disabled{opacity:.45;cursor:not-allowed}
+.scan-badge{font-size:9px;background:rgba(57,255,20,.12);border:1px solid rgba(57,255,20,.35);color:var(--ac3);border-radius:4px;padding:2px 7px;margin-left:6px;letter-spacing:.5px;font-family:'JetBrains Mono',monospace}
+/* ── LIVE MARKET PULSE STRIP ── */
+.pulsebar{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
+.pchip{padding:4px 11px;border-radius:100px;font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:600;border:1px solid var(--bdr);color:var(--mu);transition:all .3s}
+.pchip.u{color:var(--ac3);border-color:rgba(57,255,20,.4)}
+.pchip.d{color:var(--red);border-color:rgba(255,59,92,.4)}
+.pchip .pv{color:var(--tx);margin-left:4px}
 /* ── HELP ICON & TOOLTIP ── */
 .hlp{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:rgba(107,127,163,.2);border:1px solid var(--bdr);color:var(--mu);font-size:9px;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s;margin-left:4px;flex-shrink:0;line-height:1;font-weight:700}
 .hlp:hover{background:rgba(0,229,255,.15);border-color:var(--ac);color:var(--ac)}
@@ -144,7 +164,7 @@ footer a:hover{color:var(--ac)}
 .exp-slbl{font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--mu);
   text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
 .exp-sval{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700}
-.exp-all-ret{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:11px}
+.exp-all-ret{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:6px;margin-bottom:11px}
 .exp-ret{background:var(--sur2);border-radius:7px;padding:8px;text-align:center}
 .exp-ret-lbl{font-size:9px;color:var(--mu);font-family:'JetBrains Mono',monospace;
   margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px}
@@ -203,6 +223,7 @@ footer a:hover{color:var(--ac)}
   <span class="lb-time" id="lb-time"></span>
   <button class="rfbtn" id="rfbtn" onclick="doRefresh()" disabled>&#8635; REFRESH</button>
 </div>
+<div class="pulsebar" id="pulse"></div>
 
 <div class="tabs">
   <button class="tab on" onclick="setScen('base',this)">&#128202; Base Case</button>
@@ -216,19 +237,19 @@ footer a:hover{color:var(--ac)}
 <div class="narr" id="narr"></div>
 <div class="oil-alert" id="oil-alert"><strong>&#9889; HIGH OIL ALERT (WTI $90+):</strong> Alternative Energy section below is now in play. Solar, nuclear, wind &amp; storage names gain strategic tailwind as energy independence becomes a national priority. High short interest in solar = potential squeeze.</div>
 <div class="sliders">
-  <div class="scard"><div class="slbl">WTI Oil Price <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>WTI Crude Oil Price ($/barrel)</strong>West Texas Intermediate — the US benchmark for crude oil. Directly drives CPI (gas prices), energy sector earnings, tanker rates, and the Iran deal narrative. Above $90 activates the Alt Energy section.<div class="tip-why">Why it matters: Oil is the single biggest swing variable. A $30 move in oil changes CPI by ~1.5%, alters Fed policy, and flips sector leadership from tech to energy.</div></div></span><button class="rbtn" onclick="rv('sl-oil',68)">RST</button></div><div class="sval" id="v-oil">$68</div><input type="range" min="40" max="140" value="74" id="sl-oil" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$40</span><span>$140</span></div></div>
-  <div class="scard"><div class="slbl">Fed Funds Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Fed Funds Rate (%)</strong>The interest rate the Federal Reserve charges banks for overnight lending. Set by the FOMC. Under Warsh, this is tied to new real-time PCE data — cuts require inflation to fall first.<div class="tip-why">Why it matters: The single most powerful lever in all of finance. Every 25bps cut adds ~2-3% to S&P forward P/E multiples and unlocks bank carry trades via SLR deregulation.</div></div></span><button class="rbtn" onclick="rv('sl-fed',363)">RST</button></div><div class="sval" id="v-fed">5.25%</div><input type="range" min="150" max="700" value="525" id="sl-fed" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.5%</span><span>7.0%</span></div></div>
-  <div class="scard"><div class="slbl">Iran Deal % <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Iran Deal Status (%)</strong>Probability the Iran nuclear deal holds and the Strait of Hormuz stays open. 0% = full closure, supply shock. 100% = deal signed, Iranian oil floods market, WTI crashes to $55-60.<div class="tip-why">Why it matters: ~20% of global oil supply transits Hormuz. A closure would spike oil $30-40/barrel within weeks, re-accelerating inflation and trapping the Fed.</div></div></span><button class="rbtn" onclick="rv('sl-iran',50)">RST</button></div><div class="sval" id="v-iran">50%</div><input type="range" min="0" max="100" value="50" id="sl-iran" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>Collapsed</span><span>Signed</span></div></div>
+  <div class="scard"><div class="slbl">WTI Oil Price <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>WTI Crude Oil Price ($/barrel)</strong>West Texas Intermediate — the US benchmark for crude oil. Directly drives CPI (gas prices), energy sector earnings, tanker rates, and the Iran deal narrative. Above $90 activates the Alt Energy section.<div class="tip-why">Why it matters: Oil is the single biggest swing variable. A $30 move in oil changes CPI by ~1.5%, alters Fed policy, and flips sector leadership from tech to energy.</div></div></span><button class="rbtn" onclick="rv('sl-oil',68)">RST</button></div><div class="sval" id="v-oil">$68</div><input type="range" min="40" max="140" value="68" id="sl-oil" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$40</span><span>$140</span></div></div>
+  <div class="scard"><div class="slbl">Fed Funds Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Fed Funds Rate (%)</strong>The interest rate the Federal Reserve charges banks for overnight lending. Set by the FOMC. Under Warsh, this is tied to new real-time PCE data — cuts require inflation to fall first.<div class="tip-why">Why it matters: The single most powerful lever in all of finance. Every 25bps cut adds ~2-3% to S&P forward P/E multiples and unlocks bank carry trades via SLR deregulation.</div></div></span><button class="rbtn" onclick="rv('sl-fed',363)">RST</button></div><div class="sval" id="v-fed">3.63%</div><input type="range" min="150" max="700" value="363" id="sl-fed" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.5%</span><span>7.0%</span></div></div>
+  <div class="scard"><div class="slbl">Iran Deal % <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Iran Deal Status (%)</strong>Probability the Iran nuclear deal holds and the Strait of Hormuz stays open. 0% = full closure, supply shock. 100% = deal signed, Iranian oil floods market, WTI crashes to $55-60.<div class="tip-why">Why it matters: ~20% of global oil supply transits Hormuz. A closure would spike oil $30-40/barrel within weeks, re-accelerating inflation and trapping the Fed.</div></div></span><button class="rbtn" onclick="rv('sl-iran',62)">RST</button></div><div class="sval" id="v-iran">62%</div><input type="range" min="0" max="100" value="62" id="sl-iran" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>Collapsed</span><span>Signed</span></div></div>
   <div class="scard"><div class="slbl">CPI Inflation <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>CPI Inflation (% YoY)</strong>Consumer Price Index — year-over-year price change for a basket of goods. The Fed's stated target is 2.0%. Current: 4.2% (May 2026). Warsh uses a new trimmed-mean PCE variant.<div class="tip-why">Why it matters: Inflation above 3.5% keeps the Fed on hold. Below 2.5% unlocks cuts. It's the gatekeeper between the current environment and the QE machine scenario.</div></div></span><button class="rbtn" onclick="rv('sl-cpi',42)">RST</button></div><div class="sval" id="v-cpi">4.2%</div><input type="range" min="10" max="120" value="42" id="sl-cpi" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>12%</span></div></div>
-  <div class="scard"><div class="slbl">10-Year Yield <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>10-Year Treasury Yield (%)</strong>The yield on 10-year US government bonds — the world's risk-free benchmark. Drives mortgage rates, corporate bond rates, and REIT valuations. Current: ~4.50%.<div class="tip-why">Why it matters: The 10Y is the long anchor of the yield curve. Rising = bond market revolt (inflation fear). Falling = QE/growth optimism. Directly sets the 2Y-10Y spread.</div></div></span><button class="rbtn" onclick="rv('sl-yield',450)">RST</button></div><div class="sval" id="v-yield">4.50%</div><input type="range" min="200" max="700" value="450" id="sl-yield" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>2.0%</span><span>7.0%</span></div></div>
+  <div class="scard"><div class="slbl">10-Year Yield <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>10-Year Treasury Yield (%)</strong>The yield on 10-year US government bonds — the world's risk-free benchmark. Drives mortgage rates, corporate bond rates, and REIT valuations. Current: ~4.50%.<div class="tip-why">Why it matters: The 10Y is the long anchor of the yield curve. Rising = bond market revolt (inflation fear). Falling = QE/growth optimism. Directly sets the 2Y-10Y spread.</div></div></span><button class="rbtn" onclick="rv('sl-yield',448)">RST</button></div><div class="sval" id="v-yield">4.48%</div><input type="range" min="200" max="700" value="448" id="sl-yield" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>2.0%</span><span>7.0%</span></div></div>
   <div class="scard" id="spread-card"><div class="slbl">2-Year Yield <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>2-Year Treasury Yield (%)</strong>The yield on 2-year US Treasuries — the bond market's real-time prediction of where Fed Funds will be in 2 years. More honest than the Fed's own dot plot. Current: ~4.24%.<div class="tip-why">Why it matters: The 2Y-10Y spread (shown below) is the #1 recession predictor. When 2Y > 10Y (inverted), banks lose money on lending and credit tightens. Every recession since 1955 was preceded by inversion.</div></div></span><button class="rbtn" onclick="rv('sl-y2',424)">RST</button></div><div class="sval" id="v-y2">4.24%</div><input type="range" min="100" max="700" value="424" id="sl-y2" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>7.0%</span></div><div id="spread-display" style="margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:10px"></div></div>
-  <div class="scard"><div class="slbl">DXY Dollar Index <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>US Dollar Index (DXY)</strong>Measures the USD against a basket of 6 currencies (EUR, JPY, GBP, CAD, SEK, CHF). A weaker dollar is Groman Signal #1 — it means liquidity is expanding globally.<div class="tip-why">Why it matters: DXY below 100 is bullish for gold, commodities, and emerging markets. QE scenarios push DXY to 88-92. Dollar strength (DXY 105+) crushes everything denominated in USD abroad.</div></div></span><button class="rbtn" onclick="rv('sl-dxy',1013)">RST</button></div><div class="sval" id="v-dxy">101.3</div><input type="range" min="800" max="1200" value="1025" id="sl-dxy" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>80</span><span>120</span></div></div>
+  <div class="scard"><div class="slbl">DXY Dollar Index <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>US Dollar Index (DXY)</strong>Measures the USD against a basket of 6 currencies (EUR, JPY, GBP, CAD, SEK, CHF). A weaker dollar is Groman Signal #1 — it means liquidity is expanding globally.<div class="tip-why">Why it matters: DXY below 100 is bullish for gold, commodities, and emerging markets. QE scenarios push DXY to 88-92. Dollar strength (DXY 105+) crushes everything denominated in USD abroad.</div></div></span><button class="rbtn" onclick="rv('sl-dxy',1013)">RST</button></div><div class="sval" id="v-dxy">101.3</div><input type="range" min="800" max="1200" value="1013" id="sl-dxy" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>80</span><span>120</span></div></div>
   <div class="scard"><div class="slbl">QE Probability <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>QE Probability (%)</strong>Probability the Fed resumes Quantitative Easing — buying bonds to expand the money supply. Currently indirect via SLR deregulation: banks buy treasuries with leverage, creating 'covert QE.'<div class="tip-why">Why it matters: Every major asset rally since 2008 has been powered by QE. When this flips above 80%, hard assets (gold, BTC, commodities) historically rip 30-90% within 12 months.</div></div></span><button class="rbtn" onclick="rv('sl-qe',45)">RST</button></div><div class="sval" id="v-qe">45%</div><input type="range" min="0" max="100" value="45" id="sl-qe" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0%</span><span>100%</span></div></div>
   <div class="scard"><div class="slbl">SLR Deregulation <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>SLR Deregulation (%)</strong>Supplementary Leverage Ratio — a rule limiting how much banks can lever up. Deregulating it lets banks exclude US Treasuries from their leverage calculations, effectively letting JPM/GS/BAC buy unlimited bonds.<div class="tip-why">Why it matters: This is the mechanism of Warsh's 'covert QE.' Banks borrow at the 2Y rate, buy 10Y bonds, pocket the spread. At 95% deregulation + QE, banks could absorb $800B+ in new Treasury supply.</div></div></span><button class="rbtn" onclick="rv('sl-slr',40)">RST</button></div><div class="sval" id="v-slr">40%</div><input type="range" min="0" max="100" value="40" id="sl-slr" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>None</span><span>Full Dereg</span></div></div>
   <div class="scard" id="carry-card"><div class="slbl">BOJ Rate (Japan) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Bank of Japan Policy Rate (%)</strong>Japan's overnight rate, raised to 1.00% in June 2026 after a decade near zero. The BOJ is normalizing slowly while the Fed holds much higher rates.<div class="tip-why">Why it matters: The Fed-BOJ gap funds the global "yen carry trade" -- borrow cheap yen, buy higher-yielding USD assets. When BOJ hikes fast or the gap narrows suddenly, carry trades unwind violently (Aug 2024: Nikkei -12.4% in one day).</div></div></span><button class="rbtn" onclick="rv('sl-boj',100)">RST</button></div><div class="sval" id="v-boj">1.00%</div><input type="range" min="0" max="300" value="100" id="sl-boj" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0.0%</span><span>3.0%</span></div></div>
   <div class="scard" id="usdjpy-card"><div class="slbl">USD/JPY Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>USD/JPY Exchange Rate</strong>How many yen buy one dollar. Currently ~163.8 -- yen near 40-year lows despite BOJ hiking, because broad dollar strength (oil crisis, Fed still hawkish) is overwhelming the narrowing rate differential.<div class="tip-why">Why it matters: A falling USD/JPY (yen strengthening fast) signals the carry trade unwinding -- leveraged funds rush to buy back yen, forcing liquidation of the risk assets (tech stocks, BTC, EM) that carry funded. Below 145 with a BOJ hike = danger zone.</div></div></span><button class="rbtn" onclick="rv('sl-usdjpy',1638)">RST</button></div><div class="sval" id="v-usdjpy">163.8</div><input type="range" min="1000" max="1800" value="1638" id="sl-usdjpy" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>100</span><span>180</span></div><div id="carry-display" style="margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:10px"></div></div>
 </div>
-<div class="fp"><div class="pt">Groman 5-Signal Macro Dashboard</div><div class="sgg" id="sigs"></div><div style="font-size:10px;color:var(--mu);margin-top:5px">All 5 GREEN = QE confirmed &bull; All RED = plan failing &bull; Watch for divergence between signals</div></div>
+<div class="fp"><div class="pt">Macro Signal Dashboard &mdash; 10 Signals (Groman Core 5 + Spread &middot; Carry &middot; VIX &middot; Copper/Gold &middot; Credit)</div><div class="sgg" id="sigs"></div><div style="font-size:10px;color:var(--mu);margin-top:5px">Groman core (Dollar, Stocks, 10Y, Gold, Bitcoin) all GREEN = QE confirmed &bull; All RED = plan failing &bull; VIX, Copper/Gold &amp; Credit are live market-confirmation signals &mdash; watch for divergence between model and market</div></div>
 <div class="g2"><div class="panel"><div class="pt">S&amp;P 500 &mdash; 12-Month Projection</div><div class="cw"><canvas id="spxC"></canvas></div></div><div class="panel"><div class="pt">Asset Class 12M Return (%)</div><div class="cw"><canvas id="assetC"></canvas></div></div></div>
 <div class="g2"><div class="panel"><div class="pt">Sector Rotation Radar</div><div class="cw"><canvas id="sectorC"></canvas></div></div><div class="panel"><div class="pt">Yield Curve: Current vs 12M Projected</div><div class="cw"><canvas id="yieldC"></canvas></div></div></div>
 <div class="fp"><div class="pt">Projected Moves &mdash; Key Instruments (Click for Details)</div><div id="obs"></div></div>
@@ -924,10 +945,11 @@ function gkey(v){
  // Yen carry unwind is a violent, acute shock (Aug 2024 precedent) -- checked first
  if(v.boj>=1.5 && v.usdjpy<=145)                 return 'carry';
  if(v.qe>80 && v.slr>80)                         return 'qe';
- if(v.oil>95 && v.cpi>55)                         return 'stag';
+ if(v.oil>95 && v.cpi>7.5)                        return 'stag'; // entrenched inflation regime (FIXED: cpi is scaled /10)
+ if(v.iran<20 && v.oil>90)                        return 'bear'; // geopolitical/Hormuz shock
+ if(v.oil>95 && v.cpi>5.5)                        return 'stag'; // high oil + sticky CPI without Iran trigger
  if(v.iran>75 && v.oil<70)                        return 'bull';
- if(v.iran<20 && v.oil>90)                        return 'bear';
- if(v.dxy>=1070 && v.fed>=4.0 && v.qe<30)        return 'strong';
+ if(v.dxy>=107 && v.fed>=4.0 && v.qe<30)         return 'strong'; // FIXED: dxy is scaled (/10)
  return 'base';
 }
 
@@ -940,7 +962,10 @@ function setScen(s,el){
  document.getElementById('sl-iran').value=p.iran;
  document.getElementById('sl-cpi').value=p.cpi;
  document.getElementById('sl-yield').value=p.yield;
+ document.getElementById('sl-y2').value=p.y2;         // FIXED: was never set — spread wrong on every tab
  document.getElementById('sl-dxy').value=p.dxy;
+ document.getElementById('sl-boj').value=p.boj;       // FIXED: was never set — carry tab could not activate
+ document.getElementById('sl-usdjpy').value=p.usdjpy; // FIXED: was never set
  document.getElementById('sl-qe').value=p.qe;
  document.getElementById('sl-slr').value=p.slr;
  upd();
@@ -959,7 +984,7 @@ function buildExpanded(t,n,d,k){
   ${bp&&lp!==bp?`<div><div style="font-size:9px;font-family:JetBrains Mono,monospace;color:var(--mu)">Baseline</div><div style="font-family:JetBrains Mono,monospace;font-size:14px;color:var(--mu)">${fmt(bp)}</div></div>`:''}
   <div style="margin-left:auto;font-size:9px;color:var(--mu);font-family:JetBrains Mono,monospace">via Stooq</div>
  </div>`:'';
- const scens=[{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'}];
+ const scens=[{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'},{key:'strong',lbl:'STRONG$'},{key:'carry',lbl:'CARRY'}];
  const allRet=scens.map(sc=>{
   const v=d[sc.key];
   if(v==null)return '';
@@ -1063,16 +1088,37 @@ function updSigs(v){
  const carryGap = v.fed - v.boj;
  const carryBull = carryGap > 2.0 && v.usdjpy > 155;   // wide, stable gap = carry intact, supports risk assets
  const carryBear = v.boj >= 1.5 && v.usdjpy <= 145;      // BOJ hiked + yen surging = unwind in progress
+ // Live market-confirmation signals (from Stooq; fall back to neutral when offline)
+ const li = LIVE_IDX, bi = BASE_IDX;
+ const pctv = (a,b)=> (a!=null&&b)?((a-b)/b*100):null;
+ const goldMom = pctv(li.gold, bi.gold);      // live gold vs baseline
+ const btcMom  = pctv(li.btc,  bi.btc);
+ const cgNow   = (li.copper!=null&&li.gold!=null)?(li.copper/li.gold*1000):null; // copper/gold ratio ×1000
+ const cgBase  = bi.copper/bi.gold*1000;
+ const cgMom   = cgNow!=null?((cgNow-cgBase)/cgBase*100):null;
+ const crNow   = (li.hyg!=null&&li.ief!=null)?(li.hyg/li.ief):null;              // HYG/IEF credit-risk ratio
+ const crBase  = bi.hyg/bi.ief;
+ const crMom   = crNow!=null?((crNow-crBase)/crBase*100):null;
+ const vix     = li.vix;
  const sig=[
-  {ic:'&#x1F4B5;',nm:'Dollar (DXY)',    bu:v.dxy<98,              be:v.dxy>104,    sub:''},
+  {ic:'&#x1F4B5;',nm:'Dollar (DXY)',    bu:v.dxy<98,              be:v.dxy>104,    sub:v.dxy.toFixed(1)},
   {ic:'&#x1F4C8;',nm:'Stocks (Risk)',   bu:v.qe>60&&v.iran>60,    be:v.oil>95,     sub:''},
-  {ic:'&#x1F4C9;',nm:'10Y Yield',       bu:v.y10<4.0,             be:v.y10>4.8,    sub:''},
-  {ic:'&#x1F947;',nm:'Gold',            bu:v.dxy<98&&v.qe>50,     be:v.dxy>105,    sub:''},
-  {ic:'&#x20BF;', nm:'Bitcoin',         bu:v.qe>65&&v.dxy<100,    be:v.qe<20,      sub:''},
+  {ic:'&#x1F4C9;',nm:'10Y Yield',       bu:v.y10<4.0,             be:v.y10>4.8,    sub:v.y10.toFixed(2)+'%'},
+  {ic:'&#x1F947;',nm:'Gold',            bu:(v.dxy<98&&v.qe>50)||goldMom>2,  be:v.dxy>105&&!(goldMom>2), sub:goldMom!=null?(goldMom>=0?'+':'')+goldMom.toFixed(1)+'%':''},
+  {ic:'&#x20BF;', nm:'Bitcoin',         bu:(v.qe>65&&v.dxy<100)||btcMom>3,  be:v.qe<20&&!(btcMom>3),    sub:btcMom!=null?(btcMom>=0?'+':'')+btcMom.toFixed(1)+'%':''},
   {ic:'&#x1F4CA;',nm:'2Y-10Y Spread',   bu:spreadBull,            be:spreadBear,
    sub:(sp>=0?'+':'')+sp.toFixed(2)+'%'},
   {ic:'&#x1F1EF;&#x1F1F5;',nm:'Yen Carry',bu:carryBull,           be:carryBear,
    sub:'¥'+v.usdjpy.toFixed(0)},
+  // NEW: VIX — fear gauge. <15 complacent-bullish, >25 stress
+  {ic:'&#x1F630;',nm:'VIX Fear',        bu:vix!=null&&vix<15,     be:vix!=null&&vix>25,
+   sub:vix!=null?vix.toFixed(1):'offline'},
+  // NEW: Copper/Gold ratio — classic growth-vs-fear indicator (tracks 10Y yield direction)
+  {ic:'&#x1F527;',nm:'Copper/Gold',     bu:cgMom!=null&&cgMom>3,  be:cgMom!=null&&cgMom<-3,
+   sub:cgMom!=null?(cgMom>=0?'+':'')+cgMom.toFixed(1)+'%':'offline'},
+  // NEW: Credit (HYG/IEF) — high-yield vs treasuries; falling ratio = credit stress precedes equities
+  {ic:'&#x1F3E6;',nm:'Credit Risk',     bu:crMom!=null&&crMom>1,  be:crMom!=null&&crMom<-2,
+   sub:crMom!=null?(crMom>=0?'+':'')+crMom.toFixed(1)+'%':'offline'},
  ];
  document.getElementById('sigs').innerHTML=sig.map(s=>{
   const cls=s.bu?'bu':s.be?'be':'ne';
@@ -1098,13 +1144,20 @@ function initCharts(){
 }
 
 function updCharts(v,k){
- const bull=[4500,4620,4790,4960,5140,5360,5560,5720,5880,6020,6190,6370];
- const bear=[4500,4390,4240,4090,3940,3790,3710,3670,3690,3750,3810,3890];
+ // Anchor projection at LIVE S&P 500 level (falls back to baseline when offline)
+ const spx0 = LIVE_IDX.spx || BASE_IDX.spx;
+ const bullPath=[1,1.0267,1.0644,1.1022,1.1422,1.1911,1.2356,1.2711,1.3067,1.3378,1.3756,1.4156];
+ const bearPath=[1,0.9756,0.9422,0.9089,0.8756,0.8422,0.8244,0.8156,0.8200,0.8333,0.8467,0.8644];
+ const bull=bullPath.map(p=>Math.round(spx0*p));
+ const bear=bearPath.map(p=>Math.round(spx0*p));
  const m  = v.iran/100;
  const dm = Math.max(1-(v.oil-60)/100, .28);
  const sp = v.spread !== undefined ? v.spread : (v.y10 - (v.y2||v.y10));
  const spreadMult = 1 + Math.max(Math.min(sp * 0.35, 0.25), -0.20);
- const proj=bull.map((b,i)=>Math.round((b*m*dm*.5+4570*.35+bear[i]*(1-m)*.15)*spreadMult));
+ let proj=bull.map((b,i)=>Math.round((b*m*dm*.5+spx0*1.0156*.35+bear[i]*(1-m)*.15)*spreadMult));
+ // Scenario-aware shocks the old model ignored: carry unwind is an acute crash, strong dollar is an EPS drag
+ if(k==='carry')  proj=proj.map((p,i)=>Math.round(p*0.55+bear[i]*0.45));
+ if(k==='strong') proj=proj.map(p=>Math.round(p*0.965));
  CH.spx.data.datasets[0].data=bull;CH.spx.data.datasets[1].data=proj;CH.spx.data.datasets[2].data=bear;CH.spx.update('none');
  const RET={
  //               [S&P, Gold,  BTC,  Oil, Bond,  USD]
@@ -1155,6 +1208,8 @@ function updCharts(v,k){
    qe:   [-1.20,-1.20,-1.10,-1.00,-0.90,-0.65,-0.45,-0.30,-0.20],
    stag: [ 0.05, 0.05, 0.08, 0.05, 0.00, 0.60, 1.20, 1.60, 1.80],
    base: [-0.20,-0.18,-0.15,-0.12,-0.10,-0.05, 0.00, 0.05, 0.08],
+   strong:[ 0.10, 0.10, 0.10, 0.08, 0.05, 0.15, 0.30, 0.40, 0.45], // hawkish hold + term premium
+   carry: [-0.60,-0.60,-0.55,-0.55,-0.50,-0.45,-0.40,-0.30,-0.25], // flight-to-quality bond rally
  };
  const sh = shifts[k] || shifts.base;
  const yp = yc.map((y,i) => +(y + sh[i]).toFixed(2));
@@ -1221,6 +1276,8 @@ function updTL(k){
   bear:[{a:1,l:'Now',e:'Warsh hawkish'},{a:0,l:'M+1',e:'Deal collapses'},{a:0,l:'M+2',e:'Oil $100+'},{a:0,l:'M+3',e:'CPI 6%+'},{a:0,l:'M+4',e:'S&P -20%'},{a:0,l:'Q4',e:'Bond revolt'}],
   qe:[{a:1,l:'Now',e:'Warsh hawkish'},{a:1,l:'M+2',e:'SLR passed'},{a:1,l:'M+3',e:'Banks buy bonds'},{a:1,l:'M+4',e:'New PCE fires'},{a:1,l:'M+5',e:'Cut 100bps'},{a:1,l:'M+6',e:'BTC ATH'}],
   stag:[{a:1,l:'Now',e:'Warsh hawkish'},{a:0,l:'M+2',e:'Oil $115+'},{a:0,l:'M+3',e:'Growth stalls'},{a:0,l:'M+4',e:'Fed trapped'},{a:0,l:'M+6',e:'S&P -25%'},{a:0,l:'EOY',e:'Gold $3000+'}],
+  strong:[{a:1,l:'Now',e:'DXY grinding up'},{a:0,l:'M+1',e:'27 nations seek USD'},{a:0,l:'M+2',e:'DXY breaks 107'},{a:0,l:'M+3',e:'Multinational EPS cut'},{a:0,l:'M+4',e:'Small caps lead'},{a:0,l:'Q4',e:'DXY 110 target'}],
+  carry:[{a:1,l:'Now',e:'BOJ hawkish tilt'},{a:0,l:'Day 1',e:'BOJ shock hike'},{a:0,l:'Day 2-3',e:'Weak US data'},{a:0,l:'Wk 1',e:'USD/JPY breaks 150'},{a:0,l:'Wk 2-3',e:'Margin call cascade'},{a:0,l:'M+1',e:'Fed liquidity backstop'}],
  };
  const tl=TL[k]||TL.base;
  document.getElementById('tl').innerHTML=tl.map(i=>'<div class="tli"><div class="tld '+(i.a?'on':'')+'">'+( i.a?'✓':'○')+'</div><div class="tll">'+i.l+'</div><div class="tle">'+i.e+'</div></div>').join('');
@@ -1330,9 +1387,14 @@ function upd(){
 // ── Hardcoded baselines (June 23 2026 close / known values) ─
 const BASE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638};
 
+// Market-observable series that live data may overwrite. Policy/judgment
+// sliders (fed, cpi, iran, qe, slr, boj) are NEVER touched by refresh —
+// the old code reset them to hardcoded values, wiping your scenario.
+const MACRO_LIVE_KEYS = ['oil','yield','y2','dxy','usdjpy'];
+
 // Stooq symbol map  →  tickers that need remapping
 const SQ_MAP = {
-  'GOOGL':'GOOGL.US', 'BRK.B':'BRK.B.US', 'GE':'GE.US',
+  'GOOGL':'GOOGL.US', 'BRK.B':'BRK-B.US', 'GE':'GE.US',
 };
 function sqSym(t){ return SQ_MAP[t] || (t + '.US'); }
 
@@ -1351,20 +1413,35 @@ const BASE_PX = {
   W:42.10,CVNA:185.50,PTON:3.82,DRI:148.30,
   VNQ:85.20,SLG:44.10,BXP:58.30,MPW:3.18,
   CHPT:1.22,BYND:4.48,SMCI:32.10,GE:220.40,RIDE:0.31,NKLA:0.82,
-  FXY:57.75,EEM:44.50
+  FXY:57.75,EEM:44.50,
+  // Added: tickers that appear in Strong-Dollar / Hi-Oil grids but never got live prices before
+  XOM:128.40,CVX:172.10,OXY:52.30,LMT:610.20,RTX:168.40,NOC:590.10,UUP:28.40,IWM:242.60,HYG:82.40
 };
 
-// All 82 tickers
+// All tickers
 const ALL_TKS = Object.keys(BASE_PX);
 
-// Macro stooq symbols
+// Macro stooq symbols — FIXED: old symbols '@CL.F', '10US.B', '2US.B', 'DXY.F' don't exist on Stooq
 const MACRO_SQ = {
-  oil:    {s:'@CL.F',  lo:20,  hi:200, scale:1,   key:'oil'},
-  y10:    {s:'10US.B', lo:0.5, hi:12,  scale:100, key:'yield'},
-  y2:     {s:'2US.B',  lo:0.5, hi:12,  scale:100, key:'y2'},
-  dxy:    {s:'DXY.F',  lo:70,  hi:130, scale:10,  key:'dxy'},
-  usdjpy: {s:'USDJPY', lo:100, hi:180, scale:10,  key:'usdjpy'},  // BOJ rate not on stooq -- stays hardcoded
+  oil:    {s:'CL.F',     lo:20,  hi:200, scale:1,   key:'oil'},     // WTI crude front-month
+  y10:    {s:'10YUSY.B', lo:0.5, hi:12,  scale:100, key:'yield'},   // US 10Y yield
+  y2:     {s:'2YUSY.B',  lo:0.5, hi:12,  scale:100, key:'y2'},      // US 2Y yield
+  dxy:    {s:'DX.F',     lo:70,  hi:130, scale:10,  key:'dxy'},     // ICE Dollar Index
+  usdjpy: {s:'USDJPY',   lo:100, hi:200, scale:10,  key:'usdjpy'},  // BOJ rate not on stooq — manual
 };
+
+// NEW: live index/commodity series for signal confirmation + chart anchoring
+const IDX_SQ = {
+  spx:    {s:'^SPX',   lo:2000, hi:20000},
+  gold:   {s:'XAUUSD', lo:1000, hi:20000},
+  btc:    {s:'BTCUSD', lo:5000, hi:1000000},
+  vix:    {s:'VI.F',   lo:8,    hi:100},    // VIX futures front-month
+  copper: {s:'HG.F',   lo:1,    hi:20},     // COMEX copper
+  hyg:    {s:'HYG.US', lo:40,   hi:130},    // high-yield credit
+  ief:    {s:'IEF.US', lo:60,   hi:140},    // 7-10Y treasuries (credit-ratio denominator)
+};
+const BASE_IDX = {spx:6850, gold:4100, btc:118000, vix:16.5, copper:5.05, hyg:82.40, ief:95.30};
+const LIVE_IDX = {spx:null, gold:null, btc:null, vix:null, copper:null, hyg:null, ief:null};
 
 // Live price store (starts with baseline, updated live)
 const PX = {...BASE_PX};
@@ -1373,20 +1450,101 @@ let macroLive  = 0;   // how many macro series returned live
 let lastUpdate = null;
 let busy       = false;
 
-// ── Stooq single-symbol fetch ────────────────────────────────
-async function sqFetch(sym){
-  const url = `https://stooq.com/q/l/?s=${encodeURIComponent(sym)}&f=sd2t2ohlcv&h&e=csv`;
-  const r   = await fetch(url, {cache:'no-store', mode:'cors'});
-  if (!r.ok) throw new Error(r.status);
-  const txt  = await r.text();
-  const rows = txt.trim().split('\n');
-  if (rows.length < 2) throw new Error('empty');
-  const cols  = rows[1].split(',');
-  const close = parseFloat(cols[4]);
-  if (!isFinite(close) || close <= 0) throw new Error('bad');
-  return close;
+// ── Resilient fetch layer: 5 CORS proxies + dual data sources ─
+// Stooq's /q/l/ endpoint sends NO CORS headers, so a direct browser fetch
+// fails. Free proxies are individually flaky (corsproxy.io free tier only
+// allows localhost/github.io origins; AllOrigins throttles ~20/min), so we
+// chain FIVE routes and remember which one worked last (sticky). If Stooq
+// fails through every route, we fall back to Yahoo Finance's spark API for
+// the same series. A cache-buster defeats proxy-side caching on REFRESH.
+const PROXIES = [
+  {n:'direct',      kind:'text', wrap:u=>u},
+  {n:'AllOrigins',  kind:'text', wrap:u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u)},
+  {n:'Codetabs',    kind:'text', wrap:u=>'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(u)},
+  {n:'AllOriginsJ', kind:'aoj',  wrap:u=>'https://api.allorigins.win/get?url='+encodeURIComponent(u)},
+  {n:'CorsProxy',   kind:'text', wrap:u=>'https://corsproxy.io/?url='+encodeURIComponent(u)},
+];
+let stickyProxy = 0;      // index of last proxy that worked — tried first next time
+let lastVia     = '';     // e.g. "Stooq via Codetabs" for the status bar
+const NET_ERRS  = [];     // diagnostic trail for the failure message
+
+async function fetchWithTimeout(url, ms){
+  const ctl = new AbortController();
+  const t = setTimeout(()=>ctl.abort(), ms);
+  try { return await fetch(url, {cache:'no-store', signal:ctl.signal}); }
+  finally { clearTimeout(t); }
 }
 
+// Try every proxy route (sticky-first) until one returns usable text.
+async function proxyFetchText(url, ms, validate){
+  const n = PROXIES.length;
+  const order = Array.from({length:n}, (_,i)=>(stickyProxy+i)%n);
+  for (const idx of order){
+    const p = PROXIES[idx];
+    try {
+      const r = await fetchWithTimeout(p.wrap(url), ms);
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      let txt = await r.text();
+      if (p.kind === 'aoj'){ try { txt = JSON.parse(txt).contents || ''; } catch(_){ txt=''; } }
+      if (!txt || txt.length < 5) throw new Error('empty');
+      if (/daily hits limit/i.test(txt)) throw new Error('stooq rate limit');
+      if (validate && !validate(txt)) throw new Error('bad payload');
+      stickyProxy = idx;
+      return {txt, via: p.n};
+    } catch(e){
+      if (NET_ERRS.length < 12) NET_ERRS.push(p.n+': '+(e.name==='AbortError'?'timeout':e.message));
+    }
+  }
+  return null;
+}
+
+// ── Source 1: Stooq batched CSV (Close column = index 6) ─────
+// CSV layout for f=sd2t2ohlcv → Symbol,Date,Time,Open,High,Low,Close,Volume
+async function sqBatch(symbols){
+  const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbols.join(',').toLowerCase())}&f=sd2t2ohlcv&h&e=csv&_=${Date.now()}`;
+  const res = await proxyFetchText(url, 7000, t=>/^Symbol/i.test(t.trim()));
+  if (!res) return {};
+  lastVia = 'Stooq via ' + res.via;
+  const rows = res.txt.trim().split('\n');
+  const out = {};
+  for (let i = 1; i < rows.length; i++){
+    const c = rows[i].split(',');
+    if (c.length < 7) continue;
+    const close = parseFloat(c[6]);              // CLOSE — column 6
+    if (isFinite(close) && close > 0) out[c[0].toUpperCase()] = close;
+  }
+  return out;
+}
+
+// ── Source 2: Yahoo Finance spark API (fallback, also batched) ─
+// Yahoo also has no CORS headers → goes through the same proxy chain.
+async function yhBatch(ySyms){
+  const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(ySyms.join(','))}&range=1d&interval=1d&_=${Date.now()}`;
+  const res = await proxyFetchText(url, 8000, t=>t.trim().charAt(0)==='{');
+  if (!res) return {};
+  lastVia = 'Yahoo via ' + res.via;
+  try {
+    const j = JSON.parse(res.txt);
+    const arr = (j.spark && j.spark.result) || j.result || [];
+    const out = {};
+    arr.forEach(it => {
+      const resp = (it.response && it.response[0]) || it;
+      const meta = resp.meta || {};
+      let v = meta.regularMarketPrice;
+      if (v == null && resp.indicators && resp.indicators.quote && resp.indicators.quote[0]){
+        const cl = resp.indicators.quote[0].close || [];
+        for (let i = cl.length-1; i >= 0; i--) if (cl[i] != null){ v = cl[i]; break; }
+      }
+      if (v != null && isFinite(v) && v > 0) out[it.symbol] = v;
+    });
+    return out;
+  } catch(_){ return {}; }
+}
+
+// Yahoo symbol maps for macro/index series and stock tickers
+const Y_MACRO = { oil:'CL=F', yield:'^TNX', y2:'2YY=F', dxy:'DX-Y.NYB', usdjpy:'JPY=X' };
+const Y_IDX   = { spx:'^GSPC', gold:'GC=F', btc:'BTC-USD', vix:'^VIX', copper:'HG=F', hyg:'HYG', ief:'IEF' };
+function ySym(t){ return t.replace('.', '-'); }  // BRK.B → BRK-B; plain tickers unchanged
 // ── Progress bar helper ──────────────────────────────────────
 function setProgress(pct){ document.getElementById('prog-bar').style.width = pct + '%'; }
 function setStat(txt){     document.getElementById('lb-stat').textContent   = txt; }
@@ -1417,46 +1575,75 @@ async function doRefresh(){
   setDot('spin');
   setProgress(0);
   liveCount = 0; macroLive = 0;
+  NET_ERRS.length = 0;
 
-  // ── Phase 1: Macro (oil, 10Y yield, DXY) ──────────────────
-  setStat('Fetching macro data (oil · yields · dollar)...');
-  const macroOut = {...BASE_MACRO};
+  // ── Phase 1: Macro + index series — Stooq first, Yahoo for anything missing ─
+  setStat('Fetching macro data (oil · yields · dollar · SPX · gold · BTC · VIX)...');
+  const macroCfgs = Object.values(MACRO_SQ);
+  const idxKeys   = Object.keys(IDX_SQ);
+  const p1Syms    = macroCfgs.map(c=>c.s).concat(idxKeys.map(k=>IDX_SQ[k].s));
+  const p1 = await sqBatch(p1Syms);
 
-  // Wrap each stooq fetch in a 6-second timeout — GitHub/CORS failures hang indefinitely
-  const sqFetchT = (sym, cfg) => Promise.race([
-    sqFetch(sym).then(v => {
-      if(v >= cfg.lo && v <= cfg.hi){ macroOut[cfg.key] = Math.round(v * cfg.scale); macroLive++; }
-    }).catch(()=>{}),
-    new Promise(res => setTimeout(res, 6000)) // 6s timeout per fetch
-  ]);
-
-  await Promise.allSettled(Object.values(MACRO_SQ).map(cfg => sqFetchT(cfg.s, cfg)));
-
-  // Apply macro to sliders AND store as live reference for RST buttons
-  ['oil','fed','iran','cpi','yield','y2','dxy','qe','slr','boj','usdjpy'].forEach(k => {
-    const id = k==='y2'?'sl-y2':'sl-'+k;
+  const applyMacro = (cfg, raw) => {
+    if (raw == null || raw < cfg.lo || raw > cfg.hi) return false;
+    const scaled = Math.round(raw * cfg.scale);
+    const id = cfg.key==='y2' ? 'sl-y2' : 'sl-'+cfg.key;
     const el = document.getElementById(id);
-    if (el && macroOut[k] != null){
-      el.value = macroOut[k];
-      LIVE_MACRO[k] = macroOut[k]; // store for RST button restore
-    }
-  });
+    if (el){ el.value = scaled; LIVE_MACRO[cfg.key] = scaled; macroLive++; return true; }
+    return false;
+  };
+  const applyIdx = (k, raw) => {
+    const cfg = IDX_SQ[k];
+    if (raw != null && raw >= cfg.lo && raw <= cfg.hi){ LIVE_IDX[k] = raw; macroLive++; return true; }
+    return false;
+  };
+
+  const missM = [], missI = [];
+  macroCfgs.forEach(cfg => { if (!applyMacro(cfg, p1[cfg.s.toUpperCase()])) missM.push(cfg); });
+  idxKeys.forEach(k =>   { if (!applyIdx(k, p1[IDX_SQ[k].s.toUpperCase()])) missI.push(k); });
   setProgress(8);
 
-  // ── Phase 2: All 82 stock prices in parallel ───────────────
-  setStat(`Fetching ${ALL_TKS.length} stock prices from Stooq...`);
-  const step = 90 / ALL_TKS.length;
+  // Yahoo fallback for whatever Stooq didn't deliver
+  if (missM.length || missI.length){
+    setStat('Filling gaps from Yahoo Finance...');
+    const yq = missM.map(c=>Y_MACRO[c.key]).concat(missI.map(k=>Y_IDX[k])).filter(Boolean);
+    if (yq.length){
+      const yr = await yhBatch(yq);
+      missM.forEach(cfg => {
+        let raw = yr[Y_MACRO[cfg.key]];
+        if (raw != null && cfg.key === 'yield' && raw > 20) raw = raw / 10; // ^TNX is quoted ×10
+        applyMacro(cfg, raw);
+      });
+      missI.forEach(k => applyIdx(k, yr[Y_IDX[k]]));
+    }
+  }
+  setProgress(14);
 
-  await Promise.allSettled(ALL_TKS.map(async (tk, i) => {
-    try {
-      const v = await Promise.race([
-        sqFetch(sqSym(tk)),
-        new Promise((_,rej) => setTimeout(()=>rej(new Error('timeout')), 8000))
-      ]);
-      if (v > 0){ PX[tk] = v; liveCount++; }
-    } catch(_){}
-    setProgress(8 + Math.round((i + 1) * step));
-    updateBadge(tk);
+  // ── Phase 2: Stock prices — Stooq batches, Yahoo rescue for failed chunks ─
+  setStat(`Fetching ${ALL_TKS.length} stock prices (batched)...`);
+  const CHUNK = 25;
+  const chunks = [];
+  for (let i = 0; i < ALL_TKS.length; i += CHUNK) chunks.push(ALL_TKS.slice(i, i + CHUNK));
+  let doneChunks = 0;
+
+  await Promise.allSettled(chunks.map(async tks => {
+    const res = await sqBatch(tks.map(sqSym));
+    let hits = 0;
+    tks.forEach(tk => {
+      const v = res[sqSym(tk).toUpperCase()];
+      if (v > 0){ PX[tk] = v; liveCount++; hits++; updateBadge(tk); }
+    });
+    // Chunk mostly failed on Stooq? Rescue it through Yahoo.
+    if (hits < tks.length * 0.4){
+      const yr = await yhBatch(tks.map(ySym));
+      tks.forEach(tk => {
+        if (PX[tk] !== BASE_PX[tk]) return; // already live
+        const v = yr[ySym(tk)];
+        if (v > 0){ PX[tk] = v; liveCount++; updateBadge(tk); }
+      });
+    }
+    doneChunks++;
+    setProgress(14 + Math.round(doneChunks / chunks.length * 86));
   }));
 
   setProgress(100);
@@ -1466,27 +1653,52 @@ async function doRefresh(){
   const ts = lastUpdate.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
   const ds = lastUpdate.toLocaleDateString('en-US',{month:'short',day:'numeric'});
 
-  const macroStr = `WTI $${macroOut.oil} · 10Y ${(macroOut.yield/100).toFixed(2)}% · DXY ${(macroOut.dxy/10).toFixed(1)} · Fed ${(macroOut.fed/100).toFixed(2)}% · CPI ${(macroOut.cpi/10).toFixed(1)}% · Iran ${macroOut.iran}%`;
+  const lm = LIVE_MACRO;
+  const macroStr = `WTI $${lm.oil} · 10Y ${(lm.yield/100).toFixed(2)}% · 2Y ${(lm.y2/100).toFixed(2)}% · DXY ${(lm.dxy/10).toFixed(1)} · ¥${(lm.usdjpy/10).toFixed(1)}`
+    + (LIVE_IDX.spx ? ` · SPX ${Math.round(LIVE_IDX.spx)}` : '')
+    + (LIVE_IDX.gold ? ` · Au $${Math.round(LIVE_IDX.gold)}` : '')
+    + (LIVE_IDX.vix ? ` · VIX ${LIVE_IDX.vix.toFixed(1)}` : '');
+  const viaStr = lastVia ? ` · ${lastVia}` : '';
 
   if (liveCount > 40){
     setDot('');
-    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live`);
+    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live${viaStr}`);
     setTime(`Updated ${ds} ${ts}`);
-  } else if (liveCount > 0){
+  } else if (liveCount > 0 || macroLive > 0){
     setDot('');
-    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} live (Stooq partial)`);
+    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live (partial)${viaStr}`);
     setTime(`Updated ${ds} ${ts}`, 'stale');
   } else {
     setDot('err');
-    setStat(`Live data unavailable (CORS/network) — baseline Jun 23 2026 · ${macroStr}`);
-    setTime('Baseline prices shown', 'stale');
+    const hint = NET_ERRS.length ? ` [${NET_ERRS.slice(0,3).join(' · ')}]` : '';
+    setStat(`Live data unavailable — tried Stooq + Yahoo through ${PROXIES.length} routes.${hint} If you use an ad-blocker or Brave Shields, allow this page and hit REFRESH; free proxies also rate-limit, so retrying in ~60s often works.`);
+    setTime('Baseline Jun 23 2026 shown', 'stale');
   }
 
+  updPulse();
   btn.disabled = false;
   btn.textContent = '⟳ REFRESH';
   busy = false;
 
-  upd(); // re-render all stock cards + charts with fresh scenario
+  upd(); // re-render all stock cards + charts with fresh data
+}
+
+// ── NEW: Live Market Pulse strip (SPX · Gold · BTC · VIX · Copper · Credit) ─
+function updPulse(){
+  const el = document.getElementById('pulse');
+  if (!el) return;
+  const rows = [
+    ['S&P 500','spx',0], ['GOLD','gold',0], ['BTC','btc',0],
+    ['VIX','vix',1], ['COPPER','copper',2], ['HYG','hyg',2],
+  ];
+  el.innerHTML = rows.map(([lbl,k,dec])=>{
+    const live = LIVE_IDX[k], base = BASE_IDX[k];
+    if (live == null) return `<div class="pchip">${lbl}<span class="pv">—</span></div>`;
+    const pct = (live-base)/base*100;
+    const cls = pct > 0.05 ? 'u' : pct < -0.05 ? 'd' : '';
+    const val = dec===0 ? Math.round(live).toLocaleString() : live.toFixed(dec);
+    return `<div class="pchip ${cls}" title="${(pct>=0?'+':'')+pct.toFixed(2)}% vs Jun 23 baseline">${lbl}<span class="pv">${val}</span></div>`;
+  }).join('');
 }
 
 // ── Helper: return formatted live price badge HTML for a ticker ─
@@ -1519,6 +1731,7 @@ window.upd         = upd;         // oninput="upd()" on every slider
 window.setScen     = setScen;
 window.doRefresh   = doRefresh;
 window.collapseAll = collapseAll;
+window.updPulse    = updPulse;
 })();
 
 </script>
