@@ -124,6 +124,22 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .rfbtn:hover:not(:disabled){background:rgba(0,229,255,.12)}
 .rfbtn:disabled{opacity:.45;cursor:not-allowed}
 .scan-badge{font-size:9px;background:rgba(57,255,20,.12);border:1px solid rgba(57,255,20,.35);color:var(--ac3);border-radius:4px;padding:2px 7px;margin-left:6px;letter-spacing:.5px;font-family:'JetBrains Mono',monospace}
+/* ── ALPACA API PANEL ── */
+.apibtn{background:transparent;border:1px solid var(--bdr);color:var(--mu);padding:6px 12px;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;cursor:pointer;transition:all .2s;flex-shrink:0}
+.apibtn:hover{border-color:var(--gold);color:var(--gold)}
+.apibtn.set{border-color:rgba(57,255,20,.5);color:var(--ac3)}
+.api-panel{display:none;background:var(--cd);border:1px solid var(--bdr);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.api-panel.open{display:block}
+.api-panel .api-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.api-panel input{background:var(--sur2);border:1px solid var(--bdr);border-radius:7px;color:var(--tx);font-family:'JetBrains Mono',monospace;font-size:11px;padding:7px 10px;flex:1;min-width:200px;outline:none}
+.api-panel input:focus{border-color:var(--gold)}
+.api-panel label{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mu);text-transform:uppercase;letter-spacing:1px;min-width:70px}
+.api-save{background:rgba(255,215,0,.1);border:1px solid var(--gold);color:var(--gold);padding:7px 16px;border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;cursor:pointer}
+.api-save:hover{background:rgba(255,215,0,.2)}
+.api-clear{background:transparent;border:1px solid var(--bdr);color:var(--mu);padding:7px 12px;border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer}
+.api-clear:hover{border-color:var(--red);color:var(--red)}
+.api-status{font-size:10px;font-family:'JetBrains Mono',monospace;margin-top:4px}
+.api-note{font-size:10px;color:var(--mu);line-height:1.6;margin-top:8px;border-top:1px solid var(--bdr);padding-top:8px}
 /* ── LIVE MARKET PULSE STRIP ── */
 .pulsebar{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
 .pchip{padding:4px 11px;border-radius:100px;font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:600;border:1px solid var(--bdr);color:var(--mu);transition:all .3s}
@@ -221,7 +237,19 @@ footer a:hover{color:var(--ac)}
     <div class="prog-wrap"><div class="prog-bar" id="prog-bar"></div></div>
   </div>
   <span class="lb-time" id="lb-time"></span>
+  <button class="apibtn" id="apibtn" onclick="toggleApiPanel()" title="Connect your Alpaca Market Data API key for direct, proxy-free stock prices">&#128273; API</button>
   <button class="rfbtn" id="rfbtn" onclick="doRefresh()" disabled>&#8635; REFRESH</button>
+</div>
+<div class="api-panel" id="api-panel">
+  <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--gold);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">Alpaca Market Data API &mdash; Direct Stock Feed (No Proxies)</div>
+  <div class="api-row"><label>Key ID</label><input type="text" id="apca-key" placeholder="PK..." autocomplete="off" spellcheck="false"></div>
+  <div class="api-row"><label>Secret</label><input type="password" id="apca-secret" placeholder="Your Alpaca secret key" autocomplete="off"></div>
+  <div class="api-row">
+    <button class="api-save" onclick="saveAlpaca()">SAVE &amp; TEST</button>
+    <button class="api-clear" onclick="clearAlpaca()">CLEAR</button>
+    <span class="api-status" id="api-status"></span>
+  </div>
+  <div class="api-note">Keys are stored only in this browser (localStorage) and sent <strong style="color:var(--tx)">only to data.alpaca.markets over HTTPS</strong> &mdash; never through the CORS proxies. Free keys from <span style="color:var(--ac)">alpaca.markets</span> (paper trading account works). With a key connected, all stock &amp; ETF prices + BTC come straight from Alpaca (IEX feed). Macro series (oil, DXY, yields, gold, VIX, copper) are derived from liquid Alpaca ETF proxies (USO, UUP, IEF, SHY, GLD, VIXY, CPER) &mdash; tracking is close but not exact (ETFs can drift from spot via roll/contango), so treat these as indicative. USD/JPY falls back to Stooq/Yahoo. Without a key, everything routes through the free proxy chain.</div>
 </div>
 <div class="pulsebar" id="pulse"></div>
 
@@ -1468,10 +1496,10 @@ let stickyProxy = 0;      // index of last proxy that worked — tried first nex
 let lastVia     = '';     // e.g. "Stooq via Codetabs" for the status bar
 const NET_ERRS  = [];     // diagnostic trail for the failure message
 
-async function fetchWithTimeout(url, ms){
+async function fetchWithTimeout(url, ms, opts){
   const ctl = new AbortController();
   const t = setTimeout(()=>ctl.abort(), ms);
-  try { return await fetch(url, {cache:'no-store', signal:ctl.signal}); }
+  try { return await fetch(url, Object.assign({cache:'no-store', signal:ctl.signal}, opts||{})); }
   finally { clearTimeout(t); }
 }
 
@@ -1566,6 +1594,127 @@ function updateBadge(ticker){
   el.title       = `${sign}${pct.toFixed(2)}% vs baseline`;
 }
 
+// ── ALPACA MARKET DATA (optional, user-supplied key) ─────────
+// Alpaca's data API sends proper CORS headers, so with a key the stock
+// feed is DIRECT — no free proxies, no rate-limit roulette. Keys live in
+// this browser's localStorage only and are sent solely to data.alpaca.markets.
+const ALPACA = {key:'', secret:''};
+(function loadAlpaca(){
+  try {
+    const raw = localStorage.getItem('macro_sim_alpaca');
+    if (raw){ const j = JSON.parse(raw); ALPACA.key = j.key||''; ALPACA.secret = j.secret||''; }
+  } catch(_){ /* storage unavailable (private mode etc.) — keys stay session-only */ }
+})();
+function alpacaReady(){ return !!(ALPACA.key && ALPACA.secret); }
+
+function syncApiUI(){
+  const btn = document.getElementById('apibtn');
+  if (btn){ btn.classList.toggle('set', alpacaReady()); btn.innerHTML = alpacaReady() ? '&#128273; API &#10003;' : '&#128273; API'; }
+  const k = document.getElementById('apca-key'), s = document.getElementById('apca-secret');
+  if (k && ALPACA.key) k.value = ALPACA.key;
+  if (s && ALPACA.secret) s.value = ALPACA.secret;
+}
+function toggleApiPanel(){ document.getElementById('api-panel').classList.toggle('open'); syncApiUI(); }
+
+async function saveAlpaca(){
+  const st = document.getElementById('api-status');
+  ALPACA.key    = document.getElementById('apca-key').value.trim();
+  ALPACA.secret = document.getElementById('apca-secret').value.trim();
+  if (!alpacaReady()){ st.style.color='var(--red)'; st.textContent='Both fields required.'; return; }
+  st.style.color='var(--gold)'; st.textContent='Testing key against Alpaca...';
+  try {
+    const r = await fetchWithTimeout('https://data.alpaca.markets/v2/stocks/snapshots?symbols=SPY&feed=iex', 8000, {
+      headers: {'APCA-API-KEY-ID': ALPACA.key, 'APCA-API-SECRET-KEY': ALPACA.secret}
+    });
+    if (r.status === 401 || r.status === 403) throw new Error('Invalid key/secret (HTTP '+r.status+')');
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    if (!j || !j.SPY) throw new Error('Unexpected response');
+    try { localStorage.setItem('macro_sim_alpaca', JSON.stringify(ALPACA)); } catch(_){}
+    st.style.color='var(--ac3)'; st.textContent='✓ Connected — SPY snapshot OK. Refreshing with Alpaca feed...';
+    syncApiUI();
+    doRefresh();
+  } catch(e){
+    st.style.color='var(--red)';
+    st.textContent='✗ ' + e.message + (e.name==='AbortError'?' (timeout)':'') + ' — check keys; paper-account keys work.';
+  }
+}
+function clearAlpaca(){
+  ALPACA.key=''; ALPACA.secret='';
+  try { localStorage.removeItem('macro_sim_alpaca'); } catch(_){}
+  document.getElementById('apca-key').value=''; document.getElementById('apca-secret').value='';
+  const st = document.getElementById('api-status'); st.style.color='var(--mu)'; st.textContent='Keys cleared — back to Stooq/Yahoo feed.';
+  syncApiUI();
+}
+
+// Batch stock snapshot via Alpaca (one request covers all tickers).
+// Uses latest trade, falling back to minute bar then daily bar close.
+async function alpacaBatch(tickers){
+  if (!alpacaReady()) return {};
+  const out = {};
+  try {
+    const url = `https://data.alpaca.markets/v2/stocks/snapshots?symbols=${encodeURIComponent(tickers.join(','))}&feed=iex`;
+    const r = await fetchWithTimeout(url, 9000, {headers:{'APCA-API-KEY-ID':ALPACA.key,'APCA-API-SECRET-KEY':ALPACA.secret}});
+    if (r.status === 401 || r.status === 403){ NET_ERRS.push('Alpaca: auth failed'); return {}; }
+    if (!r.ok){ NET_ERRS.push('Alpaca: HTTP '+r.status); return {}; }
+    const j = await r.json();
+    tickers.forEach(tk => {
+      const s = j[tk];
+      if (!s) return;
+      const p = (s.latestTrade && s.latestTrade.p) || (s.minuteBar && s.minuteBar.c) || (s.dailyBar && s.dailyBar.c) || (s.prevDailyBar && s.prevDailyBar.c);
+      if (p > 0) out[tk] = p;
+    });
+  } catch(e){ NET_ERRS.push('Alpaca: '+(e.name==='AbortError'?'timeout':e.message)); }
+  return out;
+}
+
+// BTC via Alpaca crypto endpoint (free with any key)
+async function alpacaBTC(){
+  if (!alpacaReady()) return null;
+  try {
+    const r = await fetchWithTimeout('https://data.alpaca.markets/v1beta3/crypto/us/latest/trades?symbols=BTC%2FUSD', 7000,
+      {headers:{'APCA-API-KEY-ID':ALPACA.key,'APCA-API-SECRET-KEY':ALPACA.secret}});
+    if (!r.ok) return null;
+    const j = await r.json();
+    const t = j && j.trades && j.trades['BTC/USD'];
+    return (t && t.p > 0) ? t.p : null;
+  } catch(_){ return null; }
+}
+
+// ── Alpaca ETF-proxy macro deriver ───────────────────────────
+// Alpaca's basic feed has no futures/FX/index symbols, but liquid ETFs
+// track them tightly. We pull the ETF snapshot, then convert each ETF
+// price to the underlying macro value with a locally-calibrated ratio
+// (anchored to the Jun 23 2026 baselines). This keeps oil/gold/DXY/yields
+// on the SAME clean Alpaca feed as stocks instead of the flaky proxies.
+// Calibration pairs: [ETF baseline price] ↔ [macro baseline value].
+const ALPACA_MACRO_PROXY = {
+  // key      etf     etfBase   macroBase(display units)   how to read
+  oil:    {etf:'USO', eb:78.5,  mb:68.0  },   // WTI $/bbl   (USO ≈ oil futures)
+  gold:   {etf:'GLD', eb:378.0, mb:4100.0},   // gold $/oz   (GLD ≈ spot/10)
+  dxy:    {etf:'UUP', eb:28.4,  mb:101.3 },   // DXY index   (UUP ≈ dollar)
+  yield:  {etf:'IEF', eb:95.30, mb:4.48  },   // 10Y % — INVERSE (bond price up = yield down)
+  y2:     {etf:'SHY', eb:82.60, mb:4.24  },   // 2Y  % — INVERSE
+  vix:    {etf:'VIXY',eb:44.0,  mb:16.5  },   // VIX level   (VIXY ≈ short-term VIX futures)
+  spx:    {etf:'SPY', eb:681.5, mb:6850.0},   // S&P 500     (SPY × ~10.05 ≈ index) — chart anchor
+  copper: {etf:'CPER',eb:31.0,  mb:5.05  },   // copper $/lb (CPER ≈ copper futures)
+};
+const MACRO_INVERSE = {yield:true, y2:true}; // bond-price ETFs move opposite to yield
+async function alpacaMacroFromETF(){
+  if (!alpacaReady()) return {};
+  const etfs = [...new Set(Object.values(ALPACA_MACRO_PROXY).map(p=>p.etf))];
+  const snap = await alpacaBatch(etfs);   // reuse snapshot fetcher
+  const out = {};
+  for (const [key, p] of Object.entries(ALPACA_MACRO_PROXY)){
+    const px = snap[p.etf];
+    if (!(px > 0)) continue;
+    // ratio of current ETF price to its baseline; invert for bond→yield
+    const rel = MACRO_INVERSE[key] ? (p.eb / px) : (px / p.eb);
+    out[key] = p.mb * rel;   // scaled macro value in display units
+  }
+  return out; // { oil:72.1, gold:4180, dxy:100.8, yield:4.42, y2:4.19, vix:15.9 }
+}
+
 // ── Main refresh ─────────────────────────────────────────────
 async function doRefresh(){
   if (busy) return;
@@ -1577,74 +1726,135 @@ async function doRefresh(){
   liveCount = 0; macroLive = 0;
   NET_ERRS.length = 0;
 
-  // ── Phase 1: Macro + index series — Stooq first, Yahoo for anything missing ─
-  setStat('Fetching macro data (oil · yields · dollar · SPX · gold · BTC · VIX)...');
+  // ── Phase 1: Macro + index series ──────────────────────────
+  // Priority: Alpaca ETF proxies (clean feed, user's key) → Stooq → Yahoo.
+  setStat('Fetching macro data (oil · yields · dollar · gold · VIX · BTC)...');
   const macroCfgs = Object.values(MACRO_SQ);
   const idxKeys   = Object.keys(IDX_SQ);
-  const p1Syms    = macroCfgs.map(c=>c.s).concat(idxKeys.map(k=>IDX_SQ[k].s));
-  const p1 = await sqBatch(p1Syms);
 
-  const applyMacro = (cfg, raw) => {
-    if (raw == null || raw < cfg.lo || raw > cfg.hi) return false;
+  // applyMacro takes a value ALREADY in display units (e.g. oil 72.1, yield 4.42)
+  const applyMacro = (cfg, disp) => {
+    if (disp == null) return false;
+    // sanity-bound against the slider's real-world range (lo/hi are in raw units)
+    const raw = disp;                       // disp is already display units
+    if (raw < cfg.lo || raw > cfg.hi) return false;
     const scaled = Math.round(raw * cfg.scale);
     const id = cfg.key==='y2' ? 'sl-y2' : 'sl-'+cfg.key;
     const el = document.getElementById(id);
-    if (el){ el.value = scaled; LIVE_MACRO[cfg.key] = scaled; macroLive++; return true; }
+    if (el){ el.value = scaled; LIVE_MACRO[cfg.key] = scaled; return true; }
     return false;
   };
   const applyIdx = (k, raw) => {
     const cfg = IDX_SQ[k];
-    if (raw != null && raw >= cfg.lo && raw <= cfg.hi){ LIVE_IDX[k] = raw; macroLive++; return true; }
+    if (raw != null && raw >= cfg.lo && raw <= cfg.hi){ LIVE_IDX[k] = raw; return true; }
     return false;
   };
 
-  const missM = [], missI = [];
-  macroCfgs.forEach(cfg => { if (!applyMacro(cfg, p1[cfg.s.toUpperCase()])) missM.push(cfg); });
-  idxKeys.forEach(k =>   { if (!applyIdx(k, p1[IDX_SQ[k].s.toUpperCase()])) missI.push(k); });
+  const doneM = new Set(), doneI = new Set();
+  const macroSrc = {}; // key → 'alpaca' | 'stooq' | 'yahoo' for diagnostics
+
+  // 1a. Alpaca ETF-proxy macro (oil, gold, dxy, yield, y2, vix) + crypto BTC
+  if (alpacaReady()){
+    const am = await alpacaMacroFromETF();
+    macroCfgs.forEach(cfg => {
+      if (am[cfg.key] != null && applyMacro(cfg, am[cfg.key])){ doneM.add(cfg.key); macroSrc[cfg.key]='alpaca'; }
+    });
+    // index series that map to a macro proxy (gold, vix)
+    ['gold','vix','spx','copper'].forEach(k => { if (am[k] != null && applyIdx(k, am[k])){ doneI.add(k); } });
+    // HYG + IEF for the credit-risk signal (both are Alpaca-tradable ETFs)
+    const credEtfs = await alpacaBatch(['HYG','IEF']);
+    if (credEtfs.HYG > 0 && applyIdx('hyg', credEtfs.HYG)) doneI.add('hyg');
+    if (credEtfs.IEF > 0 && applyIdx('ief', credEtfs.IEF)) doneI.add('ief');
+    // BTC straight from Alpaca crypto — highest priority, real-time trade
+    const btc = await alpacaBTC();
+    if (btc && applyIdx('btc', btc)){ doneI.add('btc'); }
+    if (doneM.size || doneI.size) lastVia = 'Alpaca (ETF proxies)';
+  }
   setProgress(8);
 
-  // Yahoo fallback for whatever Stooq didn't deliver
+  // 1b. Stooq for whatever Alpaca didn't cover
+  const needM = macroCfgs.filter(c=>!doneM.has(c.key));
+  const needI = idxKeys.filter(k=>!doneI.has(k));
+  if (needM.length || needI.length){
+    const p1Syms = needM.map(c=>c.s).concat(needI.map(k=>IDX_SQ[k].s));
+    const p1 = await sqBatch(p1Syms);
+    needM.forEach(cfg => {
+      const raw = p1[cfg.s.toUpperCase()];
+      if (raw != null && applyMacro(cfg, raw)){ doneM.add(cfg.key); macroSrc[cfg.key]='stooq'; }
+    });
+    needI.forEach(k => {
+      const raw = p1[IDX_SQ[k].s.toUpperCase()];
+      if (raw != null && applyIdx(k, raw)) doneI.add(k);
+    });
+  }
+  setProgress(11);
+
+  // 1c. Yahoo for anything STILL missing
+  const missM = macroCfgs.filter(c=>!doneM.has(c.key));
+  const missI = idxKeys.filter(k=>!doneI.has(k));
   if (missM.length || missI.length){
-    setStat('Filling gaps from Yahoo Finance...');
+    setStat('Filling macro gaps from Yahoo Finance...');
     const yq = missM.map(c=>Y_MACRO[c.key]).concat(missI.map(k=>Y_IDX[k])).filter(Boolean);
     if (yq.length){
       const yr = await yhBatch(yq);
       missM.forEach(cfg => {
         let raw = yr[Y_MACRO[cfg.key]];
-        if (raw != null && cfg.key === 'yield' && raw > 20) raw = raw / 10; // ^TNX is quoted ×10
-        applyMacro(cfg, raw);
+        if (raw != null && cfg.key === 'yield' && raw > 20) raw = raw / 10; // ^TNX quoted ×10
+        if (raw != null && applyMacro(cfg, raw)){ doneM.add(cfg.key); macroSrc[cfg.key]='yahoo'; }
       });
-      missI.forEach(k => applyIdx(k, yr[Y_IDX[k]]));
+      missI.forEach(k => { const raw = yr[Y_IDX[k]]; if (raw != null && applyIdx(k, raw)) doneI.add(k); });
     }
   }
-  setProgress(14);
+  macroLive = doneM.size + doneI.size;
+  const macroMissing = macroCfgs.filter(c=>!doneM.has(c.key)).map(c=>c.key);
+  setProgress(14)
 
-  // ── Phase 2: Stock prices — Stooq batches, Yahoo rescue for failed chunks ─
-  setStat(`Fetching ${ALL_TKS.length} stock prices (batched)...`);
-  const CHUNK = 25;
-  const chunks = [];
-  for (let i = 0; i < ALL_TKS.length; i += CHUNK) chunks.push(ALL_TKS.slice(i, i + CHUNK));
-  let doneChunks = 0;
+  // ── Phase 2: Stock prices ──────────────────────────────────
+  // Priority: Alpaca (direct, CORS-clean, user's own key) → Stooq → Yahoo.
+  let alpacaHits = 0;
+  const remaining = new Set(ALL_TKS);
 
-  await Promise.allSettled(chunks.map(async tks => {
-    const res = await sqBatch(tks.map(sqSym));
-    let hits = 0;
-    tks.forEach(tk => {
-      const v = res[sqSym(tk).toUpperCase()];
-      if (v > 0){ PX[tk] = v; liveCount++; hits++; updateBadge(tk); }
+  if (alpacaReady()){
+    setStat(`Fetching ${ALL_TKS.length} stock prices direct from Alpaca (IEX feed)...`);
+    const ar = await alpacaBatch(ALL_TKS);
+    ALL_TKS.forEach(tk => {
+      const v = ar[tk];
+      if (v > 0){ PX[tk] = v; liveCount++; alpacaHits++; remaining.delete(tk); updateBadge(tk); }
     });
-    // Chunk mostly failed on Stooq? Rescue it through Yahoo.
-    if (hits < tks.length * 0.4){
-      const yr = await yhBatch(tks.map(ySym));
+    if (alpacaHits > 0) lastVia = macroLive>0 ? 'Alpaca (direct)' : 'Alpaca (stocks)';
+    setProgress(alpacaHits > 0 ? 60 : 14);
+  }
+
+  // Stooq/Yahoo for whatever Alpaca didn't cover (or everything, with no key)
+  const rest = [...remaining];
+  if (rest.length){
+    if (alpacaHits === 0) setStat(`Fetching ${rest.length} stock prices (batched)...`);
+    const CHUNK = 25;
+    const chunks = [];
+    for (let i = 0; i < rest.length; i += CHUNK) chunks.push(rest.slice(i, i + CHUNK));
+    let doneChunks = 0;
+    const pBase = alpacaHits > 0 ? 60 : 14;
+
+    await Promise.allSettled(chunks.map(async tks => {
+      const res = await sqBatch(tks.map(sqSym));
+      let hits = 0;
       tks.forEach(tk => {
-        if (PX[tk] !== BASE_PX[tk]) return; // already live
-        const v = yr[ySym(tk)];
-        if (v > 0){ PX[tk] = v; liveCount++; updateBadge(tk); }
+        const v = res[sqSym(tk).toUpperCase()];
+        if (v > 0){ PX[tk] = v; liveCount++; hits++; updateBadge(tk); }
       });
-    }
-    doneChunks++;
-    setProgress(14 + Math.round(doneChunks / chunks.length * 86));
-  }));
+      // Chunk mostly failed on Stooq? Rescue it through Yahoo.
+      if (hits < tks.length * 0.4){
+        const yr = await yhBatch(tks.map(ySym));
+        tks.forEach(tk => {
+          if (PX[tk] !== BASE_PX[tk]) return; // already live
+          const v = yr[ySym(tk)];
+          if (v > 0){ PX[tk] = v; liveCount++; updateBadge(tk); }
+        });
+      }
+      doneChunks++;
+      setProgress(pBase + Math.round(doneChunks / chunks.length * (100 - pBase)));
+    }));
+  }
 
   setProgress(100);
 
@@ -1660,18 +1870,25 @@ async function doRefresh(){
     + (LIVE_IDX.vix ? ` · VIX ${LIVE_IDX.vix.toFixed(1)}` : '');
   const viaStr = lastVia ? ` · ${lastVia}` : '';
 
+  // Honest macro reporting: name series still on baseline (usdjpy is manual-friendly, exclude from alarm)
+  const criticalMissing = macroMissing.filter(k => k !== 'usdjpy');
+  const macroWarn = criticalMissing.length
+    ? ` ⚠ ${criticalMissing.map(k=>({oil:'WTI',yield:'10Y',y2:'2Y',dxy:'DXY'}[k]||k)).join('/')} on baseline (live fetch failed)`
+    : '';
+
   if (liveCount > 40){
-    setDot('');
-    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live${viaStr}`);
-    setTime(`Updated ${ds} ${ts}`);
+    setDot(criticalMissing.length ? 'err' : '');
+    const aStr = alpacaHits > 0 ? ` (${alpacaHits} via Alpaca)` : '';
+    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live${aStr}${viaStr}${macroWarn}`);
+    setTime(`Updated ${ds} ${ts}`, criticalMissing.length ? 'stale' : '');
   } else if (liveCount > 0 || macroLive > 0){
     setDot('');
-    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live (partial)${viaStr}`);
+    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live (partial)${viaStr}${macroWarn}`);
     setTime(`Updated ${ds} ${ts}`, 'stale');
   } else {
     setDot('err');
     const hint = NET_ERRS.length ? ` [${NET_ERRS.slice(0,3).join(' · ')}]` : '';
-    setStat(`Live data unavailable — tried Stooq + Yahoo through ${PROXIES.length} routes.${hint} If you use an ad-blocker or Brave Shields, allow this page and hit REFRESH; free proxies also rate-limit, so retrying in ~60s often works.`);
+    setStat(`Live data unavailable — tried ${alpacaReady()?'Alpaca + ':''}Stooq + Yahoo through ${PROXIES.length} routes.${hint} If you use an ad-blocker or Brave Shields, allow this page and hit REFRESH; free proxies rate-limit, so retrying in ~60s often works.${alpacaReady()?'':' Tip: click the 🔑 API button and add a free Alpaca key for a direct, proxy-free stock feed.'}`);
     setTime('Baseline Jun 23 2026 shown', 'stale');
   }
 
@@ -1720,6 +1937,7 @@ document.addEventListener('click',function(e){
 });
 
 window.addEventListener('load',()=>{
+  syncApiUI();    // reflect stored Alpaca key on the API button
   initCharts();
   bldAngles();
   upd();          // render cards immediately with baseline data — never wait for network
@@ -1732,6 +1950,9 @@ window.setScen     = setScen;
 window.doRefresh   = doRefresh;
 window.collapseAll = collapseAll;
 window.updPulse    = updPulse;
+window.toggleApiPanel = toggleApiPanel;
+window.saveAlpaca  = saveAlpaca;
+window.clearAlpaca = clearAlpaca;
 })();
 
 </script>
