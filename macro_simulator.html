@@ -140,6 +140,28 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .api-clear:hover{border-color:var(--red);color:var(--red)}
 .api-status{font-size:10px;font-family:'JetBrains Mono',monospace;margin-top:4px}
 .api-note{font-size:10px;color:var(--mu);line-height:1.6;margin-top:8px;border-top:1px solid var(--bdr);padding-top:8px}
+/* ── INFLATE CALCULATOR ── */
+.ic-inputs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+.ic-in{display:flex;flex-direction:column;gap:4px}
+.ic-in label{font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--mu);text-transform:uppercase;letter-spacing:.5px}
+.ic-in input{background:var(--sur2);border:1px solid var(--bdr);border-radius:7px;color:var(--tx);font-family:'JetBrains Mono',monospace;font-size:13px;padding:7px 9px;outline:none;width:100%}
+.ic-in input:focus{border-color:var(--gold)}
+.ic-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-bottom:18px}
+.ic-card{background:var(--sur2);border:1px solid var(--bdr);border-radius:11px;padding:13px 15px}
+.ic-card .icl{font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--mu);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.ic-card .icv{font-family:'JetBrains Mono',monospace;font-size:23px;font-weight:700;line-height:1.1;margin-bottom:4px}
+.ic-card .ics{font-size:10px;color:var(--mu);line-height:1.5}
+.ic-asset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.ic-acard{background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:12px 13px}
+.ic-acard .ican{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--tx);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.ic-acard .icrow{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:11px;margin:3px 0}
+.ic-acard .icrow span:first-child{color:var(--mu)}
+.ic-path-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:11px}
+.ic-toggle{display:inline-flex;background:var(--sur2);border:1px solid var(--bdr);border-radius:8px;padding:2px;gap:2px}
+.ic-tg{background:transparent;border:none;color:var(--mu);font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;padding:6px 12px;border-radius:6px;cursor:pointer;transition:all .18s;letter-spacing:.3px}
+.ic-tg:hover:not(.on){color:var(--tx)}
+.ic-tg.on{background:rgba(255,215,0,.14);color:var(--gold)}
+@media(max-width:900px){.ic-inputs{grid-template-columns:repeat(2,1fr)}.ic-cards{grid-template-columns:1fr}}
 /* ── LIVE MARKET PULSE STRIP ── */
 .pulsebar{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
 .pchip{padding:4px 11px;border-radius:100px;font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:600;border:1px solid var(--bdr);color:var(--mu);transition:all .3s}
@@ -249,7 +271,7 @@ footer a:hover{color:var(--ac)}
     <button class="api-clear" onclick="clearAlpaca()">CLEAR</button>
     <span class="api-status" id="api-status"></span>
   </div>
-  <div class="api-note">Keys are stored only in this browser (localStorage) and sent <strong style="color:var(--tx)">only to data.alpaca.markets over HTTPS</strong> &mdash; never through the CORS proxies. Free keys from <span style="color:var(--ac)">alpaca.markets</span> (paper trading account works). With a key connected, all stock &amp; ETF prices + BTC come straight from Alpaca (IEX feed). Macro series (oil, DXY, yields, gold, VIX, copper) are derived from liquid Alpaca ETF proxies (USO, UUP, IEF, SHY, GLD, VIXY, CPER) &mdash; tracking is close but not exact (ETFs can drift from spot via roll/contango), so treat these as indicative. USD/JPY falls back to Stooq/Yahoo. Without a key, everything routes through the free proxy chain.</div>
+  <div class="api-note">Keys are stored only in this browser (localStorage) and sent <strong style="color:var(--tx)">only to data.alpaca.markets over HTTPS</strong> &mdash; never through the CORS proxies. Free keys from <span style="color:var(--ac)">alpaca.markets</span> (paper trading account works). With a key connected, all stock &amp; ETF prices + BTC come straight from Alpaca (IEX feed). Macro series (oil, DXY, yields, gold, VIX) now fetch the <strong style="color:var(--tx)">real market symbols first</strong> (WTI CL.F, DX.F, XAUUSD via Stooq/Yahoo) for accuracy; Alpaca ETF proxies (USO, UUP, GLD&hellip;) are only a labeled last resort if those feeds are down &mdash; the status bar marks any value that fell back to a proxy with &ldquo;approximated via ETF proxy.&rdquo; BTC comes from Alpaca&#39;s real crypto feed. Without a key, everything routes through the free proxy chain.</div>
 </div>
 <div class="pulsebar" id="pulse"></div>
 
@@ -261,6 +283,7 @@ footer a:hover{color:var(--ac)}
   <button class="tab" onclick="setScen('stag',this)">&#128128; Stagflation</button>
   <button class="tab" onclick="setScen('strong',this)">&#x1F4AA; Strong Dollar</button>
   <button class="tab" onclick="setScen('carry',this)">&#x1F1EF;&#x1F1F5; Yen Carry Unwind</button>
+  <button class="tab" onclick="setScen('inflate',this)">&#128176;&#128293; Inflate $</button>
 </div>
 <div class="narr" id="narr"></div>
 <div class="oil-alert" id="oil-alert"><strong>&#9889; HIGH OIL ALERT (WTI $90+):</strong> Alternative Energy section below is now in play. Solar, nuclear, wind &amp; storage names gain strategic tailwind as energy independence becomes a national priority. High short interest in solar = potential squeeze.</div>
@@ -331,6 +354,45 @@ footer a:hover{color:var(--ac)}
   <div class="sg" id="g-carry-safe"></div>
   <div class="sh"><span class="dot" style="background:var(--red)"></span>CARRY-FUNDED -- Unwind Losers (Leveraged Risk Assets)</div>
   <div class="sg" id="g-carry-loss"></div>
+</div>
+
+<div class="fp" id="inflate-panel">
+  <div class="pt" style="color:var(--gold)">&#128176;&#128293; INFLATE-THE-DEBT CALCULATOR <span id="inflate-badge" style="font-size:9px;background:rgba(255,215,0,.15);border:1px solid rgba(255,215,0,.4);border-radius:4px;padding:2px 8px;margin-left:6px;color:var(--gold);font-family:'JetBrains Mono',monospace;letter-spacing:.5px">CPI &minus; Fed &ge; 1.5% / QE 70+ / DXY &lt;98</span></div>
+  <div style="background:rgba(255,215,0,.05);border:1px solid rgba(255,215,0,.2);border-radius:9px;padding:12px 14px;margin-bottom:14px;font-size:11px;line-height:1.7;color:var(--tx)">
+    <strong style="color:var(--gold)">The mechanism (fiscal dominance):</strong> When debt gets this large, a government has three ways out &mdash; grow out of it (rarely enough), default (never chosen by a reserve issuer), or <strong>inflate it away</strong> via financial repression: pin policy rates below inflation, cap the long end with QE, and let a negative real rate erode the debt&#39;s real value. The US did exactly this from 1946&ndash;1951 and again through the 1970s. This calculator runs that math on today&#39;s numbers &mdash; adjust any input.
+    <br><br><em style="color:var(--mu)">Educational model of a historical mechanism, not a forecast or investment advice. Live macro values (Fed, CPI, DXY, gold) flow in from the sliders/feed above; the fiscal inputs below are editable assumptions.</em>
+  </div>
+
+  <div class="ic-inputs" id="ic-inputs">
+    <div class="ic-in"><label>Total debt ($T)</label><input type="number" id="ic-debt" value="39.8" step="0.1" min="1"></div>
+    <div class="ic-in"><label>Debt / GDP (%)</label><input type="number" id="ic-dgdp" value="122" step="1" min="20"></div>
+    <div class="ic-in"><label>Rollover wall ($T, 12mo)</label><input type="number" id="ic-roll" value="8.0" step="0.5" min="0"></div>
+    <div class="ic-in"><label>Old avg coupon (%)</label><input type="number" id="ic-oldc" value="2.4" step="0.1" min="0"></div>
+    <div class="ic-in"><label>Real GDP growth (%)</label><input type="number" id="ic-grow" value="2.0" step="0.1"></div>
+    <div class="ic-in"><label>Primary deficit (% GDP)</label><input type="number" id="ic-def" value="3.5" step="0.1"></div>
+    <div class="ic-in"><label>Target debt/GDP (%)</label><input type="number" id="ic-tgt" value="90" step="1" min="10"></div>
+    <div class="ic-in"><label>Horizon (yrs)</label><input type="number" id="ic-yrs" value="10" step="1" min="1" max="40"></div>
+  </div>
+
+  <div class="ic-cards" id="ic-cards"></div>
+
+  <div class="ic-assets">
+    <div class="ic-path-head">
+      <div class="sh" style="margin:0"><span class="dot" style="background:var(--gold)"></span>WHAT $10,000 DOES OVER THE HORIZON &mdash; <span id="ic-path-label">1970s stagflation pattern</span></div>
+      <div class="ic-toggle" id="ic-toggle">
+        <button class="ic-tg on" data-path="1970s" onclick="setInflatePath('1970s')">1970s Stagflation</button>
+        <button class="ic-tg" data-path="1946" onclick="setInflatePath('1946')">1946&ndash;51 Repression</button>
+      </div>
+    </div>
+    <div class="ic-asset-grid" id="ic-assets"></div>
+    <div style="font-size:10px;color:var(--mu);line-height:1.6;margin-top:10px;font-family:'JetBrains Mono',monospace" id="ic-path-note">
+      Asset paths are illustrative annualized rates drawn from the transcript&#39;s 1970s analogue (gold &#36;35&rarr;&#36;850 &asymp; 27%/yr; silver higher &amp; more volatile; equities ~flat real). They are NOT predictions. The point is the <strong style="color:var(--tx)">real</strong> column: under repression, cash and nominal bonds lose purchasing power while hard assets defend it. Past performance never guarantees future results.
+    </div>
+  </div>
+
+  <div id="inflate-trigger-msg" style="display:none;background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.4);border-radius:8px;padding:10px 14px;margin-top:12px;font-size:11px;color:var(--gold);font-family:'JetBrains Mono',monospace">
+    &#9889; ACTIVE: negative real policy rate (CPI &minus; Fed &ge; 1.5%) with QE 70+ and DXY under 98 detected. The inflate-away regime is live in the current slider state.
+  </div>
 </div>
 
 <div class="fp" id="strong-panel">
@@ -420,7 +482,7 @@ footer a:hover{color:var(--ac)}
 // ============================================================
 const DB = {
 gold:[
- {t:'NEM',n:'Newmont Corp',sec:'Basic Materials',base:14,bull:20,bear:-8,qe:32,stag:28,strong:-20,carry:15,
+ {t:'NEM',n:'Newmont Corp',sec:'Basic Materials',base:14,bull:20,bear:-8,qe:32,stag:28,strong:-20,carry:15,inflate:38,
   roic:'20.89%',revy:'+45.8%',earny:'+78.6%',piotr:6,gc:1,mcap:'$110.8B',price:'$103.79',div:'1.0%',pe:'13.5',score:53.5,
   r:"Piotr:6, GC:1, ROIC 20.89% — world's largest gold miner; top quality signal combination",
   desc:"World's largest gold mining company. Operates mines across Americas, Africa, and Australia. Piotroski 6 confirms fortress fundamentals. Primary beneficiary of dollar weakness and QE environments. 20.89% ROIC means it prints gold economics even before the gold price helps."},
@@ -446,7 +508,7 @@ gold:[
   desc:'Alamos Gold is a low-cost senior gold producer with mines in Canada, Mexico, and Turkey. Island Gold mine Phase 3 expansion is a major production catalyst. Strong ROIC with consistent dividend growth.'},
 ],
 banks:[
- {t:'JPM',n:'JPMorgan Chase',sec:'Financial Services',base:12,bull:30,bear:-18,qe:35,stag:-12,strong:14,carry:-12,
+ {t:'JPM',n:'JPMorgan Chase',sec:'Financial Services',base:12,bull:30,bear:-18,qe:35,stag:-12,strong:14,carry:-12,inflate:10,
   roic:'N/A',revy:'+12.7%',earny:'+17.2%',piotr:null,gc:0.5,mcap:'$871B',price:'$325.22',div:'1.8%',pe:'15.6',score:25.8,
   r:'RevG +12.7%, EarnG +17.2%, GC:0.5, $871B mcap — SLR deregulation #1 beneficiary',
   desc:"JPMorgan Chase is the largest US bank by assets. As the primary SLR deregulation beneficiary, it can deploy the most leverage into US treasuries. Jamie Dimon's fortress balance sheet and diversified revenue streams make it the most resilient bank in any scenario."},
@@ -462,7 +524,7 @@ banks:[
   roic:'N/A',revy:'+27.9%',earny:'+3860%',piotr:null,gc:1,mcap:'$58.8B',price:'$115.47',div:'2.0%',pe:'13.2',score:404.3,
   r:'SCORE:404 — RevG +27.9%, EarnG +3860%, GC:1 — #2 Financial scan pick; insurance pricing power',
   desc:"Aflac is your screener's #2 Financial pick (score 404.3). Supplemental insurance with pricing power that persists through all economic cycles. Benefits from rising investment portfolio yields. More defensive than banks — insurance premiums are sticky cash flows."},
- {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,carry:-8,
+ {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,carry:-8,inflate:8,
   roic:'44.25%',revy:'+17.1%',earny:'+35.5%',piotr:3,gc:0,mcap:'$622B',price:'$327.24',div:'0.8%',pe:'28.5',score:36.6,
   r:'ROIC 44.25%, RevG +17.1%, Piotr:3 — transaction volume grows nominally WITH inflation',
   desc:"Visa is a global payment network with 73% gross margins. Every price increase in the economy means more Visa revenue — it's a royalty on all commerce. Network effects make it functionally impossible to displace. True pricing power through any inflationary environment."},
@@ -470,13 +532,13 @@ banks:[
   roic:'73.20%',revy:'+15.8%',earny:'+21.2%',piotr:3,gc:0,mcap:'$433B',price:'$489.79',div:'0.7%',pe:'28.3',score:46.1,
   r:'ROIC 73.20% — highest quality financial in scan; irreplaceable payment network royalty',
   desc:'Mastercard has a 73.20% ROIC — one of the highest in your entire 5,637-stock scan. Global payment network with Visa creates a practical duopoly. Every transaction is royalty income with near-zero marginal cost. Ultimate pricing power moat.'},
- {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,carry:-10,
+ {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,carry:-10,inflate:6,
   roic:'25.75%',revy:'+8.1%',earny:'+7.8%',piotr:5,gc:0,mcap:'$78.7B',price:'$450.67',div:'0.8%',pe:'32.4',score:33.3,
   r:'ROIC 25.75%, Piotr:5 — ratings boom on bond issuance; pricing power duopoly with SPGI',
   desc:"Moody's is one of two dominant credit rating agencies. Every bond issued globally requires a rating — and Moody's charges for it. Revenue scales directly with debt issuance volume, which explodes during QE cycles. 25.75% ROIC confirms the monopoly economics."},
 ],
 tech:[
- {t:'NVDA',n:'NVIDIA',sec:'Technology',base:20,bull:55,bear:-28,qe:45,stag:-18,strong:-12,carry:-35,
+ {t:'NVDA',n:'NVIDIA',sec:'Technology',base:20,bull:55,bear:-28,qe:45,stag:-18,strong:-12,carry:-35,inflate:8,
   roic:'68.25%',revy:'+85.2%',earny:'+214.5%',piotr:3,gc:1,mcap:'$5,103B',price:'$210.69',div:'0.0%',pe:'32.3',score:76.4,
   r:'ROIC 68.25%, RevG +85.2%, EarnG +214%, GC:1 — AI infrastructure core pick',
   desc:'NVIDIA dominates AI GPU market with 80%+ data center share. CUDA software ecosystem creates massive switching costs — the entire AI industry is built on CUDA. H100/B200 demand outstrips supply for the foreseeable future. 68.25% ROIC confirms monopoly pricing on compute.'},
@@ -544,11 +606,11 @@ energy:[
   desc:'EQT is the largest US natural gas producer. Natural gas demand spikes when oil disruption forces power grid switching. Piotroski 6 = exceptional financial health. LNG export thesis accelerates when Hormuz threatens global energy supply chains.'},
 ],
 pricing:[
- {t:'COST',n:'Costco',sec:'Consumer Defensive',base:8,bull:14,bear:2,qe:10,stag:9,strong:5,carry:4,
+ {t:'COST',n:'Costco',sec:'Consumer Defensive',base:8,bull:14,bear:2,qe:10,stag:9,strong:5,carry:4,inflate:10,
   roic:'33.56%',revy:'+21.5%',earny:'+45.5%',piotr:5,gc:1,mcap:'$422B',price:'$951.45',div:'0.6%',pe:'47.8',score:45.0,
   r:'ROIC 33.56%, RevG +21.5%, Piotr:5, GC:1 — membership moat; passes ALL costs through',
   desc:'Costco membership model means consumers pay annually regardless of spending. Massive purchasing power passed to members. 33.56% ROIC confirms the economics are exceptional. Works in every scenario — recession, inflation, stagflation. The ultimate pricing power moat.'},
- {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,carry:4,
+ {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,carry:4,inflate:8,
   roic:'15.31%',revy:'+7.3%',earny:'+19.4%',piotr:4,gc:1,mcap:'$933B',price:'$117.18',div:'0.8%',pe:'41.3',score:40.1,
   r:'ROIC 15.31%, RevG +7.3%, Piotr:4, GC:1 — consumers shift TO Walmart in recessions',
   desc:"Walmart is the world's largest retailer with dominant grocery market share. Consumers shift TO Walmart in economic stress from more expensive alternatives. Inflation pass-through proven across six decades. 15.31% ROIC for a traditional retailer is exceptional."},
@@ -568,17 +630,17 @@ pricing:[
   roic:'8.73%',revy:'+16.7%',earny:'+528.3%',piotr:4,gc:0,mcap:'$12.5B',price:'$46.64',div:'3.9%',pe:'7.6',score:80.2,
   r:'ROIC 8.73%, EarnG +528%, Piotr:4, PE:7.6 — spice monopoly; zero switching costs exist',
   desc:'McCormick sells spices and flavor solutions to every restaurant and food manufacturer globally. PE of 7.6 with 8.73% ROIC and 3.9% dividend is genuinely cheap for a monopoly-like brand. Consumers and chefs do not switch spice brands regardless of price.'},
- {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,carry:-8,
+ {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,carry:-8,inflate:8,
   roic:'44.25%',revy:'+17.1%',earny:'+35.5%',piotr:3,gc:0,mcap:'$622B',price:'$327.24',div:'0.8%',pe:'28.5',score:36.6,
   r:'ROIC 44.25% — every price increase in economy = more Visa revenue; pure pricing royalty',
   desc:"Visa is a royalty on all global commerce. Every price increase in the economy means more Visa revenue — it's inflation-indexed by nature. 73% gross margins. Network effects make displacement practically impossible. The purest pricing power business model in existence."},
- {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,carry:-10,
+ {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,carry:-10,inflate:6,
   roic:'25.75%',revy:'+8.1%',earny:'+7.8%',piotr:5,gc:0,mcap:'$78.7B',price:'$450.67',div:'0.8%',pe:'32.4',score:33.3,
   r:'ROIC 25.75%, Piotr:5 — bond issuance = mandatory rating; pricing power by regulatory mandate',
   desc:"Moody's has pricing power by regulatory mandate — every bond issuance requires a rating and there are only two agencies. Revenue scales with global debt issuance, which explodes during QE cycles. 25.75% ROIC confirms the monopoly economics are very real."},
 ],
 etf:[
- {t:'GDX',n:'VanEck Gold Miners ETF',sec:'ETF',base:18,bull:28,bear:-10,qe:42,stag:35,strong:-22,carry:18,
+ {t:'GDX',n:'VanEck Gold Miners ETF',sec:'ETF',base:18,bull:28,bear:-10,qe:42,stag:35,strong:-22,carry:18,inflate:40,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$45',div:'~0.9%',pe:'—',score:0,
   r:'Holds NEM, AEM, AGI, WPM — ~1.5x leveraged beta to gold price moves',
   desc:'GDX holds 40+ gold mining companies including Newmont, Agnico Eagle, and Alamos Gold. Provides approximately 1.5x leveraged exposure to gold prices — when gold moves 10%, miners typically move 15-20% due to operating leverage.'},
@@ -586,7 +648,7 @@ etf:[
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$90',div:'~3.2%',pe:'—',score:0,
   r:'Holds XOM, CVX, COP, EOG, MPC — simplest oil spike / bear scenario hedge',
   desc:'XLE holds all major US energy companies. Simplest way to own oil/energy exposure without single-stock risk. Top holdings include XOM, CVX, COP, EOG, and SLB. Inverse relationship with Iran deal probability — bear scenario primary beneficiary.'},
- {t:'QQQ',n:'Invesco Nasdaq 100 ETF',sec:'ETF',base:8,bull:28,bear:-20,qe:22,stag:-14,strong:-10,carry:-22,
+ {t:'QQQ',n:'Invesco Nasdaq 100 ETF',sec:'ETF',base:8,bull:28,bear:-20,qe:22,stag:-14,strong:-10,carry:-22,inflate:6,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$480',div:'~0.5%',pe:'—',score:0,
   r:'NVDA, AAPL, MSFT, META, GOOGL — core AI/tech exposure; bull and QE scenarios',
   desc:'QQQ tracks Nasdaq 100. Top holdings are your screener favorites: NVDA, AAPL, MSFT, META, GOOGL. Core tech and AI exposure. Dominant in bull and QE scenarios. Underperforms in stagflation when real rates stay high and compress growth multiples.'},
@@ -594,19 +656,19 @@ etf:[
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$28',div:'~3.5%',pe:'—',score:0,
   r:'Quality dividend + pricing power names — defensive income with compounding; 3.5% yield',
   desc:'SCHD holds high-quality dividend companies with strong free cash flow. 3.5% yield with consistent dividend growth. More defensive than QQQ. Pricing power names throughout holdings. Works in base case and mild inflation. Outperforms bonds in stagflation.'},
- {t:'TIP',n:'iShares TIPS Bond ETF',sec:'ETF',base:8,bull:5,bear:18,qe:18,stag:28,strong:10,carry:15,
+ {t:'TIP',n:'iShares TIPS Bond ETF',sec:'ETF',base:8,bull:5,bear:18,qe:18,stag:28,strong:10,carry:15,inflate:16,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$107',div:'~4.5%',pe:'—',score:0,
   r:'Principal adjusts WITH CPI — the most direct bond-market inflation hedge available',
   desc:'TIPS principal adjusts with CPI inflation. When CPI rises, your principal and interest payments both rise. The most direct bond-market inflation hedge. Essential in the bear and stagflation scenarios where inflation surprises to the upside.'},
- {t:'DBC',n:'Invesco Commodity ETF',sec:'ETF',base:4,bull:15,bear:28,qe:20,stag:32,strong:-12,carry:-10,
+ {t:'DBC',n:'Invesco Commodity ETF',sec:'ETF',base:4,bull:15,bear:28,qe:20,stag:32,strong:-12,carry:-10,inflate:32,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$23',div:'~0.0%',pe:'—',score:0,
   r:'Oil + gold + nat gas + grains + metals — one-click broad commodity inflation hedge',
   desc:'DBC holds a diversified basket of oil, gold, natural gas, corn, soybeans, copper, and other commodities. One-stop commodity inflation hedge. Performs best in bear and stagflation scenarios. Provides portfolio diversification away from stocks and bonds simultaneously.'},
- {t:'KRE',n:'SPDR Regional Banks ETF',sec:'ETF',base:5,bull:20,bear:-28,qe:26,stag:-22,strong:20,carry:-20,
+ {t:'KRE',n:'SPDR Regional Banks ETF',sec:'ETF',base:5,bull:20,bear:-28,qe:26,stag:-22,strong:20,carry:-20,inflate:8,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$62',div:'~2.8%',pe:'—',score:0,
   r:'100+ regional banks — high-beta SLR deregulation + steeper yield curve play',
   desc:'KRE holds 100+ regional banks. High-beta play on SLR deregulation and steeper yield curve. These banks benefit most from rate normalization but also hurt most in the bear scenario. Use as a confirmation trade once Groman signals 1 and 3 both flip green.'},
- {t:'IBIT',n:'iShares Bitcoin ETF',sec:'ETF',base:10,bull:58,bear:-42,qe:72,stag:-25,strong:-30,carry:-35,
+ {t:'IBIT',n:'iShares Bitcoin ETF',sec:'ETF',base:10,bull:58,bear:-42,qe:72,stag:-25,strong:-30,carry:-35,inflate:50,
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$55',div:'0.0%',pe:'—',score:0,
   r:"Pure BTC — Groman's 5th signal; responds violently to liquidity expansion",
   desc:"BlackRock's Bitcoin ETF is the most liquid BTC exposure. BTC is Groman's 5th signal — it responds violently to liquidity changes. Down 30%+ when tightening, up 80-90% when QE fires. The hardest asset in existence with fixed supply. Highest risk, highest reward in QE scenario."},
@@ -774,11 +836,11 @@ hioil:[
   roic:'8.9%',revy:'+4.5%',earny:'+18.2%',piotr:4,gc:1,mcap:'$48B',price:'$53.22',div:'1.9%',pe:'12.1',score:34.7,
   r:'Buffett-backed; high oil = massive FCF; OxyChem chemical division benefits from USD strength',
   desc:'Buffett owns 28%+ of OXY -- when oil is high, the cash flow is extraordinary. OxyChem (chemicals) benefits from USD strength as competing global producers face FX headwinds. Most leveraged to oil price of the majors.'},
- {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,carry:4,
+ {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,carry:4,inflate:8,
   roic:'15.31%',revy:'+7.3%',earny:'+19.4%',piotr:4,gc:1,mcap:'$933B',price:'$117.18',div:'0.8%',pe:'41.3',score:40.1,
   r:'ROIC 15.31%, GC:1 -- consumers shift TO Walmart when energy costs squeeze budgets',
   desc:'When gas prices are high and real incomes fall, consumers trade down to Walmart. Domestic US revenue base protects from dollar strength. Grocery dominance = inelastic demand. The classic high-oil defensive play.'},
- {t:'COST',n:'Costco',sec:'Consumer Defensive',base:8,bull:14,bear:2,qe:10,stag:9,strong:5,carry:4,
+ {t:'COST',n:'Costco',sec:'Consumer Defensive',base:8,bull:14,bear:2,qe:10,stag:9,strong:5,carry:4,inflate:10,
   roic:'33.56%',revy:'+21.5%',earny:'+45.5%',piotr:5,gc:1,mcap:'$422B',price:'$951.45',div:'0.6%',pe:'47.8',score:45.0,
   r:'ROIC 33.56%, Piotr:5, GC:1 -- bulk buying saves members money; membership fee is inflation-proof',
   desc:'Costco bulk model is designed for high-cost environments. Members join to beat inflation. Annual membership fee is recession-proof recurring revenue. Domestic US bias protects from dollar headwinds. 33.56% ROIC is exceptional for retail.'},
@@ -790,11 +852,11 @@ hioil:[
   roic:'20.91%',revy:'+7.4%',earny:'+5.8%',piotr:3,gc:0.5,mcap:'$350B',price:'$150.38',div:'2.8%',pe:'22.0',score:42.4,
   r:'ROIC 20.91%, 2.8% div -- Tide/Gillette/Pampers have 60yr proven pricing power through oil shocks',
   desc:'P&G has raised prices through every inflationary cycle since 1962 without losing market share. USD revenue base benefits from dollar strength. Essential products like Tide, diapers, and toothpaste have near-zero demand elasticity regardless of oil prices.'},
- {t:'LMT',n:'Lockheed Martin',sec:'Industrials',base:8,bull:5,bear:22,qe:6,stag:20,strong:30,carry:-3,
+ {t:'LMT',n:'Lockheed Martin',sec:'Industrials',base:8,bull:5,bear:22,qe:6,stag:20,strong:30,carry:-3,inflate:8,
   roic:'N/A',revy:'+5.8%',earny:'+9.2%',piotr:null,gc:1,mcap:'$114B',price:'$476.82',div:'2.9%',pe:'17.3',score:28.0,
   r:'GC:1, 2.9% div -- high oil = Middle East tension = defense budgets surge; USD contracts only',
   desc:'Lockheed is a direct geopolitical tension beneficiary. High oil from Middle East instability always triggers defense budget increases across NATO and Gulf states. 100% USD-denominated contracts -- dollar strength is a direct tailwind. F-35 and missile defense backlog extends 5+ years.'},
- {t:'RTX',n:'RTX Corporation',sec:'Industrials',base:7,bull:4,bear:20,qe:5,stag:18,strong:28,carry:-4,
+ {t:'RTX',n:'RTX Corporation',sec:'Industrials',base:7,bull:4,bear:20,qe:5,stag:18,strong:28,carry:-4,inflate:8,
   roic:'N/A',revy:'+8.9%',earny:'+15.2%',piotr:null,gc:1,mcap:'$163B',price:'$142.37',div:'2.1%',pe:'22.4',score:25.0,
   r:'GC:1 -- Patriot/Tomahawk/Pratt+Whitney; Iran tension = defense demand spike; all USD contracts',
   desc:'RTX makes Patriot missile systems, Tomahawk cruise missiles, and Pratt & Whitney jet engines. Iran tensions directly drive demand for Raytheon air defense systems. All US government contracts in USD. High oil = more Middle East tension = more defense orders.'},
@@ -812,28 +874,28 @@ hioil:[
   desc:'EOG is the best-run US shale company. Break-even below $40/barrel means at $90+ oil, EOG generates extraordinary free cash flow. Pays a growing dividend and buys back stock aggressively. Pure USD revenue stream -- dollar strength is neutral to positive.'},
 ]
 ,carrytrade:[
- {t:'FXY',n:'Invesco CurrencyShares Japanese Yen',sec:'ETF',base:2,bull:-5,bear:8,qe:-10,stag:6,strong:-12,carry:22,
+ {t:'FXY',n:'Invesco CurrencyShares Japanese Yen',sec:'ETF',base:2,bull:-5,bear:8,qe:-10,stag:6,strong:-12,carry:22,inflate:10,
   roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$57.75',div:'--',pe:'--',score:0,
   r:'Direct long-yen ETF -- the cleanest pure-play hedge against a carry trade unwind',
   desc:'FXY holds physical yen deposits and tracks USD/JPY inversely. When the carry trade unwinds and USD/JPY crashes (yen strengthens), FXY rises directly. The simplest, most liquid way to hedge a portfolio against carry-unwind risk without shorting individual stocks.'},
- {t:'EEM',n:'iShares MSCI Emerging Markets ETF',sec:'ETF',base:5,bull:12,bear:-15,qe:18,stag:-20,strong:-18,carry:-22,
+ {t:'EEM',n:'iShares MSCI Emerging Markets ETF',sec:'ETF',base:5,bull:12,bear:-15,qe:18,stag:-20,strong:-18,carry:-22,inflate:18,
   roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$44.50',div:'~2.5%',pe:'--',score:0,
   r:'Classic multi-cycle carry-unwind victim -- EM currencies and equities were funded by the same cheap-yen liquidity',
   desc:'Emerging markets are financed disproportionately by carry-trade liquidity -- cheap yen (and dollar) borrowing flows into higher-yielding EM assets. Every major carry unwind (1998, 2008, 2015, Aug 2024) hit EM equities and currencies hardest as that liquidity reverses violently.'},
- {t:'TLT',n:'iShares 20+ Yr Treasury Bond ETF',sec:'ETF',base:-2,bull:5,bear:-10,qe:8,stag:-15,strong:-5,carry:20,
+ {t:'TLT',n:'iShares 20+ Yr Treasury Bond ETF',sec:'ETF',base:-2,bull:5,bear:-10,qe:8,stag:-15,strong:-5,carry:20,inflate:-24,
   roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$86.40',div:'~4.0%',pe:'--',score:0,
   r:'Flight-to-quality winner -- carry unwind panics send capital into long Treasuries as yields plunge',
   desc:'When carry trades unwind violently, capital rushes into the safest, most liquid asset on earth: long-duration US Treasuries. Yields fall sharply as investors accept lower returns for safety, driving TLT higher. This was a clear pattern during the August 2024 unwind and the 2008/2015 carry unwinds before it.'},
- {t:'IEF',n:'iShares 7-10 Yr Treasury Bond ETF',sec:'ETF',base:-1,bull:3,bear:-6,qe:5,stag:-9,strong:-3,carry:14,
+ {t:'IEF',n:'iShares 7-10 Yr Treasury Bond ETF',sec:'ETF',base:-1,bull:3,bear:-6,qe:5,stag:-9,strong:-3,carry:14,inflate:-14,
   roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$95.30',div:'~3.6%',pe:'--',score:0,
   r:'Medium-duration flight-to-quality play -- less volatile than TLT but same safe-haven mechanics',
   desc:'IEF offers the same flight-to-quality benefit as TLT during a carry unwind but with less duration risk (7-10yr vs 20yr+). A more conservative way to position for carry-unwind tail risk while still capturing the yield-decline benefit.'},
 ],strongdollar:[
- {t:'LMT',n:'Lockheed Martin',sec:'Industrials',base:10,bull:5,bear:28,qe:6,stag:22,strong:30,carry:-3,
+ {t:'LMT',n:'Lockheed Martin',sec:'Industrials',base:10,bull:5,bear:28,qe:6,stag:22,strong:30,carry:-3,inflate:8,
   roic:'N/A',revy:'+5.8%',earny:'+9.2%',piotr:null,gc:1,mcap:'$114B',price:'$476.82',div:'2.9%',pe:'17.3',score:28.0,
   r:'GC:1, 2.9% div -- Bretton Woods 2.0 core pick; 100% USD contracts + world chaos = peak defense spending',
   desc:'Lockheed Martin is the ultimate Bretton Woods 2.0 beneficiary. World chaos forces nations to buy US defense (F-35, Patriot, THAAD) all priced in USD. Strong dollar = cheaper for foreign buyers in local currency. Every geopolitical dollar spent flows through LMT. 5-year backlog expanding.'},
- {t:'RTX',n:'RTX Corporation',sec:'Industrials',base:8,bull:4,bear:25,qe:5,stag:20,strong:28,carry:-4,
+ {t:'RTX',n:'RTX Corporation',sec:'Industrials',base:8,bull:4,bear:25,qe:5,stag:20,strong:28,carry:-4,inflate:8,
   roic:'N/A',revy:'+8.9%',earny:'+15.2%',piotr:null,gc:1,mcap:'$163B',price:'$142.37',div:'2.1%',pe:'22.4',score:25.0,
   r:'GC:1 -- Patriot missiles + Pratt engines; Iran tension + strong dollar = demand surge; all USD contracts',
   desc:'RTX Corporation (Raytheon + Pratt & Whitney) benefits from Iran-driven tension AND dollar strength. Foreign nations need USD to buy Patriot systems -- increasing dollar demand while boosting RTX. The Bretton Woods 2.0 thesis and RTX revenues are literally the same trade.'},
@@ -849,19 +911,19 @@ hioil:[
   roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$220',div:'~1.4%',pe:'--',score:0,
   r:'Small caps = 80%+ domestic US revenue -- direct strong dollar beneficiary vs S&P multinationals',
   desc:'The Russell 2000 small cap index is the single strongest historical beneficiary of DXY strength. Small companies average 80%+ domestic US revenue vs S&P 500 at ~60% domestic. No EPS headwind from currency translation. When DXY rises 10%, S&P loses 2-4% EPS, IWM loses near zero.'},
- {t:'KRE',n:'SPDR Regional Banks ETF',sec:'ETF',base:5,bull:25,bear:-22,qe:38,stag:-30,strong:20,carry:-20,
+ {t:'KRE',n:'SPDR Regional Banks ETF',sec:'ETF',base:5,bull:25,bear:-22,qe:38,stag:-30,strong:20,carry:-20,inflate:8,
   roic:'--',revy:'--',earny:'--',piotr:null,gc:null,mcap:'ETF',price:'~$62',div:'~2.8%',pe:'--',score:0,
   r:'Regional banks: 100% domestic revenue + high US rates = NIM expansion + foreign capital inflows seeking yield',
   desc:'Regional banks have almost entirely domestic revenue with no overseas EPS translation drag. Higher US rates (which support the dollar via rate differential) expand net interest margins. Foreign capital flows into the US seeking higher yields directly increases bank deposits. Triple benefit.'},
- {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,carry:4,
+ {t:'WMT',n:'Walmart',sec:'Consumer Defensive',base:7,bull:12,bear:4,qe:9,stag:10,strong:6,carry:4,inflate:8,
   roic:'15.31%',revy:'+7.3%',earny:'+19.4%',piotr:4,gc:1,mcap:'$933B',price:'$117.18',div:'0.8%',pe:'41.3',score:40.1,
   r:'ROIC 15.31%, GC:1 -- 90%+ domestic US revenue; strong dollar = zero EPS headwind + consumer flight to value',
   desc:'Walmart derives ~90% of revenue from domestic US operations -- near-zero overseas translation drag from a rising dollar. Strong dollar often coincides with consumer price pressure globally, pushing domestic shoppers toward discount retailers. Grocery dominance = inelastic demand regardless.'},
- {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,carry:-10,
+ {t:'MCO',n:"Moody's Corp",sec:'Financial Services',base:14,bull:26,bear:-6,qe:22,stag:5,strong:10,carry:-10,inflate:6,
   roic:'25.75%',revy:'+8.1%',earny:'+7.8%',piotr:5,gc:0,mcap:'$78.7B',price:'$450.67',div:'0.8%',pe:'32.4',score:33.3,
   r:'ROIC 25.75%, Piotr:5 -- 27 countries seeking emergency dollar access (World Bank June 2026) = bond issuance surge',
   desc:"Moody's benefits directly from Bretton Woods 2.0: as nations scramble for dollar access, they issue dollar-denominated sovereign bonds -- each requiring a Moody's rating. The 27 countries seeking emergency dollar access (World Bank June 2026) are all potential sovereign rating clients."},
- {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,carry:-8,
+ {t:'V',n:'Visa',sec:'Financial Services',base:11,bull:20,bear:-6,qe:18,stag:-2,strong:8,carry:-8,inflate:8,
   roic:'44.25%',revy:'+17.1%',earny:'+35.5%',piotr:3,gc:0,mcap:'$622B',price:'$327.24',div:'0.8%',pe:'28.5',score:36.6,
   r:'ROIC 44.25% -- global USD transaction volume; strong dollar = more USD cross-border fee value per transaction',
   desc:'Counter-intuitive strong dollar play: Visa processes global transactions in USD. Strong dollar = each foreign-to-USD transaction conversion is worth more. Cross-border fees are a fixed % of transaction value in USD. Historically, strong DXY periods see Visa EPS beat as dollar-denominated fees amplify.'},
@@ -884,6 +946,9 @@ const SCENS = {
  // CARRY: Yen Carry Trade Unwind -- BOJ shock-hikes to 1.75%, USD/JPY crashes 164->132
  // Mirrors Aug 2024 precedent (BOJ hike + weak US jobs -> Nikkei -12.4% in a day)
  carry: {oil:74,  fed:363, iran:55, cpi:42, yield:420, y2:390, dxy:960,  qe:35, slr:25, boj:175, usdjpy:1320},
+ // INFLATE $: Fiscal dominance / financial repression. Fed pinned BELOW inflation (real rate ~ -3%),
+ // long yields capped by covert QE despite hot CPI, dollar debased, gold/silver/BTC run. 1940s+1970s playbook.
+ inflate:{oil:88,  fed:250, iran:55, cpi:58, yield:430, y2:300, dxy:915,  qe:88, slr:80, boj:100, usdjpy:1720},
 };const NARRS = {
  base:'<strong>BASE CASE:</strong> Iran deal partially holds, oil settles $70-$80. Warsh stays hawkish through Q3, pivots Q4 as trimmed PCE data justifies cuts. Banks get SLR exemption in pipeline. Covert QE begins Q1 2027. Dollar weakens gradually. Markets chop sideways then rip higher late 2026.',
  bull:"<strong>BULL &mdash; DEAL WORKS:</strong> Iran signed, Strait opens, oil crashes to $60s. Warsh's new real-time PCE shows 2.4% inflation. He cuts 75bps. Banks lever into treasuries via SLR deregulation. Dollar drops hard. Every Groman signal turns green simultaneously. S&P rips 20%+. Gold, BTC, Banks, Tech all win at once.",
@@ -892,6 +957,7 @@ const SCENS = {
  stag:'<strong>STAGFLATION &mdash; 1970s REPLAY:</strong> Oil at $115, GDP stalls, CPI stuck at 6%+. Fed cannot cut (bond market revolt) or raise much further (debt load). Trapped. Real wages fall. This is the Volcker moment Warsh fears becoming. Only gold, energy, and consumer necessities provide real shelter. Bonds are the death trade.',
  strong:'<strong>&#x1F4AA; STRONG DOLLAR (Bretton Woods 2.0):</strong> Engineered global dollar shortage. DXY targeting 110. World chaos forces nations to spend on US goods and arms, requiring dollars. 27 countries sought emergency dollar access (World Bank June 2026). De-dollarization trade is DEAD. <strong style="color:var(--ac2)">WINNERS: Defense (LMT +30%), Regional Banks (KRE +20%), Small Caps (IWM +12%), UUP ETF (+18%).</strong> <strong style="color:var(--red)">AVOID: Gold (-15%), BTC (-30%), AAPL/KO/PG/MSFT (50-65% overseas revenue = EPS headwind).</strong>',
  carry:'<strong>&#x1F1EF;&#x1F1F5; YEN CARRY TRADE UNWIND:</strong> BOJ shock-hikes to 1.75% while a weak US jobs print rattles confidence -- the exact combination that crashed USD/JPY from 161 to 141.70 in three weeks in August 2024 (Nikkei -12.4% in a single day, its worst since 1987). Leveraged funds that borrowed cheap yen to buy US tech, BTC, and EM assets face margin calls and forced liquidation. <strong style="color:var(--ac3)">SAFE HAVENS: Yen itself (FXY +22%), long bonds (flight to quality +20%), gold miners (+18%).</strong> <strong style="color:var(--red)">CARRY-FUNDED LOSERS: Leveraged AI/tech (NVDA -35%), Bitcoin (-35%), Emerging Markets (-22%), Regional Banks funding stress (-20%).</strong>',
+ inflate:'<strong>&#128176;&#128293; INFLATE THE DEBT AWAY (Fiscal Dominance):</strong> The rollover wall forces the Fed&#39;s hand: ~$8T of debt reprices in 12 months and total debt (~$39.8T, ~122% of GDP) can&#39;t be serviced at 4-5% for long. The exit chosen every time debt gets this big &mdash; not default, not austerity, but <strong>financial repression</strong>: hold policy rates BELOW inflation, cap the long end with covert QE, and let a ~3% negative real rate quietly erode the debt&#39;s real value (the exact 1946-1951 + 1970s playbook that took debt/GDP from 120% to 30%). <strong style="color:var(--ac2)">WINNERS: hard money &mdash; gold (GDX/NEM +30-40%), silver, BTC (+50%+), energy &amp; real assets, TIPS.</strong> <strong style="color:var(--red)">LOSERS: cash &amp; long nominal bonds (TLT/ZROZ real value bleeds), savers &amp; fixed salaries. Stocks rise nominally but ~flat in real terms (1970s).</strong> <em style="color:var(--mu)">Not a forecast or advice &mdash; a mechanism model. See the Inflate-$ calculator below for the exact repression math.</em>'
 };
 const ANGLES = [
  {s:'BULL',c:'var(--ac3)',t:'Iran Deal + Oil Crash + Rate Cuts',b:'Oil to $58, Warsh pivots Q4, Groman signals green. S&P +16%, gold +20% (rebounds from $4100 ATH pullback), BTC +58% on dollar weakness. Buy the sequence: energy hedge OFF, gold ON, banks ON, tech ON.',tks:['NEM','AG','IBIT','JPM','GS','NVDA']},
@@ -978,6 +1044,8 @@ function gkey(v){
  if(v.oil>95 && v.cpi>5.5)                        return 'stag'; // high oil + sticky CPI without Iran trigger
  if(v.iran>75 && v.oil<70)                        return 'bull';
  if(v.dxy>=107 && v.fed>=4.0 && v.qe<30)         return 'strong'; // FIXED: dxy is scaled (/10)
+ // INFLATE: financial repression -- policy rate pinned >=1.5% below CPI while QE floods & dollar weak
+ if((v.cpi - v.fed) >= 1.5 && v.qe >= 70 && v.dxy < 98) return 'inflate';
  return 'base';
 }
 
@@ -1012,7 +1080,7 @@ function buildExpanded(t,n,d,k){
   ${bp&&lp!==bp?`<div><div style="font-size:9px;font-family:JetBrains Mono,monospace;color:var(--mu)">Baseline</div><div style="font-family:JetBrains Mono,monospace;font-size:14px;color:var(--mu)">${fmt(bp)}</div></div>`:''}
   <div style="margin-left:auto;font-size:9px;color:var(--mu);font-family:JetBrains Mono,monospace">via Stooq</div>
  </div>`:'';
- const scens=[{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'},{key:'strong',lbl:'STRONG$'},{key:'carry',lbl:'CARRY'}];
+ const scens=[{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'},{key:'strong',lbl:'STRONG$'},{key:'carry',lbl:'CARRY'},{key:'inflate',lbl:'INFLATE$'}];
  const allRet=scens.map(sc=>{
   const v=d[sc.key];
   if(v==null)return '';
@@ -1186,6 +1254,9 @@ function updCharts(v,k){
  // Scenario-aware shocks the old model ignored: carry unwind is an acute crash, strong dollar is an EPS drag
  if(k==='carry')  proj=proj.map((p,i)=>Math.round(p*0.55+bear[i]*0.45));
  if(k==='strong') proj=proj.map(p=>Math.round(p*0.965));
+ // INFLATE: nominal S&P grinds HIGHER (money debasement lifts asset prices) but this is NOMINAL --
+ // real return is roughly flat once you deflate by ~5-6% CPI (the 1970s lesson).
+ if(k==='inflate') proj=proj.map((p,i)=>Math.round(p*(1+0.015*i/11+0.06)));
  CH.spx.data.datasets[0].data=bull;CH.spx.data.datasets[1].data=proj;CH.spx.data.datasets[2].data=bear;CH.spx.update('none');
  const RET={
  //               [S&P, Gold,  BTC,  Oil, Bond,  USD]
@@ -1202,6 +1273,8 @@ function updCharts(v,k){
  // Bonds RALLY hard (flight to quality, yields plunge) -- biggest positive in this scenario
  // BTC crashes on leveraged unwind (Aug 2024 precedent); USD (DXY) falls as JPY (13.6% weight) surges
  carry:  [-12,  10, -35,  -8,  20,  -8],
+ // INFLATE: hard money wins big, nominal bonds bleed (real), dollar debases. S&P up nominal only.
+ inflate:[ 12,  38,  55,  30, -22, -16],
 }; const r=RET[k]||RET.base;
  CH.asset.data.datasets[0].data=r;
  CH.asset.data.datasets[0].backgroundColor=r.map((rv,i)=>rv>=0?['#39ff14','#ffd700','#f97316','#6b7fa3','#a855f7','#22d3ee'][i]:['#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c'][i]);
@@ -1218,6 +1291,8 @@ function updCharts(v,k){
  // CARRY: Tech crushed (carry-funded AI leverage unwinds), Financials stressed (funding/FX desks)
  // Utilities/Healthcare/Consumer Def defensive havens; Real Estate mixed (falling yields vs liquidity crunch)
  carry:  [32, 42, 18, 38, 68, 72, 58, 66],
+ // INFLATE: Energy/Materials (real assets) lead, Financials ok (steep curve), Tech nominal-ok, RE hard-asset hedge
+ inflate:[60, 88, 58, 90, 55, 58, 78, 50],
 }; CH.sector.data.datasets[0].data=SD[k]||SD.base;CH.sector.update('none');
  const y2   = v.y2 || (v.y10 - 0.26);
  const y10  = v.y10;
@@ -1238,6 +1313,7 @@ function updCharts(v,k){
    base: [-0.20,-0.18,-0.15,-0.12,-0.10,-0.05, 0.00, 0.05, 0.08],
    strong:[ 0.10, 0.10, 0.10, 0.08, 0.05, 0.15, 0.30, 0.40, 0.45], // hawkish hold + term premium
    carry: [-0.60,-0.60,-0.55,-0.55,-0.50,-0.45,-0.40,-0.30,-0.25], // flight-to-quality bond rally
+   inflate:[-1.30,-1.30,-1.20,-1.05,-0.85,-0.55,-0.30,-0.15, 0.00], // front-end slashed, long end pinned by QE (yield-curve control)
  };
  const sh = shifts[k] || shifts.base;
  const yp = yc.map((y,i) => +(y + sh[i]).toFixed(2));
@@ -1248,18 +1324,18 @@ function updBars(k){
  const items=[
  // RECALIBRATED July 2 2026 with Strong Dollar + Yen Carry Unwind columns
  // KEY CHANGE: bear gold = NEGATIVE (DXY spike suppresses gold -- confirmed inverse)
- ['FRO','Frontline Tankers',    {bull:-20,bear:55,qe:8,stag:50,base:5, strong:-5,  carry:-8 }],
- ['NEM','Newmont Gold',         {bull:18, bear:-8,qe:32,stag:22,base:5, strong:-20, carry:15 }],
- ['LMT','Lockheed Martin',      {bull:5,  bear:28,qe:6,stag:22,base:10, strong:30,  carry:-3 }],
- ['NVDA','NVIDIA',              {bull:55, bear:-28,qe:45,stag:-22,base:18,strong:-12,carry:-35}],
- ['JPM','JPMorgan',             {bull:32, bear:-15,qe:40,stag:-18,base:12,strong:14, carry:-12}],
- ['IBIT','Bitcoin ETF',         {bull:58, bear:-42,qe:72,stag:-28,base:10,strong:-30,carry:-35}],
- ['XLE','Energy ETF',           {bull:-12,bear:38,qe:6,stag:35,base:0, strong:-5,  carry:-8 }],
- ['CEG','Constellation Nuke',   {bull:18, bear:20,qe:18,stag:18,base:14,strong:15,  carry:-10}],
- ['GDX','Gold Miners ETF',      {bull:25, bear:-10,qe:40,stag:20,base:5, strong:-22, carry:18 }],
- ['KRE','Regional Banks ETF',   {bull:22, bear:-22,qe:38,stag:-30,base:5, strong:20, carry:-20}],
- ['UUP','USD Bullish ETF',      {bull:-8, bear:8, qe:-14,stag:5, base:2, strong:18,  carry:-8 }],
- ['PLTR','Palantir',            {bull:60, bear:-18,qe:40,stag:-8, base:18,strong:5,  carry:-18}],
+ ['FRO','Frontline Tankers',    {bull:-20,bear:55,qe:8,stag:50,base:5, strong:-5,  carry:-8, inflate:20 }],
+ ['NEM','Newmont Gold',         {bull:18, bear:-8,qe:32,stag:22,base:5, strong:-20, carry:15, inflate:38 }],
+ ['LMT','Lockheed Martin',      {bull:5,  bear:28,qe:6,stag:22,base:10, strong:30,  carry:-3, inflate:8 }],
+ ['NVDA','NVIDIA',              {bull:55, bear:-28,qe:45,stag:-22,base:18,strong:-12,carry:-35,inflate:8}],
+ ['JPM','JPMorgan',             {bull:32, bear:-15,qe:40,stag:-18,base:12,strong:14, carry:-12,inflate:10}],
+ ['IBIT','Bitcoin ETF',         {bull:58, bear:-42,qe:72,stag:-28,base:10,strong:-30,carry:-35,inflate:50}],
+ ['XLE','Energy ETF',           {bull:-12,bear:38,qe:6,stag:35,base:0, strong:-5,  carry:-8, inflate:28 }],
+ ['CEG','Constellation Nuke',   {bull:18, bear:20,qe:18,stag:18,base:14,strong:15,  carry:-10,inflate:14}],
+ ['GDX','Gold Miners ETF',      {bull:25, bear:-10,qe:40,stag:20,base:5, strong:-22, carry:18, inflate:40 }],
+ ['KRE','Regional Banks ETF',   {bull:22, bear:-22,qe:38,stag:-30,base:5, strong:20, carry:-20,inflate:8}],
+ ['UUP','USD Bullish ETF',      {bull:-8, bear:8, qe:-14,stag:5, base:2, strong:18,  carry:-8, inflate:-16 }],
+ ['PLTR','Palantir',            {bull:60, bear:-18,qe:40,stag:-8, base:18,strong:5,  carry:-18,inflate:10}],
 ]; let h='';
  items.forEach(([t,nm,ret])=>{
   const r=ret[k]||0;
@@ -1297,6 +1373,161 @@ function updMbar(v,k){
  document.getElementById('mbar').innerHTML=chips.map(([l,ok])=>{const c=ok?'var(--ac3)':'var(--red)';return'<div class="mch" style="color:'+c+';border-color:'+c+'">'+l+'</div>';}).join('');
 }
 
+// ── INFLATE-THE-DEBT CALCULATOR ENGINE ───────────────────────
+// Runs the financial-repression math the transcript describes, on live inputs.
+// All figures are mechanism illustrations, NOT forecasts or advice.
+let INFLATE_PATH = '1970s';  // '1970s' stagflation | '1946' post-war repression
+const INFLATE_PATH_META = {
+  '1970s': {
+    label: '1970s stagflation pattern',
+    note: 'Asset paths are illustrative annualized rates drawn from the transcript&#39;s 1970s analogue: gold freed from &#36;35 ran to ~&#36;850 (&asymp;27%/yr), silver further &amp; more volatile, equities roughly flat in REAL terms, CPI high and jumpy. They are NOT predictions. The point is the <strong style="color:var(--tx)">real</strong> column &mdash; under repression, cash and nominal bonds lose purchasing power while hard money defends it. Past performance never guarantees future results.'
+  },
+  '1946': {
+    label: '1946&ndash;51 post-war repression (milder, arguably closer analogue)',
+    note: 'The post-WWII case is the textbook &ldquo;quiet&rdquo; repression and, with debt/GDP near WWII levels again, arguably the closer analogue. The Fed <strong style="color:var(--tx)">pegged the long bond near 2.5%</strong> while inflation ran in bursts, so bondholders &mdash; not gold buyers &mdash; were the ones expropriated. Gold was <strong style="color:var(--tx)">fixed at &#36;35</strong> under Bretton Woods, so the hard-money trade did ~nothing nominally; equities and real assets carried the load and debt/GDP fell ~118%&rarr;70% in about six years, helped by strong growth. Milder CPI, no metals moonshot. Illustrative, not a forecast.'
+  }
+};
+function setInflatePath(p){
+  INFLATE_PATH = (p === '1946') ? '1946' : '1970s';
+  document.querySelectorAll('.ic-tg').forEach(b=>b.classList.toggle('on', b.dataset.path === INFLATE_PATH));
+  const lbl = document.getElementById('ic-path-label');
+  const note = document.getElementById('ic-path-note');
+  if(lbl)  lbl.innerHTML  = INFLATE_PATH_META[INFLATE_PATH].label;
+  if(note) note.innerHTML = INFLATE_PATH_META[INFLATE_PATH].note;
+  updInflate(gv(), gkey(gv()));   // recompute the grid with the chosen calibration
+}
+function icNum(id, dflt){ const el=document.getElementById(id); const n=el?parseFloat(el.value):NaN; return isFinite(n)?n:dflt; }
+function updInflate(v, k){
+  const panel = document.getElementById('inflate-panel');
+  if(!panel) return;
+
+  // ---- Inputs: live macro from sliders + editable fiscal assumptions ----
+  const cpi   = v.cpi;                 // inflation %  (live)
+  const fed   = v.fed;                 // policy rate % (live)
+  const y10   = v.y10;                 // 10Y yield %  (live)
+  const debt  = icNum('ic-debt', 39.8);   // $T
+  const dgdp  = icNum('ic-dgdp', 122);    // %
+  const roll  = icNum('ic-roll', 8.0);    // $T repricing in 12mo
+  const oldc  = icNum('ic-oldc', 2.4);    // old avg coupon %
+  const grow  = icNum('ic-grow', 2.0);    // real GDP growth %
+  const defc  = icNum('ic-def', 3.5);     // primary deficit % GDP
+  const tgt   = icNum('ic-tgt', 90);      // target debt/GDP %
+  const yrs   = Math.max(1, icNum('ic-yrs', 10));
+
+  const gdp = debt / (dgdp/100);       // implied $T GDP
+
+  // ---- CARD 1: Rollover interest shock ----
+  // Reprice `roll` T from old coupon to current market yield (use 10Y as the marginal cost).
+  const newRate   = y10;
+  const extraRate = Math.max(newRate - oldc, 0);
+  const extraInt  = roll * (extraRate/100);       // $T/yr of ADDED interest just from repricing
+  const extraIntB = extraInt * 1000;               // $B
+
+  // ---- CARD 2: Real policy rate (the repression gap) ----
+  const realRate = fed - cpi;                      // negative = repression
+  const realRate10 = y10 - cpi;                    // real 10Y
+
+  // ---- CARD 3: Years to inflate debt/GDP to target ----
+  // Debt/GDP dynamics: d_{t+1} = d_t * (1 + r_real - g_real) + primaryDeficit
+  // where r_real = effective real rate on the stock of debt (blend), g_real = real growth.
+  // Under repression r_real<0, so ratio falls even WITH a deficit if |r_real-g| large enough.
+  // Effective nominal rate on stock ~ blends old + rolled; approximate with (oldc*0.7 + newRate*0.3).
+  const effNom  = oldc*0.7 + newRate*0.3;
+  const rReal   = (effNom - cpi)/100;              // real cost of carry on the whole stock
+  const gReal   = grow/100;
+  const prim    = defc/100;
+  let d = dgdp/100;
+  let yearsToTgt = null;
+  const path = [];
+  for(let t=1; t<=40; t++){
+    d = d*(1 + rReal - gReal) + prim;
+    path.push(d);
+    if(yearsToTgt===null && d <= tgt/100){ yearsToTgt = t; break; }
+  }
+  // Debt/GDP at the chosen horizon
+  let dH = dgdp/100;
+  for(let t=1; t<=yrs; t++){ dH = dH*(1 + rReal - gReal) + prim; }
+
+  // ---- Cumulative purchasing-power erosion over horizon ----
+  const cumInfl = Math.pow(1 + cpi/100, yrs) - 1;   // total price rise
+  const cashReal = Math.pow(1/(1+cpi/100), yrs);     // $1 cash real value after horizon
+
+  const fmtB = n => (Math.abs(n)>=1000?('$'+(n/1000).toFixed(2)+'T'):('$'+Math.round(n)+'B'));
+  const col = n => n>=0?'var(--ac3)':'var(--red)';
+
+  const cards = document.getElementById('ic-cards');
+  cards.innerHTML =
+    card('Rollover interest shock',
+         '+'+fmtB(extraIntB)+'/yr',
+         'Repricing '+roll.toFixed(1)+'T from '+oldc.toFixed(1)+'% &rarr; '+newRate.toFixed(2)+'% adds this to the annual interest bill. On top of an already ~'+ (defc).toFixed(1) +'%-of-GDP primary deficit.',
+         'var(--red)') +
+    card('Real policy rate',
+         (realRate>=0?'+':'')+realRate.toFixed(2)+'%',
+         'Fed '+fed.toFixed(2)+'% minus CPI '+cpi.toFixed(1)+'%. '+(realRate<0?'NEGATIVE &mdash; savers/bondholders are being taxed by inflation; this is the repression engine.':'POSITIVE &mdash; no repression yet; the Fed is still ahead of inflation.'),
+         col(realRate)) +
+    card('Debt/GDP in '+yrs+' yrs',
+         Math.round(dH*100)+'%',
+         'From '+Math.round(dgdp)+'% today at a '+(rReal*100>=0?'+':'')+(rReal*100).toFixed(1)+'% real cost of carry vs '+grow.toFixed(1)+'% growth. '+(yearsToTgt?('Hits '+tgt+'% target in ~'+yearsToTgt+' yrs.'):('Target '+tgt+'% not reached within 40 yrs at these inputs.')),
+         dH < dgdp/100 ? 'var(--ac3)' : 'var(--red)');
+
+  // ---- Asset outcome grid: $10k over horizon, nominal vs real ----
+  // Two selectable historical repression regimes (see setInflatePath / INFLATE_PATH).
+  //  • 1970s stagflation: gold freed from $35 → ran ~27%/yr, silver more, equities flat real,
+  //    high & volatile CPI. The transcript's analogue — the hard-money bonanza.
+  //  • 1946–51 repression: the arguably-closer post-WWII case. Fed PEGGED the long bond ~2.5%
+  //    while CPI ran in bursts; debt/GDP fell ~118%→70% in ~6 yrs. BUT gold was FIXED at $35
+  //    (Bretton Woods) so hard money did ~nothing nominally; equities did well; bondholders
+  //    were the ones quietly expropriated by the yield cap. Milder, growth-driven deleveraging.
+  const P = INFLATE_PATH;
+  let ASSETS;
+  if (P === '1946'){
+    ASSETS = [
+      ['Cash',            0.0,           'var(--red)'],
+      ['Long bonds (pegged)', 0.025,     'var(--red)'],  // ~2.5% yield cap, real value bled by CPI
+      ['S&P 500',         cpi/100+0.05,  'var(--ac3)'],  // post-war bull: solid nominal AND real gains
+      ['Gold (fixed $35)',0.0,           'var(--gold)'], // Bretton Woods peg — no nominal move
+      ['Real assets/housing', cpi/100+0.02,'var(--tx)'], // hard assets track+beat inflation modestly
+    ];
+  } else {
+    ASSETS = [
+      ['Cash',            0.0,          'var(--red)'],
+      ['Long bonds (nom)',y10/100*0.6,  'var(--red)'],   // coupon minus price hit as rates stay high
+      ['S&P 500',         cpi/100+0.01, 'var(--mu)'],    // ~keeps pace nominal, ~flat real (1970s)
+      ['Gold',            0.27,         'var(--gold)'],  // 1970s ~27%/yr ($35->$850)
+      ['Silver',          0.30,         'var(--tx)'],    // ran further, more volatile
+    ];
+  }
+  const base10k = 10000;
+  const assetsEl = document.getElementById('ic-assets');
+  assetsEl.innerHTML = ASSETS.map(([nm,rate,c])=>{
+    const nominal = base10k * Math.pow(1+rate, yrs);
+    const real    = nominal * cashReal;   // deflate by cumulative CPI
+    const nomStr  = '$'+Math.round(nominal).toLocaleString();
+    const realStr = '$'+Math.round(real).toLocaleString();
+    const realCol = real>=base10k?'var(--ac3)':'var(--red)';
+    return '<div class="ic-acard"><div class="ican" style="color:'+c+'">'+nm+'<span style="font-size:9px;color:var(--mu);font-weight:400">'+(rate*100).toFixed(0)+'%/yr</span></div>'
+      +'<div class="icrow"><span>Nominal</span><span style="color:var(--tx)">'+nomStr+'</span></div>'
+      +'<div class="icrow"><span>Real (today $)</span><span style="color:'+realCol+'">'+realStr+'</span></div></div>';
+  }).join('');
+
+  // ---- Active badge + trigger ----
+  const active = (cpi - fed) >= 1.5 && v.qe >= 70 && v.dxy < 98;
+  const trig = document.getElementById('inflate-trigger-msg');
+  if(trig) trig.style.display = active ? 'block' : 'none';
+  const badge = document.getElementById('inflate-badge');
+  if(badge){
+    badge.style.background  = active ? 'rgba(57,255,20,.15)' : 'rgba(255,215,0,.15)';
+    badge.style.borderColor = active ? 'rgba(57,255,20,.4)'  : 'rgba(255,215,0,.4)';
+    badge.style.color       = active ? 'var(--ac3)'          : 'var(--gold)';
+    badge.textContent       = active ? 'ACTIVE NOW'          : 'CPI \u2212 Fed \u2265 1.5% / QE 70+ / DXY <98';
+  }
+}
+function card(label, val, sub, col){
+  return '<div class="ic-card"><div class="icl">'+label+'</div>'
+    +'<div class="icv" style="color:'+(col||'var(--tx)')+'">'+val+'</div>'
+    +'<div class="ics">'+sub+'</div></div>';
+}
+
 function updTL(k){
  const TL={
   base:[{a:1,l:'Now',e:'Warsh hawkish'},{a:0,l:'Q3 2026',e:'Iran deal limbo'},{a:0,l:'Q3 2026',e:'New PCE data'},{a:0,l:'Q4 2026',e:'First cut'},{a:0,l:'Q1 2027',e:'SLR dereg'},{a:0,l:'Q2 2027',e:'Covert QE fires'}],
@@ -1306,6 +1537,7 @@ function updTL(k){
   stag:[{a:1,l:'Now',e:'Warsh hawkish'},{a:0,l:'M+2',e:'Oil $115+'},{a:0,l:'M+3',e:'Growth stalls'},{a:0,l:'M+4',e:'Fed trapped'},{a:0,l:'M+6',e:'S&P -25%'},{a:0,l:'EOY',e:'Gold $3000+'}],
   strong:[{a:1,l:'Now',e:'DXY grinding up'},{a:0,l:'M+1',e:'27 nations seek USD'},{a:0,l:'M+2',e:'DXY breaks 107'},{a:0,l:'M+3',e:'Multinational EPS cut'},{a:0,l:'M+4',e:'Small caps lead'},{a:0,l:'Q4',e:'DXY 110 target'}],
   carry:[{a:1,l:'Now',e:'BOJ hawkish tilt'},{a:0,l:'Day 1',e:'BOJ shock hike'},{a:0,l:'Day 2-3',e:'Weak US data'},{a:0,l:'Wk 1',e:'USD/JPY breaks 150'},{a:0,l:'Wk 2-3',e:'Margin call cascade'},{a:0,l:'M+1',e:'Fed liquidity backstop'}],
+  inflate:[{a:1,l:'Now',e:'$8T rollover wall'},{a:0,l:'Q3 2026',e:'30Y yield strains'},{a:0,l:'Q4 2026',e:'Fed caps long end'},{a:0,l:'2027',e:'Real rate goes -3%'},{a:0,l:'2027-30',e:'Gold/silver run'},{a:0,l:'5-8 yrs',e:'Debt/GDP inflated down'}],
  };
  const tl=TL[k]||TL.base;
  document.getElementById('tl').innerHTML=tl.map(i=>'<div class="tli"><div class="tld '+(i.a?'on':'')+'">'+( i.a?'✓':'○')+'</div><div class="tll">'+i.l+'</div><div class="tle">'+i.e+'</div></div>').join('');
@@ -1334,7 +1566,7 @@ function upd(){
  document.getElementById('narr').innerHTML=NARRS[k]||NARRS.base;
  const al=document.getElementById('oil-alert');
  v.oil>=90?al.classList.add('show'):al.classList.remove('show');
- updSigs(v);updCharts(v,k);updBars(k);updMbar(v,k);updTL(k);
+ updSigs(v);updCharts(v,k);updBars(k);updMbar(v,k);updTL(k);updInflate(v,k);
  mkGrid(DB.gold,k,'g-gold');
  mkGrid(DB.banks,k,'g-banks');
  mkGrid(DB.tech,k,'g-tech');
@@ -1690,11 +1922,14 @@ async function alpacaBTC(){
 // Calibration pairs: [ETF baseline price] ↔ [macro baseline value].
 const ALPACA_MACRO_PROXY = {
   // key      etf     etfBase   macroBase(display units)   how to read
-  oil:    {etf:'USO', eb:78.5,  mb:68.0  },   // WTI $/bbl   (USO ≈ oil futures)
-  gold:   {etf:'GLD', eb:378.0, mb:4100.0},   // gold $/oz   (GLD ≈ spot/10)
-  dxy:    {etf:'UUP', eb:28.4,  mb:101.3 },   // DXY index   (UUP ≈ dollar)
-  yield:  {etf:'IEF', eb:95.30, mb:4.48  },   // 10Y % — INVERSE (bond price up = yield down)
-  y2:     {etf:'SHY', eb:82.60, mb:4.24  },   // 2Y  % — INVERSE
+  // Last-resort approximations only. Baselines re-anchored to ~July 2026 so the proxy
+  // isn't wildly off if the real CL.F/DX.F/XAUUSD feeds are ever unavailable. Oil is the
+  // least reliable (USO roll/contango) — that's why real WTI is always tried first now.
+  oil:    {etf:'USO', eb:80.0,  mb:80.0  },   // WTI $/bbl   (USO ≈ near-dated, ~1:1 currently)
+  gold:   {etf:'GLD', eb:392.0, mb:4250.0},   // gold $/oz   (GLD ≈ spot/10.8)
+  dxy:    {etf:'UUP', eb:28.4,  mb:97.5  },   // DXY index   (UUP ≈ dollar)
+  yield:  {etf:'IEF', eb:94.10, mb:4.35  },   // 10Y % — INVERSE (bond price up = yield down)
+  y2:     {etf:'SHY', eb:82.30, mb:3.95  },   // 2Y  % — INVERSE
   vix:    {etf:'VIXY',eb:44.0,  mb:16.5  },   // VIX level   (VIXY ≈ short-term VIX futures)
   spx:    {etf:'SPY', eb:681.5, mb:6850.0},   // S&P 500     (SPY × ~10.05 ≈ index) — chart anchor
   copper: {etf:'CPER',eb:31.0,  mb:5.05  },   // copper $/lb (CPER ≈ copper futures)
@@ -1725,6 +1960,7 @@ async function doRefresh(){
   setProgress(0);
   liveCount = 0; macroLive = 0;
   NET_ERRS.length = 0;
+  lastVia = '';
 
   // ── Phase 1: Macro + index series ──────────────────────────
   // Priority: Alpaca ETF proxies (clean feed, user's key) → Stooq → Yahoo.
@@ -1751,58 +1987,74 @@ async function doRefresh(){
   };
 
   const doneM = new Set(), doneI = new Set();
-  const macroSrc = {}; // key → 'alpaca' | 'stooq' | 'yahoo' for diagnostics
+  const macroSrc = {}; // key → 'stooq' | 'yahoo' | 'etf-proxy' for diagnostics
+  const proxied  = new Set(); // macro keys that fell back to an ETF approximation
 
-  // 1a. Alpaca ETF-proxy macro (oil, gold, dxy, yield, y2, vix) + crypto BTC
-  if (alpacaReady()){
-    const am = await alpacaMacroFromETF();
-    macroCfgs.forEach(cfg => {
-      if (am[cfg.key] != null && applyMacro(cfg, am[cfg.key])){ doneM.add(cfg.key); macroSrc[cfg.key]='alpaca'; }
-    });
-    // index series that map to a macro proxy (gold, vix)
-    ['gold','vix','spx','copper'].forEach(k => { if (am[k] != null && applyIdx(k, am[k])){ doneI.add(k); } });
-    // HYG + IEF for the credit-risk signal (both are Alpaca-tradable ETFs)
-    const credEtfs = await alpacaBatch(['HYG','IEF']);
-    if (credEtfs.HYG > 0 && applyIdx('hyg', credEtfs.HYG)) doneI.add('hyg');
-    if (credEtfs.IEF > 0 && applyIdx('ief', credEtfs.IEF)) doneI.add('ief');
-    // BTC straight from Alpaca crypto — highest priority, real-time trade
-    const btc = await alpacaBTC();
-    if (btc && applyIdx('btc', btc)){ doneI.add('btc'); }
-    if (doneM.size || doneI.size) lastVia = 'Alpaca (ETF proxies)';
-  }
-  setProgress(8);
+  // NOTE ON ORDERING (fixes oil reading high):
+  // Oil, DXY, gold and yields have REAL market symbols on Stooq/Yahoo (CL.F, DX.F,
+  // XAUUSD, 10YUSY.B ...). Those are exact. The Alpaca ETF proxies (USO, UUP, GLD ...)
+  // only APPROXIMATE the underlying and drift over time (USO especially, via futures
+  // roll/contango — it was reading oil several dollars high). So we now fetch the real
+  // symbols FIRST and use the ETF proxy ONLY as a last resort, clearly labeled.
 
-  // 1b. Stooq for whatever Alpaca didn't cover
-  const needM = macroCfgs.filter(c=>!doneM.has(c.key));
-  const needI = idxKeys.filter(k=>!doneI.has(k));
-  if (needM.length || needI.length){
-    const p1Syms = needM.map(c=>c.s).concat(needI.map(k=>IDX_SQ[k].s));
+  // 1a. Stooq real market symbols — accurate, tried first
+  {
+    const p1Syms = macroCfgs.map(c=>c.s).concat(idxKeys.map(k=>IDX_SQ[k].s));
     const p1 = await sqBatch(p1Syms);
-    needM.forEach(cfg => {
+    macroCfgs.forEach(cfg => {
       const raw = p1[cfg.s.toUpperCase()];
       if (raw != null && applyMacro(cfg, raw)){ doneM.add(cfg.key); macroSrc[cfg.key]='stooq'; }
     });
-    needI.forEach(k => {
+    idxKeys.forEach(k => {
       const raw = p1[IDX_SQ[k].s.toUpperCase()];
       if (raw != null && applyIdx(k, raw)) doneI.add(k);
     });
+    if (doneM.size || doneI.size) lastVia = 'Stooq (real)';
+  }
+  setProgress(7);
+
+  // 1b. Yahoo real market symbols — for whatever Stooq missed (still exact, not a proxy)
+  {
+    const needM = macroCfgs.filter(c=>!doneM.has(c.key));
+    const needI = idxKeys.filter(k=>!doneI.has(k));
+    if (needM.length || needI.length){
+      const yq = needM.map(c=>Y_MACRO[c.key]).concat(needI.map(k=>Y_IDX[k])).filter(Boolean);
+      if (yq.length){
+        const yr = await yhBatch(yq);
+        needM.forEach(cfg => {
+          let raw = yr[Y_MACRO[cfg.key]];
+          if (raw != null && cfg.key === 'yield' && raw > 20) raw = raw / 10; // ^TNX quoted ×10
+          if (raw != null && applyMacro(cfg, raw)){ doneM.add(cfg.key); macroSrc[cfg.key]='yahoo'; }
+        });
+        needI.forEach(k => { const raw = yr[Y_IDX[k]]; if (raw != null && applyIdx(k, raw)) doneI.add(k); });
+        if ((doneM.size || doneI.size) && lastVia === '') lastVia = 'Yahoo (real)';
+      }
+    }
   }
   setProgress(11);
 
-  // 1c. Yahoo for anything STILL missing
-  const missM = macroCfgs.filter(c=>!doneM.has(c.key));
-  const missI = idxKeys.filter(k=>!doneI.has(k));
-  if (missM.length || missI.length){
-    setStat('Filling macro gaps from Yahoo Finance...');
-    const yq = missM.map(c=>Y_MACRO[c.key]).concat(missI.map(k=>Y_IDX[k])).filter(Boolean);
-    if (yq.length){
-      const yr = await yhBatch(yq);
-      missM.forEach(cfg => {
-        let raw = yr[Y_MACRO[cfg.key]];
-        if (raw != null && cfg.key === 'yield' && raw > 20) raw = raw / 10; // ^TNX quoted ×10
-        if (raw != null && applyMacro(cfg, raw)){ doneM.add(cfg.key); macroSrc[cfg.key]='yahoo'; }
+  // 1c. Alpaca ETF-proxy — LAST RESORT for macro (approximate), but still the primary
+  //     source for BTC (real crypto trade) and the HYG/IEF credit ETFs (exact ETF prices).
+  if (alpacaReady()){
+    // BTC straight from Alpaca crypto — real-time trade, highest priority regardless
+    if (!doneI.has('btc')){ const btc = await alpacaBTC(); if (btc && applyIdx('btc', btc)) doneI.add('btc'); }
+    // Credit ETFs are real Alpaca prices (not a proxy) — fill if the real feeds missed them
+    const needCred = ['hyg','ief'].filter(k=>!doneI.has(k));
+    if (needCred.length){
+      const credEtfs = await alpacaBatch(['HYG','IEF']);
+      if (!doneI.has('hyg') && credEtfs.HYG > 0 && applyIdx('hyg', credEtfs.HYG)) doneI.add('hyg');
+      if (!doneI.has('ief') && credEtfs.IEF > 0 && applyIdx('ief', credEtfs.IEF)) doneI.add('ief');
+    }
+    // Only now, if a macro series is STILL missing, approximate it from an ETF proxy
+    const stillM = macroCfgs.filter(c=>!doneM.has(c.key));
+    const stillI = ['gold','vix','spx','copper'].filter(k=>!doneI.has(k));
+    if (stillM.length || stillI.length){
+      const am = await alpacaMacroFromETF();
+      stillM.forEach(cfg => {
+        if (am[cfg.key] != null && applyMacro(cfg, am[cfg.key])){ doneM.add(cfg.key); macroSrc[cfg.key]='etf-proxy'; proxied.add(cfg.key); }
       });
-      missI.forEach(k => { const raw = yr[Y_IDX[k]]; if (raw != null && applyIdx(k, raw)) doneI.add(k); });
+      stillI.forEach(k => { if (am[k] != null && applyIdx(k, am[k])) doneI.add(k); });
+      if (proxied.size && lastVia === '') lastVia = 'Alpaca (ETF proxy)';
     }
   }
   macroLive = doneM.size + doneI.size;
@@ -1875,15 +2127,20 @@ async function doRefresh(){
   const macroWarn = criticalMissing.length
     ? ` ⚠ ${criticalMissing.map(k=>({oil:'WTI',yield:'10Y',y2:'2Y',dxy:'DXY'}[k]||k)).join('/')} on baseline (live fetch failed)`
     : '';
+  // Note any macro series still coming from an approximate ETF proxy (not exact real-symbol data)
+  const proxyKeys = [...proxied].filter(k => k !== 'usdjpy');
+  const proxyNote = proxyKeys.length
+    ? ` ⓘ ${proxyKeys.map(k=>({oil:'WTI',yield:'10Y',y2:'2Y',dxy:'DXY',gold:'gold'}[k]||k)).join('/')} approximated via ETF proxy (real feed unavailable)`
+    : '';
 
   if (liveCount > 40){
     setDot(criticalMissing.length ? 'err' : '');
     const aStr = alpacaHits > 0 ? ` (${alpacaHits} via Alpaca)` : '';
-    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live${aStr}${viaStr}${macroWarn}`);
+    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live${aStr}${viaStr}${macroWarn}${proxyNote}`);
     setTime(`Updated ${ds} ${ts}`, criticalMissing.length ? 'stale' : '');
   } else if (liveCount > 0 || macroLive > 0){
     setDot('');
-    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live (partial)${viaStr}${macroWarn}`);
+    setStat(`${macroStr} · ${liveCount}/${ALL_TKS.length} stocks live (partial)${viaStr}${macroWarn}${proxyNote}`);
     setTime(`Updated ${ds} ${ts}`, 'stale');
   } else {
     setDot('err');
@@ -1941,6 +2198,11 @@ window.addEventListener('load',()=>{
   initCharts();
   bldAngles();
   upd();          // render cards immediately with baseline data — never wait for network
+  // Inflate-$ calculator inputs recompute the panel live (without touching sliders)
+  ['ic-debt','ic-dgdp','ic-roll','ic-oldc','ic-grow','ic-def','ic-tgt','ic-yrs'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.addEventListener('input',()=>updInflate(gv(), gkey(gv())));
+  });
   doRefresh();    // then fetch live data in background; upd() called again when done
 });
 // ── Expose ALL functions called from HTML attributes ────────────
@@ -1950,6 +2212,8 @@ window.setScen     = setScen;
 window.doRefresh   = doRefresh;
 window.collapseAll = collapseAll;
 window.updPulse    = updPulse;
+window.updInflate  = updInflate;
+window.setInflatePath = setInflatePath;
 window.toggleApiPanel = toggleApiPanel;
 window.saveAlpaca  = saveAlpaca;
 window.clearAlpaca = clearAlpaca;
