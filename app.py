@@ -1442,6 +1442,8 @@ with tab_top20:
                      subset=["Tech", "Quality", "Tailwind"]),
                 width="stretch", hide_index=True, height=740,
                 on_select="rerun", selection_mode="single-row", key="top20_table",
+                column_order=["Ticker", "Sector", "Price", "Piotroski",
+                              "RevGrowth", "RVOL", "RangePos", "Catalysts"],
                 column_config={
                     "Score": st.column_config.Column(help="Combined score: 45% technicals + 25% quality + 30% cascade tailwind, multiplied by the macro-regime sector fit."),
                     "Tech": st.column_config.Column(help="IGNITION technical percentile: momentum, range position, relative volume, trend, RSI sweet spot, MACD."),
