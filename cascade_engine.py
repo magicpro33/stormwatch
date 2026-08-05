@@ -1995,26 +1995,26 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
     for j in idx:
         now = feats[j]
         has_rvol = np.isfinite(now[2])
+        # mirror outcome_forecast EXACTLY: widen until >=250 matches; if none
+        # of the three levels reaches 250, keep the LAST (widest) sample — the
+        # binning only restricts WHICH library rows are candidates, never how
+        # the match itself is computed. The momentum window at widen 2.4 spans
+        # +/-0.24, which always contains the full |mom_pct diff|<=0.24 set the
+        # original scans, so the two select identical rows.
         sel = None
         for widen in (1.0, 1.6, 2.4):
             mtol = tol[0] * widen
             a = np.searchsorted(fmom, now[0] - mtol, "left")
             b = np.searchsorted(fmom, now[0] + mtol, "right")
-            if b - a < 60:
-                continue
             win_R = Rs[a:b]; win_F = Fs[a:b]
-            m = (np.abs(win_F[:, 1] - now[1]) <= tol[1] * widen) & (win_F[:, 3] == now[3])
+            m = ((np.abs(win_F[:, 0] - now[0]) <= tol[0] * widen)
+                 & (np.abs(win_F[:, 1] - now[1]) <= tol[1] * widen)
+                 & (win_F[:, 3] == now[3]))
             if has_rvol:
                 m &= np.abs(win_F[:, 2] - min(now[2], 3)) <= tol[2] * widen
-            if m.sum() >= 250:
-                sel = win_R[m]; break
-        else:
-            if sel is None and (b - a) >= 60:
-                win_R = Rs[a:b]; win_F = Fs[a:b]
-                m = (np.abs(win_F[:, 1] - now[1]) <= tol[1] * 2.4) & (win_F[:, 3] == now[3])
-                if has_rvol:
-                    m &= np.abs(win_F[:, 2] - min(now[2], 3)) <= tol[2] * 2.4
-                sel = win_R[m]
+            sel = win_R[m]                       # always keep the current sample
+            if m.sum() >= 250:                   # ...but stop once we have enough
+                break
         if sel is None or len(sel) < min_n:
             continue
         f21 = sel[:, 1]
