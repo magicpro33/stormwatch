@@ -20,7 +20,7 @@ import streamlit as st
 
 import cascade_engine as ce
 
-REQUIRED_ENGINE = "2.7"
+REQUIRED_ENGINE = "2.8"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -251,6 +251,11 @@ def _forecast_scan(_asof: str, _gauge, _override=None):
     F, R = _analog_library(_asof)
     return ce.forecast_scan(_history(), F, R, pressure_gauge=_gauge,
                             regime_override=_override)
+
+
+@st.cache_data(ttl=1800, show_spinner="🔮 Forecasting EVERY tradeable stock and ranking by odds of gain…")
+def _forecast_all(_asof: str):
+    return ce.forecast_all()
 
 
 @st.cache_data(ttl=3600, show_spinner="Reading the news for catalyst tags on the finalists…")
@@ -1369,9 +1374,21 @@ with tab_top20:
                       "rather than the highest composite score."):
         st.session_state["top20_go"] = True
         st.session_state["top20_mode"] = "forecast"
+    _scan_all = st.toggle(
+        "🌐 Scan the entire universe (~5,700 stocks, ~4s)", value=True,
+        key="forecast_all_toggle",
+        help="ON: forecast every tradeable stock in the dump and rank the whole "
+             "universe by odds of gain (vectorized — takes a few seconds). OFF: "
+             "forecast just a 120-name cascade shortlist (faster, and the macro "
+             "scenario override applies).")
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "forecast":
         try:
-            fc20, reg = _forecast_scan(asof, _gauge, _override)
+            if _scan_all and not _override:
+                fc20 = _forecast_all(asof)
+                reg = ce.macro_regime(closes, pressure_gauge=_gauge)
+                fc20 = fc20.head(20)
+            else:
+                fc20, reg = _forecast_scan(asof, _gauge, _override)
         except Exception as e:
             st.error(f"Best-odds scan failed: {e}")
             fc20, reg = pd.DataFrame(), {}
@@ -1384,7 +1401,8 @@ with tab_top20:
                 <span style="font-weight:700;">🔮 Best-odds leaderboard — ranked by analog odds of gain</span><br>
                 <span style="color:{DIM};font-size:12px;">Each stock's look-alike history says how
                 often it finished up over 21 sessions. Sorted by those odds (typical size breaks
-                ties). Regime: {reg.get('label','—')}.</span></div>""", unsafe_allow_html=True)
+                ties). {'Whole universe (~5,700 stocks).' if (_scan_all and not _override) else 'From a 120-name cascade shortlist.'}
+                Regime: {reg.get('label','—')}.</span></div>""", unsafe_allow_html=True)
             _fc = fc20.copy()
             _fcsel = st.dataframe(
                 _fc.style.format({"Price": "${:,.2f}", "OddsUp": "{:.0f}%",

@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.7"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.8"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1936,3 +1936,98 @@ def forecast_scan(node_closes: pd.DataFrame, F, R, pressure_gauge=None,
     # rank by odds of gain, then by typical size as the tiebreaker
     df = df.sort_values(["OddsUp", "Typical"], ascending=False).head(top)
     return df.reset_index(drop=True), regime
+
+
+def _now_features_all():
+    """Today's analog features for EVERY dump stock at once — the vectorized
+    twin of _now_features. Returns (feat matrix Nx4, tradeable mask)."""
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    C, V = panel["c"], np.nan_to_num(panel["v"])
+    t = C.shape[0] - 1
+    mom = C[t - 5] / C[t - 63] - 1.0
+    mom_pct = pd.Series(mom).rank(pct=True).values
+    lo = np.nanmin(panel["l"][t - 62:t + 1], 0)
+    hi = np.nanmax(panel["h"][t - 62:t + 1], 0)
+    rangepos = (C[t] - lo) / np.where(hi - lo == 0, np.nan, hi - lo)
+    rvbase = V[t - 62:t + 1].mean(0)
+    rvol = V[t - 4:t + 1].mean(0) / np.where(rvbase == 0, np.nan, rvbase)
+    above = (C[t] > np.nanmean(C[t - 49:t + 1], 0)).astype(np.float32)
+    feats = np.column_stack([mom_pct, rangepos, np.minimum(rvol, 3), above]).astype(np.float32)
+    tradeable = (np.isfinite(C[t]) & (C[t] >= 3)
+                 & np.isfinite(mom_pct) & np.isfinite(rangepos) & np.isfinite(rvol)
+                 & (mdv >= 2e6))
+    return feats, tradeable
+
+
+def forecast_all(min_n: int = 300, price_floor: float = 3.0,
+                 mdv_floor: float = 2e6):
+    """Odds-of-gain forecast for the ENTIRE tradeable universe in one
+    vectorized sweep — no per-ticker Python calls, no shortlist. Mirrors
+    outcome_forecast's analog math exactly (same tolerances, same widen
+    ladder, same 300-case floor) but matches every stock against the
+    library `F` in a tight numpy loop over pre-sorted momentum bins, so it
+    scales to all ~5,700 names in a few seconds. Returns a DataFrame with
+    OddsUp / Typical / PopOdds / Worst10 / Best10 / Cases per stock."""
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    F, R = _feature_panels()
+    feats, tradeable = _now_features_all()
+    if price_floor != 3.0 or mdv_floor != 2e6:
+        C = panel["c"]
+        tradeable = (np.isfinite(C[-1]) & (C[-1] >= price_floor)
+                     & np.isfinite(feats[:, 0]) & np.isfinite(feats[:, 1])
+                     & (mdv >= mdv_floor))
+    idx = np.where(tradeable)[0]
+
+    # sort the library by momentum percentile so each stock scans only the
+    # slice within the widest momentum tolerance (0.10 * 2.4 = 0.24) instead
+    # of all ~150k rows — turns an O(N*L) sweep into O(N*window)
+    order = np.argsort(F[:, 0])
+    Fs = F[order]; Rs = R[order]
+    fmom = Fs[:, 0]
+    base21 = R[:, 1]
+    p_pop_base = float((base21 >= 0.15).mean())
+    p_drop_base = float((base21 <= -0.15).mean())
+    L = len(Fs)
+    px = panel["c"][-1]
+
+    tol = np.array([0.10, 0.15, 0.50, 0.0])
+    rows = []
+    for j in idx:
+        now = feats[j]
+        has_rvol = np.isfinite(now[2])
+        sel = None
+        for widen in (1.0, 1.6, 2.4):
+            mtol = tol[0] * widen
+            a = np.searchsorted(fmom, now[0] - mtol, "left")
+            b = np.searchsorted(fmom, now[0] + mtol, "right")
+            if b - a < 60:
+                continue
+            win_R = Rs[a:b]; win_F = Fs[a:b]
+            m = (np.abs(win_F[:, 1] - now[1]) <= tol[1] * widen) & (win_F[:, 3] == now[3])
+            if has_rvol:
+                m &= np.abs(win_F[:, 2] - min(now[2], 3)) <= tol[2] * widen
+            if m.sum() >= 250:
+                sel = win_R[m]; break
+        else:
+            if sel is None and (b - a) >= 60:
+                win_R = Rs[a:b]; win_F = Fs[a:b]
+                m = (np.abs(win_F[:, 1] - now[1]) <= tol[1] * 2.4) & (win_F[:, 3] == now[3])
+                if has_rvol:
+                    m &= np.abs(win_F[:, 2] - min(now[2], 3)) <= tol[2] * 2.4
+                sel = win_R[m]
+        if sel is None or len(sel) < min_n:
+            continue
+        f21 = sel[:, 1]
+        rows.append((tickers[j], sectors[j], round(float(px[j]), 2),
+                     round(float((f21 > 0).mean()) * 100, 0),
+                     round(float(np.median(f21)) * 100, 1),
+                     round(float((f21 >= 0.15).mean()) * 100, 0),
+                     round(float(np.quantile(f21, 0.10)) * 100, 0),
+                     round(float(np.quantile(f21, 0.90)) * 100, 0),
+                     int(len(sel))))
+    cols = ["Ticker", "Sector", "Price", "OddsUp", "Typical",
+            "PopOdds", "Worst10", "Best10", "Cases"]
+    df = pd.DataFrame(rows, columns=cols)
+    if df.empty:
+        return df
+    return df.sort_values(["OddsUp", "Typical"], ascending=False).reset_index(drop=True)
