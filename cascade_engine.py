@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.6"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.7"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1900,3 +1900,39 @@ def yen_carry_monitor(closes: pd.DataFrame) -> dict:
                 qqq_z=round(qqq_z, 2) if np.isfinite(qqq_z) else None,
                 btc_z=round(btc_z, 2) if np.isfinite(btc_z) else None,
                 vix_z=round(vix_z, 2) if np.isfinite(vix_z) else None)
+
+
+def forecast_scan(node_closes: pd.DataFrame, F, R, pressure_gauge=None,
+                  regime_override: str | None = None,
+                  shortlist: int = 120, top: int = 20,
+                  min_n: int = 300) -> tuple:
+    """🔮 Best-odds preset: take a broad cascade shortlist, run the analog
+    forecast on each, and rerank by ODDS OF GAIN (p_up) — the probability the
+    look-alike cases finished higher in 21 sessions. A minimum sample-size
+    guard (min_n) stops a thin, noisy match from topping the board. Returns
+    (top-N DataFrame sorted by odds, regime dict)."""
+    base, regime = mega_scan(node_closes, pressure_gauge=pressure_gauge,
+                             top=shortlist, regime_override=regime_override)
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    rows = []
+    for _, r in base.iterrows():
+        oc = outcome_forecast(r["Ticker"], F, R)
+        n = oc.get("n", 0)
+        if not oc or n < min_n:
+            continue
+        rows.append(dict(
+            Ticker=r["Ticker"], Sector=r["Sector"], Price=r["Price"],
+            OddsUp=round(oc["p_up"] * 100, 0),
+            Typical=round(oc["med21"] * 100, 1),
+            PopOdds=round(oc.get("p_pop", 0) * 100, 0),
+            Worst10=round(oc.get("q10", float("nan")) * 100, 0),
+            Best10=round(oc.get("q90", float("nan")) * 100, 0),
+            Cases=int(n),
+            Catalysts=r.get("Catalysts", ""),
+        ))
+    if not rows:
+        return base.iloc[0:0], regime
+    df = pd.DataFrame(rows)
+    # rank by odds of gain, then by typical size as the tiebreaker
+    df = df.sort_values(["OddsUp", "Typical"], ascending=False).head(top)
+    return df.reset_index(drop=True), regime

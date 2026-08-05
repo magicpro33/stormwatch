@@ -20,7 +20,7 @@ import streamlit as st
 
 import cascade_engine as ce
 
-REQUIRED_ENGINE = "2.6"
+REQUIRED_ENGINE = "2.7"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -244,6 +244,13 @@ def _mega_scan(_asof: str, _gauge, _override=None):
 @st.cache_data(ttl=1800, show_spinner="🎩 Running the five-test quality checklist on all 5,700 stocks…")
 def _felix_scan(_asof: str):
     return ce.felix_scan()
+
+
+@st.cache_data(ttl=1800, show_spinner="🔮 Forecasting the shortlist and ranking by odds of gain…")
+def _forecast_scan(_asof: str, _gauge, _override=None):
+    F, R = _analog_library(_asof)
+    return ce.forecast_scan(_history(), F, R, pressure_gauge=_gauge,
+                            regime_override=_override)
 
 
 @st.cache_data(ttl=3600, show_spinner="Reading the news for catalyst tags on the finalists…")
@@ -1352,6 +1359,63 @@ with tab_top20:
     if _sc2.button("🚀 Scan now", type="primary", key="top20_scan", width="stretch"):
         st.session_state["top20_go"] = True
         st.session_state["top20_mode"] = "cascade"
+    if st.button("🔮 Best Odds — rank by Outcome forecast", key="forecast_scan_btn",
+                 width="stretch",
+                 help="Takes a broad cascade shortlist and runs the Stock Lookup "
+                      "analog forecast on each, then ranks by ODDS OF GAIN — the "
+                      "share of look-alike cases that finished higher in 21 "
+                      "sessions. A 300-case minimum keeps thin, noisy matches off "
+                      "the board. This surfaces the highest-probability setups "
+                      "rather than the highest composite score."):
+        st.session_state["top20_go"] = True
+        st.session_state["top20_mode"] = "forecast"
+    if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "forecast":
+        try:
+            fc20, reg = _forecast_scan(asof, _gauge, _override)
+        except Exception as e:
+            st.error(f"Best-odds scan failed: {e}")
+            fc20, reg = pd.DataFrame(), {}
+        if fc20.empty:
+            st.info("No candidates cleared the 300-case forecast minimum this "
+                    "run — try again after a data refresh.")
+        else:
+            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                <span style="font-weight:700;">🔮 Best-odds leaderboard — ranked by analog odds of gain</span><br>
+                <span style="color:{DIM};font-size:12px;">Each stock's look-alike history says how
+                often it finished up over 21 sessions. Sorted by those odds (typical size breaks
+                ties). Regime: {reg.get('label','—')}.</span></div>""", unsafe_allow_html=True)
+            _fc = fc20.copy()
+            _fcsel = st.dataframe(
+                _fc.style.format({"Price": "${:,.2f}", "OddsUp": "{:.0f}%",
+                                  "Typical": "{:+.1f}%", "PopOdds": "{:.0f}%",
+                                  "Worst10": "{:+.0f}%", "Best10": "{:+.0f}%",
+                                  "Cases": "{:,}"}, na_rep="—")
+                .map(lambda v: f"color:{GREEN};font-weight:700" if isinstance(v,(int,float)) and v>=60
+                     else (f"color:{RED}" if isinstance(v,(int,float)) and v<50 else ""),
+                     subset=["OddsUp"])
+                .map(lambda v: _css_sign(v) if isinstance(v,(int,float)) else "", subset=["Typical"]),
+                width="stretch", hide_index=True, height=740,
+                on_select="rerun", selection_mode="single-row", key="forecast_table",
+                column_config={
+                    "OddsUp": st.column_config.Column(help="Share of analog look-alike cases that finished HIGHER after 21 sessions. This is what the preset ranks by."),
+                    "Typical": st.column_config.Column(help="Median analog outcome — the middle-of-the-pack result. Breaks ties on odds."),
+                    "PopOdds": st.column_config.Column(help="Share of analogs that popped +15% or more."),
+                    "Worst10": st.column_config.Column(help="10th-percentile analog outcome — the rough worst case (1 in 10 did at least this badly)."),
+                    "Best10": st.column_config.Column(help="90th-percentile analog outcome — the rough best case."),
+                    "Cases": st.column_config.Column(help="How many historical look-alikes this forecast is built on. 300+ enforced."),
+                })
+            _fcr = (_fcsel.selection.rows if _fcsel and getattr(_fcsel,"selection",None) else [])
+            if _fcr:
+                _fctk = _fc.iloc[_fcr[0]].Ticker
+                if st.session_state.get("_fc_handled") != _fctk:
+                    st.session_state["_fc_handled"] = _fctk
+                    st.session_state["lk_tk"] = _fctk
+                    st.rerun()
+            st.caption("👆 Tap any row to open the full forecast in Stock Lookup. "
+                       "Highest odds ≠ biggest gain — check the Typical and Worst-10 "
+                       "columns before sizing.")
+
     if st.button("🎩 Felix — the five-test quality checklist", key="felix_scan_btn",
                  width="stretch",
                  help="The investment-banker checklist from the hybrid screener, run "
