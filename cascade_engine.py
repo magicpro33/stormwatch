@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.8"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.9"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1522,12 +1522,71 @@ def fetch_analyzer(ticker: str):
 # Live translation: oil = USO trend, dollar = UUP trend, QE-ness = the
 # pressure gauge (net liquidity + stablecoins + credit), shock = VIX impulse.
 REGIME_LABELS = {
-    "qe":     "💧 QE / liquidity flood — high-beta growth, gold, small caps lead",
-    "stag":   "🔥 Stagflation — energy & hard assets lead, cyclicals lag",
-    "bull":   "🌞 Calm melt-up — cyclicals, tech, small caps lead",
-    "bear":   "🌩 Shock / risk-off — energy, defense, gold; cut high beta",
-    "strong": "💵 Strong dollar squeeze — domestic quality; gold & EM lag",
-    "base":   "⛅ Base case — no dominant macro force, quality wins",
+    "qe":     "💧 Easy Money — the Fed's adding liquidity, risk assets float up",
+    "stag":   "🔥 Hot Inflation — oil & hard assets win, growth gets repriced",
+    "bull":   "☀️ Risk-On Calm — steady climb, cyclicals & tech lead",
+    "bear":   "⛈️ Fear / Risk-Off — money flees to safety & gold",
+    "strong": "💵 Rising Dollar — US quality holds, gold & foreign lag",
+    "base":   "⛅ No Clear Driver — no dominant force, quality quietly wins",
+}
+
+# short names for the dropdown (emoji + plain name only)
+REGIME_NAMES = {
+    "qe": "💧 Easy Money", "stag": "🔥 Hot Inflation", "bull": "☀️ Risk-On Calm",
+    "bear": "⛈️ Fear / Risk-Off", "strong": "💵 Rising Dollar",
+    "base": "⛅ No Clear Driver",
+}
+
+# structured explainer cards (Option 3): name, aka, story, leads, lags, trigger
+REGIME_CARDS = {
+    "qe": dict(
+        emoji="💧", name="Easy Money", aka="QE / liquidity flood",
+        story="The Fed is pumping liquidity into the system. With cheap money "
+              "everywhere, investors reach for risk — the more speculative, the "
+              "better — and hard assets like gold rise as the dollar is diluted.",
+        leads="Tech · Growth · Small caps · Gold & miners · Crypto-adjacent",
+        lags="Cash · Defensive staples · Utilities",
+        trigger="the pressure gauge is firmly positive and liquidity is expanding"),
+    "stag": dict(
+        emoji="🔥", name="Hot Inflation", aka="stagflation",
+        story="Prices are rising faster than the economy is growing. Oil, metals, "
+              "and the companies that dig them up hold their value; anything priced "
+              "on future growth gets marked down as rates stay high.",
+        leads="Energy · Materials & miners · Consumer staples · Utilities",
+        lags="Tech · Consumer discretionary · Real estate · High-growth",
+        trigger="oil is climbing, the Fed is holding rates high, and bonds are weak"),
+    "bull": dict(
+        emoji="☀️", name="Risk-On Calm", aka="calm melt-up",
+        story="The economy is growing steadily and fear is low, so money moves out "
+              "the risk curve into the things that do best when the expansion runs — "
+              "economically-sensitive and higher-beta names.",
+        leads="Consumer discretionary · Tech · Industrials · Financials · Small caps",
+        lags="Defensive staples · Utilities · Energy",
+        trigger="oil is soft, volatility is calm, and no shock is on the tape"),
+    "bear": dict(
+        emoji="⛈️", name="Fear / Risk-Off", aka="shock / crash",
+        story="Something broke and volatility is spiking. Money doesn't ask "
+              "questions — it flees anything risky and crowds into safety, "
+              "defensives, and gold until the dust settles.",
+        leads="Consumer staples · Utilities · Healthcare · Gold · Defense",
+        lags="High-beta · Tech · Consumer discretionary · Small caps · Crypto-adjacent",
+        trigger="the VIX is spiking, or a yen-carry unwind signature is firing"),
+    "strong": dict(
+        emoji="💵", name="Rising Dollar", aka="strong-dollar squeeze",
+        story="A strengthening dollar squeezes anything that earns money abroad or "
+              "is priced in dollars. Domestic, US-focused quality holds up while "
+              "commodities and foreign markets lag.",
+        leads="US-focused financials · Domestic quality · Defensive staples",
+        lags="Gold · Emerging markets · Materials · Multinational exporters",
+        trigger="the dollar is trending strongly higher over the past quarter"),
+    "base": dict(
+        emoji="⛅", name="No Clear Driver", aka="base case",
+        story="No single macro force is in charge. Without a dominant tailwind or "
+              "headwind, the market rewards fundamentals — durable, well-run, "
+              "reasonably-priced businesses quietly win.",
+        leads="Quality across sectors · Steady compounders",
+        lags="Story stocks without earnings · Deep cyclicals",
+        trigger="none of the other five conditions is clearly present"),
 }
 
 # regime → sector multiplier (distilled from the simulator's per-stock

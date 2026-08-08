@@ -20,7 +20,7 @@ import streamlit as st
 
 import cascade_engine as ce
 
-REQUIRED_ENGINE = "2.8"
+REQUIRED_ENGINE = "2.9"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -1351,36 +1351,80 @@ with tab_top20:
         st.session_state["_gauge_cache"] = _gauge
     except Exception:
         _gauge = None
-    _scn_opts = {"📡 Auto — use the live-detected regime": None}
-    _scn_opts.update({f"🎛 {v}": k for k, v in ce.REGIME_LABELS.items()})
-    _sc1, _sc2 = st.columns([3, 1], vertical_alignment="bottom")
-    _scn_label = _sc1.selectbox(
+    # ── unified scan control: method + scenario + run, all one menu ──
+    _METHODS = {
+        "🌊 Cascade Score": "cascade",
+        "🔮 Best Odds (Outcome forecast)": "forecast",
+        "🎩 Felix (quality checklist)": "felix",
+    }
+    _mc1, _mc2 = st.columns([2, 1], vertical_alignment="bottom")
+    _method_label = _mc1.radio(
+        "Scan method", list(_METHODS), key="top20_method", horizontal=True,
+        help="🌊 Cascade Score ranks by the blended composite (technicals + "
+             "quality + cascade tailwind + macro fit). 🔮 Best Odds reranks by "
+             "the analog forecast's odds of gain. 🎩 Felix ignores the market "
+             "entirely and ranks by a five-test quality checklist.")
+    _method = _METHODS[_method_label]
+
+    _scn_opts = {"📡 Auto — detect the live regime": None}
+    _scn_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
+    _scn_disabled = _method == "felix"
+    _scn_label = st.selectbox(
         "Macro scenario", list(_scn_opts), key="top20_scenario",
-        help="Auto uses the regime the app detects from live oil, dollar, VIX "
-             "and the pressure gauge. Pick a scenario to run the Top 20 under "
-             "YOUR Macro Sim setup instead — the sector multipliers switch to "
-             "that regime's playbook.")
-    _override = _scn_opts[_scn_label]
-    if _sc2.button("🚀 Scan now", type="primary", key="top20_scan", width="stretch"):
+        disabled=_scn_disabled,
+        help="Auto uses the regime the app detects from live oil, dollar, VIX and "
+             "the pressure gauge. Or pick a scenario — matched to your Macro Sim "
+             "setup — to run under that regime's sector playbook instead. "
+             "(Felix is quality-only and ignores the regime.)")
+    _override = None if _scn_disabled else _scn_opts[_scn_label]
+
+    # scenario explainer card (Option 3) — shows for whichever scenario is active
+    if not _scn_disabled:
+        _rk = _override
+        if _rk is None:
+            try:
+                _rk = ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
+            except Exception:
+                _rk = "base"
+        _cardsrc = "🎛 Your scenario" if _override else "📡 Auto-detected"
+        _cd = ce.REGIME_CARDS.get(_rk)
+        if _cd:
+            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                border-left:4px solid {ACCENT};border-radius:12px;padding:14px 18px;margin:6px 0 10px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-size:22px;">{_cd['emoji']}</span>
+                  <span style="font-size:18px;font-weight:800;">{_cd['name']}</span>
+                  <span style="margin-left:auto;font-size:11px;color:{DIM};font-family:monospace;
+                    border:1px solid #1d2b40;border-radius:20px;padding:2px 10px;">{_cardsrc} · a.k.a. {_cd['aka']}</span>
+                </div>
+                <div style="font-size:13.5px;line-height:1.55;color:#d7e0ec;margin:8px 0 12px;">{_cd['story']}</div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                  <div style="flex:1;min-width:220px;background:#081325;border:1px solid #1d2b40;
+                    border-left:4px solid {GREEN};border-radius:8px;padding:8px 12px;">
+                    <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:{GREEN};margin-bottom:3px;">▲ Leads</div>
+                    <div style="font-size:12.5px;line-height:1.7;color:#d7e0ec;">{_cd['leads']}</div></div>
+                  <div style="flex:1;min-width:220px;background:#081325;border:1px solid #1d2b40;
+                    border-left:4px solid {RED};border-radius:8px;padding:8px 12px;">
+                    <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:{RED};margin-bottom:3px;">▼ Lags</div>
+                    <div style="font-size:12.5px;line-height:1.7;color:#d7e0ec;">{_cd['lags']}</div></div>
+                </div>
+                <div style="margin-top:10px;font-size:12px;color:{DIM};border-top:1px solid #1d2b40;padding-top:8px;">
+                  <b style="color:{ACCENT};">Pick this when</b> {_cd['trigger']} — or dial it in on the 🧪 Macro Sim tab.
+                </div></div>""", unsafe_allow_html=True)
+
+    # Best-Odds-only: whole-universe toggle
+    _scan_all = True
+    if _method == "forecast":
+        _scan_all = st.toggle(
+            "🌐 Scan the entire universe (~5,700 stocks, ~4s)", value=True,
+            key="forecast_all_toggle",
+            help="ON: forecast every tradeable stock and rank the whole universe "
+                 "by odds of gain. OFF: forecast just a 120-name cascade shortlist "
+                 "(faster, and the macro scenario applies).")
+
+    if _mc2.button("🚀 Run scan", type="primary", key="top20_run", width="stretch"):
         st.session_state["top20_go"] = True
-        st.session_state["top20_mode"] = "cascade"
-    if st.button("🔮 Best Odds — rank by Outcome forecast", key="forecast_scan_btn",
-                 width="stretch",
-                 help="Takes a broad cascade shortlist and runs the Stock Lookup "
-                      "analog forecast on each, then ranks by ODDS OF GAIN — the "
-                      "share of look-alike cases that finished higher in 21 "
-                      "sessions. A 300-case minimum keeps thin, noisy matches off "
-                      "the board. This surfaces the highest-probability setups "
-                      "rather than the highest composite score."):
-        st.session_state["top20_go"] = True
-        st.session_state["top20_mode"] = "forecast"
-    _scan_all = st.toggle(
-        "🌐 Scan the entire universe (~5,700 stocks, ~4s)", value=True,
-        key="forecast_all_toggle",
-        help="ON: forecast every tradeable stock in the dump and rank the whole "
-             "universe by odds of gain (vectorized — takes a few seconds). OFF: "
-             "forecast just a 120-name cascade shortlist (faster, and the macro "
-             "scenario override applies).")
+        st.session_state["top20_mode"] = _method
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "forecast":
         try:
             if _scan_all and not _override:
@@ -1434,17 +1478,6 @@ with tab_top20:
                        "Highest odds ≠ biggest gain — check the Typical and Worst-10 "
                        "columns before sizing.")
 
-    if st.button("🎩 Felix — the five-test quality checklist", key="felix_scan_btn",
-                 width="stretch",
-                 help="The investment-banker checklist from the hybrid screener, run "
-                      "across the whole dump: (1) Return on capital — ROIC 15%+; "
-                      "(2) Moat — proxied here by ROIC + its trend (the nightly dump "
-                      "carries no gross margin); (3) Cash — real owner-earnings yield; "
-                      "(4) Stability — Piotroski health; (5) Sane price — hard P/E gate "
-                      "0-50. Regime-agnostic on purpose: quality doesn't rotate with "
-                      "the weather, so the scenario picker and tailwind don't apply."):
-        st.session_state["top20_go"] = True
-        st.session_state["top20_mode"] = "felix"
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "felix":
         try:
             f20 = _felix_scan(asof)
