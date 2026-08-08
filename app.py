@@ -20,7 +20,7 @@ import streamlit as st
 
 import cascade_engine as ce
 
-REQUIRED_ENGINE = "2.10"
+REQUIRED_ENGINE = "2.11"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "

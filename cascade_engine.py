@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.10"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.11"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1767,15 +1767,75 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
         regime = macro_regime(node_closes, pressure_gauge)
     tilts = SECTOR_TILTS.get(regime["regime"], {})
     macro_mult = np.array([tilts.get(s, 1.0) for s in sectors])
+    sec_arr = np.array(sectors)
 
-    # catalyst weight fixed at the backtested ratio to technicals (0.15x);
-    # squeeze_setup is DISPLAYED but not scored (snapshot field — untestable)
-    score = (42 * tech + 23 * quality + 29 * tail_pct + 6 * cat) * macro_mult
-    score = np.where(tradeable, score, -np.inf)
-    order = np.argsort(-score)[:top]
+    # ── base cascade score (technicals + quality + tailwind + catalyst) ──
+    # NOTE: the macro multiplier is applied to RANKING WITHIN sectors, not as
+    # a global scale — otherwise the single most-favored sector sweeps the
+    # whole board. See the diversified allocator below.
+    core = (42 * tech + 23 * quality + 29 * tail_pct + 6 * cat)
+    core = np.where(tradeable, core, -np.inf)
+
+    if not tilts:
+        # base / no-regime: plain global top-N by cascade score
+        score = core.copy()
+        order = np.argsort(-score)[:top]
+    else:
+        # ── DIVERSIFIED SCENARIO ALLOCATION ──────────────────────────
+        # 1. the scenario's LEADS = sectors it favors (tilt >= 1.0).
+        # 2. give each lead a SLOT QUOTA proportional to its tilt, but
+        #    capped so no sector can dominate — forces a diverse list.
+        # 3. within each sector, pick the best names by cascade score.
+        # 4. backfill any remaining slots with the best leftover names
+        #    (favored sectors first) so we always return `top` picks.
+        leads = {s: t for s, t in tilts.items() if t >= 1.0}
+        if not leads:                       # all-defensive regime: take top few
+            leads = dict(sorted(tilts.items(), key=lambda kv: -kv[1])[:4])
+        weight_sum = sum(leads.values())
+        # cap: at most ~35% of the book in any one sector (min 2 slots)
+        cap = max(2, int(np.ceil(top * 0.35)))
+        quota = {}
+        for s, t in leads.items():
+            q = int(round(top * (t / weight_sum)))
+            quota[s] = min(max(q, 1), cap)
+
+        chosen = []
+        picked_mask = np.zeros(len(core), dtype=bool)
+        for s in sorted(leads, key=lambda x: -leads[x]):
+            sec_ix = np.where((sec_arr == s) & np.isfinite(core))[0]
+            if not len(sec_ix):
+                continue
+            sec_ix = sec_ix[np.argsort(-core[sec_ix])][:quota[s]]
+            chosen.extend(sec_ix.tolist())
+            picked_mask[sec_ix] = True
+            if len(chosen) >= top:
+                break
+
+        # backfill remaining slots — best leftover names, favored sectors
+        # weighted up so the thesis still tilts the fill, capped per sector
+        if len(chosen) < top:
+            from collections import Counter
+            sec_count = Counter(sec_arr[chosen].tolist())
+            fill_score = np.where(picked_mask, -np.inf, core) * macro_mult
+            for gi in np.argsort(-fill_score):
+                if len(chosen) >= top:
+                    break
+                if picked_mask[gi] or not np.isfinite(core[gi]):
+                    continue
+                s = sec_arr[gi]
+                if sec_count[s] >= cap:       # respect the diversity cap
+                    continue
+                chosen.append(int(gi)); picked_mask[gi] = True
+                sec_count[s] += 1
+
+        chosen = chosen[:top]
+        # order the final book by cascade score (best first)
+        score = core.copy()
+        order = np.array(chosen)[np.argsort(-core[chosen])] if chosen else np.array([], dtype=int)
+
     df = pd.DataFrame({
-        "Ticker": tickers[order], "Sector": np.array(sectors)[order],
-        "Price": px[order].round(2), "Score": score[order].round(1),
+        "Ticker": tickers[order], "Sector": sec_arr[order],
+        "Price": px[order].round(2), "Score": core[order].round(1),
         "Tech": (tech[order] * 100).round(0), "Quality": (quality[order] * 100).round(0),
         "Tailwind": (tail_pct[order] * 100).round(0),
         "MacroFit": macro_mult[order].round(2),
@@ -1784,6 +1844,7 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
         "Catalysts": cat_tags[order],
     })
     regime["hot_nodes"] = used_nodes
+    regime["n_sectors"] = int(df.Sector.nunique()) if not df.empty else 0
     return df.reset_index(drop=True), regime
 
 
