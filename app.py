@@ -919,181 +919,173 @@ with tab_map:
     if st.session_state.get("mw_analyze"):
         render_ticker_analysis(st.session_state["mw_analyze"], closes)
         st.divider()
+
     _cc1, _cc2 = st.columns([6, 1], vertical_alignment="center")
+    _cc1.markdown("### 🌊 Market Weather")
     if _cc2.button("🔄 Refresh", key="mw_refresh", width="stretch",
-                   help="Redownload the node history right now (Alpaca → Yahoo), "
-                        "re-estimate every storm track, and rescan for waves — "
-                        "ignoring all caches. Takes ~1-2 minutes on the download. "
-                        "If the feeds are unreachable, your previous data is kept."):
-        with st.spinner("Refreshing node history and re-estimating the cascade…"):
+                   help="Get the latest prices and recompute everything now. "
+                        "Takes a minute or two. If the internet feeds are down, "
+                        "your previous data is kept."):
+        with st.spinner("Getting the latest prices and recomputing…"):
             try:
                 ce.refresh_history()
             except Exception:
                 pass
             st.cache_data.clear()
         st.rerun()
-    _cc1.caption(f"Data through {asof} · history source: "
-               f"{getattr(ce, 'LAST_HISTORY_SOURCE', 'cached parquet')} · "
-               f"edges re-estimated on the trailing "
-               f"{ce.EDGE_TRAIN} sessions · forecasts look {ce.EDGE_HORIZON} "
-               f"sessions ahead.")
+
     edges = _edges(asof)
     waves = ce.active_waves(closes, edges)
+    board = ce.forecast_board(waves) if not waves.empty else pd.DataFrame()
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Storm tracks (edges)", len(edges), help=HELP["edges_metric"])
-    c2.metric("Active waves now", int(waves.source.nunique()) if not waves.empty else 0,
-              help=HELP["waves_metric"])
-    c3.metric("Downstream forecasts", len(waves), help=HELP["forecasts_metric"])
-
-    if waves.empty:
-        st.info("🌤 Calm skies — no node's flow impulse exceeds the wave "
-                "threshold right now. Check the Sentinels tab for early "
-                "twitches, or lower the threshold in cascade_engine.py.")
+    # ── one plain-English headline ───────────────────────────────────
+    if waves.empty or board.empty:
+        st.markdown(
+            f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+            border-left:5px solid {DIM};border-radius:12px;padding:16px 20px;margin:6px 0 12px;">
+            <div style="font-size:20px;font-weight:800;">☀️ Calm markets right now</div>
+            <div style="color:{DIM};font-size:14px;margin-top:4px;">
+            Nothing big is moving hard enough to push other things around today.
+            Come back after the next 🔄 refresh, or check other tabs.</div>
+            </div>""", unsafe_allow_html=True)
     else:
-        # ── the forecast, plain and simple ──────────────────────────
-        st.subheader("🎯 Today's forecast board")
-        st.caption("The cascade, translated: each card is one asset, the net "
-                   "call on it, and how many independent waves back it. "
-                   "Conviction bar = how loudly the graph agrees.")
-        board = ce.forecast_board(waves)
+        n_up = int((board.call == "UP").sum())
+        n_dn = int((board.call == "DOWN").sum())
+        movers = ", ".join(board.head(3).target_name)
+        st.markdown(
+            f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+            border-left:5px solid {ACCENT};border-radius:12px;padding:16px 20px;margin:6px 0 6px;">
+            <div style="font-size:20px;font-weight:800;">🌊 {len(board)} thing{'s' if len(board)!=1 else ''} likely to move this week</div>
+            <div style="color:#d7e0ec;font-size:14px;margin-top:5px;line-height:1.5;">
+            Some big markets have been moving fast, and history says a few other things
+            usually follow within a week or two. Right now that points to
+            <b style="color:{GREEN};">{n_up} heading up</b> and
+            <b style="color:{RED};">{n_dn} heading down</b> — starting with <b>{movers}</b>.</div>
+            <div style="color:{DIM};font-size:12px;margin-top:6px;">
+            These are odds, not certainties. Think of it like a weather forecast for money.</div>
+            </div>""", unsafe_allow_html=True)
+
+        st.caption("Each card below is one market. Green = likely to rise, red = likely "
+                   "to fall over the next week or two. The bar shows how strong the signal "
+                   "is; more agreeing sources = more trustworthy.")
+
+        # ── plain forecast cards ─────────────────────────────────────
         bcols = st.columns(2)
         for i, (_, b) in enumerate(board.head(8).iterrows()):
             up = b.call == "UP"
             col = GREEN if up else RED
-            arrow = "📈 UP" if up else "📉 DOWN"
-            hitc = GREEN if b.avg_hit >= 0.60 else (DIM if b.avg_hit >= 0.50 else RED)
+            verdict = "likely to RISE" if up else "likely to FALL"
+            arrow = "📈" if up else "📉"
+            # translate hit rate into plain confidence words
+            if b.avg_hit >= 0.62:
+                conf, confc = "strong track record", GREEN
+            elif b.avg_hit >= 0.55:
+                conf, confc = "decent track record", "#d0b040"
+            elif b.avg_hit >= 0.50:
+                conf, confc = "mixed track record", DIM
+            else:
+                conf, confc = "weak track record", RED
+            src_word = "market" if b.n_sources == 1 else "markets"
             with bcols[i % 2]:
                 st.markdown(
                     f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                    border-left:4px solid {col};border-radius:10px 10px 0 0;
-                    padding:10px 14px;margin-bottom:0;">
-                    <span style="font-size:17px;font-weight:700;">{b.target_name}</span>
-                    <span style="color:{col};font-weight:700;float:right;">{arrow}</span><br>
-                    <div style="background:#081325;border-radius:4px;height:6px;margin:8px 0 6px;">
-                      <div style="background:{col};height:6px;border-radius:4px;
-                      width:{max(int(b.conviction*100),6)}%;"></div></div>
-                    <span style="color:{DIM};font-size:12px;">
-                      next {ce.EDGE_HORIZON} sessions · backed by {b.n_sources} wave{'s' if b.n_sources>1 else ''}
-                      ({b.sources}) · hit <span style="color:{hitc};font-weight:600;">{b.avg_hit:.0%}</span></span>
+                    border-left:5px solid {col};border-radius:10px;
+                    padding:12px 16px;margin-bottom:10px;">
+                      <div style="display:flex;align-items:baseline;">
+                        <span style="font-size:18px;font-weight:800;">{b.target_name}</span>
+                        <span style="margin-left:auto;color:{col};font-weight:800;font-size:15px;">{arrow} {verdict}</span>
+                      </div>
+                      <div style="background:#081325;border-radius:5px;height:8px;margin:9px 0 8px;">
+                        <div style="background:{col};height:8px;border-radius:5px;
+                        width:{max(int(b.conviction*100),8)}%;"></div></div>
+                      <div style="color:#d7e0ec;font-size:12.5px;line-height:1.5;">
+                        Because <b>{b.sources}</b> {'has' if b.n_sources==1 else 'have'} been moving —
+                        and {b.target_name} usually follows within a week or two.</div>
+                      <div style="color:{DIM};font-size:11.5px;margin-top:5px;">
+                        Backed by {b.n_sources} {src_word} · <span style="color:{confc};">{conf}</span>
+                        ({b.avg_hit:.0%} of the time historically)</div>
                     </div>""", unsafe_allow_html=True)
-                with st.expander("📋 Investment plan"):
-                    try:
-                        pl = ce.investment_plan(b, closes)
-                        st.markdown(
-                            f"**{pl['action']}**\n\n"
-                            f"- **Trigger:** {pl['trigger']}\n"
-                            f"- **Entry:** {pl['entry']}\n"
-                            f"- **Stop:** {pl['stop']}\n"
-                            f"- **Price target:** {pl['target']}\n"
-                            f"- **Time exit:** {pl['time_exit']}\n"
-                            f"- **Size:** {pl['size']}\n"
-                            f"- **Stand-down rule:** {pl['invalidation']}")
-                        st.caption("Rule-generated from the trigger's own stats and the "
-                                   "asset's volatility — a playbook, not personal advice.")
-                        st.button(f"🔬 Analyze {b.target}", key=f"an_{b.target}",
-                                  on_click=_open_analysis, args=(b.target,))
-                        try:
-                            fl = _followers(b.target, asof)
-                            if fl is not None and not fl.empty:
-                                live = ce.alpaca_prices(list(fl.Ticker))
-                                if live:
-                                    fl["Price"] = fl.Ticker.map(live).fillna(fl.Price)
-                                st.markdown("**🏇 Fastest followers** — individual "
-                                            "stocks that historically chase this "
-                                            "node's moves within ~5 sessions "
-                                            "(from the 5,700-stock nightly dump"
-                                            + (", live Alpaca prices" if live else "") + "):")
-                                _sel = st.dataframe(
-                                    fl.style.format({"Price": "${:,.2f}",
-                                                     "FollowCorr": "{:+.2f}",
-                                                     "Beta": "{:+.2f}"})
-                                    .map(lambda v: _css_sign(v, dead=0.05),
-                                         subset=["FollowCorr"]),
-                                    width="stretch", hide_index=True,
-                                    on_select="rerun", selection_mode="single-row",
-                                    key=f"fl_{b.target}",
-                                    column_config={
-                                        "FollowCorr": st.column_config.Column(
-                                            help="Correlation between this node's 5-day move and the stock's 5-day move ONE WEEK LATER — a lagged response, not same-day beta. Higher = chases the node faster and more reliably."),
-                                        "Beta": st.column_config.Column(
-                                            help="Size of the lagged response: node moves 1% → stock historically moves this % the following week."),
-                                        "Price": st.column_config.Column(
-                                            help="Live via Alpaca when a key is configured; otherwise last close from the nightly dump."),
-                                    })
-                                _rows = (_sel.selection.rows
-                                         if _sel and getattr(_sel, "selection", None) else [])
-                                if _rows:
-                                    _tk = fl.iloc[_rows[0]].Ticker
-                                    _hkey = f"_fl_handled_{b.target}"
-                                    # open ONCE per selection — otherwise the sticky
-                                    # row selection instantly re-opens after ✕ Close
-                                    if st.session_state.get(_hkey) != _tk:
-                                        st.session_state[_hkey] = _tk
-                                        st.session_state["mw_analyze"] = _tk
-                                        st.rerun()
-                                st.caption("👆 Tap a row for the full ticker analysis "
-                                           "(tap a different row to switch).")
-                        except Exception as _fe:
-                            st.caption(f"Follower analysis unavailable: {_fe}")
-                    except Exception as _pe:
-                        st.caption(f"Plan unavailable: {_pe}")
+
         if len(board) > 8:
-            st.caption(f"+ {len(board)-8} lower-conviction calls in the full detail below.")
+            st.caption(f"+ {len(board)-8} weaker signals — in the technical detail below.")
 
-        st.subheader("🔗 Full wave detail")
-        _wd_view = st.radio("Wave detail view", ["📇 Flow cards", "🌊 Flow map"],
-                            horizontal=True, key="wd_view",
-                            label_visibility="collapsed")
-        wshow = waves.copy()
-        wshow["strength"] = wshow.edge_ic.abs()
+        # ── everything technical, tucked away ────────────────────────
+        with st.expander("🔬 For the technically minded — waves, edges & trade plans"):
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Storm tracks (edges)", len(edges), help=HELP["edges_metric"])
+            c2.metric("Active waves now",
+                      int(waves.source.nunique()) if not waves.empty else 0,
+                      help=HELP["waves_metric"])
+            c3.metric("Downstream forecasts", len(waves), help=HELP["forecasts_metric"])
+            st.caption(f"Data through {asof} · source: "
+                       f"{getattr(ce, 'LAST_HISTORY_SOURCE', 'cached parquet')} · "
+                       f"edges on trailing {ce.EDGE_TRAIN} sessions · "
+                       f"forecasts look {ce.EDGE_HORIZON} sessions ahead.")
 
-        if _wd_view.startswith("📇"):
-            # ── Option A: flow arrow cards ───────────────────────────
-            for _, w in wshow.sort_values("strength", ascending=False).head(12).iterrows():
-                up = "UP" in w.call
-                dcol = GREEN if up else RED
-                scol = GREEN if w.source_z > 0 else RED
-                inv = (w.edge_ic < 0)
-                track = ("strong" if w.strength >= 0.25 else
-                         "solid" if w.strength >= 0.18 else "moderate")
-                hit = float(w.hit_rate) if np.isfinite(w.hit_rate) else 0.5
-                hitc = GREEN if hit >= 0.60 else (DIM if hit >= 0.50 else RED)
-                barh = 4 + int(w.strength * 20)
-                st.markdown(
-                    f"""<div style="display:flex;align-items:center;gap:10px;
-                    background:#0c1829;border:1px solid #1d2b40;border-radius:10px;
-                    padding:11px 14px;margin-bottom:8px;">
-                      <div style="text-align:center;width:120px;flex-shrink:0;">
-                        <div style="background:#12233c;border-radius:8px;padding:6px 8px;
-                          font-weight:700;font-size:13px;">{w.source_name}</div>
-                        <div style="font-size:11px;color:{scol};margin-top:3px;">
-                          ⚡ z {w.source_z:+.1f} {'surging' if w.source_z > 0 else 'dumping'}</div>
-                      </div>
-                      <div style="flex:1;text-align:center;">
-                        <div style="height:{barh}px;border-radius:4px;
-                          background:linear-gradient(90deg,{'#1d5a41' if up else '#5a2626'},{dcol});"></div>
-                        <div style="font-size:11px;color:{DIM};margin-top:3px;">
-                          {'inverse ⇄' if inv else 'direct ➜'} · {track} track · IC {w.edge_ic:+.2f} · ~{w.horizon_days} sessions</div>
-                      </div>
-                      <div style="text-align:center;width:120px;flex-shrink:0;">
-                        <div style="background:#12233c;border-radius:8px;padding:6px 8px;
-                          font-weight:700;font-size:13px;">{w.target_name}</div>
-                        <div style="font-size:11px;color:{dcol};margin-top:3px;">{w.call} forecast</div>
-                      </div>
-                      <div style="width:46px;height:46px;border-radius:50%;flex-shrink:0;
-                        background:conic-gradient({hitc} 0 {hit:.0%}, #12233c {hit:.0%} 100%);
-                        display:flex;align-items:center;justify-content:center;">
-                        <div style="width:34px;height:34px;border-radius:50%;background:#0c1829;
-                          display:flex;align-items:center;justify-content:center;
-                          font-size:11px;font-weight:700;">{hit:.0%}</div>
-                      </div>
-                    </div>""", unsafe_allow_html=True)
-            if len(wshow) > 12:
-                st.caption(f"Showing the 12 strongest of {len(wshow)} edges — "
-                           "switch to the Flow map to see all of them at once.")
-        else:
-            # ── Option B: Sankey flow map ────────────────────────────
+            # trade plans + followers per forecast target
+            st.markdown("**📋 Trade plans & fastest-following stocks**")
+            _pt = st.selectbox("Pick a forecast to expand",
+                               list(board.head(12).target_name), key="mw_plan_pick")
+            _brow = board[board.target_name == _pt]
+            if not _brow.empty:
+                b = _brow.iloc[0]
+                try:
+                    pl = ce.investment_plan(b, closes)
+                    st.markdown(
+                        f"**{pl['action']}**\n\n"
+                        f"- **Trigger:** {pl['trigger']}\n"
+                        f"- **Entry:** {pl['entry']}\n"
+                        f"- **Stop:** {pl['stop']}\n"
+                        f"- **Price target:** {pl['target']}\n"
+                        f"- **Time exit:** {pl['time_exit']}\n"
+                        f"- **Size:** {pl['size']}\n"
+                        f"- **Stand-down rule:** {pl['invalidation']}")
+                    st.caption("Rule-generated from the trigger's own stats and the "
+                               "asset's volatility — a playbook, not personal advice.")
+                    st.button(f"🔬 Analyze {b.target}", key=f"an_{b.target}",
+                              on_click=_open_analysis, args=(b.target,))
+                    fl = _followers(b.target, asof)
+                    if fl is not None and not fl.empty:
+                        live = ce.alpaca_prices(list(fl.Ticker))
+                        if live:
+                            fl["Price"] = fl.Ticker.map(live).fillna(fl.Price)
+                        st.markdown("**🏇 Fastest followers** — individual stocks that "
+                                    "historically chase this market's moves within ~5 "
+                                    "sessions"
+                                    + (", live Alpaca prices" if live else "") + ":")
+                        _sel = st.dataframe(
+                            fl.style.format({"Price": "${:,.2f}",
+                                             "FollowCorr": "{:+.2f}",
+                                             "Beta": "{:+.2f}"})
+                            .map(lambda v: _css_sign(v, dead=0.05), subset=["FollowCorr"]),
+                            width="stretch", hide_index=True,
+                            on_select="rerun", selection_mode="single-row",
+                            key=f"fl_{b.target}",
+                            column_config={
+                                "FollowCorr": st.column_config.Column(
+                                    help="Correlation between this node's 5-day move and the stock's 5-day move ONE WEEK LATER — a lagged response, not same-day beta."),
+                                "Beta": st.column_config.Column(
+                                    help="Size of the lagged response: node moves 1% → stock historically moves this % the following week."),
+                                "Price": st.column_config.Column(
+                                    help="Live via Alpaca when a key is configured; otherwise last close from the nightly dump."),
+                            })
+                        _rows = (_sel.selection.rows
+                                 if _sel and getattr(_sel, "selection", None) else [])
+                        if _rows:
+                            _tk = fl.iloc[_rows[0]].Ticker
+                            _hkey = f"_fl_handled_{b.target}"
+                            if st.session_state.get(_hkey) != _tk:
+                                st.session_state[_hkey] = _tk
+                                st.session_state["mw_analyze"] = _tk
+                                st.rerun()
+                        st.caption("👆 Tap a row for the full stock analysis.")
+                except Exception as _pe:
+                    st.caption(f"Plan unavailable: {_pe}")
+
+            # flow map (Sankey)
+            st.markdown("**🌊 Flow map** — who's pushing what")
+            wshow = waves.copy()
+            wshow["strength"] = wshow.edge_ic.abs()
             import plotly.graph_objects as go
             srcs = list(wshow.source_name.unique())
             tgts = list(wshow.target_name.unique())
@@ -1126,44 +1118,45 @@ with tab_map:
                               paper_bgcolor="#081325", font_color="#F6F4E9",
                               font_size=12, margin=dict(l=10, r=10, t=10, b=24))
             st.plotly_chart(fig, width="stretch", key="wd_sankey")
-            st.caption("Ribbon width = edge strength · green ribbon pushes the target "
-                       "UP, red pushes DOWN · ribbons converging on one target = "
-                       "independent waves agreeing (that's conviction). Hover/tap a "
-                       "ribbon for its IC and hit rate.")
+            st.caption("Ribbon width = signal strength · green pushes the target UP, "
+                       "red pushes DOWN · ribbons converging on one target = independent "
+                       "waves agreeing. Hover a ribbon for its stats.")
 
-        st.caption("Read it like a weather report: *a front entered [source]; it "
-                   "historically reaches [target] within ~10 sessions, [hit rate] of "
-                   "the time.* Research tool — size positions like forecasts can be "
-                   "wrong, because they can.")
+            # full edge table
+            st.markdown("**🗺 Strongest storm tracks (full list)**")
+            e = edges.copy()
+            e = e[["source_name", "target_name", "ic", "hit_rate"]].rename(columns={
+                "source_name": "Leads", "target_name": "Follows",
+                "ic": "IC", "hit_rate": "Hit %"}).head(60)
+            st.dataframe(
+                e.style.format({"IC": "{:+.2f}", "Hit %": "{:.0%}"})
+                .map(lambda v: _css_sign(abs(v) if v == v else v, dead=0.15)
+                     if isinstance(v, float) else "", subset=["IC"])
+                .map(_css_hit, subset=["Hit %"]),
+                width="stretch", hide_index=True,
+                column_config={
+                    "Leads": st.column_config.Column(help="Upstream node — its moves come first."),
+                    "Follows": st.column_config.Column(help="Downstream node — historically reacts within the horizon."),
+                    "IC": st.column_config.Column(help=HELP["edge_ic"]),
+                    "Hit %": st.column_config.Column(help=HELP["hit_rate"]),
+                })
 
-    with st.expander("❓ How the Cascade Map works"):
+    # ── plain how-it-works, always available ─────────────────────────
+    with st.expander("❓ What am I looking at? (plain-English)"):
         st.markdown(
-            "- **Flow impulse** — " + HELP["impulse"] + "\n"
-            "- **Storm tracks (edges)** — " + HELP["edge_ic"] + "\n"
-            "- **Hit rate** — " + HELP["hit_rate"] + "\n"
-            "- **Why it can work** — money propagates: fast frictionless "
-            "assets (crypto, FX, semis) reprice first, slow heavy ones "
-            "(small caps, credit-sensitive sectors) follow. Edges expire "
-            "when regimes change, which is why they're re-estimated on a "
-            "rolling window instead of memorised.")
-
-    with st.expander("🗺 Strongest storm tracks (full edge list)"):
-        e = edges.copy()
-        e = e[["source_name", "target_name", "ic", "hit_rate"]].rename(columns={
-            "source_name": "Leads", "target_name": "Follows",
-            "ic": "IC", "hit_rate": "Hit %"}).head(60)
-        st.dataframe(
-            e.style.format({"IC": "{:+.2f}", "Hit %": "{:.0%}"})
-            .map(lambda v: _css_sign(abs(v) if v == v else v, dead=0.15)
-                 if isinstance(v, float) else "", subset=["IC"])
-            .map(_css_hit, subset=["Hit %"]),
-            width="stretch", hide_index=True,
-            column_config={
-                "Leads": st.column_config.Column(help="Upstream node — its moves come first."),
-                "Follows": st.column_config.Column(help="Downstream node — historically reacts within the horizon."),
-                "IC": st.column_config.Column(help=HELP["edge_ic"]),
-                "Hit %": st.column_config.Column(help=HELP["hit_rate"]),
-            })
+            "**The big idea:** money doesn't teleport — it flows. When one big "
+            "market moves hard (say oil spikes, or the dollar jumps), other "
+            "things it's connected to tend to move too, but a little later. This "
+            "tab finds those patterns from years of history and turns them into "
+            "simple forecasts.\n\n"
+            "- **The cards** tell you what's likely to move this week and why, in "
+            "plain words. Green = up, red = down.\n"
+            "- **The bar** is how strong the signal is. Longer = stronger.\n"
+            "- **Track record** is how often this pattern was right in the past. "
+            "Nothing is ever 100% — treat these like a weather forecast.\n"
+            "- **🔄 Refresh** grabs the newest prices and recomputes everything.\n\n"
+            "It's a research tool, not advice. Forecasts can be wrong, so never "
+            "bet more than you can afford to lose.")
 
 
 # ── 🔎 stock lookup ──────────────────────────────────────────────────
@@ -1672,11 +1665,17 @@ with tab_macro:
         if not os.path.exists(_sim_path):
             raise FileNotFoundError(_sim_path)
         try:
-            st.iframe(_sim_path, height=1700)          # Streamlit >= 1.5x
-        except Exception:
+            # embed the HTML CONTENT (not the path) — on Streamlit Cloud
+            # st.iframe(path) renders the filename as text, so read + inject
             import streamlit.components.v1 as components
             with open(_sim_path, encoding="utf-8") as _f:
-                components.html(_f.read(), height=1700, scrolling=True)
+                _sim_html = _f.read()
+            components.html(_sim_html, height=1700, scrolling=True)
+        except Exception as _e1:
+            try:
+                st.iframe(_sim_path, height=1700)
+            except Exception as _e2:
+                st.error(f"Simulator embed failed: {_e1}")
         st.caption("Scroll inside the panel for the full simulator. Its live "
                    "feeds load in YOUR browser, so they work even when the "
                    "server's feeds are rate-limited.")
