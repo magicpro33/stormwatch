@@ -969,9 +969,25 @@ with tab_map:
                    "to fall over the next week or two. The bar shows how strong the signal "
                    "is; more agreeing sources = more trustworthy.")
 
+        # ── show green (up) / red (down) / both — default green only ──
+        _filter = st.radio(
+            "Show", ["📈 Only going up", "📉 Only going down", "📊 Both"],
+            horizontal=True, key="mw_dir_filter", label_visibility="collapsed")
+        if _filter.startswith("📈"):
+            _fb = board[board.call == "UP"]
+        elif _filter.startswith("📉"):
+            _fb = board[board.call == "DOWN"]
+        else:
+            _fb = board
+        _fb = _fb.reset_index(drop=True)
+
+        if _fb.empty:
+            _word = "rising" if _filter.startswith("📈") else "falling"
+            st.info(f"Nothing is forecast as {_word} right now. Try another view above.")
+
         # ── plain forecast cards ─────────────────────────────────────
         bcols = st.columns(2)
-        for i, (_, b) in enumerate(board.head(8).iterrows()):
+        for i, (_, b) in enumerate(_fb.head(8).iterrows()):
             up = b.call == "UP"
             col = GREEN if up else RED
             verdict = "likely to RISE" if up else "likely to FALL"
@@ -1006,8 +1022,8 @@ with tab_map:
                         ({b.avg_hit:.0%} of the time historically)</div>
                     </div>""", unsafe_allow_html=True)
 
-        if len(board) > 8:
-            st.caption(f"+ {len(board)-8} weaker signals — in the technical detail below.")
+        if len(_fb) > 8:
+            st.caption(f"+ {len(_fb)-8} more in this view — showing the 8 strongest.")
 
         # ── everything technical, tucked away ────────────────────────
         with st.expander("🔬 For the technically minded — waves, edges & trade plans"):
