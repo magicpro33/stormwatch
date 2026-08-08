@@ -2010,6 +2010,39 @@ with tab_guide:
         st.markdown(f"- **{term}** — {defn}")
 
     st.divider()
+    st.markdown("### 🌊 Reading the Flow Map")
+    st.caption("The Flow Map lives in the Cascade Map tab under "
+               "\"🔬 For the technically minded.\" It's a Sankey diagram — a "
+               "picture of what's currently pushing what.")
+    st.markdown(
+        "Think of it as a river system for money. On the **left** are the "
+        "markets making waves right now — the ones whose prices just moved "
+        "unusually fast. On the **right** are the markets those waves "
+        "historically flow toward. The **ribbons** connecting them are the "
+        "storm tracks: each one is a lead-lag relationship the engine found in "
+        "years of history.\n\n"
+        "How to read it at a glance:\n"
+        "- **Left nodes (sources)** are labelled with their wave strength "
+        "(`z`). Green = the source is surging, red = it's dropping. The bigger "
+        "the number, the more unusual the move.\n"
+        "- **Right nodes (targets)** show how many separate waves are hitting "
+        "them. Green = the net push is upward, red = downward.\n"
+        "- **Ribbon width** = how strong and reliable that track is. Fat "
+        "ribbon = a relationship that's held up well historically.\n"
+        "- **Ribbon color** = direction of the push: green ribbon nudges the "
+        "target **up**, red nudges it **down**.\n"
+        "- **Several ribbons landing on one target** = independent waves all "
+        "agreeing. That convergence is the strongest signal on the map — it's "
+        "what the forecast cards call \"conviction.\"\n"
+        "- **Hover or tap a ribbon** to see its exact stats (its IC and how "
+        "often it's been right).\n\n"
+        "In one sentence: *follow the fat green ribbons converging on a single "
+        "market — that's where the cascade is pointing hardest.* The plain "
+        "forecast cards at the top of the Cascade Map tab are just this same "
+        "information rewritten in plain English, so you rarely need the map "
+        "itself unless you want to see the whole web at once.")
+
+    st.divider()
     st.markdown("### ⚙️ How the data flows")
     st.markdown(
         f"- **Stock Lookup chain:** Alpaca (live) → Yahoo → nightly dump — the "
