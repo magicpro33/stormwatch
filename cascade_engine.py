@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.9"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.10"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -2019,14 +2019,20 @@ def _now_features_all():
 
 
 def forecast_all(min_n: int = 300, price_floor: float = 3.0,
-                 mdv_floor: float = 2e6):
+                 mdv_floor: float = 2e6, regime: str | None = None):
     """Odds-of-gain forecast for the ENTIRE tradeable universe in one
     vectorized sweep — no per-ticker Python calls, no shortlist. Mirrors
     outcome_forecast's analog math exactly (same tolerances, same widen
     ladder, same 300-case floor) but matches every stock against the
     library `F` in a tight numpy loop over pre-sorted momentum bins, so it
-    scales to all ~5,700 names in a few seconds. Returns a DataFrame with
-    OddsUp / Typical / PopOdds / Worst10 / Best10 / Cases per stock."""
+    scales to all ~5,700 names in a few seconds.
+
+    When `regime` is set, the SAME sector playbook the Cascade scan uses is
+    applied: the odds-of-gain ranking is nudged by that regime's sector tilt
+    so a scenario's favored sectors surface and its out-of-favor sectors sink
+    — keeping the scenario card's promise consistent with the results.
+    Returns a DataFrame with OddsUp / Typical / PopOdds / Worst10 / Best10 /
+    Cases per stock (plus a hidden RankScore when a regime is applied)."""
     panel, tickers, sectors, mdv, dts = load_dump_panel()
     F, R = _feature_panels()
     feats, tradeable = _now_features_all()
@@ -2089,4 +2095,15 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
     df = pd.DataFrame(rows, columns=cols)
     if df.empty:
         return df
+    if regime and regime in SECTOR_TILTS and SECTOR_TILTS[regime]:
+        tilts = SECTOR_TILTS[regime]
+        # nudge each stock's odds by its sector's regime multiplier, centered
+        # on 1.0 so favored sectors rise and out-of-favor ones fall. A ±25%
+        # tilt maps to roughly ±5 points of effective odds — enough to steer
+        # the leaderboard toward the regime WITHOUT inventing odds the analog
+        # history doesn't support. The displayed OddsUp stays the true number.
+        mult = df.Sector.map(lambda s: tilts.get(s, 1.0)).astype(float)
+        df["RankScore"] = (df.OddsUp * mult).round(2)
+        df = df.sort_values(["RankScore", "Typical"], ascending=False)
+        return df.reset_index(drop=True)
     return df.sort_values(["OddsUp", "Typical"], ascending=False).reset_index(drop=True)

@@ -20,7 +20,7 @@ import streamlit as st
 
 import cascade_engine as ce
 
-REQUIRED_ENGINE = "2.9"
+REQUIRED_ENGINE = "2.10"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -254,8 +254,8 @@ def _forecast_scan(_asof: str, _gauge, _override=None):
 
 
 @st.cache_data(ttl=1800, show_spinner="🔮 Forecasting EVERY tradeable stock and ranking by odds of gain…")
-def _forecast_all(_asof: str):
-    return ce.forecast_all()
+def _forecast_all(_asof: str, _override=None):
+    return ce.forecast_all(regime=_override)
 
 
 @st.cache_data(ttl=3600, show_spinner="Reading the news for catalyst tags on the finalists…")
@@ -1420,9 +1420,11 @@ with tab_top20:
         st.session_state["top20_mode"] = _method
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "forecast":
         try:
-            if _scan_all and not _override:
-                fc20 = _forecast_all(asof)
-                reg = ce.macro_regime(closes, pressure_gauge=_gauge)
+            if _scan_all:
+                _rk = _override or ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
+                fc20 = _forecast_all(asof, _rk if _override else None)
+                reg = (dict(regime=_override, label=ce.REGIME_LABELS[_override])
+                       if _override else ce.macro_regime(closes, pressure_gauge=_gauge))
                 fc20 = fc20.head(20)
             else:
                 fc20, reg = _forecast_scan(asof, _gauge, _override)
@@ -1452,6 +1454,8 @@ with tab_top20:
                 .map(lambda v: _css_sign(v) if isinstance(v,(int,float)) else "", subset=["Typical"]),
                 width="stretch", hide_index=True, height=740,
                 on_select="rerun", selection_mode="single-row", key="forecast_table",
+                column_order=["Ticker", "Sector", "Price", "OddsUp", "Typical",
+                              "PopOdds", "Worst10", "Best10", "Cases"],
                 column_config={
                     "OddsUp": st.column_config.Column(help="Share of analog look-alike cases that finished HIGHER after 21 sessions. This is what the preset ranks by."),
                     "Typical": st.column_config.Column(help="Median analog outcome — the middle-of-the-pack result. Breaks ties on odds."),
