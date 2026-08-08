@@ -237,8 +237,8 @@ def _analyzer(tk: str, _asof: str):
 
 
 @st.cache_data(ttl=1800, show_spinner="Scanning all 5,700 stocks across every pillar…")
-def _mega_scan(_asof: str, _gauge, _override=None):
-    return ce.mega_scan(_history(), pressure_gauge=_gauge, regime_override=_override)
+def _mega_scan(_asof: str, _gauge, override=None):
+    return ce.mega_scan(_history(), pressure_gauge=_gauge, regime_override=override)
 
 
 @st.cache_data(ttl=1800, show_spinner="🎩 Running the five-test quality checklist on all 5,700 stocks…")
@@ -247,15 +247,15 @@ def _felix_scan(_asof: str):
 
 
 @st.cache_data(ttl=1800, show_spinner="🔮 Forecasting the shortlist and ranking by odds of gain…")
-def _forecast_scan(_asof: str, _gauge, _override=None):
+def _forecast_scan(_asof: str, _gauge, override=None):
     F, R = _analog_library(_asof)
     return ce.forecast_scan(_history(), F, R, pressure_gauge=_gauge,
-                            regime_override=_override)
+                            regime_override=override)
 
 
 @st.cache_data(ttl=1800, show_spinner="🔮 Forecasting EVERY tradeable stock and ranking by odds of gain…")
-def _forecast_all(_asof: str, _override=None):
-    return ce.forecast_all(regime=_override)
+def _forecast_all(_asof: str, regime=None):
+    return ce.forecast_all(regime=regime)
 
 
 @st.cache_data(ttl=3600, show_spinner="Reading the news for catalyst tags on the finalists…")
@@ -1374,6 +1374,11 @@ with tab_top20:
              "the analog forecast's odds of gain. 🎩 Felix ignores the market "
              "entirely and ranks by a five-test quality checklist.")
     _method = _METHODS[_method_label]
+    # if the method changed since the last scan, clear the stale result so the
+    # previous method's table doesn't linger under the newly-selected method
+    if st.session_state.get("top20_go") and \
+            st.session_state.get("top20_mode") not in (None, _method):
+        st.session_state["top20_go"] = False
 
     _scn_opts = {"📡 Auto — detect the live regime": None}
     _scn_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
