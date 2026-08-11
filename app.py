@@ -20,7 +20,7 @@ import streamlit as st
 
 import cascade_engine as ce
 
-REQUIRED_ENGINE = "2.12"
+REQUIRED_ENGINE = "2.14"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -1439,6 +1439,51 @@ with tab_top20:
     if _mc2.button("🚀 Run scan", type="primary", key="top20_run", width="stretch"):
         st.session_state["top20_go"] = True
         st.session_state["top20_mode"] = _method
+        st.session_state.pop("t20_live", None)      # a new scan clears stale live data
+    if _mc2.button("📡 LIVE UPDATE", key="top20_live", width="stretch",
+                   help="Pull live prices for the stocks currently listed — "
+                        "Alpaca first, then Yahoo for anything Alpaca doesn't "
+                        "cover — and show each one's move since the scan. Works "
+                        "with whichever method and scenario you have selected."):
+        st.session_state["t20_live"] = True
+
+    def _apply_live(_df):
+        """Refresh the on-screen list against live market data (any mode)."""
+        if not st.session_state.get("t20_live") or _df is None or _df.empty:
+            return _df, None
+        try:
+            with st.spinner("📡 Fetching live prices (Alpaca → Yahoo)…"):
+                return ce.live_update(_df)
+        except Exception as _le:
+            st.caption(f"Live update unavailable: {_le}")
+            return _df, None
+
+    def _live_fmt(_df, base):
+        """Merge live-column formats into a styler format dict when present."""
+        f = dict(base)
+        if "Live" in _df.columns:
+            f["Live"] = "${:,.2f}"
+        if "Chg%" in _df.columns:
+            f["Chg%"] = "{:+.2f}%"
+        return {k: v for k, v in f.items() if k in _df.columns}
+
+    def _live_banner(_meta):
+        if not _meta:
+            return
+        parts = []
+        if _meta["alpaca"]:
+            parts.append(f"<span style='color:{GREEN};'>{_meta['alpaca']} via Alpaca</span>")
+        if _meta["yahoo"]:
+            parts.append(f"<span style='color:#7a9ab8;'>{_meta['yahoo']} via Yahoo</span>")
+        if _meta["missing"]:
+            parts.append(f"<span style='color:{RED};'>{_meta['missing']} unavailable</span>")
+        st.markdown(
+            f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+            border-left:4px solid {GREEN};border-radius:8px;padding:8px 14px;margin:6px 0;">
+            <b>📡 Live as of {_meta['stamp']}</b> — {' · '.join(parts)}.
+            <span style="color:{DIM};font-size:12px;">“Live” is the current price;
+            “Chg%” is the move since the scan's close.</span></div>""",
+            unsafe_allow_html=True)
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "forecast":
         try:
             if _scan_all:
@@ -1464,19 +1509,24 @@ with tab_top20:
                 ties). {'Whole universe (~5,700 stocks).' if (_scan_all and not _override) else 'From a 120-name cascade shortlist.'}
                 Regime: {reg.get('label','—')}.</span></div>""", unsafe_allow_html=True)
             _fc = fc20.copy()
+            _fc, _lmeta = _apply_live(_fc)
+            _live_banner(_lmeta)
             _fcsel = st.dataframe(
-                _fc.style.format({"Price": "${:,.2f}", "OddsUp": "{:.0f}%",
-                                  "Typical": "{:+.1f}%", "PopOdds": "{:.0f}%",
-                                  "Worst10": "{:+.0f}%", "Best10": "{:+.0f}%",
-                                  "Cases": "{:,}"}, na_rep="—")
+                _fc.style.format(_live_fmt(_fc, {
+                    "Price": "${:,.2f}", "OddsUp": "{:.0f}%",
+                    "Typical": "{:+.1f}%", "PopOdds": "{:.0f}%",
+                    "Worst10": "{:+.0f}%", "Best10": "{:+.0f}%",
+                    "Cases": "{:,}"}), na_rep="—")
                 .map(lambda v: f"color:{GREEN};font-weight:700" if isinstance(v,(int,float)) and v>=60
                      else (f"color:{RED}" if isinstance(v,(int,float)) and v<50 else ""),
                      subset=["OddsUp"])
                 .map(lambda v: _css_sign(v) if isinstance(v,(int,float)) else "", subset=["Typical"]),
                 width="stretch", hide_index=True, height=740,
                 on_select="rerun", selection_mode="single-row", key="forecast_table",
-                column_order=["Ticker", "Sector", "Price", "OddsUp", "Typical",
-                              "PopOdds", "Worst10", "Best10", "Cases"],
+                column_order=(["Ticker", "Sector", "Price"]
+                              + (["Live", "Chg%", "Src"] if "Live" in _fc.columns else [])
+                              + ["OddsUp", "Typical", "PopOdds", "Worst10",
+                                 "Best10", "Cases"]),
                 column_config={
                     "OddsUp": st.column_config.Column(help="Share of analog look-alike cases that finished HIGHER after 21 sessions. This is what the preset ranks by."),
                     "Typical": st.column_config.Column(help="Median analog outcome — the middle-of-the-pack result. Breaks ties on odds."),
@@ -1511,21 +1561,29 @@ with tab_top20:
                 improving (the P/E ≤ 50 gate already filtered everyone here).</span></div>""",
                 unsafe_allow_html=True)
             _f = f20.copy()
+            _f, _lmeta = _apply_live(_f)
+            _live_banner(_lmeta)
             _fsel = st.dataframe(
-                _f.style.format({"Price": "${:,.2f}", "Felix": "{:.1f}",
-                                 "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
-                                 "Piotroski": "{:.0f}", "ROIC Trend": "{:+.2f}",
-                                 "P/E": "{:.1f}", "RevGrowth": "{:+.0%}"}, na_rep="—")
+                _f.style.format(_live_fmt(_f, {
+                    "Price": "${:,.2f}", "Felix": "{:.1f}",
+                    "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
+                    "Piotroski": "{:.0f}", "ROIC Trend": "{:+.2f}",
+                    "P/E": "{:.1f}", "RevGrowth": "{:+.0%}"}), na_rep="—")
                 .map(lambda v: _css_sign(v - 0.15, dead=0.0) if isinstance(v, float) else "",
                      subset=["ROIC"])
                 .map(lambda v: f"color:{GREEN};font-weight:600" if v == "4/4"
                      else (f"color:{DIM}" if v in ("2/4", "3/4") else f"color:{RED}"),
-                     subset=["Tests"]),
+                     subset=["Tests"])
+                .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
+                                else (f"color:{RED};font-weight:600"
+                                      if isinstance(v, str) and v[:1] in "0123"
+                                      else f"color:{DIM}")), subset=["Data"]),
                 width="stretch", hide_index=True, height=740,
                 on_select="rerun", selection_mode="single-row", key="felix_table",
                 column_config={
                     "Felix": st.column_config.Column(help="Weighted checklist score, mirroring the screener preset exactly: ROIC x5, OE Yield x4, Piotroski x4, ROIC Trend x2, growth x1 each — percentile-ranked, P/E-gated."),
-                    "Tests": st.column_config.Column(help="How many of the four measurable quality bars this stock clears."),
+                    "Tests": st.column_config.Column(help="How many of the four measurable quality bars this stock clears. A missing input can never pass a test."),
+                    "Data": st.column_config.Column(help="How many of the 6 Felix inputs (ROIC, OE yield, Piotroski, ROIC trend, revenue growth, earnings growth) this stock actually has. Missing inputs rank at the BOTTOM, never as average."),
                     "OE Yield": st.column_config.Column(help="Owner-earnings yield — real cash generated relative to price. Revenue is vanity, cash is sanity."),
                     "ROIC Trend": st.column_config.Column(help="Direction of return on capital — a real moat keeps returns from eroding."),
                 })
@@ -1552,6 +1610,8 @@ with tab_top20:
                 {('· hot waves: ' + ', '.join(reg['hot_nodes'][:5])) if reg.get('hot_nodes') else '· no waves firing (tailwind pillar neutral)'}</span>
                 </div>""", unsafe_allow_html=True)
             _t = t20.copy()
+            _t, _lmeta = _apply_live(_t)
+            _live_banner(_lmeta)
             # IGNITION news-keyword catalysts, fetched for the FINAL 20 only
             try:
                 import json as _json
@@ -1564,10 +1624,11 @@ with tab_top20:
                     " · ".join(x for x in (_t.Catalysts.iloc[i], _nt.get(tkr, "")) if x)
                     for i, tkr in enumerate(_t.Ticker)]
             _sel20 = st.dataframe(
-                _t.style.format({"Price": "${:,.2f}", "Score": "{:.1f}", "Tech": "{:.0f}",
-                                 "Quality": "{:.0f}", "Tailwind": "{:.0f}", "MacroFit": "{:.2f}",
-                                 "Piotroski": "{:.0f}", "RevGrowth": "{:+.0%}",
-                                 "RVOL": "{:.2f}x", "RangePos": "{:.0%}"}, na_rep="—")
+                _t.style.format(_live_fmt(_t, {
+                    "Price": "${:,.2f}", "Score": "{:.1f}", "Tech": "{:.0f}",
+                    "Quality": "{:.0f}", "Tailwind": "{:.0f}", "MacroFit": "{:.2f}",
+                    "Piotroski": "{:.0f}", "RevGrowth": "{:+.0%}",
+                    "RVOL": "{:.2f}x", "RangePos": "{:.0%}"}), na_rep="—")
                 .map(lambda v: f"color:{ACCENT};font-weight:700"
                      if isinstance(v, (int, float)) and len(_t) and v >= _t.Score.iloc[min(4, len(_t) - 1)]
                      else "", subset=["Score"])
@@ -1579,8 +1640,10 @@ with tab_top20:
                                       else f"color:{DIM}")), subset=["Data"]),
                 width="stretch", hide_index=True, height=740,
                 on_select="rerun", selection_mode="single-row", key="top20_table",
-                column_order=["Ticker", "Sector", "Price", "Data", "Piotroski",
-                              "RevGrowth", "RVOL", "RangePos", "Catalysts"],
+                column_order=(["Ticker", "Sector", "Price"]
+                              + (["Live", "Chg%", "Src"] if "Live" in _t.columns else [])
+                              + ["Data", "Piotroski", "RevGrowth", "RVOL",
+                                 "RangePos", "Catalysts"]),
                 column_config={
                     "Score": st.column_config.Column(help="Combined score: 45% technicals + 25% quality + 30% cascade tailwind, multiplied by the macro-regime sector fit."),
                     "Tech": st.column_config.Column(help="IGNITION technical percentile: momentum, range position, relative volume, trend, RSI sweet spot, MACD."),

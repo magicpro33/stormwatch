@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.12"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.14"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1978,25 +1978,37 @@ def felix_scan(top: int = 20) -> pd.DataFrame:
           & np.isfinite(pe) & (pe > 0) & (pe <= 50)          # Test 5: sane price
           & np.isfinite(roic) & np.isfinite(pio))
 
+    # UNKNOWN IS NOT AVERAGE (same fix as mega_scan): a missing input ranks
+    # at the BOTTOM of its component instead of being coerced to 0.0 and
+    # percentile-ranked into the middle of the pack. ROIC and Piotroski are
+    # already hard-required by `ok`; OE yield, ROIC trend and the growth
+    # figures previously slipped through as fake zeros.
     def _pct(a):
-        return pd.Series(np.where(ok, a, np.nan)).rank(pct=True).values
+        """Percentile among eligible names; missing -> 0.0 (worst)."""
+        s = pd.Series(np.where(ok & np.isfinite(a), a, np.nan))
+        return np.nan_to_num(s.rank(pct=True).values, nan=0.0)
 
     score = (5 * _pct(roic)
              + 4 * _pct(oe)
-             + 4 * np.clip(np.nan_to_num(pio, nan=0) / 9.0, 0, 1)
-             + 2 * _pct(np.nan_to_num(rt))
-             + 1 * _pct(np.clip(np.nan_to_num(rg), -1, 3))
-             + 1 * _pct(np.clip(np.nan_to_num(eg), -2, 5))) / 17 * 100
+             + 4 * np.nan_to_num(np.clip(pio / 9.0, 0, 1), nan=0.0)
+             + 2 * _pct(rt)
+             + 1 * _pct(np.clip(rg, -1, 3))
+             + 1 * _pct(np.clip(eg, -2, 5))) / 17 * 100
     score = np.where(ok, score, -np.inf)
     order = np.argsort(-score)[:top]
-    tests = ((np.nan_to_num(roic) >= 0.15).astype(int)
-             + (np.nan_to_num(pio) >= 7).astype(int)
-             + (np.nan_to_num(oe) >= 0.04).astype(int)
-             + (np.nan_to_num(rt) > 0).astype(int))
+    # tests: a missing input can never PASS a test (isfinite guard)
+    tests = ((np.isfinite(roic) & (roic >= 0.15)).astype(int)
+             + (np.isfinite(pio) & (pio >= 7)).astype(int)
+             + (np.isfinite(oe) & (oe >= 0.04)).astype(int)
+             + (np.isfinite(rt) & (rt > 0)).astype(int))
+    have = (np.isfinite(roic).astype(int) + np.isfinite(oe).astype(int)
+            + np.isfinite(pio).astype(int) + np.isfinite(rt).astype(int)
+            + np.isfinite(rg).astype(int) + np.isfinite(eg).astype(int))
     return pd.DataFrame({
         "Ticker": tickers[order], "Sector": np.array(sectors)[order],
         "Price": px[order].round(2), "Felix": np.round(score[order], 1),
         "Tests": [f"{t}/4" for t in tests[order]],
+        "Data": [f"{h}/6" for h in have[order]],
         "ROIC": roic[order], "OE Yield": oe[order],
         "Piotroski": pio[order], "ROIC Trend": rt[order],
         "P/E": pe[order], "RevGrowth": rg[order],
@@ -2108,9 +2120,12 @@ def _now_features_all():
     rvol = V[t - 4:t + 1].mean(0) / np.where(rvbase == 0, np.nan, rvbase)
     above = (C[t] > np.nanmean(C[t - 49:t + 1], 0)).astype(np.float32)
     feats = np.column_stack([mom_pct, rangepos, np.minimum(rvol, 3), above]).astype(np.float32)
+    # same stale-price guard as mega_scan: the panel forward-fills gaps, so a
+    # name whose last real print was days ago must not be treated as current
+    _raw_recent = np.isfinite(panel["c"][-3:]).any(axis=0)
     tradeable = (np.isfinite(C[t]) & (C[t] >= 3)
                  & np.isfinite(mom_pct) & np.isfinite(rangepos) & np.isfinite(rvol)
-                 & (mdv >= 2e6))
+                 & (mdv >= 2e6) & _raw_recent)
     return feats, tradeable
 
 
@@ -2134,9 +2149,10 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
     feats, tradeable = _now_features_all()
     if price_floor != 3.0 or mdv_floor != 2e6:
         C = panel["c"]
+        _raw_recent = np.isfinite(C[-3:]).any(axis=0)
         tradeable = (np.isfinite(C[-1]) & (C[-1] >= price_floor)
                      & np.isfinite(feats[:, 0]) & np.isfinite(feats[:, 1])
-                     & (mdv >= mdv_floor))
+                     & (mdv >= mdv_floor) & _raw_recent)
     idx = np.where(tradeable)[0]
 
     # sort the library by momentum percentile so each stock scans only the
@@ -2203,3 +2219,85 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
         df = df.sort_values(["RankScore", "Typical"], ascending=False)
         return df.reset_index(drop=True)
     return df.sort_values(["OddsUp", "Typical"], ascending=False).reset_index(drop=True)
+
+
+# ═════════ LIVE UPDATE — refresh a result list against the market now ═════════
+def yahoo_prices(tickers: list) -> dict:
+    """Batch last-price fetch from Yahoo — the gap-filler for whatever
+    Alpaca doesn't cover (indices, ADRs, thin names, crypto)."""
+    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+    out = {}
+    if not tickers:
+        return out
+    try:
+        import yfinance as yf
+    except Exception:
+        return out
+    try:
+        data = yf.download(list(tickers), period="5d", interval="1d",
+                           progress=False, group_by="ticker", threads=True,
+                           auto_adjust=False)
+    except Exception:
+        return out
+    for t in tickers:
+        try:
+            if isinstance(data.columns, pd.MultiIndex):
+                if t not in data.columns.get_level_values(0):
+                    continue
+                s = data[t]["Close"].dropna()
+            else:
+                s = data["Close"].dropna()
+            if len(s):
+                out[t] = float(s.iloc[-1])
+        except Exception:
+            continue
+    return out
+
+
+def live_update(df: pd.DataFrame, price_col: str = "Price") -> tuple:
+    """Refresh ANY Top-20 result frame against live market data.
+
+    Chain: Alpaca batch snapshots first, then Yahoo for whatever's missing —
+    the same priority the Stock Lookup analyzer uses. Recomputes the columns
+    that actually move intraday (price, and the % change since the scan's
+    close) and reports where each price came from.
+
+    Returns (updated_df, meta) where meta has counts per source.
+    """
+    if df is None or df.empty or "Ticker" not in df.columns:
+        return df, dict(alpaca=0, yahoo=0, missing=0, total=0)
+    tickers = [str(t) for t in df["Ticker"].tolist()]
+
+    # 1. Alpaca first (live snapshots), tracking the source explicitly
+    live, source = {}, {}
+    try:
+        for k, v in alpaca_prices(tickers).items():
+            if v and np.isfinite(v):
+                live[k] = float(v); source[k] = "Alpaca"
+    except Exception:
+        pass
+    n_alpaca = len(live)
+
+    # 2. Yahoo fills whatever Alpaca didn't return
+    missing = [t for t in tickers if t not in live]
+    if missing:
+        try:
+            for k, v in yahoo_prices(missing).items():
+                if v and np.isfinite(v):
+                    live[k] = float(v); source[k] = "Yahoo"
+        except Exception:
+            pass
+    n_yahoo = len(live) - n_alpaca
+
+    out = df.copy()
+    prev = pd.to_numeric(out[price_col], errors="coerce") if price_col in out else None
+    new_px = np.array([live.get(t, np.nan) for t in tickers], dtype=float)
+    out["Live"] = np.round(new_px, 2)
+    if prev is not None:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            out["Chg%"] = np.round((new_px / prev.values - 1.0) * 100, 2)
+    out["Src"] = [source.get(t, "—") for t in tickers]
+    meta = dict(alpaca=n_alpaca, yahoo=n_yahoo,
+                missing=len(tickers) - len(live), total=len(tickers),
+                stamp=pd.Timestamp.now(tz="US/Eastern").strftime("%b %d %I:%M %p ET"))
+    return out, meta
