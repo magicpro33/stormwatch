@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.11"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.12"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1684,7 +1684,11 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
     C, V = panel["c"], np.nan_to_num(panel["v"])
     T, N = C.shape
     px = C[-1]
-    tradeable = np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6)
+    # Stale-price guard: the panel forward-fills gaps, so a stock whose last
+    # real print was days ago can still show a "current" price. Require an
+    # actual (non-filled) close in the last 3 sessions of the raw panel.
+    _raw_recent = np.isfinite(panel["c"][-3:]).any(axis=0)
+    tradeable = np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6) & _raw_recent
 
     def _pct(a):
         s = pd.Series(np.where(tradeable, a, np.nan))
@@ -1735,13 +1739,42 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
     cat_tags = np.array(cat_tags, dtype=object)
 
     # ── pillar 2: quality DNA (macro-simulator scoring philosophy) ───
+    # UNKNOWN IS NOT AVERAGE. Previously a missing ROIC became 0.0 and was
+    # percentile-ranked — but 41% of real stocks have NEGATIVE ROIC, so a
+    # fake zero landed near the 43rd percentile and OUTRANKED them. Missing
+    # Piotroski defaulted to 4/9, above the market median of 3. Net effect:
+    # companies with no data scored like average companies. Now every missing
+    # fundamental ranks at the BOTTOM of its component, and the row's overall
+    # data completeness is reported so the user can see what's actually known.
     piotr = funds["Piotroski"]; gc = funds["GoldenCross"]
     roic = funds["ROIC"]; rg = funds["RevenueGrowth"]; eg = funds["EarningsGrowth"]
-    quality = (0.35 * np.clip(np.nan_to_num(piotr, nan=4.0) / 9.0, 0, 1)
-               + 0.15 * np.clip(np.nan_to_num(gc, nan=0.0), 0, 1)
-               + 0.20 * _pct(np.clip(np.nan_to_num(roic), -1, 2))
-               + 0.15 * _pct(np.clip(np.nan_to_num(rg), -1, 3))
-               + 0.15 * _pct(np.clip(np.nan_to_num(eg), -2, 5)))
+
+    def _pct_missing_last(a):
+        """Percentile rank among tradeable stocks; NaN -> 0.0 (worst)."""
+        s = pd.Series(np.where(tradeable & np.isfinite(a), a, np.nan))
+        r = s.rank(pct=True).values
+        return np.nan_to_num(r, nan=0.0)
+
+    quality = (0.35 * np.nan_to_num(np.clip(piotr / 9.0, 0, 1), nan=0.0)
+               + 0.15 * np.nan_to_num(np.clip(gc, 0, 1), nan=0.0)
+               + 0.20 * _pct_missing_last(np.clip(roic, -1, 2))
+               + 0.15 * _pct_missing_last(np.clip(rg, -1, 3))
+               + 0.15 * _pct_missing_last(np.clip(eg, -2, 5)))
+
+    # data completeness: how many of the 5 quality inputs this stock actually has
+    _have = (np.isfinite(piotr).astype(int) + np.isfinite(gc).astype(int)
+             + np.isfinite(roic).astype(int) + np.isfinite(rg).astype(int)
+             + np.isfinite(eg).astype(int))
+    _missing_names = []
+    for k in range(N):
+        miss = []
+        if not np.isfinite(piotr[k]): miss.append("Piotroski")
+        if not np.isfinite(roic[k]): miss.append("ROIC")
+        if not np.isfinite(rg[k]): miss.append("RevGrowth")
+        if not np.isfinite(eg[k]): miss.append("EarnGrowth")
+        if not np.isfinite(gc[k]): miss.append("GoldenCross")
+        _missing_names.append(", ".join(miss))
+    _missing_names = np.array(_missing_names, dtype=object)
 
     # ── pillar 3: cascade tailwind (waves already moving toward it) ──
     imp = impulses(node_closes).iloc[-1]
@@ -1841,6 +1874,8 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
         "MacroFit": macro_mult[order].round(2),
         "Piotroski": piotr[order], "RevGrowth": rg[order],
         "RVOL": np.round(rvol[order], 2), "RangePos": np.round(rangepos[order], 2),
+        "Data": [f"{h}/5" for h in _have[order]],
+        "Missing": _missing_names[order],
         "Catalysts": cat_tags[order],
     })
     regime["hot_nodes"] = used_nodes

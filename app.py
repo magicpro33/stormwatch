@@ -20,7 +20,7 @@ import streamlit as st
 
 import cascade_engine as ce
 
-REQUIRED_ENGINE = "2.11"
+REQUIRED_ENGINE = "2.12"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -1572,10 +1572,14 @@ with tab_top20:
                      if isinstance(v, (int, float)) and len(_t) and v >= _t.Score.iloc[min(4, len(_t) - 1)]
                      else "", subset=["Score"])
                 .map(lambda v: _css_sign(v - 50, dead=10) if isinstance(v, (int, float)) else "",
-                     subset=["Tech", "Quality", "Tailwind"]),
+                     subset=["Tech", "Quality", "Tailwind"])
+                .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "5/5"
+                                else (f"color:{RED};font-weight:600"
+                                      if isinstance(v, str) and v[:1] in "012"
+                                      else f"color:{DIM}")), subset=["Data"]),
                 width="stretch", hide_index=True, height=740,
                 on_select="rerun", selection_mode="single-row", key="top20_table",
-                column_order=["Ticker", "Sector", "Price", "Piotroski",
+                column_order=["Ticker", "Sector", "Price", "Data", "Piotroski",
                               "RevGrowth", "RVOL", "RangePos", "Catalysts"],
                 column_config={
                     "Score": st.column_config.Column(help="Combined score: 45% technicals + 25% quality + 30% cascade tailwind, multiplied by the macro-regime sector fit."),
@@ -1587,6 +1591,13 @@ with tab_top20:
                     "RevGrowth": st.column_config.Column(help="YoY revenue growth from the nightly dump."),
                     "RVOL": st.column_config.Column(help="5-day vs 63-day average volume."),
                     "RangePos": st.column_config.Column(help="Position in the 63-day range — 100% = at the highs."),
+                    "Data": st.column_config.Column(
+                        help="How many of the 5 quality inputs (Piotroski, ROIC, "
+                             "revenue growth, earnings growth, golden cross) this "
+                             "stock actually has data for. Missing inputs now rank "
+                             "at the BOTTOM, never as average — but a low count "
+                             "still means the Quality pillar knows less about this "
+                             "name. 5/5 = fully known."),
                     "Catalysts": st.column_config.Column(
                         width="large",
                         help="Two layers: data fingerprints scanned across all 5,700 stocks "
