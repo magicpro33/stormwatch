@@ -39,19 +39,19 @@ import requests
 # ── timeframe registry ───────────────────────────────────────────────
 # bars_per_day drives the volatility rescaling; alpaca is the API's name for it
 TIMEFRAMES = {
-    "1 Day":   dict(alpaca="1Day",   yf="1d",  bars_per_day=1.0,    validated=True,
-                    lookback_days=420),
-    "4 Hour":  dict(alpaca="4Hour",  yf="1h",  bars_per_day=1.625,  validated=False,
-                    lookback_days=400),
-    "1 Hour":  dict(alpaca="1Hour",  yf="1h",  bars_per_day=6.5,    validated=False,
-                    lookback_days=120),
-    "30 Min":  dict(alpaca="30Min",  yf="30m", bars_per_day=13.0,   validated=False,
-                    lookback_days=60),
-    "5 Min":   dict(alpaca="5Min",   yf="5m",  bars_per_day=78.0,   validated=False,
-                    lookback_days=25),
-    "2 Min":   dict(alpaca="2Min",   yf="2m",  bars_per_day=195.0,  validated=False,
-                    lookback_days=10),
+    "1 Day":   dict(alpaca="1Day",  bars_per_day=1.0,   validated=True),
+    "4 Hour":  dict(alpaca="4Hour", bars_per_day=2.0,   validated=False),
+    "1 Hour":  dict(alpaca="1Hour", bars_per_day=6.5,   validated=False),
+    "30 Min":  dict(alpaca="30Min", bars_per_day=13.0,  validated=False),
+    "5 Min":   dict(alpaca="5Min",  bars_per_day=78.0,  validated=False),
+    "2 Min":   dict(alpaca="2Min",  bars_per_day=195.0, validated=False),
 }
+
+# Fetch windows are DERIVED, not guessed. Asking for 400 calendar days of
+# 4-hour bars means ~14 pagination pages per 100-symbol chunk; sized from the
+# bars actually needed it is ~4. This is most of the "4hr hangs" fix.
+BAR_BUFFER = 40           # extra bars over MIN_BARS for warmup/holidays
+MAX_PAGES = 25            # hard stop on pagination, per chunk
 
 VOL_CALM_D = 2.5      # daily-bar CALM threshold
 VOL_HIGH_D = 4.0      # daily-bar HIGH threshold
@@ -263,8 +263,23 @@ def _finalize(df: pd.DataFrame, require_calm: bool, min_score: float,
 
 
 # ── intraday path: Alpaca bars for a shortlisted universe ───────────
-def _alpaca_bars(symbols: list, tf: str, start: str, feed: str = "iex") -> dict:
-    """Multi-symbol bars from Alpaca. Returns {symbol: DataFrame}."""
+def lookback_days_for(bars_per_day: float) -> int:
+    """Calendar days needed to cover MIN_BARS + buffer at this bar size."""
+    need = MIN_BARS + BAR_BUFFER
+    trading_days = need / max(bars_per_day, 1e-6)
+    # floor of 5 days: a 3-day window landing on a holiday weekend can
+    # return fewer than MIN_BARS and silently yield an empty scan
+    return max(5, int(np.ceil(trading_days * 7.0 / 5.0 * 1.20)))
+
+
+def _alpaca_bars(symbols: list, tf: str, start: str, feed: str = "iex",
+                 progress=None) -> dict:
+    """Multi-symbol bars from Alpaca. Returns {symbol: DataFrame}.
+
+    Paginating is bounded three ways — a page cap, a repeated-token guard, and
+    an empty-page guard — because an unbounded `while True` against a paging
+    API is exactly how a scan appears to hang forever.
+    """
     import cascade_engine as ce
     kid, sec = ce._alpaca_keys_simple()
     if not kid:
@@ -272,48 +287,85 @@ def _alpaca_bars(symbols: list, tf: str, start: str, feed: str = "iex") -> dict:
     hdr = {"APCA-API-KEY-ID": kid, "APCA-API-SECRET-KEY": sec}
     out: dict[str, list] = {}
     CH = 100
-    for i in range(0, len(symbols), CH):
-        chunk = symbols[i:i + CH]
-        token = None
-        while True:
+    chunks = [symbols[i:i + CH] for i in range(0, len(symbols), CH)]
+    for ci, chunk in enumerate(chunks):
+        token, pages, seen = None, 0, set()
+        while pages < MAX_PAGES:
             p = {"symbols": ",".join(chunk), "timeframe": tf, "start": start,
                  "limit": 10000, "adjustment": "split", "feed": feed}
             if token:
                 p["page_token"] = token
             try:
                 r = requests.get("https://data.alpaca.markets/v2/stocks/bars",
-                                 params=p, headers=hdr, timeout=45)
+                                 params=p, headers=hdr, timeout=30)
                 if r.status_code != 200:
                     break
                 j = r.json()
             except Exception:
                 break
-            for sym, bars in (j.get("bars") or {}).items():
-                out.setdefault(sym, []).extend(bars)
-            token = j.get("next_page_token")
-            if not token:
+            got = j.get("bars") or {}
+            if not got:
                 break
+            for sym, bars in got.items():
+                out.setdefault(sym, []).extend(bars)
+            pages += 1
+            token = j.get("next_page_token")
+            if not token or token in seen:      # None, or the server repeating
+                break
+            seen.add(token)
+            if progress:
+                progress((ci + min(pages / 4.0, 0.95)) / max(len(chunks), 1))
+        if progress:
+            progress((ci + 1) / max(len(chunks), 1))
+
     frames = {}
     for sym, bars in out.items():
         if len(bars) < MIN_BARS:
             continue
-        frames[sym] = pd.DataFrame([{
-            "o": b["o"], "h": b["h"], "l": b["l"], "c": b["c"], "v": b["v"]}
-            for b in bars])
+        df = pd.DataFrame([{"t": b["t"], "o": b["o"], "h": b["h"],
+                            "l": b["l"], "c": b["c"], "v": b["v"]}
+                           for b in bars])
+        frames[sym] = df.tail(MIN_BARS + BAR_BUFFER).reset_index(drop=True)
     return frames
+
+
+def measured_bars_per_day(df: pd.DataFrame, fallback: float) -> float:
+    """Bars per session, measured from the timestamps we actually got back.
+
+    Beats trusting a table: it self-corrects for half days, extended hours and
+    whatever the feed really returns — and the volatility thresholds scale off
+    this number, so being wrong here mis-sizes the risk gate.
+    """
+    try:
+        d = pd.to_datetime(df["t"]).dt.tz_convert("UTC").dt.date
+        per_day = d.value_counts()
+        if len(per_day) >= 3:
+            m = float(per_day.median())
+            if m > 0:
+                return m
+    except Exception:
+        pass
+    return fallback
 
 
 def scan_intraday(timeframe: str, universe: list, rs_band: float = 3.0,
                   require_calm: bool = True, min_score: float = 0.0,
                   top: int = 50, sectors: dict | None = None,
-                  apply_rs: bool = True) -> pd.DataFrame:
+                  apply_rs: bool = True, progress=None) -> pd.DataFrame:
     """Score a shortlisted universe on an intraday timeframe via Alpaca."""
     meta = TIMEFRAMES[timeframe]
-    start = (date.today() - timedelta(days=meta["lookback_days"])).isoformat()
-    syms = list(dict.fromkeys(universe + [BENCHMARK]))
-    frames = _alpaca_bars(syms, meta["alpaca"], start)
+    lb = lookback_days_for(meta["bars_per_day"])
+    start = (date.today() - timedelta(days=lb)).isoformat()
+    syms = list(dict.fromkeys(list(universe) + [BENCHMARK]))
+    frames = _alpaca_bars(syms, meta["alpaca"], start, progress=progress)
     if not frames:
         return pd.DataFrame()
+
+    # bars/day measured from real timestamps, not assumed
+    bpd = meta["bars_per_day"]
+    # NB: `frames.get(x) or y` raises on DataFrames — truth value is ambiguous
+    ref = frames[BENCHMARK] if BENCHMARK in frames else next(iter(frames.values()))
+    bpd = measured_bars_per_day(ref, bpd)
 
     bench_ret = None
     if BENCHMARK in frames:
@@ -321,24 +373,21 @@ def scan_intraday(timeframe: str, universe: list, rs_band: float = 3.0,
         if len(bc) > 21 and bc[-21] > 0:
             bench_ret = float((bc[-1] / bc[-21] - 1) * 100)
 
-    names = [s for s in frames if s != BENCHMARK]
+    names = [s for s in frames if s != BENCHMARK and len(frames[s]) >= MIN_BARS]
     if not names:
         return pd.DataFrame()
     T = min(len(frames[s]) for s in names)
-    T = max(T, MIN_BARS)
-    def stack(key):
-        return np.column_stack([frames[s][key].to_numpy()[-T:] for s in names
-                                if len(frames[s]) >= T]).astype(np.float64)
-    names = [s for s in names if len(frames[s]) >= T]
-    if not names:
-        return pd.DataFrame()
-    o, h, l, c, v = (stack(k) for k in ("o", "h", "l", "c", "v"))
+    o, h, l, c, v = (
+        np.column_stack([frames[s][k].to_numpy()[-T:] for s in names]).astype(np.float64)
+        for k in ("o", "h", "l", "c", "v"))
 
-    df = score_panel(o, h, l, c, v, bars_per_day=meta["bars_per_day"],
+    df = score_panel(o, h, l, c, v, bars_per_day=bpd,
                      bench_ret=bench_ret, rs_band=rs_band)
     df.insert(0, "Ticker", names)
     df.insert(1, "Sector", [(sectors or {}).get(s, "—") for s in names])
     df["DollarVol"] = np.nan
+    df.attrs["bars_per_day"] = bpd
+    df.attrs["bars_used"] = T
     return _finalize(df, require_calm, min_score, top, apply_rs)
 
 

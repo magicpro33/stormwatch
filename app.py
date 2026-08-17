@@ -1750,6 +1750,33 @@ with tab_top20:
 
 
 # ── ⚡ APEX FLOW screener ────────────────────────────────────────────
+@st.cache_data(show_spinner=False, ttl=600, max_entries=16)
+def _apex_scan_cached(tf, min_price, min_dv, require_calm, min_score,
+                      top_n, apply_rs, uni_n):
+    """Run one APEX scan and cache it.
+
+    Streamlit re-executes the whole script on every widget interaction, and a
+    row click calls st.rerun() outright. Without this cache the intraday scan
+    refired its full Alpaca fetch on each pass and never settled — the "4hr is
+    stuck in a loop" bug. Keyed on every input, so changing a filter still
+    produces a fresh scan.
+    """
+    if af.TIMEFRAMES[tf]["validated"]:
+        res = af.scan_daily(min_price=min_price, min_dollar_vol=min_dv * 1e6,
+                            require_calm=require_calm, min_score=min_score,
+                            top=top_n, apply_rs=apply_rs)
+        return res, "nightly dump · whole market"
+    uni, secmap = af.liquid_universe(uni_n, min_price)
+    res = af.scan_intraday(tf, uni, require_calm=require_calm,
+                           min_score=min_score, top=top_n, sectors=secmap,
+                           apply_rs=apply_rs)
+    bpd = res.attrs.get("bars_per_day") if res is not None and len(res) else None
+    src = f"Alpaca {af.TIMEFRAMES[tf]['alpaca']} bars · top {uni_n} by liquidity"
+    if bpd:
+        src += f" · {bpd:.0f} bars/session measured"
+    return res, src
+
+
 with tab_apex:
     if _APEX_ERR:
         st.error(f"⚠️ **APEX FLOW module missing** — {_APEX_ERR}. Push "
@@ -1827,20 +1854,11 @@ with tab_apex:
 
     if st.session_state.get("apex_run"):
         try:
-            with st.spinner(f"Scoring on {_tf} bars…"):
-                if _meta["validated"]:
-                    _res = af.scan_daily(
-                        min_price=float(_min_price), min_dollar_vol=float(_min_dv) * 1e6,
-                        require_calm=_require_calm, min_score=float(_min_score),
-                        top=int(_top_n), apply_rs=_apply_rs)
-                    _src = "nightly dump · whole market"
-                else:
-                    _uni, _secmap = af.liquid_universe(int(_uni_n), float(_min_price))
-                    _res = af.scan_intraday(
-                        _tf, _uni, require_calm=_require_calm,
-                        min_score=float(_min_score), top=int(_top_n),
-                        sectors=_secmap, apply_rs=_apply_rs)
-                    _src = f"Alpaca {_meta['alpaca']} bars · top {_uni_n} by liquidity"
+          with st.spinner(f"Scoring on {_tf} bars…"):
+            _res, _src = _apex_scan_cached(
+                _tf, float(_min_price), float(_min_dv), bool(_require_calm),
+                float(_min_score), int(_top_n), bool(_apply_rs),
+                int(_uni_n) if _uni_n else 0)
         except Exception as e:
             _res, _src = pd.DataFrame(), ""
             st.error(f"Scan failed: {e}")
