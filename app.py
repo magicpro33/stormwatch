@@ -20,6 +20,12 @@ import streamlit as st
 
 import cascade_engine as ce
 
+try:
+    import apex_flow as af
+    _APEX_ERR = ""
+except Exception as _e:                       # tab shows the fix, app still runs
+    af, _APEX_ERR = None, str(_e)
+
 REQUIRED_ENGINE = "2.14"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -907,11 +913,11 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
     st.stop()
 
 asof = str(closes.index[-1].date())
-(tab_map, tab_lookup, tab_top20, tab_macro, tab_pressure, tab_sentinels,
- tab_forced, tab_lab, tab_guide) = st.tabs(
-    ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "🧪 Macro Sim",
-     "🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab",
-     "📖 Guide"])
+(tab_map, tab_lookup, tab_top20, tab_apex, tab_macro, tab_pressure,
+ tab_sentinels, tab_forced, tab_lab, tab_guide) = st.tabs(
+    ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "⚡ APEX FLOW",
+     "🧪 Macro Sim", "🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows",
+     "🔬 Validation Lab", "📖 Guide"])
 
 
 # ── 🌊 cascade map ───────────────────────────────────────────────────
@@ -1740,6 +1746,206 @@ with tab_top20:
                     "It's a ranking, not a prophecy — validate ideas in Stock Lookup's "
                     "analog forecast before acting. Not investment advice.")
 
+
+
+
+# ── ⚡ APEX FLOW screener ────────────────────────────────────────────
+with tab_apex:
+    if _APEX_ERR:
+        st.error(f"⚠️ **APEX FLOW module missing** — {_APEX_ERR}. Push "
+                 "**apex_flow.py** alongside app.py and cascade_engine.py, "
+                 "then reboot the app.")
+        st.stop()
+
+    st.caption("The APEX FLOW indicator, run across the whole market. Same 0-100 "
+               "conviction score as the TradingView script — risk gate 35 + range "
+               "position 25 + value-area structure 15 + regime 15 + trend quality 10 "
+               "— so anything that ranks here looks identical on your chart.")
+
+    _tf_names = list(af.TIMEFRAMES)
+    _ac1, _ac2, _ac3 = st.columns([2, 1, 1], vertical_alignment="bottom")
+    _tf = _ac1.radio("Timeframe", _tf_names, key="apex_tf", horizontal=True,
+                     help="1 Day is the only timeframe the score was validated on. "
+                          "Lower timeframes rescale the volatility thresholds "
+                          "correctly, but the edge itself is unproven there — see "
+                          "the badge below.")
+    _meta = af.TIMEFRAMES[_tf]
+    _top_n = _ac2.number_input("Show top", 10, 200, 40, step=10, key="apex_top")
+    _min_score = _ac3.slider("Min score", 0, 100, 80, step=5, key="apex_minscore",
+                             help="80 is the tested gate. Lower it to see more names.")
+
+    # ── validation badge — the honest label for this timeframe ──
+    if _meta["validated"]:
+        st.markdown(f"""<div style="background:#0d2215;border:1px solid #1e6b35;
+            border-left:4px solid {GREEN};border-radius:10px;padding:11px 16px;margin:8px 0 6px;">
+            <span style="font-weight:800;color:#4dd880;">✅ VALIDATED TIMEFRAME</span>
+            <span style="color:#d7e0ec;font-size:13px;margin-left:8px;">
+            Daily bars, 984 held-out tickers: the score ≥ 80 + CALM + RS gate produced a
+            <b>60.2% win rate</b> and a <b>4.28%</b> chance of a &gt;10% loss over 20 sessions,
+            against a 50.7% baseline.</span></div>""", unsafe_allow_html=True)
+    else:
+        _sc = af.tf_scale(_meta["bars_per_day"])
+        st.markdown(f"""<div style="background:#1a1500;border:1px solid #907020;
+            border-left:4px solid #d0b040;border-radius:10px;padding:11px 16px;margin:8px 0 6px;">
+            <span style="font-weight:800;color:#d0b040;">⚠️ UNVALIDATED TIMEFRAME</span>
+            <span style="color:#d7e0ec;font-size:13px;margin-left:8px;">
+            The volatility thresholds are rescaled correctly for {_tf} bars
+            (CALM ≤ <b>{af.VOL_CALM_D*_sc:.2f}%</b>, HIGH &gt; <b>{af.VOL_HIGH_D*_sc:.2f}%</b>
+            instead of the daily 2.50% / 4.00%), so the gate still filters. But the
+            60% win rate was measured on <b>daily</b> bars only. On {_tf} bars the
+            20-bar range and 50-bar profile cover a few hours of microstructure, not a
+            swing — treat these as candidates to chart, not a proven edge.</span></div>""",
+            unsafe_allow_html=True)
+
+    with st.expander("⚙️ Filters"):
+        _f1, _f2, _f3, _f4 = st.columns(4)
+        _require_calm = _f1.checkbox("CALM volatility only", True, key="apex_calm",
+            help="The validated configuration. Off = also allow NORMAL-volatility names.")
+        _apply_rs = _f2.checkbox("Relative-strength filter", True, key="apex_rs",
+            help="Keep only names tracking within ±3% of SPY over 20 bars. Lifted the "
+                 "win rate from 54.9% to 60.2% in testing.")
+        _min_price = _f3.number_input("Min price $", 1.0, 500.0, 5.0, step=1.0, key="apex_px")
+        _min_dv = _f4.number_input("Min $ volume (M)", 0.0, 500.0, 5.0, step=1.0,
+            key="apex_dv", help="Median daily dollar volume. The CALM gate rewards low "
+                 "volatility, and a stock that barely trades satisfies that trivially — "
+                 "this keeps dead microcaps out of the results.")
+        if not _meta["validated"]:
+            _uni_n = st.slider("Intraday universe size (most liquid N)", 50, 1000, 300,
+                step=50, key="apex_uni",
+                help="Intraday bars are fetched per symbol, so the scan runs on the N "
+                     "most liquid names rather than all ~5,700. Larger = slower.")
+        else:
+            _uni_n = None
+
+    _go = st.button("⚡ Run APEX scan", key="apex_go", type="primary", width="stretch")
+    if _go:
+        st.session_state["apex_run"] = True
+        st.session_state["apex_run_tf"] = _tf
+    # invalidate a stale result when the timeframe changes
+    if st.session_state.get("apex_run") and st.session_state.get("apex_run_tf") != _tf:
+        st.session_state["apex_run"] = False
+
+    if st.session_state.get("apex_run"):
+        try:
+            with st.spinner(f"Scoring on {_tf} bars…"):
+                if _meta["validated"]:
+                    _res = af.scan_daily(
+                        min_price=float(_min_price), min_dollar_vol=float(_min_dv) * 1e6,
+                        require_calm=_require_calm, min_score=float(_min_score),
+                        top=int(_top_n), apply_rs=_apply_rs)
+                    _src = "nightly dump · whole market"
+                else:
+                    _uni, _secmap = af.liquid_universe(int(_uni_n), float(_min_price))
+                    _res = af.scan_intraday(
+                        _tf, _uni, require_calm=_require_calm,
+                        min_score=float(_min_score), top=int(_top_n),
+                        sectors=_secmap, apply_rs=_apply_rs)
+                    _src = f"Alpaca {_meta['alpaca']} bars · top {_uni_n} by liquidity"
+        except Exception as e:
+            _res, _src = pd.DataFrame(), ""
+            st.error(f"Scan failed: {e}")
+
+        if _res is None or _res.empty:
+            if _meta["validated"]:
+                st.warning("No names passed. Loosen the filters — drop the min score, "
+                           "or turn off the RS filter.")
+            else:
+                st.warning("No intraday results. This needs **Alpaca API keys** in "
+                           "`.streamlit/secrets.toml` (`ALPACA_API_KEY` / "
+                           "`ALPACA_SECRET_KEY`) — the nightly dump is daily-only, so "
+                           "intraday bars come from Alpaca. If keys are set, try a "
+                           "larger universe or a looser min score.")
+        else:
+            _g = int(_res["Gate"].sum())
+            _m1, _m2, _m3, _m4 = st.columns(4)
+            _m1.metric("Names found", len(_res))
+            _m2.metric("Full gate ✅", _g,
+                       help="Score ≥ 80 AND CALM AND relative strength in band — "
+                            "the exact configuration that was tested.")
+            _m3.metric("Top score", f"{_res['Score'].max():.1f}")
+            _m4.metric("Median vol", f"{_res['Vol%'].median():.2f}%")
+            st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
+
+            _show = _res.copy()
+            _show["✅"] = np.where(_show["Gate"], "✅", "")
+            _sel_ax = st.dataframe(
+                _show.style.format({
+                    "Score": "{:.1f}", "Price": "${:,.2f}", "Vol%": "{:.2f}%",
+                    "RangePos": "{:.0f}%", "RS": "{:+.2f}%",
+                    "POC": "${:,.2f}", "VAL": "${:,.2f}", "VAH": "${:,.2f}"}, na_rep="—")
+                .map(lambda v: f"color:{ACCENT};font-weight:700"
+                     if isinstance(v, (int, float)) and v >= 85 else "", subset=["Score"])
+                .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "CALM"
+                                else (f"color:{RED};font-weight:600" if v == "HIGH"
+                                      else "color:#d0b040")), subset=["Risk"])
+                .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "BELOW VALUE"
+                                else (f"color:{DIM}" if v == "IN VALUE"
+                                      else "color:#b565f3")), subset=["ValueArea"])
+                .map(lambda v: _css_sign(-abs(v) + 3, dead=0) if isinstance(v, (int, float))
+                     else "", subset=["RS"]),
+                width="stretch", hide_index=True, height=620,
+                on_select="rerun", selection_mode="single-row", key="apex_table",
+                column_order=["#", "✅", "Ticker", "Sector", "Score", "Risk", "Vol%",
+                              "RangePos", "ValueArea", "Regime", "RS", "Price",
+                              "VAL", "POC", "VAH"],
+                column_config={
+                    "✅": st.column_config.Column(width="small", help="Passes the full tested gate."),
+                    "Score": st.column_config.Column(help="APEX conviction 0-100. Same number the indicator shows."),
+                    "Risk": st.column_config.Column(help="Volatility state. CALM is the only one that passes the tested gate."),
+                    "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
+                    "RangePos": st.column_config.Column(help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
+                    "ValueArea": st.column_config.Column(help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
+                    "Regime": st.column_config.Column(help="5-factor trend tally. Context — trend direction showed no forward edge in testing."),
+                    "RS": st.column_config.Column(help="20-bar return minus SPY's. The filter keeps ±3% — the middle of the pack."),
+                    "VAL": st.column_config.Column(help="Value area low."),
+                    "POC": st.column_config.Column(help="Point of control — the heaviest-volume price level."),
+                    "VAH": st.column_config.Column(help="Value area high."),
+                })
+            _rax = (_sel_ax.selection.rows if _sel_ax and getattr(_sel_ax, "selection", None) else [])
+            if _rax:
+                _tkax = _show.iloc[_rax[0]].Ticker
+                if st.session_state.get("_apex_handled") != _tkax:
+                    st.session_state["_apex_handled"] = _tkax
+                    st.session_state["lk_tk"] = _tkax
+                    st.rerun()
+            if st.session_state.get("lk_tk"):
+                st.info(f"🔎 **{st.session_state['lk_tk']}** loaded — open the "
+                        "**Stock Lookup** tab for the full analysis.")
+            st.caption("👆 Tap any row to load it into Stock Lookup.")
+
+            st.download_button("⬇ Download CSV", _res.to_csv(index=False),
+                               f"apex_flow_{_tf.replace(' ','')}_{asof}.csv",
+                               "text/csv", key="apex_csv")
+
+    with st.expander("❓ How APEX FLOW scores a stock"):
+        st.markdown(
+            "**The score, 0-100** — identical to the TradingView indicator:\n\n"
+            "| Component | Max | What earns it |\n|---|---|---|\n"
+            "| Risk gate | 35 | 20-bar realized volatility. CALM = full 35. |\n"
+            "| Range position | 25 | Scaled by position in the 20-bar range — at the lows earns most. |\n"
+            "| Value-area structure | 15 | Below the 50-bar volume profile's value area = 15, inside = 10, above = 3. |\n"
+            "| Regime | 15 | 5-factor trend tally (price vs 20/50/200 MA, MA stack). |\n"
+            "| Trend quality | 10 | Price above the structural MA. |\n\n"
+            "**Then two filters:** CALM volatility only, and relative strength within "
+            "±3% of SPY over 20 bars.\n\n"
+            "**What the evidence actually supports.** On daily bars, across 984 "
+            "held-out tickers, win rate rose monotonically with the score (43% in the "
+            "lowest band to 67% in the highest) and the chance of a >10% loss fell "
+            "from ~23% to ~4%. The gate configuration scored 60.2% wins vs a 50.7% "
+            "baseline.\n\n"
+            "**What it does NOT do** — reliably raise your *average* return. Ex-crash "
+            "the gate averaged +0.274% versus a +0.249% baseline, which is noise. "
+            "This ranks setups by how unlikely they are to blow up on you, not by how "
+            "far they'll run.\n\n"
+            "**Liquidity guard.** The CALM gate rewards low volatility, which a stock "
+            "that barely trades satisfies trivially — early testing filled the top of "
+            "the list with dead microcaps printing 0.2% daily vol. Names below a "
+            "volatility floor, or with gappy history, are dropped before ranking.\n\n"
+            "**Sector skew, worth knowing.** Because the gate selects the quietest "
+            "names, roughly a third of qualifiers are Financial Services. That's the "
+            "filter working as designed, but it means the list is less diversified "
+            "than it looks — size accordingly.\n\n"
+            "Research tool. Probability tilts, not prophecy. Not investment advice.")
 
 # ── 🧪 macro simulator (the original, embedded whole) ────────────────
 with tab_macro:
