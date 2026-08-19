@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.14"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.15"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -2301,3 +2301,151 @@ def live_update(df: pd.DataFrame, price_col: str = "Price") -> tuple:
                 missing=len(tickers) - len(live), total=len(tickers),
                 stamp=pd.Timestamp.now(tz="US/Eastern").strftime("%b %d %I:%M %p ET"))
     return out, meta
+
+
+# ═════════ ⛰ APEX — quality stocks in the buy zone ═════════
+def apex_scan(node_closes: pd.DataFrame, top: int = 20,
+              min_n: int = 300, strict: bool = True) -> tuple:
+    """Find QUALITY businesses that have pulled back into a buy zone.
+
+    Built entirely from logic already in the app:
+      • buy-zone technicals  — the same OHLCV indicators mega_scan computes
+      • quality gate         — Felix's hard bars (ROIC, Piotroski, OE yield, P/E)
+      • upside odds          — the Stock Lookup analog forecast (forecast_all)
+      • tailwind             — the cascade wave response used by the Top 20
+
+    The critical design choice: quality is a GATE, not a tiebreaker. A stock
+    must clear the fundamental bars BEFORE it can rank at all, so junk that
+    happens to be deeply oversold can never enter the list — which is the
+    whole difference between "buy the dip" and "catch a falling knife".
+
+    Returns (DataFrame, meta dict with the funnel counts).
+    """
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    funds = dump_fundamentals_all()
+    C, V = panel["c"], np.nan_to_num(panel["v"])
+    H, L = panel["h"], panel["l"]
+    N = C.shape[1]
+    px = C[-1]
+
+    _raw_recent = np.isfinite(C[-3:]).any(axis=0)
+    tradeable = np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6) & _raw_recent
+
+    # ── 1. BUY ZONE: pulled back, but the uptrend is still intact ────
+    hi63 = np.nanmax(H[-63:], 0)
+    drawdown = px / np.where(hi63 == 0, np.nan, hi63) - 1.0      # negative
+    sma150 = np.nanmean(C[-150:], 0) if C.shape[0] >= 150 else np.nanmean(C, 0)
+    sma150_prev = (np.nanmean(C[-170:-20], 0) if C.shape[0] >= 170
+                   else np.nanmean(C[:-20], 0))
+    trend_up = (px > sma150) & (sma150 > sma150_prev)            # rising long trend
+    ma50 = np.nanmean(C[-50:], 0)
+    near_support = px >= ma50 * 0.94                             # at/above 50MA zone
+
+    cl = pd.DataFrame(C)
+    d = cl.diff()
+    up = d.clip(lower=0).rolling(14).mean()
+    dn = (-d.clip(upper=0)).rolling(14).mean()
+    rsi = (100 - 100 / (1 + up / dn.replace(0, np.nan))).iloc[-1].values
+
+    vbase = V[-63:].mean(0)
+    rvol = V[-5:].mean(0) / np.where(vbase == 0, np.nan, vbase)
+    quiet_pullback = rvol <= 1.6            # selling drying up, not capitulating
+
+    buy_zone = (tradeable & (drawdown <= -0.05) & (drawdown >= -0.30)
+                & trend_up & near_support
+                & (rsi >= 35) & (rsi <= 58) & quiet_pullback)
+
+    # ── 2. QUALITY GATE (Felix bars) — runs BEFORE any ranking ───────
+    roic = funds["ROIC"]; pio = funds["Piotroski"]
+    oe = funds["OE_Yield"]; pe = funds["P/E"]
+    rg = funds["RevenueGrowth"]; eg = funds["EarningsGrowth"]
+    rt = funds["ROIC_Trend"]
+    if strict:
+        quality_ok = (np.isfinite(roic) & (roic > 0.05)
+                      & np.isfinite(pio) & (pio >= 5)
+                      & np.isfinite(oe) & (oe > 0)
+                      & np.isfinite(pe) & (pe > 0) & (pe <= 50))
+    else:                                   # relaxed: still no unknowns allowed
+        quality_ok = (np.isfinite(roic) & (roic > 0)
+                      & np.isfinite(pio) & (pio >= 4)
+                      & np.isfinite(pe) & (pe > 0) & (pe <= 60))
+    eligible = buy_zone & quality_ok
+
+    meta = dict(tradeable=int(tradeable.sum()), buy_zone=int(buy_zone.sum()),
+                after_quality=int(eligible.sum()), strict=strict)
+    if not eligible.any():
+        return pd.DataFrame(), meta
+
+    # ── 3. UPSIDE: analog odds (Stock Lookup logic) + room to recover ─
+    odds = pd.DataFrame()
+    try:
+        odds = forecast_all(min_n=min_n)
+    except Exception:
+        odds = pd.DataFrame()
+    odds_map, typ_map, w10_map, case_map = {}, {}, {}, {}
+    if not odds.empty:
+        odds_map = dict(zip(odds.Ticker, odds.OddsUp))
+        typ_map = dict(zip(odds.Ticker, odds.Typical))
+        w10_map = dict(zip(odds.Ticker, odds.Worst10))
+        case_map = dict(zip(odds.Ticker, odds.Cases))
+
+    # ── 4. cascade tailwind, same as the Top 20 ──────────────────────
+    imp = impulses(node_closes).iloc[-1] if node_closes is not None else pd.Series(dtype=float)
+    tail = np.zeros(N)
+    used_nodes = []
+    for nsym, z in imp.items():
+        if not np.isfinite(z) or abs(z) < 1.0 or nsym not in node_closes.columns:
+            continue
+        corr = _node_follow_corr(nsym, node_closes)
+        if corr is None:
+            continue
+        c = np.where(np.abs(corr) >= 0.12, corr, 0.0)
+        tail += np.nan_to_num(c) * np.clip(z, -3, 3)
+        used_nodes.append(NODES.get(nsym, (nsym,))[0])
+    meta["hot_nodes"] = used_nodes
+
+    def _pct_e(a):
+        """Percentile among ELIGIBLE names; missing -> 0.0 (worst)."""
+        s = pd.Series(np.where(eligible & np.isfinite(a), a, np.nan))
+        return np.nan_to_num(s.rank(pct=True).values, nan=0.0)
+
+    ix = np.where(eligible)[0]
+    tk = tickers[ix]
+    odds_arr = np.array([odds_map.get(t, np.nan) for t in tk], dtype=float)
+    recover = -drawdown[ix]                       # room back to the 63d high
+    full = np.full(N, np.nan)
+    full[ix] = odds_arr
+    odds_pct = _pct_e(full)
+    full_r = np.full(N, np.nan); full_r[ix] = recover
+    recover_pct = _pct_e(np.clip(full_r, 0, 0.30))
+    quality_comp = (0.40 * _pct_e(roic) + 0.25 * _pct_e(oe)
+                    + 0.20 * np.nan_to_num(np.clip(pio / 9.0, 0, 1), nan=0.0)
+                    + 0.15 * _pct_e(rt))
+    tail_pct = _pct_e(tail) if used_nodes else np.full(N, 0.5)
+
+    # upside-weighted: odds and recovery room lead, quality confirms
+    score = (35 * odds_pct + 25 * quality_comp
+             + 25 * recover_pct + 15 * tail_pct)
+    score = np.where(eligible, score, -np.inf)
+    order = np.argsort(-score)[:top]
+
+    have = (np.isfinite(roic).astype(int) + np.isfinite(oe).astype(int)
+            + np.isfinite(pio).astype(int) + np.isfinite(rt).astype(int)
+            + np.isfinite(rg).astype(int) + np.isfinite(eg).astype(int))
+    df = pd.DataFrame({
+        "Ticker": tickers[order], "Sector": np.array(sectors)[order],
+        "Price": np.round(px[order], 2),
+        "Apex": np.round(score[order], 1),
+        "OffHigh": np.round(drawdown[order] * 100, 1),
+        "Recover": np.round(-drawdown[order] * 100, 1),
+        "OddsUp": [odds_map.get(t, np.nan) for t in tickers[order]],
+        "Typical": [typ_map.get(t, np.nan) for t in tickers[order]],
+        "Worst10": [w10_map.get(t, np.nan) for t in tickers[order]],
+        "RSI": np.round(rsi[order], 0),
+        "ROIC": roic[order], "OE Yield": oe[order],
+        "Piotroski": pio[order], "P/E": np.round(pe[order], 1),
+        "Tailwind": np.round(tail_pct[order] * 100, 0),
+        "Data": [f"{h}/6" for h in have[order]],
+        "Cases": [case_map.get(t, np.nan) for t in tickers[order]],
+    })
+    return df.reset_index(drop=True), meta
