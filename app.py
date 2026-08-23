@@ -247,6 +247,12 @@ def _mega_scan(_asof: str, _gauge, override=None):
     return ce.mega_scan(_history(), pressure_gauge=_gauge, regime_override=override)
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _apex_sector_list(_asof: str):
+    import apex_flow as _af
+    return _af.available_sectors()
+
+
 @st.cache_data(ttl=1800, show_spinner="🎩 Running the five-test quality checklist on all 5,700 stocks…")
 def _felix_scan(_asof: str):
     return ce.felix_scan()
@@ -1797,6 +1803,23 @@ with tab_apex:
             swing — treat these as candidates to chart, not a proven edge.</span></div>""",
             unsafe_allow_html=True)
 
+    try:
+        _all_secs = _apex_sector_list(asof)
+    except Exception:
+        _all_secs = []
+    _picked_secs = st.multiselect(
+        "Sectors", _all_secs, default=_all_secs, key="apex_sectors",
+        help="Defaults to every sector. Narrow it to focus the scan — the "
+             "top-N cut is applied WITHIN your selection, so you always get a "
+             "full list from the sectors you picked, not leftovers from a "
+             "whole-market ranking.")
+    # all (or none) selected == no filtering, which preserves the exact
+    # whole-market behaviour including names with an odd/blank sector
+    _sec_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
+                   else _picked_secs)
+    if _sec_filter:
+        st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_all_secs)} sectors.")
+
     with st.expander("⚙️ Filters"):
         _f1, _f2, _f3, _f4 = st.columns(4)
         _require_calm = _f1.checkbox("CALM volatility only", True, key="apex_calm",
@@ -1824,6 +1847,12 @@ with tab_apex:
     # invalidate a stale result when the timeframe changes
     if st.session_state.get("apex_run") and st.session_state.get("apex_run_tf") != _tf:
         st.session_state["apex_run"] = False
+    _sec_key = tuple(sorted(_picked_secs))
+    if _go:
+        st.session_state["apex_run_secs"] = _sec_key
+    elif (st.session_state.get("apex_run")
+          and st.session_state.get("apex_run_secs") not in (None, _sec_key)):
+        st.session_state["apex_run"] = False
 
     if st.session_state.get("apex_run"):
         try:
@@ -1832,15 +1861,20 @@ with tab_apex:
                     _res = af.scan_daily(
                         min_price=float(_min_price), min_dollar_vol=float(_min_dv) * 1e6,
                         require_calm=_require_calm, min_score=float(_min_score),
-                        top=int(_top_n), apply_rs=_apply_rs)
-                    _src = "nightly dump · whole market"
+                        top=int(_top_n), apply_rs=_apply_rs,
+                        only_sectors=_sec_filter)
+                    _src = ("nightly dump · whole market" if not _sec_filter
+                            else f"nightly dump · {len(_sec_filter)} sector"
+                                 f"{'s' if len(_sec_filter) != 1 else ''}")
                 else:
-                    _uni, _secmap = af.liquid_universe(int(_uni_n), float(_min_price))
+                    _uni, _secmap = af.liquid_universe(
+                        int(_uni_n), float(_min_price), only_sectors=_sec_filter)
                     _res = af.scan_intraday(
                         _tf, _uni, require_calm=_require_calm,
                         min_score=float(_min_score), top=int(_top_n),
                         sectors=_secmap, apply_rs=_apply_rs)
-                    _src = f"Alpaca {_meta['alpaca']} bars · top {_uni_n} by liquidity"
+                    _src = (f"Alpaca {_meta['alpaca']} bars · top {_uni_n} by liquidity"
+                            + (f" · {len(_sec_filter)} sectors" if _sec_filter else ""))
         except Exception as e:
             _res, _src = pd.DataFrame(), ""
             st.error(f"Scan failed: {e}")
