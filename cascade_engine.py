@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.16"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.17"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1527,6 +1527,7 @@ REGIME_LABELS = {
     "bull":   "☀️ Risk-On Calm — steady climb, cyclicals & tech lead",
     "bear":   "⛈️ Fear / Risk-Off — money flees to safety & gold",
     "strong": "💵 Rising Dollar — US quality holds, gold & foreign lag",
+    "repress": "💸 Debasement — money printed to cap yields; cash & bonds bleed, hard assets hold",
     "base":   "⛅ No Clear Driver — no dominant force, quality quietly wins",
 }
 
@@ -1534,7 +1535,7 @@ REGIME_LABELS = {
 REGIME_NAMES = {
     "qe": "💧 Easy Money", "stag": "🔥 Hot Inflation", "bull": "☀️ Risk-On Calm",
     "bear": "⛈️ Fear / Risk-Off", "strong": "💵 Rising Dollar",
-    "base": "⛅ No Clear Driver",
+    "repress": "💸 Debasement", "base": "⛅ No Clear Driver",
 }
 
 # structured explainer cards (Option 3): name, aka, story, leads, lags, trigger
@@ -1579,6 +1580,19 @@ REGIME_CARDS = {
         leads="US-focused financials · Domestic quality · Defensive staples",
         lags="Gold · Emerging markets · Materials · Multinational exporters",
         trigger="the dollar is trending strongly higher over the past quarter"),
+    "repress": dict(
+        emoji="💸", name="Debasement", aka="financial repression / stealth QE",
+        story="The government is buying its own debt with newly created money to "
+              "hold borrowing costs down. Liquidity expands like QE, but yields are "
+              "capped by policy rather than by demand — so the currency quietly "
+              "erodes instead. Cash and long bonds lose purchasing power while "
+              "things that can't be printed, and businesses that pass inflation "
+              "straight through, hold their value.",
+        leads="Gold & silver miners · Materials · Energy · Payment & insurance "
+              "tolls · Real assets · Cash-generative compounders",
+        lags="Cash · Long-duration bonds · Unprofitable growth · High-multiple tech",
+        trigger="Treasury buybacks expand and the Fed's balance sheet grows while "
+                "long yields stay pinned, gold makes new highs, and the dollar erodes"),
     "base": dict(
         emoji="⛅", name="No Clear Driver", aka="base case",
         story="No single macro force is in charge. Without a dominant tailwind or "
@@ -1612,6 +1626,14 @@ SECTOR_TILTS = {
                "Healthcare": 1.04, "Technology": 1.00, "Communication Services": 1.00,
                "Industrials": 0.95, "Consumer Cyclical": 0.95, "Real Estate": 0.92,
                "Energy": 0.92, "Basic Materials": 0.85},
+    # Debasement: currency erodes while yields are policy-capped. Money goes to
+    # things that can't be printed (metals, real assets) and to businesses that
+    # pass inflation straight through (payments, waste, insurance tolls).
+    # Long-duration/high-multiple growth is the funding source, not the winner.
+    "repress": {"Basic Materials": 1.25, "Energy": 1.15, "Financial Services": 1.12,
+                "Real Estate": 1.10, "Industrials": 1.06, "Consumer Defensive": 1.05,
+                "Utilities": 1.00, "Consumer Cyclical": 0.95, "Healthcare": 0.95,
+                "Communication Services": 0.85, "Technology": 0.82},
     "base":   {},
 }
 
@@ -1629,7 +1651,14 @@ def macro_regime(closes: pd.DataFrame, pressure_gauge=None) -> dict:
     vix_z = float(imp.get("^VIX", np.nan))
     gold = r63("GLD")
     drivers = []
-    if pressure_gauge is not None and pressure_gauge >= 2:
+    if (pressure_gauge is not None and pressure_gauge >= 1
+            and np.isfinite(gold) and gold >= 0.08
+            and (not np.isfinite(uup) or uup <= 0.02)):
+        # liquidity expanding AND gold leading AND the dollar not strengthening:
+        # that combination is debasement, not a risk-on liquidity melt-up
+        reg = "repress"
+        drivers.append(f"gauge +{pressure_gauge} with gold {gold:+.0%}/63d and a soft dollar")
+    elif pressure_gauge is not None and pressure_gauge >= 2:
         reg = "qe"; drivers.append(f"pressure gauge +{pressure_gauge} (liquidity building)")
     elif np.isfinite(oil) and oil > 0.15 and (not np.isfinite(tlt) or tlt < 0):
         reg = "stag"; drivers.append(f"oil +{oil:.0%}/63d with bonds soft")
@@ -2324,6 +2353,12 @@ MACRO_NEWS_BUCKETS = {
     "strong": (["dollar strength", "strong dollar", "dxy", "hawkish",
                 "rate hike", "tightening", "yields surge"],
                "strong-dollar / hawkish language in the news"),
+    "repress": (["money printing", "debt monetization", "debasement",
+                 "treasury buyback", "debt buyback", "liquidity support",
+                 "yield curve control", "financial repression", "balance sheet",
+                 "gold record", "gold all-time high", "devaluation",
+                 "printing press", "monetize the debt"],
+                "debt-monetisation / debasement language in the news"),
 }
 
 
@@ -2419,8 +2454,12 @@ def macro_advisor(node_closes: pd.DataFrame, pressure: dict | None = None,
             vote("bull", 1.5, "Oil (USO)", f"{oil:+.0%} over 63d — input costs easing")
     gold = r63("GLD")
     if np.isfinite(gold) and gold > 0.10:
-        vote("stag", 1.0, "Gold (GLD)", f"{gold:+.0%} over 63d — debasement/haven bid")
-        vote("qe", 0.5, "Gold (GLD)", f"{gold:+.0%} over 63d")
+        vote("repress", 2.5, "Gold (GLD)", f"{gold:+.0%} over 63d — debasement bid")
+        vote("stag", 1.0, "Gold (GLD)", f"{gold:+.0%} over 63d — haven/inflation bid")
+    if (gauge is not None and gauge >= 1 and np.isfinite(gold) and gold >= 0.08
+            and np.isfinite(uup := r63("UUP")) and uup <= 0.02):
+        vote("repress", 3.0, "Liquidity + gold + soft dollar",
+             "expanding liquidity with gold leading — printing without a strong dollar")
 
     # ── 3. dollar ────────────────────────────────────────────────────
     uup = r63("UUP")
