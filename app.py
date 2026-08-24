@@ -1646,8 +1646,7 @@ with tab_top20:
                 on_select="rerun", selection_mode="single-row", key="forecast_table",
                 column_order=(["Ticker", "Sector", "Price"]
                               + (["Live", "Chg%", "Src"] if "Live" in _fc.columns else [])
-                              + ["OddsUp", "Typical", "PopOdds", "Worst10",
-                                 "Best10", "Cases"]),
+                              + ["OddsUp", "Typical"]),
                 column_config={
                     "OddsUp": st.column_config.Column(help="Share of analog look-alike cases that finished HIGHER after 21 sessions. This is what the preset ranks by."),
                     "Typical": st.column_config.Column(help="Median analog outcome — the middle-of-the-pack result. Breaks ties on odds."),
@@ -1686,10 +1685,11 @@ with tab_top20:
                 unsafe_allow_html=True)
             _m20, _lmeta = _apply_live(_m20)
             _live_banner(_lmeta)
+            # Fit / MacroFit / Quality / Data stay in the frame (they drive the
+            # ranking and the styling) but are hidden from the display
             _mcols = (["Ticker", "Sector", "Price"]
                       + (["Live", "Chg%", "Src"] if "Live" in _m20.columns else [])
-                      + ["Fit", "MacroFit", "Quality", "ROIC", "OE Yield",
-                         "Piotroski", "P/E", "RevGrowth", "Data"])
+                      + ["ROIC", "OE Yield", "Piotroski", "P/E", "RevGrowth"])
             _msel = st.dataframe(
                 _m20.style.format(_live_fmt(_m20, {
                     "Price": "${:,.2f}", "Fit": "{:.1f}", "MacroFit": "{:.2f}",
@@ -1756,6 +1756,10 @@ with tab_top20:
                                       else f"color:{DIM}")), subset=["Data"]),
                 width="stretch", hide_index=True, height=740,
                 on_select="rerun", selection_mode="single-row", key="felix_table",
+                column_order=(["Ticker", "Sector", "Price"]
+                              + (["Live", "Chg%", "Src"] if "Live" in _f.columns else [])
+                              + ["ROIC", "OE Yield", "Piotroski", "ROIC Trend",
+                                 "P/E", "RevGrowth"]),
                 column_config={
                     "Felix": st.column_config.Column(help="Weighted checklist score, mirroring the screener preset exactly: ROIC x5, OE Yield x4, Piotroski x4, ROIC Trend x2, growth x1 each — percentile-ranked, P/E-gated."),
                     "Tests": st.column_config.Column(help="How many of the four measurable quality bars this stock clears. A missing input can never pass a test."),
