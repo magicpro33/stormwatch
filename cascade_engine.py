@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.20"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.21"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -136,7 +136,9 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
         # refetch when stale (>4 calendar days) — but keep the stale copy
         # unless the fresh download actually succeeds (stale beats empty)
         if (pd.Timestamp.today() - df.index[-1]).days <= 4:
-            return df
+            # align on LOAD as well as after a fetch — a parquet written before
+            # the calendar fix still contains weekend rows
+            return _align_to_equity_calendar(df)
         stale_df = df
     else:
         stale_df = None
@@ -546,7 +548,8 @@ def forced_flows(today: date | None = None, days_ahead: int = 45,
                     "whichever of stocks/bonds LAGGED this month.")
     if closes is not None and "SPY" in closes and "TLT" in closes:
         try:
-            mtd = closes.loc[closes.index.month == closes.index[-1].month,
+            mtd = closes.loc[(closes.index.month == closes.index[-1].month)
+                             & (closes.index.year == closes.index[-1].year),
                              ["SPY", "TLT"]]
             gap = float((mtd.SPY.iloc[-1] / mtd.SPY.iloc[0] - 1)
                         - (mtd.TLT.iloc[-1] / mtd.TLT.iloc[0] - 1))
@@ -786,8 +789,17 @@ def load_dump_panel():
             _PANEL_CACHE["panel"] = (mt, out)
             _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
             return out
-    r = requests.get(DUMP_URL, timeout=120)
-    r.raise_for_status()
+    try:
+        r = requests.get(DUMP_URL, timeout=120)
+        r.raise_for_status()
+    except Exception as _de:
+        # GitHub unreachable and the cache is >4 days old. A stale dump beats
+        # a dead Top 20 / Lookup / APEX — fetch_history already works this way.
+        if os.path.exists(LOCAL_DUMP):
+            z = _np_load_dump()
+            if z is not None:
+                return z
+        raise RuntimeError(f"nightly dump unavailable and no local copy: {_de}")
     data = json.loads(_gz.decompress(r.content).decode())
     rows = [x for x in data if len(x.get("_hist", {}).get("dates", [])) >= 120]
     all_d = sorted({d for x in rows for d in x["_hist"]["dates"]})
@@ -811,11 +823,16 @@ def load_dump_panel():
                     funds[f][j] = float(v)
                 except (TypeError, ValueError):
                     pass
+    # The tradeable guard needs to know whether a name actually PRINTED
+    # recently. Snapshot that from the raw closes BEFORE the ffill — reading
+    # it afterwards is a no-op, because ffill(limit=5) makes a halted or
+    # delisted name look like it has a fresh price for another five sessions.
+    recent_ok = np.isfinite(panel["c"][-3:]).any(axis=0)
     panel["c"] = pd.DataFrame(panel["c"]).ffill(limit=5).values.astype(np.float32)
     mdv = np.nanmedian((panel["c"] * np.nan_to_num(panel["v"]))[-21:], axis=0)
     tickers, sectors = np.array(tickers), np.array(sectors)
     np.savez_compressed(LOCAL_DUMP, tickers=tickers, sectors=sectors,
-                        mdv=mdv, dates=np.array(all_d), **panel,
+                        mdv=mdv, dates=np.array(all_d), recent_ok=recent_ok, **panel,
                         **{f"fund_{i}": funds[f] for i, f in enumerate(FUND_FIELDS)})
     out = (panel, tickers, sectors, mdv, pd.to_datetime(all_d))
     mt = os.path.getmtime(LOCAL_DUMP)
@@ -823,6 +840,39 @@ def load_dump_panel():
     _PANEL_CACHE["panel"] = (mt, out)
     _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(tickers)})
     return out
+
+
+def _np_load_dump():
+    """Load whatever dump npz is on disk, ignoring its age. Used as the
+    stale fallback when the GitHub download fails."""
+    try:
+        z = np.load(LOCAL_DUMP, allow_pickle=True)
+        dts = pd.to_datetime(z["dates"])
+        panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
+        out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
+        mt = os.path.getmtime(LOCAL_DUMP)
+        _PANEL_CACHE["panel"] = (mt, out)
+        _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
+        return out
+    except Exception:
+        return None
+
+
+def _recent_ok_mask(panel) -> np.ndarray:
+    """True where the stock had a REAL close in the last 3 sessions.
+
+    Reads the mask persisted by load_dump_panel (captured pre-ffill). Older
+    npz files predate it, so fall back to the post-ffill check rather than
+    crash — that fallback is permissive, not wrong-permissive-forever: the
+    next nightly rebuild writes the real mask.
+    """
+    try:
+        z = np.load(LOCAL_DUMP, allow_pickle=True)
+        if "recent_ok" in z.files:
+            return z["recent_ok"].astype(bool)
+    except Exception:
+        pass
+    return np.isfinite(panel["c"][-3:]).any(axis=0)
 
 
 def _ticker_index(ticker: str):
@@ -1776,7 +1826,7 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
     # Stale-price guard: the panel forward-fills gaps, so a stock whose last
     # real print was days ago can still show a "current" price. Require an
     # actual (non-filled) close in the last 3 sessions of the raw panel.
-    _raw_recent = np.isfinite(panel["c"][-3:]).any(axis=0)
+    _raw_recent = _recent_ok_mask(panel)
     tradeable = np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6) & _raw_recent
 
     def _pct(a):
@@ -2209,7 +2259,7 @@ def _now_features_all():
     feats = np.column_stack([mom_pct, rangepos, rvol, above]).astype(np.float32)
     # same stale-price guard as mega_scan: the panel forward-fills gaps, so a
     # name whose last real print was days ago must not be treated as current
-    _raw_recent = np.isfinite(panel["c"][-3:]).any(axis=0)
+    _raw_recent = _recent_ok_mask(panel)
     tradeable = (np.isfinite(C[t]) & (C[t] >= 3)
                  & np.isfinite(mom_pct) & np.isfinite(rangepos) & np.isfinite(rvol)
                  & (mdv >= 2e6) & _raw_recent)
@@ -2237,7 +2287,7 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
     feats, tradeable = _now_features_all()
     if price_floor != 3.0 or mdv_floor != 2e6:
         C = panel["c"]
-        _raw_recent = np.isfinite(C[-3:]).any(axis=0)
+        _raw_recent = _recent_ok_mask(panel)
         tradeable = (np.isfinite(C[-1]) & (C[-1] >= price_floor)
                      & np.isfinite(feats[:, 0]) & np.isfinite(feats[:, 1])
                      & (mdv >= mdv_floor) & _raw_recent)
@@ -2647,7 +2697,7 @@ def macro_only_scan(regime: str, top: int = 20, strict: bool = True) -> tuple:
     C = panel["c"]
     N = C.shape[1]
     px = C[-1]
-    _raw_recent = np.isfinite(C[-3:]).any(axis=0)
+    _raw_recent = _recent_ok_mask(panel)
     tradeable = np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6) & _raw_recent
 
     roic = funds["ROIC"]; pio = funds["Piotroski"]; oe = funds["OE_Yield"]

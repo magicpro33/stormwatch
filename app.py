@@ -26,7 +26,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.20"
+REQUIRED_ENGINE = "2.21"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -1841,7 +1841,7 @@ with tab_top20:
                               + ["Data", "Piotroski", "RevGrowth", "RVOL",
                                  "RangePos", "Catalysts"]),
                 column_config={
-                    "Score": st.column_config.Column(help="Combined score: 45% technicals + 25% quality + 30% cascade tailwind, multiplied by the macro-regime sector fit."),
+                    "Score": st.column_config.Column(help="Combined score: 42% technicals + 23% quality + 29% cascade tailwind + 6% catalysts, multiplied by the macro-regime sector fit."),
                     "Tech": st.column_config.Column(help="IGNITION technical percentile: momentum, range position, relative volume, trend, RSI sweet spot, MACD."),
                     "Quality": st.column_config.Column(help="Macro-simulator quality DNA: Piotroski, golden cross, ROIC, revenue & earnings growth."),
                     "Tailwind": st.column_config.Column(help="Cascade engine: how strongly the currently-firing waves historically push THIS stock over the next week (percentile)."),
@@ -1912,10 +1912,10 @@ with tab_top20:
                 st.markdown(
                     "- **Universe:** every tradeable stock in the nightly dump — all "
                     "markets, price ≥ $3, median dollar volume ≥ $2M.\n"
-                    "- **Tech (45%)** — the IGNITION signal stack, computed fresh from "
+                    "- **Tech (42%)** — the IGNITION signal stack, computed fresh from "
                     "the dump's full OHLCV: 63-day momentum, range position, relative "
                     "volume, above-50MA, RSI sweet spot (45-65), MACD bull cross.\n"
-                    "- **Quality (25%)** — the macro simulator's stock-picking DNA: "
+                    "- **Quality (23%)** — the macro simulator's stock-picking DNA: "
                     "Piotroski, golden cross, ROIC, revenue and earnings growth.\n"
                     "- **Catalysts (backtested add-on)** — data fingerprints of "
                     "IGNITION's catalyst types: 63-day breakouts, volume shocks "
@@ -1925,7 +1925,7 @@ with tab_top20:
                     "(69% weekly hit rate, positive in both honesty halves). News-"
                     "keyword tags (earnings/FDA/buyout/…) are fetched for the final "
                     "20 with IGNITION's min-hit and sector-whitelist rules.\n"
-                    "- **Tailwind (30%)** — the cascade engine: for every node wave "
+                    "- **Tailwind (29%)** — the cascade engine: for every node wave "
                     "firing right now, each stock's historical lagged response, summed. "
                     "Stocks the current waves are already traveling toward score high.\n"
                     "- **× MacroFit** — the whole score is multiplied by the sector's "
