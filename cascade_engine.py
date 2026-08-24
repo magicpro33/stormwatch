@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.14"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.16"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -2301,3 +2301,233 @@ def live_update(df: pd.DataFrame, price_col: str = "Price") -> tuple:
                 missing=len(tickers) - len(live), total=len(tickers),
                 stamp=pd.Timestamp.now(tz="US/Eastern").strftime("%b %d %I:%M %p ET"))
     return out, meta
+
+
+# ═════════ 🧭 MACRO ADVISOR — evidence-weighted scenario recommendation ═════════
+MACRO_NEWS_PROXIES = ["SPY", "USO", "GLD", "UUP", "TLT", "XLE", "XLK", "HYG"]
+
+# headline buckets → which regime they argue for
+MACRO_NEWS_BUCKETS = {
+    "stag": (["inflation", "cpi", "ppi", "price pressure", "oil surge", "opec",
+              "supply shock", "wage growth", "sticky inflation", "energy crisis",
+              "tariff", "commodity rally"], "inflation/supply pressure in the news"),
+    "bear": (["selloff", "crash", "plunge", "recession", "credit event",
+              "default", "bank failure", "contagion", "war", "escalation",
+              "risk-off", "slump", "layoffs", "bankruptcy"],
+             "risk-off / stress language in the news"),
+    "qe":   (["rate cut", "easing", "dovish", "stimulus", "quantitative easing",
+              "liquidity injection", "balance sheet expansion", "pivot"],
+             "easing / liquidity language in the news"),
+    "bull": (["rally", "record high", "soft landing", "beat estimates",
+              "strong earnings", "melt-up", "risk-on", "optimism", "goldilocks"],
+             "risk-on / growth language in the news"),
+    "strong": (["dollar strength", "strong dollar", "dxy", "hawkish",
+                "rate hike", "tightening", "yields surge"],
+               "strong-dollar / hawkish language in the news"),
+}
+
+
+def macro_news_scan(max_articles: int = 10) -> dict:
+    """Keyword-scan headlines on macro proxies. Returns {regime: (hits, note)}."""
+    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+    out, blob = {}, ""
+    try:
+        import yfinance as yf
+    except Exception:
+        return out
+    seen = 0
+    for tk in MACRO_NEWS_PROXIES:
+        try:
+            arts = yf.Ticker(tk).news or []
+        except Exception:
+            continue
+        for a in arts[:max_articles]:
+            c = a.get("content") or a
+            blob += " " + str(c.get("title", "")) + " " + str(c.get("summary", ""))
+            seen += 1
+    if not seen:
+        return out
+    blob = blob.lower()
+    for reg, (words, note) in MACRO_NEWS_BUCKETS.items():
+        hits = sum(blob.count(w) for w in words)
+        if hits:
+            out[reg] = (hits, note)
+    out["_articles"] = seen
+    return out
+
+
+def macro_advisor(node_closes: pd.DataFrame, pressure: dict | None = None,
+                  include_news: bool = True) -> dict:
+    """Weigh EVERY macro signal the app produces and recommend a scenario.
+
+    Sources: the pressure gauge (Fed liquidity, credit spreads, stablecoins),
+    node impulses (oil/dollar/gold/VIX/rates), the ratio sentinels
+    (risk appetite, credit, breadth, growth-vs-fear), the yen-carry monitor,
+    and a keyword scan of macro headlines.
+
+    Every piece of evidence votes for one regime with a weight; the winner is
+    recommended and the full ballot is returned so the call is auditable rather
+    than a black box.
+    """
+    scores = {k: 0.0 for k in REGIME_LABELS}
+    evidence = []
+
+    def vote(regime, weight, signal, reading):
+        if regime in scores:
+            scores[regime] += weight
+        evidence.append(dict(signal=signal, reading=reading,
+                             regime=regime, weight=weight))
+
+    imp = impulses(node_closes).iloc[-1] if node_closes is not None else pd.Series(dtype=float)
+
+    def z(sym):
+        v = imp.get(sym, np.nan)
+        return float(v) if np.isfinite(v) else np.nan
+
+    def r63(sym):
+        if node_closes is None or sym not in node_closes.columns:
+            return np.nan
+        s = node_closes[sym].dropna()
+        return float(s.iloc[-1] / s.iloc[-64] - 1) if len(s) > 64 else np.nan
+
+    # ── 1. liquidity / pressure gauge ────────────────────────────────
+    gauge = None
+    if pressure and pressure.get("gauge") is not None:
+        gauge = pressure["gauge"]
+        if gauge >= 2:
+            vote("qe", 3.0, "Pressure gauge", f"+{gauge} — liquidity expanding")
+        elif gauge <= -2:
+            vote("bear", 2.5, "Pressure gauge", f"{gauge} — liquidity draining")
+        elif gauge >= 1:
+            vote("qe", 1.0, "Pressure gauge", f"+{gauge} — mildly supportive")
+        elif gauge <= -1:
+            vote("bear", 1.0, "Pressure gauge", f"{gauge} — mildly tight")
+        comp = (pressure or {}).get("components", {})
+        hy = comp.get("HY Δ 21d (bp)")
+        if hy is not None:
+            if hy > 25:
+                vote("bear", 2.0, "HY credit spread", f"+{hy:.0f}bp/21d — credit stress building")
+            elif hy < -25:
+                vote("bull", 1.5, "HY credit spread", f"{hy:.0f}bp/21d — credit healing")
+
+    # ── 2. commodities / inflation ───────────────────────────────────
+    oil = r63("USO")
+    if np.isfinite(oil):
+        if oil > 0.15:
+            vote("stag", 3.0, "Oil (USO)", f"{oil:+.0%} over 63d — cost-push pressure")
+        elif oil < -0.05:
+            vote("bull", 1.5, "Oil (USO)", f"{oil:+.0%} over 63d — input costs easing")
+    gold = r63("GLD")
+    if np.isfinite(gold) and gold > 0.10:
+        vote("stag", 1.0, "Gold (GLD)", f"{gold:+.0%} over 63d — debasement/haven bid")
+        vote("qe", 0.5, "Gold (GLD)", f"{gold:+.0%} over 63d")
+
+    # ── 3. dollar ────────────────────────────────────────────────────
+    uup = r63("UUP")
+    if np.isfinite(uup):
+        if uup > 0.04:
+            vote("strong", 3.0, "US Dollar (UUP)", f"{uup:+.0%} over 63d — squeezing global earners")
+        elif uup < -0.03:
+            vote("qe", 1.5, "US Dollar (UUP)", f"{uup:+.0%} over 63d — weak dollar, liquidity friendly")
+
+    # ── 4. volatility / shock ────────────────────────────────────────
+    vix = z("^VIX")
+    if np.isfinite(vix):
+        if vix >= 1.25:
+            vote("bear", 3.5, "VIX impulse", f"z {vix:+.1f} — volatility shock firing")
+        elif vix <= -0.5:
+            vote("bull", 1.5, "VIX impulse", f"z {vix:+.1f} — fear draining")
+
+    # ── 5. ratio sentinels: the relationships that lead ──────────────
+    try:
+        rs = ratio_sentinel_impulses(node_closes)
+    except Exception:
+        rs = pd.DataFrame()
+    if not rs.empty:
+        m = {r["pair"]: r for _, r in rs.iterrows()}
+        def trend(pair):
+            r = m.get(pair)
+            return float(r["trend63"]) if r is not None and np.isfinite(r.get("trend63", np.nan)) else np.nan
+        t = trend("XLY/XLP")
+        if np.isfinite(t):
+            if t > 0.03:
+                vote("bull", 2.0, "Discretionary vs Staples", f"{t:+.1%}/63d — consumer risk appetite on")
+            elif t < -0.03:
+                vote("bear", 2.0, "Discretionary vs Staples", f"{t:+.1%}/63d — defensive rotation")
+        t = trend("HYG/IEF")
+        if np.isfinite(t):
+            if t > 0.02:
+                vote("bull", 1.5, "Junk vs Treasuries", f"{t:+.1%}/63d — credit appetite healthy")
+            elif t < -0.02:
+                vote("bear", 2.5, "Junk vs Treasuries", f"{t:+.1%}/63d — credit turning away")
+        t = trend("CPER/GLD")
+        if np.isfinite(t):
+            if t > 0.03:
+                vote("bull", 1.5, "Copper vs Gold", f"{t:+.1%}/63d — growth over fear")
+            elif t < -0.03:
+                vote("stag", 1.5, "Copper vs Gold", f"{t:+.1%}/63d — fear over growth")
+        t = trend("RSP/SPY")
+        if np.isfinite(t) and t < -0.03:
+            vote("bear", 1.0, "Equal vs Cap Weight", f"{t:+.1%}/63d — narrow, fragile rally")
+        t = trend("EEM/SPY")
+        if np.isfinite(t) and t < -0.03:
+            vote("strong", 1.5, "EM vs US", f"{t:+.1%}/63d — dollar pulling money home")
+        t = trend("SMH/SPY")
+        if np.isfinite(t):
+            if t > 0.03:
+                vote("bull", 1.5, "Semis vs Market", f"{t:+.1%}/63d — cycle leader leading")
+            elif t < -0.05:
+                vote("bear", 1.5, "Semis vs Market", f"{t:+.1%}/63d — cycle leader rolling over")
+
+    # ── 6. yen carry ─────────────────────────────────────────────────
+    try:
+        cm = yen_carry_monitor(node_closes)
+    except Exception:
+        cm = {}
+    if cm.get("level") == "unwind":
+        vote("bear", 4.0, "Yen carry", cm["label"])
+    elif cm.get("level") == "stirring":
+        vote("bear", 1.0, "Yen carry", "yen stirring — funding leg tightening")
+    elif cm.get("level") == "carry_on":
+        vote("qe", 1.0, "Yen carry", "yen weakening — fresh carry funding risk assets")
+
+    # ── 7. rates ─────────────────────────────────────────────────────
+    tlt = r63("TLT")
+    if np.isfinite(tlt):
+        if tlt < -0.05:
+            vote("stag", 1.5, "Long bonds (TLT)", f"{tlt:+.0%}/63d — yields up, duration punished")
+            vote("strong", 0.5, "Long bonds (TLT)", f"{tlt:+.0%}/63d")
+        elif tlt > 0.05:
+            vote("qe", 1.0, "Long bonds (TLT)", f"{tlt:+.0%}/63d — yields falling")
+
+    # ── 8. news ──────────────────────────────────────────────────────
+    news = macro_news_scan() if include_news else {}
+    n_articles = news.pop("_articles", 0) if news else 0
+    for reg, (hits, note) in (news or {}).items():
+        w = min(2.0, 0.4 * hits)          # capped: headlines confirm, never decide
+        vote(reg, w, "Headlines", f"{hits} hits — {note}")
+
+    # ── verdict ──────────────────────────────────────────────────────
+    total = sum(scores.values())
+    if total <= 0:
+        best, margin, conf = "base", 0.0, "low"
+    else:
+        ranked = sorted(scores.items(), key=lambda kv: -kv[1])
+        best = ranked[0][0]
+        runner = ranked[1][1] if len(ranked) > 1 else 0.0
+        margin = ranked[0][1] - runner
+        share = ranked[0][1] / total
+        if margin >= 4 and share >= 0.40:
+            conf = "high"
+        elif margin >= 2:
+            conf = "medium"
+        else:
+            conf = "low"
+        if ranked[0][1] < 3:              # nothing is really firing
+            best, conf = "base", "low"
+    evidence.sort(key=lambda e: -e["weight"])
+    return dict(recommended=best, label=REGIME_LABELS[best], confidence=conf,
+                scores=scores, evidence=evidence, margin=round(margin, 1),
+                n_articles=n_articles, gauge=gauge,
+                detected=macro_regime(node_closes, gauge).get("regime"),
+                stamp=pd.Timestamp.now(tz="US/Eastern").strftime("%b %d %I:%M %p ET"))

@@ -26,7 +26,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.14"
+REQUIRED_ENGINE = "2.16"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -245,6 +245,15 @@ def _analyzer(tk: str, _asof: str):
 @st.cache_data(ttl=1800, show_spinner="Scanning all 5,700 stocks across every pillar…")
 def _mega_scan(_asof: str, _gauge, override=None):
     return ce.mega_scan(_history(), pressure_gauge=_gauge, regime_override=override)
+
+
+@st.cache_data(ttl=900, show_spinner="🧭 Reading the market, the tape, and the headlines…")
+def _macro_advice(_asof: str, _gauge, nonce: int = 0):
+    try:
+        _p = _pressure()
+    except Exception:
+        _p = None
+    return ce.macro_advisor(_history(), pressure=_p)
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -1392,6 +1401,13 @@ with tab_top20:
             st.session_state.get("top20_mode") not in (None, _method):
         st.session_state["top20_go"] = False
 
+    # the advisor's "use this" click lands here on the NEXT run — Streamlit
+    # forbids writing a widget's key after that widget has been created, so
+    # the choice is stashed and applied before the selectbox is instantiated
+    _pending = st.session_state.pop("_scenario_pending", None)
+    if _pending:
+        st.session_state["top20_scenario"] = _pending
+
     _scn_opts = {"📡 Auto — detect the live regime": None}
     _scn_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
     _scn_disabled = _method == "felix"
@@ -1403,6 +1419,83 @@ with tab_top20:
              "setup — to run under that regime's sector playbook instead. "
              "(Felix is quality-only and ignores the regime.)")
     _override = None if _scn_disabled else _scn_opts[_scn_label]
+
+    # ── 🧭 advisor: recommend a scenario from the full evidence set ──
+    if not _scn_disabled:
+        _adv1, _adv2 = st.columns([3, 1], vertical_alignment="center")
+        if _adv2.button("🧭 Recommend", key="macro_advise", width="stretch",
+                        help="Scan the market, the tape and the headlines — "
+                             "liquidity gauge, oil, dollar, VIX, credit spreads, "
+                             "the ratio sentinels, the yen-carry monitor and macro "
+                             "news — then recommend which scenario best fits, with "
+                             "the full evidence behind it."):
+            st.session_state["macro_advice_on"] = True
+            st.session_state["macro_advice_nonce"] = \
+                st.session_state.get("macro_advice_nonce", 0) + 1
+        _adv1.caption("Not sure which scenario fits? Let the app weigh the evidence.")
+
+        if st.session_state.get("macro_advice_on"):
+            try:
+                _adv = _macro_advice(asof, _gauge,
+                                     st.session_state.get("macro_advice_nonce", 0))
+            except Exception as _ae:
+                _adv = None
+                st.error(f"Advisor failed: {_ae}")
+            if _adv:
+                _cc = {"high": GREEN, "medium": "#d0b040", "low": DIM}[_adv["confidence"]]
+                _agree = _adv["recommended"] == _adv.get("detected")
+                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-left:5px solid {_cc};border-radius:12px;padding:14px 18px;margin:8px 0;">
+                    <div style="font-size:12px;color:{DIM};letter-spacing:1px;text-transform:uppercase;">
+                      Recommended scenario · {_adv['confidence']} confidence</div>
+                    <div style="font-size:19px;font-weight:800;margin:3px 0 6px;">{_adv['label']}</div>
+                    <div style="color:{DIM};font-size:12px;">
+                      Winning margin {_adv['margin']} points over the runner-up ·
+                      {'auto-detection agrees' if _agree else 'auto-detection currently says '
+                       + ce.REGIME_NAMES.get(_adv.get('detected'), '—')} ·
+                      {_adv['n_articles']} headlines read · {_adv['stamp']}</div>
+                    </div>""", unsafe_allow_html=True)
+
+                _lbl = ce.REGIME_NAMES.get(_adv["recommended"])
+                if _lbl and st.button(f"✅ Use {_lbl}", key="macro_apply",
+                                      width="stretch"):
+                    st.session_state["_scenario_pending"] = _lbl
+                    st.session_state["macro_advice_on"] = False
+                    st.rerun()
+
+                with st.expander("🔍 The evidence behind this call"):
+                    _ev = pd.DataFrame(_adv["evidence"])
+                    if not _ev.empty:
+                        _ev["Argues for"] = _ev.regime.map(
+                            lambda r: ce.REGIME_NAMES.get(r, r))
+                        _ev = _ev.rename(columns={"signal": "Signal",
+                                                  "reading": "Reading",
+                                                  "weight": "Weight"})
+                        st.dataframe(
+                            _ev[["Signal", "Reading", "Argues for", "Weight"]]
+                            .style.format({"Weight": "{:.1f}"})
+                            .map(lambda v: f"color:{ACCENT};font-weight:700"
+                                 if isinstance(v, (int, float)) and v >= 3
+                                 else "", subset=["Weight"]),
+                            width="stretch", hide_index=True,
+                            column_config={
+                                "Weight": st.column_config.Column(
+                                    help="How much this signal counts. 3+ is a "
+                                         "heavyweight (VIX shock, oil surge, carry "
+                                         "unwind); headlines are capped at 2.")})
+                    _sc = pd.DataFrame(
+                        [(ce.REGIME_NAMES.get(k, k), v)
+                         for k, v in sorted(_adv["scores"].items(),
+                                            key=lambda kv: -kv[1])],
+                        columns=["Scenario", "Points"])
+                    st.markdown("**Full ballot**")
+                    st.dataframe(_sc.style.format({"Points": "{:.1f}"}),
+                                 width="stretch", hide_index=True)
+                    st.caption("Every signal votes with a weight; headlines are "
+                               "capped at 2 points so news can confirm the tape "
+                               "but never outvote it. Low confidence means the "
+                               "evidence is genuinely mixed — that's information "
+                               "too, and 'No Clear Driver' is often the honest call.")
 
     # scenario explainer card (Option 3) — shows for whichever scenario is active
     if not _scn_disabled:
