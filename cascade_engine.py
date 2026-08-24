@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.19"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.20"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -158,17 +158,38 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
         closes = yfc if closes.empty else closes.join(yfc, how="outer")
     LAST_HISTORY_SOURCE = ("Alpaca (primary)" + (f" + yfinance ({len(missing)} symbols)" if missing else "")
                            ) if len(missing) < len(NODES) else "yfinance (Alpaca keys not set)"
-    closes = closes.dropna(how="all").ffill(limit=5)
+    # weekends out BEFORE the ffill, so Friday's equity close is never carried
+    # onto a Saturday/Sunday row created by the crypto columns
+    closes = _align_to_equity_calendar(closes.dropna(how="all")).ffill(limit=5)
     if len(closes) < 30 or closes.shape[1] < 3:      # download failed
         if stale_df is not None:
             LAST_HISTORY_SOURCE = "stale cache (feeds unreachable — will retry)"
-            return stale_df
+            return _align_to_equity_calendar(stale_df)
         return closes
     try:
         closes.to_parquet(LOCAL_HISTORY)
     except Exception:
         pass
     return closes
+
+
+def _align_to_equity_calendar(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop weekend rows when any non-crypto column is present.
+
+    Crypto trades every calendar day; equities trade weekdays. Joining them and
+    forward-filling copied Friday's SPY onto Sat/Sun, so pct_change(5) treated
+    those as real sessions with ~0% equity return — corrupting impulse
+    z-scores, Spearman ICs, waves, sentinels and the backtest's "252 days".
+    Monday's crypto bar still carries the weekend move. Holidays stay (the
+    caller ffills them). A crypto-only frame keeps its weekends.
+    """
+    if df is None or df.empty:
+        return df
+    crypto = {c for c in df.columns if str(c).upper().endswith("-USD")}
+    if not (set(df.columns) - crypto):
+        return df                      # crypto only — weekends are real
+    idx = pd.to_datetime(df.index)
+    return df[idx.dayofweek < 5]
 
 
 def refresh_history():
@@ -426,17 +447,35 @@ def pressure_system() -> dict:
         out["components"]["Stables Δ 21d ($bn)"] = float(s.iloc[-1] - s.iloc[-22])
     except Exception as e:
         out["errors"].append(f"DefiLlama stablecoins: {e}")
-    # gauge: rising liquidity + rising stables + tightening spreads = risk-on
-    score = 0
+    # gauge: only components that ACTUALLY ARRIVED get a vote. Previously a
+    # missing key defaulted to 0, which failed the ">0" test and voted -1 — so
+    # three dead feeds silently produced gauge -3 "Draining", and the regime,
+    # mega_scan and the advisor all keyed off that phantom reading.
+    score, n_feeds = 0, 0
     c = out["components"]
-    score += 1 if c.get("NetLiq Δ 21d ($bn)", 0) > 0 else -1
-    score += 1 if c.get("Stables Δ 21d ($bn)", 0) > 0 else -1
-    score += 1 if c.get("HY Δ 21d (bp)", 0) < 0 else -1
-    out["gauge"] = score          # -3 .. +3
-    out["gauge_label"] = {3: "🟢 High pressure — liquidity building",
-                          1: "🟢 Mildly supportive",
-                          -1: "🟡 Mixed / draining",
-                          -3: "🔴 Draining — waves unlikely to travel far"}.get(score, "🟡 Mixed")
+    for key, supportive in (("NetLiq Δ 21d ($bn)", lambda v: v > 0),
+                            ("Stables Δ 21d ($bn)", lambda v: v > 0),
+                            ("HY Δ 21d (bp)", lambda v: v < 0)):
+        v = c.get(key)
+        if v is None or not np.isfinite(v):
+            continue
+        n_feeds += 1
+        score += 1 if supportive(v) else -1
+    out["n_feeds"] = n_feeds
+    if n_feeds == 0:
+        out["gauge"] = None
+        out["gauge_label"] = "⚪ Unavailable — pressure feeds did not load"
+    else:
+        out["gauge"] = score
+        out["gauge_label"] = {3: "🟢 High pressure — liquidity building",
+                              2: "🟢 Supportive",
+                              1: "🟢 Mildly supportive",
+                              0: "🟡 Mixed",
+                              -1: "🟡 Mixed / draining",
+                              -2: "🔴 Draining",
+                              -3: "🔴 Draining — waves unlikely to travel far"}.get(score, "🟡 Mixed")
+        if n_feeds < 3:
+            out["gauge_label"] += f" (only {n_feeds} of 3 feeds reporting)"
     return out
 
 
@@ -894,8 +933,22 @@ def fastest_followers(node_symbol: str, node_closes: pd.DataFrame,
     })
 
 
-def alpaca_prices(tickers: list) -> dict:
-    """Fresh prices via Alpaca batch snapshots. {} without keys/network."""
+def alpaca_prices(tickers: list, chunk: int = 80) -> dict:
+    """Fresh prices via Alpaca batch snapshots. {} without keys/network.
+
+    Requests are chunked: the whole list used to go into one query string, so a
+    long watchlist or a 50-row scan could exceed the URL/API limit and return
+    nothing — which surfaced as silently stale prices.
+    """
+    tickers = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
+    if len(tickers) > chunk:
+        out = {}
+        for i in range(0, len(tickers), chunk):
+            try:
+                out.update(alpaca_prices(tickers[i:i + chunk], chunk=chunk))
+            except Exception:
+                continue
+        return out
     pairs = [("ALPACA_API_KEY", "ALPACA_SECRET_KEY"),
              ("ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY"),
              ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY")]
@@ -1016,7 +1069,7 @@ def alpaca_history(symbols: list, years: int = HISTORY_YEARS) -> pd.DataFrame:
     for i in range(0, len(stocks), 50):
         _paged("https://data.alpaca.markets/v2/stocks/bars",
                {"symbols": ",".join(stocks[i:i + 50]), "timeframe": "1Day",
-                "start": start, "limit": 10000, "adjustment": "split",
+                "start": start, "limit": 10000, "adjustment": "all",
                 "feed": "iex"})
     cryptos = [s for s in symbols if s in CRYPTO_MAP]
     if cryptos:
@@ -1259,7 +1312,7 @@ def _alpaca_ohlcv(ticker: str, days: int = 400) -> pd.DataFrame:
     rows, token = [], None
     while True:
         p = {"symbols": ticker, "timeframe": "1Day", "start": start,
-             "limit": 10000, "adjustment": "split", "feed": "iex"}
+             "limit": 10000, "adjustment": "all", "feed": "iex"}
         if token:
             p["page_token"] = token
         try:
@@ -2150,7 +2203,10 @@ def _now_features_all():
     rvbase = V[t - 62:t + 1].mean(0)
     rvol = V[t - 4:t + 1].mean(0) / np.where(rvbase == 0, np.nan, rvbase)
     above = (C[t] > np.nanmean(C[t - 49:t + 1], 0)).astype(np.float32)
-    feats = np.column_stack([mom_pct, rangepos, np.minimum(rvol, 3), above]).astype(np.float32)
+    # NOTE: rvol is stored UNCAPPED here. forecast_all caps both sides at 3 when
+    # matching (same as outcome_forecast); pre-capping only one side made the
+    # universe scan select different analogs than the per-ticker Lookup.
+    feats = np.column_stack([mom_pct, rangepos, rvol, above]).astype(np.float32)
     # same stale-price guard as mega_scan: the panel forward-fills gaps, so a
     # name whose last real print was days ago must not be treated as current
     _raw_recent = np.isfinite(panel["c"][-3:]).any(axis=0)
@@ -2219,7 +2275,8 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
                  & (np.abs(win_F[:, 1] - now[1]) <= tol[1] * widen)
                  & (win_F[:, 3] == now[3]))
             if has_rvol:
-                m &= np.abs(win_F[:, 2] - min(now[2], 3)) <= tol[2] * widen
+                m &= (np.abs(np.minimum(win_F[:, 2], 3) - min(now[2], 3))
+                  <= tol[2] * widen)
             sel = win_R[m]                       # always keep the current sample
             if m.sum() >= 250:                   # ...but stop once we have enough
                 break
