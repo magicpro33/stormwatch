@@ -26,7 +26,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.17"
+REQUIRED_ENGINE = "2.18"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -243,8 +243,10 @@ def _analyzer(tk: str, _asof: str):
 
 
 @st.cache_data(ttl=1800, show_spinner="Scanning all 5,700 stocks across every pillar…")
-def _mega_scan(_asof: str, _gauge, override=None):
-    return ce.mega_scan(_history(), pressure_gauge=_gauge, regime_override=override)
+def _mega_scan(_asof: str, _gauge, override=None, top: int = 20,
+               apply_macro: bool = True):
+    return ce.mega_scan(_history(), pressure_gauge=_gauge, top=top,
+                        regime_override=override, apply_macro=apply_macro)
 
 
 @st.cache_data(ttl=900, show_spinner="🧭 Reading the market, the tape, and the headlines…")
@@ -256,6 +258,11 @@ def _macro_advice(_asof: str, _gauge, nonce: int = 0):
     return ce.macro_advisor(_history(), pressure=_p)
 
 
+@st.cache_data(ttl=1800, show_spinner="🎯 Ranking on scenario fit and quality…")
+def _macro_only_scan(_asof: str, regime: str, top: int = 20):
+    return ce.macro_only_scan(regime, top=top)
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def _apex_sector_list(_asof: str):
     import apex_flow as _af
@@ -263,15 +270,15 @@ def _apex_sector_list(_asof: str):
 
 
 @st.cache_data(ttl=1800, show_spinner="🎩 Running the five-test quality checklist on all 5,700 stocks…")
-def _felix_scan(_asof: str):
-    return ce.felix_scan()
+def _felix_scan(_asof: str, top: int = 20):
+    return ce.felix_scan(top=top)
 
 
 @st.cache_data(ttl=1800, show_spinner="🔮 Forecasting the shortlist and ranking by odds of gain…")
-def _forecast_scan(_asof: str, _gauge, override=None):
+def _forecast_scan(_asof: str, _gauge, override=None, top: int = 20):
     F, R = _analog_library(_asof)
     return ce.forecast_scan(_history(), F, R, pressure_gauge=_gauge,
-                            regime_override=override)
+                            regime_override=override, top=top)
 
 
 @st.cache_data(ttl=1800, show_spinner="🔮 Forecasting EVERY tradeable stock and ranking by odds of gain…")
@@ -1382,175 +1389,184 @@ with tab_top20:
     except Exception:
         _gauge = None
     # ── unified scan control: method + scenario + run, all one menu ──
+    # ══ Option A: two independent dials — ranking engine × macro lens ══
     _METHODS = {
         "🌊 Cascade Score": "cascade",
-        "🔮 Best Odds (Outcome forecast)": "forecast",
-        "🎩 Felix (quality checklist)": "felix",
+        "🔮 Best Odds": "forecast",
+        "🎩 Felix Quality": "felix",
+        "🎯 None — macro only": "macro",
     }
-    _mc1, _mc2 = st.columns([2, 1], vertical_alignment="bottom")
-    _method_label = _mc1.radio(
-        "Scan method", list(_METHODS), key="top20_method", horizontal=True,
-        help="🌊 Cascade Score ranks by the blended composite (technicals + "
-             "quality + cascade tailwind + macro fit). 🔮 Best Odds reranks by "
-             "the analog forecast's odds of gain. 🎩 Felix ignores the market "
-             "entirely and ranks by a five-test quality checklist.")
+    _METHOD_CAPTIONS = [
+        "Flow + technicals + quality",
+        "Historical odds of gain",
+        "Balance sheet only",
+        "Scenario fit only, no flow",
+    ]
+    _d1, _d2 = st.columns(2)
+    with _d1:
+        st.markdown("**① Rank stocks by**")
+        _method_label = st.radio(
+            "Rank stocks by", list(_METHODS), key="top20_method",
+            captions=_METHOD_CAPTIONS, label_visibility="collapsed",
+            help="Pick the engine that orders the list. 'None — macro only' "
+                 "ignores market flow entirely and ranks purely on how well a "
+                 "quality company fits the scenario you choose.")
     _method = _METHODS[_method_label]
-    # if the method changed since the last scan, clear the stale result so the
-    # previous method's table doesn't linger under the newly-selected method
-    if st.session_state.get("top20_go") and \
-            st.session_state.get("top20_mode") not in (None, _method):
-        st.session_state["top20_go"] = False
 
     # the advisor's "use this" click lands here on the NEXT run — Streamlit
     # forbids writing a widget's key after that widget has been created, so
     # the choice is stashed and applied before the selectbox is instantiated
     _pending = st.session_state.pop("_scenario_pending", None)
     if _pending:
-        st.session_state["top20_scenario"] = _pending
+        st.session_state["top20_lens"] = _pending
 
-    _scn_opts = {"📡 Auto — detect the live regime": None}
+    _LENS_OFF = "🚫 Off — no macro tilt"
+    _LENS_AUTO = "📡 Auto — detect the live regime"
+    _scn_opts = {_LENS_OFF: "off", _LENS_AUTO: None}
     _scn_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
-    _scn_disabled = _method == "felix"
-    _scn_label = st.selectbox(
-        "Macro scenario", list(_scn_opts), key="top20_scenario",
-        disabled=_scn_disabled,
-        help="Auto uses the regime the app detects from live oil, dollar, VIX and "
-             "the pressure gauge. Or pick a scenario — matched to your Macro Sim "
-             "setup — to run under that regime's sector playbook instead. "
-             "(Felix is quality-only and ignores the regime.)")
-    _override = None if _scn_disabled else _scn_opts[_scn_label]
+    with _d2:
+        st.markdown("**② Macro lens**")
+        # Felix is quality-only by design; macro-only REQUIRES a scenario
+        _lens_choices = list(_scn_opts)
+        if _method == "macro":
+            _lens_choices = [o for o in _lens_choices if o != _LENS_OFF]
+        _lens_label = st.selectbox(
+            "Macro lens", _lens_choices, key="top20_lens",
+            disabled=(_method == "felix"), label_visibility="collapsed",
+            help="Off = rank with no sector tilt at all. Auto = use the regime "
+                 "the app detects live. Or pick a scenario to run under that "
+                 "playbook. Felix ignores the lens entirely.")
+        _lens = _scn_opts.get(_lens_label)
+        if _method == "felix":
+            st.caption("Felix is quality-only — the lens doesn't apply.")
+        elif _lens == "off":
+            st.caption("No sector tilt. Pure ranking.")
+        elif _lens is None:
+            st.caption("Uses whichever regime is detected now.")
+        else:
+            _cd0 = ce.REGIME_CARDS.get(_lens, {})
+            st.caption(f"Leads: {_cd0.get('leads', '')[:58]}…"
+                       if _cd0 else "")
 
-    # ── 🧭 advisor: recommend a scenario from the full evidence set ──
-    if not _scn_disabled:
-        _adv1, _adv2 = st.columns([3, 1], vertical_alignment="center")
-        if _adv2.button("🧭 Recommend", key="macro_advise", width="stretch",
-                        help="Scan the market, the tape and the headlines — "
-                             "liquidity gauge, oil, dollar, VIX, credit spreads, "
-                             "the ratio sentinels, the yen-carry monitor and macro "
-                             "news — then recommend which scenario best fits, with "
-                             "the full evidence behind it."):
-            st.session_state["macro_advice_on"] = True
-            st.session_state["macro_advice_nonce"] = \
-                st.session_state.get("macro_advice_nonce", 0) + 1
-        _adv1.caption("Not sure which scenario fits? Let the app weigh the evidence.")
+    # macro-only needs a concrete scenario — fall back to the detected one
+    _apply_macro = not (_method == "felix" or _lens == "off")
+    _override = _lens if (_apply_macro and _lens not in (None, "off")) else None
+    if _method == "macro" and _override is None:
+        try:
+            _override = ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
+        except Exception:
+            _override = "base"
 
-        if st.session_state.get("macro_advice_on"):
-            try:
-                _adv = _macro_advice(asof, _gauge,
-                                     st.session_state.get("macro_advice_nonce", 0))
-            except Exception as _ae:
-                _adv = None
-                st.error(f"Advisor failed: {_ae}")
-            if _adv:
-                _cc = {"high": GREEN, "medium": "#d0b040", "low": DIM}[_adv["confidence"]]
-                _agree = _adv["recommended"] == _adv.get("detected")
-                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                    border-left:5px solid {_cc};border-radius:12px;padding:14px 18px;margin:8px 0;">
-                    <div style="font-size:12px;color:{DIM};letter-spacing:1px;text-transform:uppercase;">
-                      Recommended scenario · {_adv['confidence']} confidence</div>
-                    <div style="font-size:19px;font-weight:800;margin:3px 0 6px;">{_adv['label']}</div>
-                    <div style="color:{DIM};font-size:12px;">
-                      Winning margin {_adv['margin']} points over the runner-up ·
-                      {'auto-detection agrees' if _agree else 'auto-detection currently says '
-                       + ce.REGIME_NAMES.get(_adv.get('detected'), '—')} ·
-                      {_adv['n_articles']} headlines read · {_adv['stamp']}</div>
-                    </div>""", unsafe_allow_html=True)
+    # if the method changed since the last scan, clear the stale result
+    if st.session_state.get("top20_go") and \
+            st.session_state.get("top20_mode") not in (None, _method):
+        st.session_state["top20_go"] = False
 
-                _lbl = ce.REGIME_NAMES.get(_adv["recommended"])
-                if _lbl and st.button(f"✅ Use {_lbl}", key="macro_apply",
-                                      width="stretch"):
-                    st.session_state["_scenario_pending"] = _lbl
-                    st.session_state["macro_advice_on"] = False
-                    st.rerun()
-
-                with st.expander("🔍 The evidence behind this call"):
-                    _ev = pd.DataFrame(_adv["evidence"])
-                    if not _ev.empty:
-                        _ev["Argues for"] = _ev.regime.map(
-                            lambda r: ce.REGIME_NAMES.get(r, r))
-                        _ev = _ev.rename(columns={"signal": "Signal",
-                                                  "reading": "Reading",
-                                                  "weight": "Weight"})
-                        st.dataframe(
-                            _ev[["Signal", "Reading", "Argues for", "Weight"]]
-                            .style.format({"Weight": "{:.1f}"})
-                            .map(lambda v: f"color:{ACCENT};font-weight:700"
-                                 if isinstance(v, (int, float)) and v >= 3
-                                 else "", subset=["Weight"]),
-                            width="stretch", hide_index=True,
-                            column_config={
-                                "Weight": st.column_config.Column(
-                                    help="How much this signal counts. 3+ is a "
-                                         "heavyweight (VIX shock, oil surge, carry "
-                                         "unwind); headlines are capped at 2.")})
-                    _sc = pd.DataFrame(
-                        [(ce.REGIME_NAMES.get(k, k), v)
-                         for k, v in sorted(_adv["scores"].items(),
-                                            key=lambda kv: -kv[1])],
-                        columns=["Scenario", "Points"])
-                    st.markdown("**Full ballot**")
-                    st.dataframe(_sc.style.format({"Points": "{:.1f}"}),
-                                 width="stretch", hide_index=True)
-                    st.caption("Every signal votes with a weight; headlines are "
-                               "capped at 2 points so news can confirm the tape "
-                               "but never outvote it. Low confidence means the "
-                               "evidence is genuinely mixed — that's information "
-                               "too, and 'No Clear Driver' is often the honest call.")
-
-    # scenario explainer card (Option 3) — shows for whichever scenario is active
-    if not _scn_disabled:
-        _rk = _override
-        if _rk is None:
-            try:
-                _rk = ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
-            except Exception:
-                _rk = "base"
-        _cardsrc = "🎛 Your scenario" if _override else "📡 Auto-detected"
-        _cd = ce.REGIME_CARDS.get(_rk)
-        if _cd:
-            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:4px solid {ACCENT};border-radius:12px;padding:14px 18px;margin:6px 0 10px;">
-                <div style="display:flex;align-items:center;gap:10px;">
-                  <span style="font-size:22px;">{_cd['emoji']}</span>
-                  <span style="font-size:18px;font-weight:800;">{_cd['name']}</span>
-                  <span style="margin-left:auto;font-size:11px;color:{DIM};font-family:monospace;
-                    border:1px solid #1d2b40;border-radius:20px;padding:2px 10px;">{_cardsrc} · a.k.a. {_cd['aka']}</span>
-                </div>
-                <div style="font-size:13.5px;line-height:1.55;color:#d7e0ec;margin:8px 0 12px;">{_cd['story']}</div>
-                <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                  <div style="flex:1;min-width:220px;background:#081325;border:1px solid #1d2b40;
-                    border-left:4px solid {GREEN};border-radius:8px;padding:8px 12px;">
-                    <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:{GREEN};margin-bottom:3px;">▲ Leads</div>
-                    <div style="font-size:12.5px;line-height:1.7;color:#d7e0ec;">{_cd['leads']}</div></div>
-                  <div style="flex:1;min-width:220px;background:#081325;border:1px solid #1d2b40;
-                    border-left:4px solid {RED};border-radius:8px;padding:8px 12px;">
-                    <div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:{RED};margin-bottom:3px;">▼ Lags</div>
-                    <div style="font-size:12.5px;line-height:1.7;color:#d7e0ec;">{_cd['lags']}</div></div>
-                </div>
-                <div style="margin-top:10px;font-size:12px;color:{DIM};border-top:1px solid #1d2b40;padding-top:8px;">
-                  <b style="color:{ACCENT};">Pick this when</b> {_cd['trigger']} — or dial it in on the 🧪 Macro Sim tab.
-                </div></div>""", unsafe_allow_html=True)
-
-    # Best-Odds-only: whole-universe toggle
-    _scan_all = True
+    _n1, _n2 = st.columns([1, 2])
+    _top_n = _n1.selectbox("How many stocks", list(range(20, 55, 5)),
+                           index=0, key="top20_count",
+                           help="Length of the results list.")
     if _method == "forecast":
-        _scan_all = st.toggle(
-            "🌐 Scan the entire universe (~5,700 stocks, ~4s)", value=True,
+        _scan_all = _n2.toggle(
+            "🌐 Scan the entire universe (~5,700 stocks)", value=True,
             key="forecast_all_toggle",
-            help="ON: forecast every tradeable stock and rank the whole universe "
-                 "by odds of gain. OFF: forecast just a 120-name cascade shortlist "
-                 "(faster, and the macro scenario applies).")
+            help="ON: forecast every tradeable stock and rank the whole "
+                 "universe by odds of gain. OFF: a 120-name cascade shortlist.")
+    else:
+        _scan_all = True
 
-    if _mc2.button("🚀 Run scan", type="primary", key="top20_run", width="stretch"):
+    # ── the recipe line: exactly what is about to run ────────────────
+    _eng_txt = {"cascade": "cascade score", "forecast": "odds of gain",
+                "felix": "the Felix quality checklist",
+                "macro": "scenario fit alone"}[_method]
+    if _method == "felix":
+        _lens_txt = "no macro lens (quality only)"
+    elif not _apply_macro:
+        _lens_txt = "no macro lens"
+    elif _lens is None:
+        _lens_txt = "the auto-detected regime"
+    else:
+        _lens_txt = ce.REGIME_NAMES.get(_lens, _lens)
+    st.markdown(
+        f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
+        padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
+        Ranking the top <b>{_top_n}</b> by <b style="color:{ACCENT};">{_eng_txt}</b>,
+        through <b style="color:{ACCENT};">{_lens_txt}</b>.</div>""",
+        unsafe_allow_html=True)
+
+    _b1, _b2, _b3 = st.columns([2, 1, 1])
+    if _b1.button("🚀 Run scan", type="primary", key="top20_run", width="stretch"):
         st.session_state["top20_go"] = True
         st.session_state["top20_mode"] = _method
-        st.session_state.pop("t20_live", None)      # a new scan clears stale live data
-    if _mc2.button("📡 LIVE UPDATE", key="top20_live", width="stretch",
-                   help="Pull live prices for the stocks currently listed — "
-                        "Alpaca first, then Yahoo for anything Alpaca doesn't "
-                        "cover — and show each one's move since the scan. Works "
-                        "with whichever method and scenario you have selected."):
+        st.session_state.pop("t20_live", None)
+    if _b2.button("📡 LIVE UPDATE", key="top20_live", width="stretch",
+                  help="Pull live prices for the stocks currently listed — "
+                       "Alpaca first, then Yahoo for anything Alpaca doesn't "
+                       "cover. Works with any method and lens."):
         st.session_state["t20_live"] = True
+    if _b3.button("🧭 Recommend", key="macro_advise", width="stretch",
+                  help="Weigh the market, the tape and the headlines, then "
+                       "recommend which scenario fits."):
+        st.session_state["macro_advice_on"] = True
+        st.session_state["macro_advice_nonce"] = \
+            st.session_state.get("macro_advice_nonce", 0) + 1
+
+    # ── advisor result + scenario explainer ─────────────────────────
+    if st.session_state.get("macro_advice_on") and _method != "felix":
+        try:
+            _adv = _macro_advice(asof, _gauge,
+                                 st.session_state.get("macro_advice_nonce", 0))
+        except Exception as _ae:
+            _adv = None
+            st.error(f"Advisor failed: {_ae}")
+        if _adv:
+            _cc = {"high": GREEN, "medium": "#d0b040", "low": DIM}[_adv["confidence"]]
+            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                border-left:5px solid {_cc};border-radius:12px;padding:12px 16px;margin:6px 0;">
+                <div style="font-size:12px;color:{DIM};letter-spacing:1px;text-transform:uppercase;">
+                  Recommended · {_adv['confidence']} confidence</div>
+                <div style="font-size:17px;font-weight:800;margin:3px 0 5px;">{_adv['label']}</div>
+                <div style="color:{DIM};font-size:12px;">Margin {_adv['margin']} pts ·
+                  {_adv['n_articles']} headlines read · {_adv['stamp']}</div></div>""",
+                unsafe_allow_html=True)
+            _rl = ce.REGIME_NAMES.get(_adv["recommended"])
+            if _rl and st.button(f"✅ Use {_rl}", key="macro_apply", width="stretch"):
+                st.session_state["_scenario_pending"] = _rl
+                st.session_state["macro_advice_on"] = False
+                st.rerun()
+            with st.expander("🔍 The evidence behind this call"):
+                _ev = pd.DataFrame(_adv["evidence"])
+                if not _ev.empty:
+                    _ev["Argues for"] = _ev.regime.map(lambda r: ce.REGIME_NAMES.get(r, r))
+                    _ev = _ev.rename(columns={"signal": "Signal", "reading": "Reading",
+                                              "weight": "Weight"})
+                    st.dataframe(_ev[["Signal", "Reading", "Argues for", "Weight"]]
+                                 .style.format({"Weight": "{:.1f}"}),
+                                 width="stretch", hide_index=True)
+                st.caption("Headlines are capped at 2 points — news confirms the "
+                           "tape, it never outvotes it.")
+
+    # compact scenario strip (full explainer one tap away)
+    if _apply_macro and _method != "felix":
+        _rk = _override or (ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
+                            if _lens is None else None)
+        _cd = ce.REGIME_CARDS.get(_rk) if _rk else None
+        if _cd:
+            st.markdown(f"""<div style="display:flex;align-items:center;gap:10px;
+                background:#0c1829;border-left:3px solid {ACCENT};padding:8px 14px;
+                margin:6px 0;font-size:13px;">
+                <span style="font-size:17px;">{_cd['emoji']}</span>
+                <span><b>{_cd['name']}</b>
+                <span style="color:{GREEN};"> ▲ {_cd['leads'][:46]}…</span>
+                <span style="color:{RED};"> ▼ {_cd['lags'][:38]}…</span></span></div>""",
+                unsafe_allow_html=True)
+            with st.expander(f"📖 What {_cd['name']} means"):
+                st.markdown(f"**{_cd['emoji']} {_cd['name']}** — *a.k.a. {_cd['aka']}*")
+                st.markdown(_cd["story"])
+                _l, _r = st.columns(2)
+                _l.markdown(f"**▲ Leads**\n\n{_cd['leads']}")
+                _r.markdown(f"**▼ Lags**\n\n{_cd['lags']}")
+                st.caption(f"Pick this when {_cd['trigger']}.")
 
     def _apply_live(_df):
         """Refresh the on-screen list against live market data (any mode)."""
@@ -1596,9 +1612,9 @@ with tab_top20:
                 fc20 = _forecast_all(asof, _rk if _override else None)
                 reg = (dict(regime=_override, label=ce.REGIME_LABELS[_override])
                        if _override else ce.macro_regime(closes, pressure_gauge=_gauge))
-                fc20 = fc20.head(20)
+                fc20 = fc20.head(int(_top_n))
             else:
-                fc20, reg = _forecast_scan(asof, _gauge, _override)
+                fc20, reg = _forecast_scan(asof, _gauge, _override, int(_top_n))
         except Exception as e:
             st.error(f"Best-odds scan failed: {e}")
             fc20, reg = pd.DataFrame(), {}
@@ -1651,9 +1667,64 @@ with tab_top20:
                        "Highest odds ≠ biggest gain — check the Typical and Worst-10 "
                        "columns before sizing.")
 
+    if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "macro":
+        try:
+            _m20, _mmeta = _macro_only_scan(asof, _override, int(_top_n))
+        except Exception as _me:
+            st.error(f"Macro-only scan failed: {_me}")
+            _m20, _mmeta = pd.DataFrame(), {}
+        if _m20 is None or _m20.empty:
+            st.info("No names cleared the quality bar for this scenario.")
+        else:
+            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                <span style="font-weight:700;">🎯 Macro-only: {_mmeta.get('label','')}</span><br>
+                <span style="color:{DIM};font-size:12px;">Ranked purely on how well a
+                quality company fits this scenario — no cascade flow, no technicals,
+                no analog odds. {_mmeta.get('eligible',0):,} names cleared the quality
+                bar; the book is spread over {_mmeta.get('n_sectors',0)} sectors.</span></div>""",
+                unsafe_allow_html=True)
+            _m20, _lmeta = _apply_live(_m20)
+            _live_banner(_lmeta)
+            _mcols = (["Ticker", "Sector", "Price"]
+                      + (["Live", "Chg%", "Src"] if "Live" in _m20.columns else [])
+                      + ["Fit", "MacroFit", "Quality", "ROIC", "OE Yield",
+                         "Piotroski", "P/E", "RevGrowth", "Data"])
+            _msel = st.dataframe(
+                _m20.style.format(_live_fmt(_m20, {
+                    "Price": "${:,.2f}", "Fit": "{:.1f}", "MacroFit": "{:.2f}",
+                    "Quality": "{:.0f}", "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
+                    "Piotroski": "{:.0f}", "P/E": "{:.1f}",
+                    "RevGrowth": "{:+.0%}"}), na_rep="—")
+                .map(lambda v: f"color:{GREEN};font-weight:600"
+                     if isinstance(v, (int, float)) and v > 1.0
+                     else (f"color:{RED}" if isinstance(v, (int, float)) and v < 1.0
+                           else ""), subset=["MacroFit"])
+                .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
+                                else f"color:{DIM}"), subset=["Data"]),
+                width="stretch", hide_index=True, height=740,
+                on_select="rerun", selection_mode="single-row", key="macro_table",
+                column_order=[c for c in _mcols if c in _m20.columns],
+                column_config={
+                    "Fit": st.column_config.Column(help="Quality score multiplied by this sector's multiplier under the chosen scenario."),
+                    "MacroFit": st.column_config.Column(help="The scenario's sector multiplier. Above 1.00 = a sector this regime favours."),
+                    "Quality": st.column_config.Column(help="Composite of ROIC, owner-earnings yield, Piotroski, ROIC trend and growth. Missing inputs rank at the bottom."),
+                    "Data": st.column_config.Column(help="How many of the 6 fundamental inputs are known."),
+                })
+            _mr = (_msel.selection.rows if _msel and getattr(_msel, "selection", None) else [])
+            if _mr:
+                _mtk = _m20.iloc[_mr[0]].Ticker
+                if st.session_state.get("_macro_handled") != _mtk:
+                    st.session_state["_macro_handled"] = _mtk
+                    st.session_state["lk_tk"] = _mtk
+                    st.rerun()
+            st.caption("👆 Tap any row for the full analysis. This list answers "
+                       "\"if this scenario is right, who's positioned?\" — it says "
+                       "nothing about whether the scenario is actually arriving.")
+
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "felix":
         try:
-            f20 = _felix_scan(asof)
+            f20 = _felix_scan(asof, int(_top_n))
         except Exception as e:
             st.error(f"Felix scan failed: {e}")
             f20 = pd.DataFrame()
@@ -1703,7 +1774,8 @@ with tab_top20:
                        "analysis and analog forecast.")
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode", "cascade") == "cascade":
         try:
-            t20, reg = _mega_scan(asof, _gauge, _override)
+            t20, reg = _mega_scan(asof, _gauge, _override, int(_top_n),
+                                  _apply_macro)
         except Exception as e:
             st.error(f"Scan failed: {e}")
             t20, reg = pd.DataFrame(), {}

@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.17"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.18"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1704,7 +1704,8 @@ def _node_follow_corr(node: str, node_closes: pd.DataFrame):
 
 
 def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
-              regime_override: str | None = None) -> tuple:
+              regime_override: str | None = None,
+              apply_macro: bool = True) -> tuple:
     """THE combined screener: IGNITION technicals + macro-simulator quality
     DNA + cascade tailwind + macro-regime sector fit, over the whole dump
     (all markets). Returns (top-N DataFrame, regime dict)."""
@@ -1821,13 +1822,19 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
     tail_pct = _pct(tail) if len(used_nodes) else np.full(N, 0.5)
 
     # ── pillar 4: macro-regime sector fit ────────────────────────────
-    if regime_override and regime_override in REGIME_LABELS:
+    if not apply_macro:
+        # macro lens OFF — pure flow/quality ranking, no sector tilt at all
+        regime = dict(regime="off", label="🚫 Macro lens off — no sector tilt applied",
+                      drivers=["macro lens disabled — ranking on the raw score"])
+        tilts = {}
+    elif regime_override and regime_override in REGIME_LABELS:
         regime = dict(regime=regime_override, label=REGIME_LABELS[regime_override],
                       drivers=["manual scenario override — matched to your "
                                "Macro Sim sliders, not live detection"])
+        tilts = SECTOR_TILTS.get(regime["regime"], {})
     else:
         regime = macro_regime(node_closes, pressure_gauge)
-    tilts = SECTOR_TILTS.get(regime["regime"], {})
+        tilts = SECTOR_TILTS.get(regime["regime"], {})
     macro_mult = np.array([tilts.get(s, 1.0) for s in sectors])
     sec_arr = np.array(sectors)
 
@@ -2570,3 +2577,96 @@ def macro_advisor(node_closes: pd.DataFrame, pressure: dict | None = None,
                 n_articles=n_articles, gauge=gauge,
                 detected=macro_regime(node_closes, gauge).get("regime"),
                 stamp=pd.Timestamp.now(tz="US/Eastern").strftime("%b %d %I:%M %p ET"))
+
+
+def macro_only_scan(regime: str, top: int = 20, strict: bool = True) -> tuple:
+    """🎯 Macro-only: rank purely on SCENARIO FIT and business quality — no
+    cascade flow, no technicals, no analog odds.
+
+    Answers "if this macro world is the one we're in, which quality companies
+    are positioned for it?" Score = the regime's sector multiplier x a quality
+    composite, with the same unknown-is-not-average rule used everywhere else
+    (a missing fundamental ranks at the bottom, never in the middle).
+    Diversified across the regime's LEADING sectors so one favoured sector
+    can't take the whole book.
+    """
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    funds = dump_fundamentals_all()
+    C = panel["c"]
+    N = C.shape[1]
+    px = C[-1]
+    _raw_recent = np.isfinite(C[-3:]).any(axis=0)
+    tradeable = np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6) & _raw_recent
+
+    roic = funds["ROIC"]; pio = funds["Piotroski"]; oe = funds["OE_Yield"]
+    pe = funds["P/E"]; rg = funds["RevenueGrowth"]; eg = funds["EarningsGrowth"]
+    rt = funds["ROIC_Trend"]
+    if strict:
+        qual_ok = (np.isfinite(roic) & (roic > 0) & np.isfinite(pio) & (pio >= 4)
+                   & np.isfinite(pe) & (pe > 0) & (pe <= 60))
+    else:
+        qual_ok = np.isfinite(pio) & (pio >= 3)
+    eligible = tradeable & qual_ok
+
+    def _pct(a):
+        s = pd.Series(np.where(eligible & np.isfinite(a), a, np.nan))
+        return np.nan_to_num(s.rank(pct=True).values, nan=0.0)
+
+    quality = (0.35 * _pct(roic) + 0.25 * _pct(oe)
+               + 0.20 * np.nan_to_num(np.clip(pio / 9.0, 0, 1), nan=0.0)
+               + 0.10 * _pct(rt) + 0.05 * _pct(rg) + 0.05 * _pct(eg))
+
+    tilts = SECTOR_TILTS.get(regime, {})
+    sec_arr = np.array(sectors)
+    mult = np.array([tilts.get(s, 1.0) for s in sec_arr])
+    score = np.where(eligible, quality * 100 * mult, -np.inf)
+
+    # diversify across the regime's leading sectors, capped like mega_scan
+    leads = {s: t for s, t in tilts.items() if t >= 1.0}
+    cap = max(2, int(np.ceil(top * 0.35)))
+    chosen, picked = [], np.zeros(N, dtype=bool)
+    if leads:
+        wsum = sum(leads.values())
+        for s in sorted(leads, key=lambda x: -leads[x]):
+            q = min(max(int(round(top * (leads[s] / wsum))), 1), cap)
+            ix = np.where((sec_arr == s) & np.isfinite(score))[0]
+            if not len(ix):
+                continue
+            ix = ix[np.argsort(-score[ix])][:q]
+            chosen.extend(ix.tolist()); picked[ix] = True
+            if len(chosen) >= top:
+                break
+    if len(chosen) < top:
+        from collections import Counter
+        cnt = Counter(sec_arr[chosen].tolist())
+        for gi in np.argsort(-np.where(picked, -np.inf, score)):
+            if len(chosen) >= top:
+                break
+            if picked[gi] or not np.isfinite(score[gi]):
+                continue
+            if cnt[sec_arr[gi]] >= cap:
+                continue
+            chosen.append(int(gi)); picked[gi] = True
+            cnt[sec_arr[gi]] += 1
+    chosen = chosen[:top]
+    order = (np.array(chosen)[np.argsort(-score[chosen])] if chosen
+             else np.array([], dtype=int))
+
+    have = (np.isfinite(roic).astype(int) + np.isfinite(oe).astype(int)
+            + np.isfinite(pio).astype(int) + np.isfinite(rt).astype(int)
+            + np.isfinite(rg).astype(int) + np.isfinite(eg).astype(int))
+    df = pd.DataFrame({
+        "Ticker": tickers[order], "Sector": sec_arr[order],
+        "Price": np.round(px[order], 2),
+        "Fit": np.round(score[order], 1),
+        "MacroFit": np.round(mult[order], 2),
+        "Quality": np.round(quality[order] * 100, 0),
+        "ROIC": roic[order], "OE Yield": oe[order],
+        "Piotroski": pio[order], "P/E": np.round(pe[order], 1),
+        "RevGrowth": rg[order],
+        "Data": [f"{h}/6" for h in have[order]],
+    }).reset_index(drop=True)
+    meta = dict(regime=regime, label=REGIME_LABELS.get(regime, regime),
+                eligible=int(eligible.sum()), n_sectors=int(df.Sector.nunique())
+                if not df.empty else 0)
+    return df, meta
