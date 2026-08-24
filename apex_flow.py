@@ -219,7 +219,8 @@ def scan_daily(min_price: float = 5.0, min_dollar_vol: float = 5e6,
                rs_band: float = 3.0, require_calm: bool = True,
                min_score: float = 0.0, top: int = 50,
                apply_rs: bool = True,
-               only_sectors: list | None = None) -> pd.DataFrame:
+               only_sectors: list | None = None,
+               macro_tilts: dict | None = None) -> pd.DataFrame:
     """Score the entire dump universe on daily bars.
 
     `only_sectors` restricts the universe to those sectors. It is applied
@@ -254,12 +255,23 @@ def scan_daily(min_price: float = 5.0, min_dollar_vol: float = 5e6,
     df = df[(df["Price"] >= min_price) & (df["DollarVol"] >= min_dollar_vol)]
     if only_sectors:
         df = df[df["Sector"].isin(list(only_sectors))]
-    return _finalize(df, require_calm, min_score, top, apply_rs)
+    return _finalize(df, require_calm, min_score, top, apply_rs,
+                     macro_tilts=macro_tilts)
 
 
 def _finalize(df: pd.DataFrame, require_calm: bool, min_score: float,
               top: int, apply_rs: bool = True,
-              guard_illiquid: bool = True) -> pd.DataFrame:
+              guard_illiquid: bool = True,
+              macro_tilts: dict | None = None) -> pd.DataFrame:
+    """Apply the validated gates, then optionally RE-RANK by macro fit.
+
+    The macro lens deliberately never touches `Score`. That number is the
+    0-100 conviction scale the Pine indicator uses, the CALM/RS gates and the
+    >=80 Gate flag are all calibrated on it, and a name that ranks here is
+    supposed to look identical on the chart. So the lens adds `Macro` (the
+    sector multiplier) and `Adj` (Score x Macro) and orders by `Adj` — the
+    filters stay validated, only the ordering reflects the scenario.
+    """
     df = df.copy()
     if guard_illiquid:
         # drop names with gappy history or a volatility reading so low it means
@@ -272,7 +284,13 @@ def _finalize(df: pd.DataFrame, require_calm: bool, min_score: float,
     if require_calm:
         df = df[df["_risk_state"] == 2]
     df = df[df["Score"] >= min_score]
-    df = df.sort_values("Score", ascending=False).head(top).reset_index(drop=True)
+    if macro_tilts:
+        df["Macro"] = df["Sector"].map(lambda s: macro_tilts.get(str(s), 1.0))
+        df["Adj"] = (df["Score"] * df["Macro"]).round(1)
+        df = df.sort_values(["Adj", "Score"], ascending=False)
+    else:
+        df = df.sort_values("Score", ascending=False)
+    df = df.head(top).reset_index(drop=True)
     df.insert(0, "#", np.arange(1, len(df) + 1))
     return df
 
@@ -321,7 +339,8 @@ def _alpaca_bars(symbols: list, tf: str, start: str, feed: str = "iex") -> dict:
 def scan_intraday(timeframe: str, universe: list, rs_band: float = 3.0,
                   require_calm: bool = True, min_score: float = 0.0,
                   top: int = 50, sectors: dict | None = None,
-                  apply_rs: bool = True) -> pd.DataFrame:
+                  apply_rs: bool = True,
+                  macro_tilts: dict | None = None) -> pd.DataFrame:
     """Score a shortlisted universe on an intraday timeframe via Alpaca."""
     meta = TIMEFRAMES[timeframe]
     start = (date.today() - timedelta(days=meta["lookback_days"])).isoformat()
@@ -354,7 +373,8 @@ def scan_intraday(timeframe: str, universe: list, rs_band: float = 3.0,
     df.insert(0, "Ticker", names)
     df.insert(1, "Sector", [(sectors or {}).get(s, "—") for s in names])
     df["DollarVol"] = np.nan
-    return _finalize(df, require_calm, min_score, top, apply_rs)
+    return _finalize(df, require_calm, min_score, top, apply_rs,
+                     macro_tilts=macro_tilts)
 
 
 def liquid_universe(n: int = 300, min_price: float = 5.0,

@@ -1991,6 +1991,42 @@ with tab_apex:
         _all_secs = _apex_sector_list(asof)
     except Exception:
         _all_secs = []
+    _ax_l1, _ax_l2 = st.columns([1, 1])
+    _AX_OFF = "🚫 Off — no macro tilt"
+    _AX_AUTO = "📡 Auto — detect the live regime"
+    _ax_opts = {_AX_OFF: "off", _AX_AUTO: None}
+    _ax_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
+    _ax_lens_label = _ax_l1.selectbox(
+        "Macro lens", list(_ax_opts), key="apex_lens",
+        help="Off = rank purely by the APEX score (the validated default). "
+             "Auto = tilt toward the regime detected live. Or pick a scenario. "
+             "The lens NEVER changes the APEX score or the CALM/RS gates — it "
+             "only re-orders the names that already passed them.")
+    _ax_lens = _ax_opts.get(_ax_lens_label)
+    if _ax_lens == "off":
+        _ax_tilts = None
+        _ax_regkey = None
+    else:
+        _ax_regkey = _ax_lens
+        if _ax_regkey is None:
+            try:
+                _ax_regkey = ce.macro_regime(
+                    closes, pressure_gauge=st.session_state.get("_gauge_cache"))["regime"]
+            except Exception:
+                _ax_regkey = "base"
+        _ax_tilts = ce.SECTOR_TILTS.get(_ax_regkey) or None
+    if _ax_regkey:
+        _axc = ce.REGIME_CARDS.get(_ax_regkey)
+        if _axc:
+            _ax_l2.markdown(
+                f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
+                padding:7px 12px;margin-top:26px;font-size:12.5px;">
+                <b>{_axc['emoji']} {_axc['name']}</b>
+                <span style="color:{GREEN};"> ▲ {_axc['leads'][:34]}…</span></div>""",
+                unsafe_allow_html=True)
+    else:
+        _ax_l2.caption("No tilt — pure APEX ranking.")
+
     _picked_secs = st.multiselect(
         "Sectors", _all_secs, default=_all_secs, key="apex_sectors",
         help="Defaults to every sector. Narrow it to focus the scan — the "
@@ -2031,7 +2067,7 @@ with tab_apex:
     # invalidate a stale result when the timeframe changes
     if st.session_state.get("apex_run") and st.session_state.get("apex_run_tf") != _tf:
         st.session_state["apex_run"] = False
-    _sec_key = tuple(sorted(_picked_secs))
+    _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
     if _go:
         st.session_state["apex_run_secs"] = _sec_key
     elif (st.session_state.get("apex_run")
@@ -2046,7 +2082,7 @@ with tab_apex:
                         min_price=float(_min_price), min_dollar_vol=float(_min_dv) * 1e6,
                         require_calm=_require_calm, min_score=float(_min_score),
                         top=int(_top_n), apply_rs=_apply_rs,
-                        only_sectors=_sec_filter)
+                        only_sectors=_sec_filter, macro_tilts=_ax_tilts)
                     _src = ("nightly dump · whole market" if not _sec_filter
                             else f"nightly dump · {len(_sec_filter)} sector"
                                  f"{'s' if len(_sec_filter) != 1 else ''}")
@@ -2056,7 +2092,8 @@ with tab_apex:
                     _res = af.scan_intraday(
                         _tf, _uni, require_calm=_require_calm,
                         min_score=float(_min_score), top=int(_top_n),
-                        sectors=_secmap, apply_rs=_apply_rs)
+                        sectors=_secmap, apply_rs=_apply_rs,
+                        macro_tilts=_ax_tilts)
                     _src = (f"Alpaca {_meta['alpaca']} bars · top {_uni_n} by liquidity"
                             + (f" · {len(_sec_filter)} sectors" if _sec_filter else ""))
         except Exception as e:
@@ -2088,7 +2125,8 @@ with tab_apex:
             _show["✅"] = np.where(_show["Gate"], "✅", "")
             _sel_ax = st.dataframe(
                 _show.style.format({
-                    "Score": "{:.1f}", "Price": "${:,.2f}", "Vol%": "{:.2f}%",
+                    "Score": "{:.1f}", "Adj": "{:.1f}", "Macro": "{:.2f}",
+                    "Price": "${:,.2f}", "Vol%": "{:.2f}%",
                     "RangePos": "{:.0f}%", "RS": "{:+.2f}%",
                     "POC": "${:,.2f}", "VAL": "${:,.2f}", "VAH": "${:,.2f}"}, na_rep="—")
                 .map(lambda v: f"color:{ACCENT};font-weight:700"
@@ -2103,7 +2141,9 @@ with tab_apex:
                      else "", subset=["RS"]),
                 width="stretch", hide_index=True, height=620,
                 on_select="rerun", selection_mode="single-row", key="apex_table",
-                column_order=["#", "✅", "Ticker", "Sector", "Score", "Risk", "Vol%",
+                column_order=["#", "✅", "Ticker", "Sector", "Score"]
+                             + (["Macro", "Adj"] if "Adj" in _show.columns else [])
+                             + ["Risk", "Vol%",
                               "RangePos", "ValueArea", "Regime", "RS", "Price",
                               "VAL", "POC", "VAH"],
                 column_config={
