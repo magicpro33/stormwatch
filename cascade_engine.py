@@ -18,7 +18,7 @@ All estimation is walk-forward-safe: edges at time t use only data <= t.
 import os
 import io
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.18"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.19"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -787,9 +787,14 @@ def load_dump_panel():
 
 
 def _ticker_index(ticker: str):
+    """Row index of a ticker in the dump panel. Case/whitespace tolerant so
+    every caller path (search box, row-select, URL, future callers) resolves
+    the same symbol."""
     load_dump_panel()
     hit = _PANEL_CACHE.get("tick_ix")
-    return hit[1].get(ticker) if hit else None
+    if not hit:
+        return None
+    return hit[1].get(str(ticker).strip().upper())
 
 
 def dump_fundamentals_all():
@@ -1302,6 +1307,7 @@ def fetch_analyzer(ticker: str):
     """IGNITION Stock Analyzer data chain, ported: Alpaca history first,
     yfinance for history fallback + fundamentals + EPS, nightly dump for
     anything still missing. Returns (info, hist, eps_history, eps_forward)."""
+    ticker = str(ticker).strip().upper()
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     _issues, info = [], {}
 
@@ -2109,36 +2115,25 @@ def forecast_scan(node_closes: pd.DataFrame, F, R, pressure_gauge=None,
                   regime_override: str | None = None,
                   shortlist: int = 120, top: int = 20,
                   min_n: int = 300) -> tuple:
-    """🔮 Best-odds preset: take a broad cascade shortlist, run the analog
-    forecast on each, and rerank by ODDS OF GAIN (p_up) — the probability the
-    look-alike cases finished higher in 21 sessions. A minimum sample-size
-    guard (min_n) stops a thin, noisy match from topping the board. Returns
-    (top-N DataFrame sorted by odds, regime dict)."""
+    """🔮 Best-odds preset over a cascade SHORTLIST: take the top `shortlist`
+    cascade names, forecast each, and rerank by ODDS OF GAIN.
+
+    Uses the same vectorized analog matcher as forecast_all (restricted to the
+    shortlist), so a stock's odds are identical whether you scan the whole
+    universe or just the shortlist — no second code path to drift.
+    """
     base, regime = mega_scan(node_closes, pressure_gauge=pressure_gauge,
                              top=shortlist, regime_override=regime_override)
-    panel, tickers, sectors, mdv, dts = load_dump_panel()
-    rows = []
-    for _, r in base.iterrows():
-        oc = outcome_forecast(r["Ticker"], F, R)
-        n = oc.get("n", 0)
-        if not oc or n < min_n:
-            continue
-        rows.append(dict(
-            Ticker=r["Ticker"], Sector=r["Sector"], Price=r["Price"],
-            OddsUp=round(oc["p_up"] * 100, 0),
-            Typical=round(oc["med21"] * 100, 1),
-            PopOdds=round(oc.get("p_pop", 0) * 100, 0),
-            Worst10=round(oc.get("q10", float("nan")) * 100, 0),
-            Best10=round(oc.get("q90", float("nan")) * 100, 0),
-            Cases=int(n),
-            Catalysts=r.get("Catalysts", ""),
-        ))
-    if not rows:
-        return base.iloc[0:0], regime
-    df = pd.DataFrame(rows)
-    # rank by odds of gain, then by typical size as the tiebreaker
-    df = df.sort_values(["OddsUp", "Typical"], ascending=False).head(top)
-    return df.reset_index(drop=True), regime
+    if base.empty:
+        return base, regime
+    odds = forecast_all(min_n=min_n, only_tickers=list(base.Ticker))
+    if odds.empty:
+        return odds, regime
+    cat = dict(zip(base.Ticker, base.get("Catalysts", pd.Series(dtype=object))))
+    odds = odds.copy()
+    odds["Catalysts"] = [cat.get(t, "") for t in odds.Ticker]
+    odds = odds.sort_values(["OddsUp", "Typical"], ascending=False).head(top)
+    return odds.reset_index(drop=True), regime
 
 
 def _now_features_all():
@@ -2166,7 +2161,8 @@ def _now_features_all():
 
 
 def forecast_all(min_n: int = 300, price_floor: float = 3.0,
-                 mdv_floor: float = 2e6, regime: str | None = None):
+                 mdv_floor: float = 2e6, regime: str | None = None,
+                 only_tickers: list | None = None):
     """Odds-of-gain forecast for the ENTIRE tradeable universe in one
     vectorized sweep — no per-ticker Python calls, no shortlist. Mirrors
     outcome_forecast's analog math exactly (same tolerances, same widen
@@ -2189,6 +2185,9 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
         tradeable = (np.isfinite(C[-1]) & (C[-1] >= price_floor)
                      & np.isfinite(feats[:, 0]) & np.isfinite(feats[:, 1])
                      & (mdv >= mdv_floor) & _raw_recent)
+    if only_tickers:
+        want = {str(t).strip().upper() for t in only_tickers}
+        tradeable = tradeable & np.array([str(t) in want for t in tickers])
     idx = np.where(tradeable)[0]
 
     # sort the library by momentum percentile so each stock scans only the
@@ -2197,10 +2196,6 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
     order = np.argsort(F[:, 0])
     Fs = F[order]; Rs = R[order]
     fmom = Fs[:, 0]
-    base21 = R[:, 1]
-    p_pop_base = float((base21 >= 0.15).mean())
-    p_drop_base = float((base21 <= -0.15).mean())
-    L = len(Fs)
     px = panel["c"][-1]
 
     tol = np.array([0.10, 0.15, 0.50, 0.0])

@@ -26,7 +26,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.18"
+REQUIRED_ENGINE = "2.19"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -926,12 +926,27 @@ except Exception as e:
     st.error(f"Could not load market history: {e}")
     st.stop()
 if closes is None or closes.empty or closes.dropna(how="all").empty:
-    st.error("📡 Market data feed returned nothing — Yahoo may be rate-limiting "
-             "this deployment right now. Retry in a few minutes (the download "
-             "is cached once it succeeds).")
-    if st.button("🔄 Retry download"):
+    # Cold start with the feeds rate-limited. This is usually transient and the
+    # app self-heals once one download succeeds (the result is cached). Rather
+    # than serve a dead page, keep the one thing that needs no server feed at
+    # all — the Macro Simulator runs entirely in the browser.
+    st.error("📡 Market data feed returned nothing — Yahoo is likely rate-limiting "
+             "this deployment right now. This is normally temporary: hit retry in a "
+             "minute or two and the download is cached once it succeeds.")
+    if st.button("🔄 Retry download", type="primary"):
         st.cache_data.clear()
         st.rerun()
+    st.caption("The cascade map, screeners and stock lookup all need market "
+               "history, so they're unavailable until the feed responds. The "
+               "Macro Simulator below runs in your browser and works regardless.")
+    try:
+        _sim_p = os.path.join(os.path.dirname(__file__), "macro_simulator.html")
+        if os.path.exists(_sim_p):
+            import streamlit.components.v1 as _c
+            with open(_sim_p, encoding="utf-8") as _f:
+                _c.html(_f.read(), height=1400, scrolling=True)
+    except Exception:
+        pass
     st.stop()
 
 asof = str(closes.index[-1].date())

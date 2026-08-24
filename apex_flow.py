@@ -29,7 +29,6 @@ daily-swing edge apply to a 2-minute bar. Intraday results are unvalidated.
 """
 from __future__ import annotations
 
-import os
 from datetime import date, timedelta
 
 import numpy as np
