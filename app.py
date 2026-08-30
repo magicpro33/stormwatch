@@ -18,7 +18,18 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+import html as _html
 import cascade_engine as ce
+
+
+def _esc(s) -> str:
+    """Escape untrusted text before it goes into unsafe_allow_html.
+
+    Company names, sectors and headline text come from Yahoo — we do not
+    control them. A shortName containing markup would break the layout at
+    best and inject at worst on a public Cloud URL.
+    """
+    return _html.escape("" if s is None else str(s), quote=True)
 
 try:
     import apex_flow as af
@@ -26,7 +37,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.24"
+REQUIRED_ENGINE = "2.25"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -290,15 +301,22 @@ def _felix_scan(asof: str, top: int = 20):
 
 
 @st.cache_data(ttl=1800, show_spinner="🔮 Forecasting the shortlist and ranking by odds of gain…")
-def _forecast_scan(asof: str, gauge, override=None, top: int = 20):
-    F, R = _analog_library(asof)
-    return ce.forecast_scan(_history(), F, R, pressure_gauge=gauge,
-                            regime_override=override, top=top)
+def _forecast_scan(asof: str, gauge, override=None, top: int = 20,
+                   apply_macro: bool = True, hot_only: int = 0,
+                   use_flow: bool = True, flow_lookback: int = 1,
+                   flow_offset: int = 0):
+    return ce.forecast_scan(_history(), pressure_gauge=gauge,
+                            regime_override=override, top=top,
+                            apply_macro=apply_macro, hot_only=hot_only,
+                            use_sector_flow=use_flow,
+                            flow_lookback=flow_lookback, flow_offset=flow_offset)
 
 
 @st.cache_data(ttl=1800, show_spinner="🔮 Forecasting EVERY tradeable stock and ranking by odds of gain…")
-def _forecast_all(asof: str, regime=None):
-    return ce.forecast_all(regime=regime)
+def _forecast_all(asof: str, regime=None, hot_only: int = 0,
+                  flow_lookback: int = 1, flow_offset: int = 0):
+    return ce.forecast_all(regime=regime, hot_only=hot_only,
+                           flow_lookback=flow_lookback, flow_offset=flow_offset)
 
 
 @st.cache_data(ttl=3600, show_spinner="Reading the news for catalyst tags on the finalists…")
@@ -530,8 +548,8 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
     m6.metric("Ann. Vol", f"{(hist.Close.pct_change().tail(21).std() * (252 ** 0.5)):.0%}"
               if not hist.empty and len(hist) > 22 else "--",
               help="Annualised 21-day volatility.")
-    st.markdown(f"<div style='margin:6px 0 4px'><strong>{name}</strong>  "
-                f"<span style='color:{DIM};font-size:13px'>{sec_display}</span></div>",
+    st.markdown(f"<div style='margin:6px 0 4px'><strong>{_esc(name)}</strong>  "
+                f"<span style='color:{DIM};font-size:13px'>{_esc(sec_display)}</span></div>",
                 unsafe_allow_html=True)
     if pills:
         st.markdown(f"<div style='margin:6px 0 12px'>{pills}</div>", unsafe_allow_html=True)
@@ -972,6 +990,16 @@ asof = str(closes.index[-1].date())
      "🔬 Validation Lab", "📖 Guide"])
 
 
+# Pressure gauge, resolved once for every tab. It used to be computed inside
+# tab_top20 and stashed in session_state, so visiting APEX or Macro Sim first
+# gave gauge=None — and a different auto-regime than Top 20 on the same reload.
+try:
+    GAUGE = _pressure().get("gauge")
+except Exception:
+    GAUGE = None
+st.session_state["_gauge_cache"] = GAUGE
+
+
 def flow_window_picker(prefix: str, compact: bool = False):
     """Shared 'which session(s)?' control. Returns (lookback, offset, label)."""
     try:
@@ -1060,7 +1088,7 @@ with tab_map:
         _chip = lambda s, r, col: (
             f"<span style='display:inline-block;background:#081325;border:1px solid "
             f"#1d2b40;border-left:3px solid {col};border-radius:6px;padding:4px 10px;"
-            f"margin:3px 5px 3px 0;font-size:12.5px;'>{s} "
+            f"margin:3px 5px 3px 0;font-size:12.5px;'>{_esc(s)} "
             f"<b style='color:{col};'>{r:+.1%}</b></span>")
         st.markdown(
             f"""<div style="background:#0c1829;border:1px solid #1d2b40;
@@ -1138,15 +1166,15 @@ with tab_map:
                     border-left:5px solid {col};border-radius:10px;
                     padding:12px 16px;margin-bottom:10px;">
                       <div style="display:flex;align-items:baseline;">
-                        <span style="font-size:18px;font-weight:800;">{b.target_name}</span>
+                        <span style="font-size:18px;font-weight:800;">{_esc(b.target_name)}</span>
                         <span style="margin-left:auto;color:{col};font-weight:800;font-size:15px;">{arrow} {verdict}</span>
                       </div>
                       <div style="background:#081325;border-radius:5px;height:8px;margin:9px 0 8px;">
                         <div style="background:{col};height:8px;border-radius:5px;
                         width:{max(int(b.conviction*100),8)}%;"></div></div>
                       <div style="color:#d7e0ec;font-size:12.5px;line-height:1.5;">
-                        Because <b>{b.sources}</b> {'has' if b.n_sources==1 else 'have'} been moving —
-                        and {b.target_name} usually follows within a week or two.</div>
+                        Because <b>{_esc(b.sources)}</b> {'has' if b.n_sources==1 else 'have'} been moving —
+                        and {_esc(b.target_name)} usually follows within a week or two.</div>
                       <div style="color:{DIM};font-size:11.5px;margin-top:5px;">
                         Backed by {b.n_sources} {src_word} · <span style="color:{confc};">{conf}</span>
                         ({b.avg_hit:.0%} of the time historically)</div>
@@ -1486,8 +1514,7 @@ with tab_top20:
                "+ the live macro regime — scored across the ENTIRE nightly "
                "dump (all markets, ~5,700 stocks).")
     try:
-        _gauge = _pressure().get("gauge")
-        st.session_state["_gauge_cache"] = _gauge
+        _gauge = GAUGE
     except Exception:
         _gauge = None
     # ── unified scan control: method + scenario + run, all one menu ──
@@ -1760,12 +1787,15 @@ with tab_top20:
         try:
             if _scan_all:
                 _rk = _override or ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
-                fc20 = _forecast_all(asof, _rk if _apply_macro else None)
+                fc20 = _forecast_all(asof, _rk if _apply_macro else None,
+                                     _hot_n, _t_lb, _t_off)
                 reg = (dict(regime=_override, label=ce.REGIME_LABELS[_override])
                        if _override else ce.macro_regime(closes, pressure_gauge=_gauge))
                 fc20 = fc20.head(int(_top_n))
             else:
-                fc20, reg = _forecast_scan(asof, _gauge, _override, int(_top_n))
+                fc20, reg = _forecast_scan(asof, _gauge, _override, int(_top_n),
+                                           _apply_macro, _hot_n, _use_flow,
+                                           _t_lb, _t_off)
         except Exception as e:
             st.error(f"Best-odds scan failed: {e}")
             fc20, reg = pd.DataFrame(), {}
@@ -2154,7 +2184,7 @@ with tab_apex:
             if _ax_regkey is None:
                 try:
                     _ax_regkey = ce.macro_regime(
-                        closes, pressure_gauge=st.session_state.get("_gauge_cache"))["regime"]
+                        closes, pressure_gauge=GAUGE)["regime"]
                 except Exception:
                     _ax_regkey = "base"
             _ax_tilts = ce.SECTOR_TILTS.get(_ax_regkey) or None
@@ -2378,7 +2408,7 @@ with tab_macro:
                "live feeds). This is the playbook the Top 20's MacroFit "
                "multipliers were distilled from.")
     try:
-        _reg_live = ce.macro_regime(closes, pressure_gauge=st.session_state.get("_gauge_cache"))
+        _reg_live = ce.macro_regime(closes, pressure_gauge=GAUGE)
         st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
             border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin-bottom:8px;">
             <span style="font-weight:700;">📡 Live regime (app-detected): {_reg_live['label']}</span><br>

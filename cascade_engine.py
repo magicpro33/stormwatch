@@ -81,7 +81,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.24"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.25"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -140,7 +140,9 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
         df = df.sort_index()
         # refetch when stale (>4 calendar days) — but keep the stale copy
         # unless the fresh download actually succeeds (stale beats empty)
-        if (pd.Timestamp.today() - df.index[-1]).days <= 4:
+        # Fresh only if the cache reaches the last completed session. The old
+        # "<= 4 calendar days" rule served Friday's close through Wednesday.
+        if pd.Timestamp(df.index[-1]).normalize() >= _last_completed_session():
             # align on LOAD as well as after a fetch — a parquet written before
             # the calendar fix still contains weekend rows
             return _align_to_equity_calendar(df)
@@ -163,12 +165,27 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
         yfc = yfc.dropna(how="all")
         yfc.index = pd.to_datetime(yfc.index).tz_localize(None)
         closes = yfc if closes.empty else closes.join(yfc, how="outer")
-    LAST_HISTORY_SOURCE = ("Alpaca (primary)" + (f" + yfinance ({len(missing)} symbols)" if missing else "")
-                           ) if len(missing) < len(NODES) else "yfinance (Alpaca keys not set)"
+    if len(missing) < len(NODES):
+        LAST_HISTORY_SOURCE = ("Alpaca (primary)"
+                               + (f" + yfinance ({len(missing)} symbols)" if missing else ""))
+    elif _alpaca_keys_simple()[0]:
+        # keys ARE set — Alpaca returned nothing (rate limit, IEX gap, outage)
+        LAST_HISTORY_SOURCE = "yfinance (Alpaca keys present but feed returned nothing)"
+    else:
+        LAST_HISTORY_SOURCE = "yfinance (Alpaca keys not set)"
     # weekends out BEFORE the ffill, so Friday's equity close is never carried
     # onto a Saturday/Sunday row created by the crypto columns
     closes = _align_to_equity_calendar(closes.dropna(how="all")).ffill(limit=5)
-    if len(closes) < 30 or closes.shape[1] < 3:      # download failed
+    # Coverage gate. "30 rows and 3 columns" let a Yahoo fallback that returned
+    # SPY/QQQ/IWM overwrite a 3-year, 81-column cache — after which sentinels,
+    # ratios, yen-carry and the whole cascade graph ran on a skeleton.
+    _min_cols = max(3, int(0.80 * len(NODES)))
+    _thin = (len(closes) < 30 or closes.shape[1] < _min_cols)
+    if _thin and stale_df is not None and stale_df.shape[1] > closes.shape[1]:
+        LAST_HISTORY_SOURCE = (f"stale cache kept — download covered only "
+                               f"{closes.shape[1]}/{len(NODES)} nodes")
+        return _align_to_equity_calendar(stale_df)
+    if len(closes) < 30 or closes.shape[1] < 3:      # download truly failed
         if stale_df is not None:
             LAST_HISTORY_SOURCE = "stale cache (feeds unreachable — will retry)"
             return _align_to_equity_calendar(stale_df)
@@ -178,6 +195,23 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
     except Exception:
         pass
     return closes
+
+
+def _last_completed_session(now: pd.Timestamp | None = None) -> pd.Timestamp:
+    """The most recent weekday that should already have a close.
+
+    Before ~5pm ET the current day's bar may not exist yet, so today only
+    counts once the session is done. Weekends roll back to Friday. Holidays
+    are not modelled — they just make the check one day conservative, which
+    triggers a refetch rather than serving stale data.
+    """
+    now = now or pd.Timestamp.now()
+    d = now.normalize()
+    if now.hour < 17:
+        d -= pd.Timedelta(days=1)
+    while d.dayofweek >= 5:
+        d -= pd.Timedelta(days=1)
+    return d
 
 
 def _align_to_equity_calendar(df: pd.DataFrame) -> pd.DataFrame:
@@ -1809,11 +1843,21 @@ def _node_follow_corr(node: str, node_closes: pd.DataFrame):
     node_r5 = nd[5:] / nd[:-5] - 1.0
     stk_r5 = Cc[5:] / Cc[:-5] - 1.0
     x = node_r5[:-5]; y = stk_r5[5:]
-    xm = x - np.nanmean(x)
-    ym = y - np.nanmean(y, axis=0)
+    # PAIRWISE-COMPLETE. Column means over the full series biased gappy names
+    # (IPOs, recent listings, halt-resume): on a test series that was 0.994
+    # correlated on its overlapping window, full-column means reported 0.763.
+    # This feeds the 29-point tailwind pillar, so the bias moved real ranks.
+    valid = np.isfinite(x)[:, None] & np.isfinite(y)
+    xb = np.where(valid, x[:, None], 0.0)
+    yb = np.where(valid, y, 0.0)
+    n = valid.sum(axis=0).astype(float)
     with np.errstate(invalid="ignore", divide="ignore"):
-        corr = np.nansum(xm[:, None] * ym, axis=0) / (
-            np.sqrt(np.nansum(xm ** 2) * np.nansum(ym ** 2, axis=0)))
+        sx, sy = xb.sum(axis=0), yb.sum(axis=0)
+        cov = (xb * yb).sum(axis=0) - sx * sy / n
+        vx = (xb ** 2).sum(axis=0) - sx ** 2 / n
+        vy = (yb ** 2).sum(axis=0) - sy ** 2 / n
+        corr = cov / np.sqrt(vx * vy)
+    corr[n < 60] = np.nan            # too little overlap to trust
     return corr
 
 
@@ -2245,19 +2289,33 @@ def yen_carry_monitor(closes: pd.DataFrame) -> dict:
                 vix_z=round(vix_z, 2) if np.isfinite(vix_z) else None)
 
 
-def forecast_scan(node_closes: pd.DataFrame, F, R, pressure_gauge=None,
+def forecast_scan(node_closes: pd.DataFrame, F=None, R=None, pressure_gauge=None,
                   regime_override: str | None = None,
                   shortlist: int = 120, top: int = 20,
-                  min_n: int = 300) -> tuple:
+                  min_n: int = 300, apply_macro: bool = True,
+                  hot_only: int = 0, use_sector_flow: bool = True,
+                  flow_lookback: int = SECTOR_FLOW_LOOKBACK,
+                  flow_offset: int = 0) -> tuple:
     """🔮 Best-odds preset over a cascade SHORTLIST: take the top `shortlist`
     cascade names, forecast each, and rerank by ODDS OF GAIN.
 
     Uses the same vectorized analog matcher as forecast_all (restricted to the
     shortlist), so a stock's odds are identical whether you scan the whole
     universe or just the shortlist — no second code path to drift.
+
+    `F`/`R` are accepted for backwards compatibility and intentionally unused:
+    the vectorized matcher loads the analog library itself, so passing them
+    built it twice.
     """
+    # the shortlist must respect the SAME lens / hot-sector / flow settings the
+    # user picked — otherwise "lens Off" still ran a regime-tilted shortlist and
+    # the hot-sector banner described a filter that was never applied
     base, regime = mega_scan(node_closes, pressure_gauge=pressure_gauge,
-                             top=shortlist, regime_override=regime_override)
+                             top=shortlist, regime_override=regime_override,
+                             apply_macro=apply_macro, hot_only=hot_only,
+                             use_sector_flow=use_sector_flow,
+                             flow_lookback=flow_lookback,
+                             flow_offset=flow_offset)
     if base.empty:
         return base, regime
     odds = forecast_all(min_n=min_n, only_tickers=list(base.Ticker))
@@ -2299,7 +2357,9 @@ def _now_features_all():
 
 def forecast_all(min_n: int = 300, price_floor: float = 3.0,
                  mdv_floor: float = 2e6, regime: str | None = None,
-                 only_tickers: list | None = None):
+                 only_tickers: list | None = None,
+                 hot_only: int = 0, flow_lookback: int = SECTOR_FLOW_LOOKBACK,
+                 flow_offset: int = 0):
     """Odds-of-gain forecast for the ENTIRE tradeable universe in one
     vectorized sweep — no per-ticker Python calls, no shortlist. Mirrors
     outcome_forecast's analog math exactly (same tolerances, same widen
@@ -2325,6 +2385,15 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
     if only_tickers:
         want = {str(t).strip().upper() for t in only_tickers}
         tradeable = tradeable & np.array([str(t) in want for t in tickers])
+    if hot_only:
+        try:
+            _hot = set(hot_sectors(int(hot_only), lookback=flow_lookback,
+                                   offset=flow_offset))
+            if _hot:
+                tradeable = tradeable & np.array(
+                    [str(s) in _hot for s in sectors])
+        except Exception:
+            pass
     idx = np.where(tradeable)[0]
 
     # sort the library by momentum percentile so each stock scans only the

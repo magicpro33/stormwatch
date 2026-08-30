@@ -76,6 +76,51 @@ def _rolling_last(arr: np.ndarray, win: int, fn) -> np.ndarray:
     return fn(arr[-win:], axis=0)
 
 
+def _structure_vote(h: np.ndarray, l: np.ndarray, left: int = 5,
+                    right: int = 5) -> np.ndarray:
+    """Pine's 5th regime factor: ta.pivothigh/pivotlow(5,5) market structure.
+
+    +1 when the last two confirmed pivot highs AND lows are both rising
+    (higher-high + higher-low), -1 when both are falling, 0 otherwise —
+    including when fewer than two pivots of either kind exist yet.
+
+    A bar is a pivot high if its high is the strict max of the window
+    [i-left, i+right]; ties are not pivots, matching Pine. Vectorized over
+    every column of the panel.
+    """
+    T, N = h.shape
+    vote = np.zeros(N)
+    if T < left + right + 2:
+        return vote
+    # candidate pivots: strict extreme of the surrounding window
+    idx = np.arange(left, T - right)
+    if not len(idx):
+        return vote
+    win = left + right + 1
+    # sliding windows -> (n_windows, win, N)
+    hw = np.lib.stride_tricks.sliding_window_view(h, win, axis=0)
+    lw = np.lib.stride_tricks.sliding_window_view(l, win, axis=0)
+    centre_h = h[idx]                       # (n, N)
+    centre_l = l[idx]
+    with np.errstate(invalid="ignore"):
+        is_ph = centre_h >= np.nanmax(hw, axis=2)
+        is_pl = centre_l <= np.nanmin(lw, axis=2)
+        # strict: the centre must beat every OTHER bar in the window
+        n_max = (hw >= centre_h[:, :, None] - 0).sum(axis=2)
+        n_min = (lw <= centre_l[:, :, None] + 0).sum(axis=2)
+    is_ph &= (n_max == 1) & np.isfinite(centre_h)
+    is_pl &= (n_min == 1) & np.isfinite(centre_l)
+
+    for j in range(N):
+        ph = centre_h[is_ph[:, j], j]
+        pl = centre_l[is_pl[:, j], j]
+        if len(ph) >= 2 and len(pl) >= 2:
+            up = (ph[-1] > ph[-2]) and (pl[-1] > pl[-2])
+            dn = (ph[-1] < ph[-2]) and (pl[-1] < pl[-2])
+            vote[j] = 1.0 if up else (-1.0 if dn else 0.0)
+    return vote
+
+
 def score_panel(o: np.ndarray, h: np.ndarray, l: np.ndarray,
                 c: np.ndarray, v: np.ndarray, bars_per_day: float = 1.0,
                 bench_ret: float | None = None, rs_band: float = 3.0,
@@ -85,6 +130,10 @@ def score_panel(o: np.ndarray, h: np.ndarray, l: np.ndarray,
     Mirrors the Pine indicator component for component.
     """
     T, N = c.shape
+    if T < MIN_BARS:
+        # SMA200 / coverage / regime are fiction below this. scan_daily already
+        # raises, but scan_intraday and any direct caller did not.
+        raise ValueError(f"score_panel needs at least {MIN_BARS} bars, got {T}")
     out = {}
 
     # --- 1. risk gate (35) ------------------------------------------
@@ -154,11 +203,19 @@ def score_panel(o: np.ndarray, h: np.ndarray, l: np.ndarray,
                         np.where(inside, "IN VALUE", "ABOVE VALUE"))
 
     # --- 4. regime (15) ---------------------------------------------
+    # FIVE factors, matching the Pine script exactly:
+    #   close>smaFast, close>smaSlow, smaFast>smaSlow, close>smaStruct,
+    #   and market structure from pivots (HH+HL = +1, LH+LL = -1, else 0).
+    # The 5th is a TRI-STATE — that zero is what lets the tally land on the
+    # odd buckets (+/-1, +/-3) the STRONG/MILD thresholds were written for.
+    # Without it every tally was even and STRONG required a unanimous 4.
     sma20 = np.nanmean(c[-20:], axis=0)
     sma50 = np.nanmean(c[-50:], axis=0)
     sma200 = np.nanmean(c[-200:], axis=0)
+    struct_vote = _structure_vote(h, l)
     tally = (np.where(px > sma20, 1, -1) + np.where(px > sma50, 1, -1)
-             + np.where(sma20 > sma50, 1, -1) + np.where(px > sma200, 1, -1))
+             + np.where(sma20 > sma50, 1, -1) + np.where(px > sma200, 1, -1)
+             + struct_vote)
     regime = np.where(tally >= 3, 2, np.where(tally >= 1, 1,
                       np.where(tally <= -3, -2, np.where(tally <= -1, -1, 0))))
     reg_pts = {2: 15.0, 1: 12.0, 0: 8.0, -1: 5.0, -2: 2.0}
