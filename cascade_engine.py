@@ -76,7 +76,12 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.23"   # app.py checks this — push both files together
+# ── sector-flow constants (defined early: mega_scan uses them as defaults) ──
+SECTOR_FLOW_LOOKBACK = 1
+SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
+SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
+
+ENGINE_VERSION = "2.24"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1816,7 +1821,8 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
               regime_override: str | None = None,
               apply_macro: bool = True,
               hot_only: int = 0, use_sector_flow: bool = True,
-              flow_live: bool = False) -> tuple:
+              flow_live: bool = False, flow_lookback: int = SECTOR_FLOW_LOOKBACK,
+              flow_offset: int = 0) -> tuple:
     """THE combined screener: IGNITION technicals + macro-simulator quality
     DNA + cascade tailwind + macro-regime sector fit, over the whole dump
     (all markets). Returns (top-N DataFrame, regime dict)."""
@@ -1954,7 +1960,8 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
     flow_df = pd.DataFrame()
     if use_sector_flow or hot_only:
         try:
-            flow_df = sector_flow(use_live=flow_live)
+            flow_df = sector_flow(lookback=flow_lookback, offset=flow_offset,
+                                  use_live=flow_live)
         except Exception:
             flow_df = pd.DataFrame()
     if not flow_df.empty:
@@ -2830,11 +2837,12 @@ def macro_only_scan(regime: str, top: int = 20, strict: bool = True) -> tuple:
 # directional rather than an artifact of filtering to fewer names.
 # 1-day beat 3/5/10-day lookbacks and was the only window positive in BOTH
 # halves — money rotation shows up fast and decays.
-SECTOR_FLOW_LOOKBACK = 1
-SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
+
+
 
 
 def sector_flow(lookback: int = SECTOR_FLOW_LOOKBACK,
+                offset: int = 0,
                 use_live: bool = False) -> pd.DataFrame:
     """Which sectors received money over the last `lookback` session(s).
 
@@ -2845,14 +2853,28 @@ def sector_flow(lookback: int = SECTOR_FLOW_LOOKBACK,
       • breadth                  (share of names in the sector that rose)
       • dollar-volume surge      (is turnover actually elevated?)
 
+    `lookback` is the width of the window in sessions (1 = a single day,
+    5 = the combined move over five sessions). `offset` slides the window
+    back in time: offset=0 ends on the most recent session, offset=3 ends
+    three sessions ago. Together they let you read one specific past day or
+    any combined range up to SECTOR_FLOW_MAX_BACK sessions.
+
     With use_live=True the last close is replaced by a live Alpaca snapshot,
-    so an intraday session counts as "the last 24 hours".
+    so an intraday session counts as "the last 24 hours". Live is ignored
+    when offset>0, because a historical window has no live price.
     """
     panel, tickers, sectors, mdv, dts = load_dump_panel()
     C, V = panel["c"], np.nan_to_num(panel["v"])
-    px = C[-1].astype(float).copy()
+    T = C.shape[0]
+    lb = max(1, int(lookback))
+    off = max(0, min(int(offset), SECTOR_FLOW_MAX_BACK))
+    end = T - 1 - off                       # index of the window's last bar
+    start = end - lb                        # bar the window is measured from
+    if start < 0:
+        off = 0; end = T - 1; start = max(0, end - lb)
+    px = C[end].astype(float).copy()
     live_n = 0
-    if use_live:
+    if use_live and off == 0:
         try:
             live = alpaca_prices(list(tickers))
             if live:
@@ -2863,12 +2885,11 @@ def sector_flow(lookback: int = SECTOR_FLOW_LOOKBACK,
         except Exception:
             pass
 
-    lb = max(1, int(lookback))
-    prev = C[-1 - lb] if C.shape[0] > lb else C[0]
+    prev = C[start]
     r = px / np.where(prev == 0, np.nan, prev) - 1.0
     dvol = C * V
-    dv_now = np.nanmean(dvol[-lb:], axis=0)
-    dv_base = np.nanmean(dvol[-63:], axis=0)
+    dv_now = np.nanmean(dvol[start + 1:end + 1], axis=0)
+    dv_base = np.nanmean(dvol[max(0, end - 62):end + 1], axis=0)
     surge = dv_now / np.where(dv_base == 0, np.nan, dv_base)
     ok = (np.isfinite(r) & np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6)
           & _recent_ok_mask(panel))
@@ -2903,12 +2924,23 @@ def sector_flow(lookback: int = SECTOR_FLOW_LOOKBACK,
     df["FlowPct"] = df.Flow.rank(pct=True)
     df.attrs["market_return"] = mkt
     df.attrs["live_prices"] = live_n
-    df.attrs["asof"] = str(pd.to_datetime(dts[-1]).date())
+    df.attrs["asof"] = str(pd.to_datetime(dts[end]).date())
+    df.attrs["window_start"] = str(pd.to_datetime(dts[start + 1]).date())
+    df.attrs["window_end"] = str(pd.to_datetime(dts[end]).date())
+    df.attrs["lookback"] = lb
+    df.attrs["offset"] = off
     return df
 
 
+def flow_sessions(n: int = SECTOR_FLOW_MAX_BACK) -> list:
+    """The last n trading dates in the dump, newest first — for the day picker."""
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    d = [str(pd.to_datetime(x).date()) for x in dts[-int(n):]]
+    return list(reversed(d))
+
+
 def hot_sectors(k: int = 5, lookback: int = SECTOR_FLOW_LOOKBACK,
-                use_live: bool = False) -> list:
-    """The k sectors receiving the most money right now."""
-    df = sector_flow(lookback, use_live)
+                offset: int = 0, use_live: bool = False) -> list:
+    """The k sectors receiving the most money over the chosen window."""
+    df = sector_flow(lookback, offset, use_live)
     return [] if df.empty else [str(s) for s in df.Sector.head(int(k))]

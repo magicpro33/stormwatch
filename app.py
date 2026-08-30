@@ -26,7 +26,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.23"
+REQUIRED_ENGINE = "2.24"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -245,10 +245,12 @@ def _analyzer(tk: str, asof: str):
 @st.cache_data(ttl=1800, show_spinner="Scanning all 5,700 stocks across every pillar…")
 def _mega_scan(asof: str, gauge, override=None, top: int = 20,
                apply_macro: bool = True, hot_only: int = 0,
-               use_flow: bool = True):
+               use_flow: bool = True, flow_lookback: int = 1,
+               flow_offset: int = 0):
     return ce.mega_scan(_history(), pressure_gauge=gauge, top=top,
                         regime_override=override, apply_macro=apply_macro,
-                        hot_only=hot_only, use_sector_flow=use_flow)
+                        hot_only=hot_only, use_sector_flow=use_flow,
+                        flow_lookback=flow_lookback, flow_offset=flow_offset)
 
 
 @st.cache_data(ttl=900, show_spinner="🧭 Reading the market, the tape, and the headlines…")
@@ -266,8 +268,14 @@ def _macro_only_scan(asof: str, regime: str, top: int = 20):
 
 
 @st.cache_data(ttl=900, show_spinner="🔥 Measuring where money went in the last session…")
-def _sector_flow(asof: str, live: bool = False):
-    return ce.sector_flow(use_live=live)
+def _sector_flow(asof: str, lookback: int = 1, offset: int = 0,
+                 live: bool = False):
+    return ce.sector_flow(lookback=lookback, offset=offset, use_live=live)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _flow_sessions(asof: str):
+    return ce.flow_sessions()
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -964,6 +972,31 @@ asof = str(closes.index[-1].date())
      "🔬 Validation Lab", "📖 Guide"])
 
 
+def flow_window_picker(prefix: str, compact: bool = False):
+    """Shared 'which session(s)?' control. Returns (lookback, offset, label)."""
+    try:
+        _sess = _flow_sessions(asof)
+    except Exception:
+        _sess = []
+    c1, c2 = st.columns([1, 2])
+    mode = c1.radio("Window", ["Single day", "Range"], horizontal=True,
+                    key=f"{prefix}_flowmode", label_visibility="collapsed",
+                    help="Single day = one session's rotation. Range = the "
+                         "combined move over the last N sessions.")
+    if mode == "Single day":
+        if not _sess:
+            return 1, 0, "last session"
+        pick = c2.selectbox("Session", _sess, index=0,
+                            key=f"{prefix}_flowday", label_visibility="collapsed",
+                            help="Any of the last 15 trading days.")
+        off = _sess.index(pick)
+        return 1, off, ("last session" if off == 0 else f"session of {pick}")
+    n = c2.slider("Sessions", 2, ce.SECTOR_FLOW_MAX_BACK, 5,
+                  key=f"{prefix}_flowrange", label_visibility="collapsed",
+                  help="Combined money flow over this many recent sessions.")
+    return int(n), 0, f"last {int(n)} sessions"
+
+
 # ── 🌊 cascade map ───────────────────────────────────────────────────
 with tab_map:
     if st.session_state.get("mw_analyze"):
@@ -1016,8 +1049,9 @@ with tab_map:
             </div>""", unsafe_allow_html=True)
 
     # ── today's money rotation, in plain English ────────────────────
+    _mlb, _moff, _mlbl = flow_window_picker("map")
     try:
-        _mflow = _sector_flow(asof)
+        _mflow = _sector_flow(asof, _mlb, _moff)
     except Exception:
         _mflow = pd.DataFrame()
     if _mflow is not None and not _mflow.empty:
@@ -1032,10 +1066,10 @@ with tab_map:
             f"""<div style="background:#0c1829;border:1px solid #1d2b40;
             border-radius:10px;padding:12px 16px;margin:6px 0 10px;">
               <div style="font-size:14px;font-weight:700;margin-bottom:2px;">
-                💰 Where money moved in the last session</div>
+                💰 Where money moved — {_mlbl}</div>
               <div style="color:{DIM};font-size:12px;margin-bottom:8px;">
                 Money leaves some corners of the market and shows up in others.
-                This is where it went on {_mflow.attrs.get('asof','the last session')}.</div>
+                Window: {_mflow.attrs.get('window_start','—')} → {_mflow.attrs.get('window_end','—')}.</div>
               <div style="font-size:12px;color:{GREEN};margin-bottom:2px;">FLOWED IN →</div>
               <div>{''.join(_chip(r.Sector, r.Ret, GREEN) for _, r in _in.iterrows())}</div>
               <div style="font-size:12px;color:{RED};margin:8px 0 2px;">FLOWED OUT →</div>
@@ -1540,6 +1574,7 @@ with tab_top20:
                                 "top-20 excess from -0.02% to +3.41% per 21 "
                                 "sessions, positive in both honesty halves.")
     _hot_n = 0 if _hot_k == "Off" else int(_hot_k.split()[-1])
+    _t_lb, _t_off, _t_lbl = flow_window_picker("t20")
     _use_flow = _h2.toggle("Sector-flow tilt in the score", value=True,
                            key="top20_flow",
                            help="Adds the sector's money-flow percentile to the "
@@ -1576,7 +1611,7 @@ with tab_top20:
         padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
         Ranking the top <b>{_top_n}</b> by <b style="color:{ACCENT};">{_eng_txt}</b>,
         through <b style="color:{ACCENT};">{_lens_txt}</b>{
-        f", limited to the {_hot_n} hottest sectors" if (_hot_n and _method != "felix") else ""}.</div>""",
+        f", limited to the {_hot_n} hottest sectors ({_t_lbl})" if (_hot_n and _method != "felix") else ""}.</div>""",
         unsafe_allow_html=True)
 
     _b1, _b2, _b3 = st.columns([2, 1, 1])
@@ -1599,13 +1634,14 @@ with tab_top20:
     # ── today's sector rotation ─────────────────────────────────────
     with st.expander("🔥 Where the money went in the last session"):
         try:
-            _fl = _sector_flow(asof)
+            _fl = _sector_flow(asof, _t_lb, _t_off)
         except Exception as _fe:
             _fl = pd.DataFrame(); st.caption(f"Sector flow unavailable: {_fe}")
         if _fl is None or _fl.empty:
             st.caption("No sector-flow reading available yet.")
         else:
-            st.caption(f"Session of {_fl.attrs.get('asof','—')} · market "
+            st.caption(f"{_t_lbl} ({_fl.attrs.get('window_start','—')} → "
+                       f"{_fl.attrs.get('window_end','—')}) · market "
                        f"{_fl.attrs.get('market_return',0):+.2%} · a sector is "
                        "'hot' when money-weighted return, breadth and turnover "
                        "all lean the same way — not just because one big name ran.")
@@ -1894,7 +1930,8 @@ with tab_top20:
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode", "cascade") == "cascade":
         try:
             t20, reg = _mega_scan(asof, _gauge, _override, int(_top_n),
-                                  _apply_macro, _hot_n, _use_flow)
+                                  _apply_macro, _hot_n, _use_flow,
+                                  _t_lb, _t_off)
         except Exception as e:
             st.error(f"Scan failed: {e}")
             t20, reg = pd.DataFrame(), {}
@@ -2133,22 +2170,23 @@ with tab_apex:
         else:
             _ax_l2.caption("No tilt — pure APEX ranking.")
 
+        _a_lb, _a_off, _a_lbl = flow_window_picker("apex")
         _hs1, _hs2 = st.columns([1, 3])
         if _hs1.button("🔥 Use today's hot sectors", key="apex_hot",
                        width="stretch",
                        help="Replace the sector selection with the sectors that "
                             "received the most money in the last session."):
             try:
-                _hot = ce.hot_sectors(5)
+                _hot = ce.hot_sectors(5, lookback=_a_lb, offset=_a_off)
                 if _hot:
                     st.session_state["_apex_sectors_pending"] = _hot
                     st.rerun()
             except Exception as _he:
                 st.caption(f"Hot sectors unavailable: {_he}")
         try:
-            _hs_now = ce.hot_sectors(5)
+            _hs_now = ce.hot_sectors(5, lookback=_a_lb, offset=_a_off)
             if _hs_now:
-                _hs2.caption("🔥 Hottest now: " + " · ".join(_hs_now))
+                _hs2.caption(f"🔥 Hottest ({_a_lbl}): " + " · ".join(_hs_now))
         except Exception:
             pass
 
