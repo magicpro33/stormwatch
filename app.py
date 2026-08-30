@@ -26,7 +26,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.22"
+REQUIRED_ENGINE = "2.23"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -244,9 +244,11 @@ def _analyzer(tk: str, asof: str):
 
 @st.cache_data(ttl=1800, show_spinner="Scanning all 5,700 stocks across every pillar…")
 def _mega_scan(asof: str, gauge, override=None, top: int = 20,
-               apply_macro: bool = True):
+               apply_macro: bool = True, hot_only: int = 0,
+               use_flow: bool = True):
     return ce.mega_scan(_history(), pressure_gauge=gauge, top=top,
-                        regime_override=override, apply_macro=apply_macro)
+                        regime_override=override, apply_macro=apply_macro,
+                        hot_only=hot_only, use_sector_flow=use_flow)
 
 
 @st.cache_data(ttl=900, show_spinner="🧭 Reading the market, the tape, and the headlines…")
@@ -261,6 +263,11 @@ def _macro_advice(asof: str, gauge, nonce: int = 0):
 @st.cache_data(ttl=1800, show_spinner="🎯 Ranking on scenario fit and quality…")
 def _macro_only_scan(asof: str, regime: str, top: int = 20):
     return ce.macro_only_scan(regime, top=top)
+
+
+@st.cache_data(ttl=900, show_spinner="🔥 Measuring where money went in the last session…")
+def _sector_flow(asof: str, live: bool = False):
+    return ce.sector_flow(use_live=live)
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -1477,6 +1484,22 @@ with tab_top20:
             st.session_state.get("top20_mode") not in (None, _method):
         st.session_state["top20_go"] = False
 
+    _h1, _h2 = st.columns([1, 2])
+    _hot_k = _h1.selectbox("🔥 Hot sectors only", ["Off", "Top 3", "Top 4",
+                                                  "Top 5", "Top 6"],
+                           index=0, key="top20_hot",
+                           help="Restrict the scan to the sectors that received "
+                                "the most money in the last session. Walk-forward "
+                                "validated: top-5 filter + the flow tilt lifted "
+                                "top-20 excess from -0.02% to +3.41% per 21 "
+                                "sessions, positive in both honesty halves.")
+    _hot_n = 0 if _hot_k == "Off" else int(_hot_k.split()[-1])
+    _use_flow = _h2.toggle("Sector-flow tilt in the score", value=True,
+                           key="top20_flow",
+                           help="Adds the sector's money-flow percentile to the "
+                                "cascade score (validated at +8 points). Turn off "
+                                "for a pure technicals/quality/tailwind ranking.")
+
     _n1, _n2 = st.columns([1, 2])
     _top_n = _n1.selectbox("How many stocks", list(range(20, 55, 5)),
                            index=0, key="top20_count",
@@ -1506,7 +1529,8 @@ with tab_top20:
         f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
         padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
         Ranking the top <b>{_top_n}</b> by <b style="color:{ACCENT};">{_eng_txt}</b>,
-        through <b style="color:{ACCENT};">{_lens_txt}</b>.</div>""",
+        through <b style="color:{ACCENT};">{_lens_txt}</b>{
+        f", limited to the {_hot_n} hottest sectors" if (_hot_n and _method != "felix") else ""}.</div>""",
         unsafe_allow_html=True)
 
     _b1, _b2, _b3 = st.columns([2, 1, 1])
@@ -1525,6 +1549,36 @@ with tab_top20:
         st.session_state["macro_advice_on"] = True
         st.session_state["macro_advice_nonce"] = \
             st.session_state.get("macro_advice_nonce", 0) + 1
+
+    # ── today's sector rotation ─────────────────────────────────────
+    with st.expander("🔥 Where the money went in the last session"):
+        try:
+            _fl = _sector_flow(asof)
+        except Exception as _fe:
+            _fl = pd.DataFrame(); st.caption(f"Sector flow unavailable: {_fe}")
+        if _fl is None or _fl.empty:
+            st.caption("No sector-flow reading available yet.")
+        else:
+            st.caption(f"Session of {_fl.attrs.get('asof','—')} · market "
+                       f"{_fl.attrs.get('market_return',0):+.2%} · a sector is "
+                       "'hot' when money-weighted return, breadth and turnover "
+                       "all lean the same way — not just because one big name ran.")
+            _fs = _fl.copy()
+            _fs["Hot"] = ["🔥" if i < max(_hot_n, 5) else "" for i in range(len(_fs))]
+            st.dataframe(
+                _fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
+                .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
+                               "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
+                .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
+                     subset=["Ret", "RS"]),
+                width="stretch", hide_index=True,
+                column_config={
+                    "Ret": st.column_config.Column(help="Dollar-weighted sector return — weighted by where the money actually traded, not an equal average."),
+                    "RS": st.column_config.Column(help="Sector return minus the market's. Positive = outperforming."),
+                    "Breadth": st.column_config.Column(help="Share of names in the sector that rose. Low breadth with a positive return = one stock carrying it."),
+                    "VolSurge": st.column_config.Column(help="Median dollar-volume vs its own 63-day average. Above 1 = unusual turnover."),
+                    "Names": st.column_config.Column(help="Liquid names in the sector. Sectors under 15 are excluded as too thin to read."),
+                })
 
     # ── advisor result + scenario explainer ─────────────────────────
     if st.session_state.get("macro_advice_on") and _method != "felix":
@@ -1794,7 +1848,7 @@ with tab_top20:
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode", "cascade") == "cascade":
         try:
             t20, reg = _mega_scan(asof, _gauge, _override, int(_top_n),
-                                  _apply_macro)
+                                  _apply_macro, _hot_n, _use_flow)
         except Exception as e:
             st.error(f"Scan failed: {e}")
             t20, reg = pd.DataFrame(), {}
@@ -1990,6 +2044,9 @@ with tab_apex:
                 swing — treat these as candidates to chart, not a proven edge.</span></div>""",
                 unsafe_allow_html=True)
 
+        _ap_pending = st.session_state.pop("_apex_sectors_pending", None)
+        if _ap_pending:
+            st.session_state["apex_sectors"] = _ap_pending
         try:
             _all_secs = _apex_sector_list(asof)
         except Exception:
@@ -2030,8 +2087,29 @@ with tab_apex:
         else:
             _ax_l2.caption("No tilt — pure APEX ranking.")
 
+        _hs1, _hs2 = st.columns([1, 3])
+        if _hs1.button("🔥 Use today's hot sectors", key="apex_hot",
+                       width="stretch",
+                       help="Replace the sector selection with the sectors that "
+                            "received the most money in the last session."):
+            try:
+                _hot = ce.hot_sectors(5)
+                if _hot:
+                    st.session_state["_apex_sectors_pending"] = _hot
+                    st.rerun()
+            except Exception as _he:
+                st.caption(f"Hot sectors unavailable: {_he}")
+        try:
+            _hs_now = ce.hot_sectors(5)
+            if _hs_now:
+                _hs2.caption("🔥 Hottest now: " + " · ".join(_hs_now))
+        except Exception:
+            pass
+
+        _ms_kw = ({} if "apex_sectors" in st.session_state
+                  else {"default": _all_secs})
         _picked_secs = st.multiselect(
-            "Sectors", _all_secs, default=_all_secs, key="apex_sectors",
+            "Sectors", _all_secs, key="apex_sectors", **_ms_kw,
             help="Defaults to every sector. Narrow it to focus the scan — the "
                  "top-N cut is applied WITHIN your selection, so you always get a "
                  "full list from the sectors you picked, not leftovers from a "

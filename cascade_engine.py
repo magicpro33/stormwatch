@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.22"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.23"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1814,7 +1814,9 @@ def _node_follow_corr(node: str, node_closes: pd.DataFrame):
 
 def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
               regime_override: str | None = None,
-              apply_macro: bool = True) -> tuple:
+              apply_macro: bool = True,
+              hot_only: int = 0, use_sector_flow: bool = True,
+              flow_live: bool = False) -> tuple:
     """THE combined screener: IGNITION technicals + macro-simulator quality
     DNA + cascade tailwind + macro-regime sector fit, over the whole dump
     (all markets). Returns (top-N DataFrame, regime dict)."""
@@ -1947,11 +1949,30 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
     macro_mult = np.array([tilts.get(s, 1.0) for s in sectors])
     sec_arr = np.array(sectors)
 
+    # ── sector flow: where money went in the last session ────────────
+    flow_pct = np.full(N, 0.5)
+    flow_df = pd.DataFrame()
+    if use_sector_flow or hot_only:
+        try:
+            flow_df = sector_flow(use_live=flow_live)
+        except Exception:
+            flow_df = pd.DataFrame()
+    if not flow_df.empty:
+        fmap = dict(zip(flow_df.Sector, flow_df.FlowPct))
+        flow_pct = np.array([fmap.get(str(s), 0.5) for s in sec_arr])
+        if hot_only:
+            hot = set(flow_df.Sector.head(int(hot_only)))
+            tradeable = tradeable & np.array([str(s) in hot for s in sec_arr])
+
     # ── base cascade score (technicals + quality + tailwind + catalyst) ──
     # NOTE: the macro multiplier is applied to RANKING WITHIN sectors, not as
     # a global scale — otherwise the single most-favored sector sweeps the
     # whole board. See the diversified allocator below.
     core = (42 * tech + 23 * quality + 29 * tail_pct + 6 * cat)
+    if use_sector_flow and not flow_df.empty:
+        # +8 points of sector-flow percentile == the 0.20 tilt validated in the
+        # walk-forward (tech spans 42 points there, 0.20 x 42 ~ 8)
+        core = core + SECTOR_FLOW_WEIGHT * flow_pct
     core = np.where(tradeable, core, -np.inf)
 
     if not tilts:
@@ -2019,12 +2040,15 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
         "MacroFit": macro_mult[order].round(2),
         "Piotroski": piotr[order], "RevGrowth": rg[order],
         "RVOL": np.round(rvol[order], 2), "RangePos": np.round(rangepos[order], 2),
+        "SecFlow": np.round(flow_pct[order] * 100, 0),
         "Data": [f"{h}/5" for h in _have[order]],
         "Missing": _missing_names[order],
         "Catalysts": cat_tags[order],
     })
     regime["hot_nodes"] = used_nodes
     regime["n_sectors"] = int(df.Sector.nunique()) if not df.empty else 0
+    regime["flow"] = flow_df
+    regime["hot_only"] = int(hot_only)
     return df.reset_index(drop=True), regime
 
 
@@ -2795,3 +2819,96 @@ def macro_only_scan(regime: str, top: int = 20, strict: bool = True) -> tuple:
                 eligible=int(eligible.sum()), n_sectors=int(df.Sector.nunique())
                 if not df.empty else 0)
     return df, meta
+
+
+# ═════════ 🔥 SECTOR FLOW — where the money went in the last session ═════════
+# Walk-forward validated on the nightly dump (32 windows, both honesty halves):
+#   baseline tech-only            -0.02% excess / 21d, 47% hit
+#   hot top-5 filter + 0.20 tilt  +3.41% excess / 21d, 60% hit
+#                                 H1 +3.42% / H2 +3.41%  (no regime-fit)
+# Falsification: the COLDEST sectors underperform (-0.22%), so the signal is
+# directional rather than an artifact of filtering to fewer names.
+# 1-day beat 3/5/10-day lookbacks and was the only window positive in BOTH
+# halves — money rotation shows up fast and decays.
+SECTOR_FLOW_LOOKBACK = 1
+SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
+
+
+def sector_flow(lookback: int = SECTOR_FLOW_LOOKBACK,
+                use_live: bool = False) -> pd.DataFrame:
+    """Which sectors received money over the last `lookback` session(s).
+
+    Price alone is a poor proxy for flow — one mega-cap can carry a sector.
+    The score blends four things:
+      • dollar-weighted return   (money-weighted, not name-weighted)
+      • relative strength        (sector return minus the market's)
+      • breadth                  (share of names in the sector that rose)
+      • dollar-volume surge      (is turnover actually elevated?)
+
+    With use_live=True the last close is replaced by a live Alpaca snapshot,
+    so an intraday session counts as "the last 24 hours".
+    """
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    C, V = panel["c"], np.nan_to_num(panel["v"])
+    px = C[-1].astype(float).copy()
+    live_n = 0
+    if use_live:
+        try:
+            live = alpaca_prices(list(tickers))
+            if live:
+                for i, t in enumerate(tickers):
+                    v = live.get(str(t))
+                    if v and np.isfinite(v):
+                        px[i] = float(v); live_n += 1
+        except Exception:
+            pass
+
+    lb = max(1, int(lookback))
+    prev = C[-1 - lb] if C.shape[0] > lb else C[0]
+    r = px / np.where(prev == 0, np.nan, prev) - 1.0
+    dvol = C * V
+    dv_now = np.nanmean(dvol[-lb:], axis=0)
+    dv_base = np.nanmean(dvol[-63:], axis=0)
+    surge = dv_now / np.where(dv_base == 0, np.nan, dv_base)
+    ok = (np.isfinite(r) & np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6)
+          & _recent_ok_mask(panel))
+    if not ok.any():
+        return pd.DataFrame()
+    mkt = float(np.nanmean(np.where(ok, r, np.nan)))
+
+    sec_arr = np.array([str(s) for s in sectors])
+    rows = []
+    for s in sorted(set(sec_arr)):
+        # "Unknown" is a grab-bag of unclassified tickers, not a sector. Left in,
+        # it topped the table on a 31% move from 5 illiquid names and stole a
+        # slot in the hot list. Real sectors need enough names to average out.
+        if s.strip().lower() in ("unknown", "", "n/a", "none"):
+            continue
+        m = ok & (sec_arr == s)
+        n = int(m.sum())
+        if n < 15:                      # too thin to call a "sector flow"
+            continue
+        w = np.nan_to_num(dv_now[m])
+        ret = float(np.nansum(r[m] * (w / w.sum()))) if w.sum() > 0 else float(np.nanmean(r[m]))
+        breadth = float(np.nanmean(r[m] > 0))
+        sg = float(np.nanmedian(surge[m])) if np.isfinite(surge[m]).any() else 1.0
+        flow = (0.40 * (ret - mkt) + 0.25 * (breadth - 0.5) * 0.10
+                + 0.20 * np.tanh(sg - 1.0) * 0.02 + 0.15 * ret)
+        rows.append(dict(Sector=s, Flow=flow, Ret=ret, RS=ret - mkt,
+                         Breadth=breadth, VolSurge=sg, Names=n))
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows).sort_values("Flow", ascending=False).reset_index(drop=True)
+    df.insert(0, "Rank", np.arange(1, len(df) + 1))
+    df["FlowPct"] = df.Flow.rank(pct=True)
+    df.attrs["market_return"] = mkt
+    df.attrs["live_prices"] = live_n
+    df.attrs["asof"] = str(pd.to_datetime(dts[-1]).date())
+    return df
+
+
+def hot_sectors(k: int = 5, lookback: int = SECTOR_FLOW_LOOKBACK,
+                use_live: bool = False) -> list:
+    """The k sectors receiving the most money right now."""
+    df = sector_flow(lookback, use_live)
+    return [] if df.empty else [str(s) for s in df.Sector.head(int(k))]
