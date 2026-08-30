@@ -76,7 +76,7 @@ NODES = {
 }
 
 # canonical upstream sentinels (fast, frictionless)
-ENGINE_VERSION = "2.21"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.22"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -2355,6 +2355,29 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
         mult = df.Sector.map(lambda s: tilts.get(s, 1.0)).astype(float)
         df["RankScore"] = (df.OddsUp * mult).round(2)
         df = df.sort_values(["RankScore", "Typical"], ascending=False)
+
+        # Spread the head across sectors. Sorting on RankScore alone hands the
+        # entire top of the book to whichever sector has the biggest multiplier
+        # (Debasement -> 20/20 Basic Materials), which is one concentrated bet
+        # wearing a diversified label. Interleave instead: rotate through the
+        # sectors best-first, giving favoured sectors extra picks per rotation
+        # in proportion to their tilt, so ANY prefix of the list is diversified.
+        by_sec, order_secs = {}, []
+        for s, grp in df.groupby("Sector", sort=False):
+            by_sec[s] = grp.index.tolist()
+        order_secs = sorted(by_sec, key=lambda s: -df.loc[by_sec[s][0], "RankScore"])
+        picks, guard = [], 0
+        while any(by_sec.values()) and guard < 10000:
+            guard += 1
+            for s in order_secs:
+                if not by_sec[s]:
+                    continue
+                # favoured sectors take 2 slots per rotation, others 1
+                n = 2 if tilts.get(s, 1.0) >= 1.15 else 1
+                for _ in range(n):
+                    if by_sec[s]:
+                        picks.append(by_sec[s].pop(0))
+        df = df.loc[picks]
         return df.reset_index(drop=True)
     return df.sort_values(["OddsUp", "Typical"], ascending=False).reset_index(drop=True)
 
