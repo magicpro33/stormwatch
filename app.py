@@ -1015,6 +1015,52 @@ with tab_map:
             These are odds, not certainties. Think of it like a weather forecast for money.</div>
             </div>""", unsafe_allow_html=True)
 
+    # ── today's money rotation, in plain English ────────────────────
+    try:
+        _mflow = _sector_flow(asof)
+    except Exception:
+        _mflow = pd.DataFrame()
+    if _mflow is not None and not _mflow.empty:
+        _in = _mflow.head(3)
+        _out = _mflow.tail(3).iloc[::-1]
+        _chip = lambda s, r, col: (
+            f"<span style='display:inline-block;background:#081325;border:1px solid "
+            f"#1d2b40;border-left:3px solid {col};border-radius:6px;padding:4px 10px;"
+            f"margin:3px 5px 3px 0;font-size:12.5px;'>{s} "
+            f"<b style='color:{col};'>{r:+.1%}</b></span>")
+        st.markdown(
+            f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+            border-radius:10px;padding:12px 16px;margin:6px 0 10px;">
+              <div style="font-size:14px;font-weight:700;margin-bottom:2px;">
+                💰 Where money moved in the last session</div>
+              <div style="color:{DIM};font-size:12px;margin-bottom:8px;">
+                Money leaves some corners of the market and shows up in others.
+                This is where it went on {_mflow.attrs.get('asof','the last session')}.</div>
+              <div style="font-size:12px;color:{GREEN};margin-bottom:2px;">FLOWED IN →</div>
+              <div>{''.join(_chip(r.Sector, r.Ret, GREEN) for _, r in _in.iterrows())}</div>
+              <div style="font-size:12px;color:{RED};margin:8px 0 2px;">FLOWED OUT →</div>
+              <div>{''.join(_chip(r.Sector, r.Ret, RED) for _, r in _out.iterrows())}</div>
+            </div>""", unsafe_allow_html=True)
+        with st.expander("📊 Full sector breakdown"):
+            st.caption("A sector counts as 'receiving money' when its return, how "
+                       "many of its stocks rose, and how heavily it traded all "
+                       "lean the same way — not just because one big name jumped.")
+            st.dataframe(
+                _mflow[["Rank", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
+                .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
+                               "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
+                .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
+                     subset=["Ret", "RS"]),
+                width="stretch", hide_index=True,
+                column_config={
+                    "Ret": st.column_config.Column(help="Sector return, weighted by where the money actually traded."),
+                    "RS": st.column_config.Column(help="How much better or worse than the whole market."),
+                    "Breadth": st.column_config.Column(help="Share of the sector's stocks that went up."),
+                    "VolSurge": st.column_config.Column(help="Trading activity vs its own 63-day normal. Above 1 = busier than usual."),
+                })
+            st.caption("Used by the Top 20 tab's 🔥 hot-sector filter and its "
+                       "sector-flow tilt.")
+
         st.caption("Each card below is one market. Green = likely to rise, red = likely "
                    "to fall over the next week or two. The bar shows how strong the signal "
                    "is; more agreeing sources = more trustworthy.")
