@@ -1592,18 +1592,24 @@ with tab_top20:
         st.session_state["top20_go"] = False
 
     _h1, _h2 = st.columns([1, 2])
+    _flow_na = _method == "felix"      # Felix is quality-only, by design
     _hot_k = _h1.selectbox("🔥 Hot sectors only", ["Off", "Top 3", "Top 4",
                                                   "Top 5", "Top 6"],
-                           index=0, key="top20_hot",
+                           index=0, key="top20_hot", disabled=_flow_na,
                            help="Restrict the scan to the sectors that received "
                                 "the most money in the last session. Walk-forward "
                                 "validated: top-5 filter + the flow tilt lifted "
                                 "top-20 excess from -0.02% to +3.41% per 21 "
                                 "sessions, positive in both honesty halves.")
-    _hot_n = 0 if _hot_k == "Off" else int(_hot_k.split()[-1])
-    _t_lb, _t_off, _t_lbl = flow_window_picker("t20")
+    _hot_n = 0 if (_hot_k == "Off" or _flow_na) else int(_hot_k.split()[-1])
+    if _flow_na:
+        st.caption("🎩 Felix ranks on the balance sheet alone — the macro lens, "
+                   "hot-sector filter and session window don't apply.")
+        _t_lb, _t_off, _t_lbl = 1, 0, "last session"
+    else:
+        _t_lb, _t_off, _t_lbl = flow_window_picker("t20")
     _use_flow = _h2.toggle("Sector-flow tilt in the score", value=True,
-                           key="top20_flow",
+                           key="top20_flow", disabled=_flow_na,
                            help="Adds the sector's money-flow percentile to the "
                                 "cascade score (validated at +8 points). Turn off "
                                 "for a pure technicals/quality/tailwind ranking.")
