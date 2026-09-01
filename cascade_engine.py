@@ -95,7 +95,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.27"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.28"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -138,7 +138,12 @@ HISTORY_YEARS = 3
 
 IMPULSE_W = 5          # days for the impulse return
 IMPULSE_Z_WIN = 126    # z-score window
-EDGE_HALFLIFE = 84      # sessions; recency decay on edge estimation (validated)
+EDGE_HALFLIFE = None    # recency decay on edges — DISABLED, see note below.
+# A 252-session test on dump-derived sector composites suggested half-life 84
+# lifted OOS hit 59.5%->61.8%. It did NOT replicate on the real 804-session,
+# 91-node panel: flat 49.2% / IC +0.006 vs half-life 84 49.2% / IC +0.009.
+# The original result was small-sample noise (n=22) on smooth composites, so
+# the parameter is off rather than carrying an unearned justification.
 EDGE_TRAIN = 252       # days used to estimate edges (walk-forward)
 EDGE_HORIZON = 10      # forward days an edge predicts
 EDGE_MIN_ABS_IC = 0.13
@@ -324,11 +329,10 @@ def estimate_edges(closes: pd.DataFrame, asof: int | None = None,
     # Recency weighting: the relationship a node had nine months ago should not
     # count as much as the one it had last month. Exponential decay over the
     # training window, half-life EDGE_HALFLIFE.
-    # Walk-forward on real dump-derived nodes (n=22 windows):
-    #   flat weights          59.5% OOS hit, IC 0.108
-    #   half-life 84          61.8% OOS hit, IC 0.137   <- adopted
-    #   half-life 21          57.6% OOS hit, IC -0.006  <- over-reacts to noise
-    # Chasing the tape too hard is worse than lagging it slightly.
+    # NOTE: kept as an option but OFF by default. On the real 804-session,
+    # 91-node panel every half-life scored the same as flat weighting
+    # (~49.2% OOS hit, IC ~+0.01). The earlier "improvement" came from a
+    # 22-window test on smooth sector composites and did not replicate.
     if EDGE_HALFLIFE:
         _age = np.arange(len(ii))[::-1]
         _w = (0.5 ** (_age / float(EDGE_HALFLIFE)))[:, None]
