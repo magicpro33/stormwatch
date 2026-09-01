@@ -37,7 +37,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.27"
+REQUIRED_ENGINE = "2.28"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -1066,14 +1066,16 @@ with tab_map:
         st.markdown(
             f"""<div style="background:#0c1829;border:1px solid #1d2b40;
             border-left:5px solid {ACCENT};border-radius:12px;padding:16px 20px;margin:6px 0 6px;">
-            <div style="font-size:20px;font-weight:800;">🌊 {len(board)} thing{'s' if len(board)!=1 else ''} likely to move this week</div>
+            <div style="font-size:20px;font-weight:800;">🌊 {len(board)} market{'s' if len(board)!=1 else ''} moving with the current waves</div>
             <div style="color:#d7e0ec;font-size:14px;margin-top:5px;line-height:1.5;">
-            Some big markets have been moving fast, and history says a few other things
-            usually follow within a week or two. Right now that points to
-            <b style="color:{GREEN};">{n_up} heading up</b> and
-            <b style="color:{RED};">{n_dn} heading down</b> — starting with <b>{movers}</b>.</div>
+            Some big markets have been moving fast. These are the markets historically
+            connected to them — <b style="color:{GREEN};">{n_up} connected upward</b> and
+            <b style="color:{RED};">{n_dn} connected downward</b>, starting with <b>{movers}</b>.</div>
             <div style="color:{DIM};font-size:12px;margin-top:6px;">
-            These are odds, not certainties. Think of it like a weather forecast for money.</div>
+            ⚠️ <b>Read this as a map, not a forecast.</b> Walk-forward testing on 3 years
+            of real data found these links have <b>no measurable ability to predict</b>
+            direction 10 days out (49% — a coin flip). They describe what moves together,
+            which is useful context; they do not tell you what happens next.</div>
             </div>""", unsafe_allow_html=True)
 
     # ── today's money rotation, in plain English ────────────────────
@@ -1148,17 +1150,18 @@ with tab_map:
         for i, (_, b) in enumerate(_fb.head(8).iterrows()):
             up = b.call == "UP"
             col = GREEN if up else RED
-            verdict = "likely to RISE" if up else "likely to FALL"
+            verdict = "linked UPWARD" if up else "linked DOWNWARD"
             arrow = "📈" if up else "📉"
             # translate hit rate into plain confidence words
+            # NOTE: these hit rates are IN-SAMPLE — measured on the same window
+            # the edge was selected on. Out-of-sample they do not hold, so the
+            # wording is deliberately "historical fit", never "accuracy".
             if b.avg_hit >= 0.62:
-                conf, confc = "strong track record", GREEN
+                conf, confc = "strong historical fit", DIM
             elif b.avg_hit >= 0.55:
-                conf, confc = "decent track record", "#d0b040"
-            elif b.avg_hit >= 0.50:
-                conf, confc = "mixed track record", DIM
+                conf, confc = "moderate historical fit", DIM
             else:
-                conf, confc = "weak track record", RED
+                conf, confc = "weak historical fit", DIM
             src_word = "market" if b.n_sources == 1 else "markets"
             with bcols[i % 2]:
                 st.markdown(
@@ -1173,11 +1176,11 @@ with tab_map:
                         <div style="background:{col};height:8px;border-radius:5px;
                         width:{max(int(b.conviction*100),8)}%;"></div></div>
                       <div style="color:#d7e0ec;font-size:12.5px;line-height:1.5;">
-                        Because <b>{_esc(b.sources)}</b> {'has' if b.n_sources==1 else 'have'} been moving —
-                        and {_esc(b.target_name)} usually follows within a week or two.</div>
+                        <b>{_esc(b.sources)}</b> {'has' if b.n_sources==1 else 'have'} been moving, and
+                        {_esc(b.target_name)} has historically moved with {'it' if b.n_sources==1 else 'them'}.</div>
                       <div style="color:{DIM};font-size:11.5px;margin-top:5px;">
-                        Backed by {b.n_sources} {src_word} · <span style="color:{confc};">{conf}</span>
-                        ({b.avg_hit:.0%} of the time historically)</div>
+                        {b.n_sources} {src_word} · <span style="color:{confc};">{conf}</span>
+                        ({b.avg_hit:.0%} in-sample — not an out-of-sample hit rate)</div>
                     </div>""", unsafe_allow_html=True)
 
         if len(_fb) > 8:
@@ -1326,8 +1329,14 @@ with tab_map:
             "- **The cards** tell you what's likely to move this week and why, in "
             "plain words. Green = up, red = down.\n"
             "- **The bar** is how strong the signal is. Longer = stronger.\n"
-            "- **Track record** is how often this pattern was right in the past. "
-            "Nothing is ever 100% — treat these like a weather forecast.\n"
+            "- **Historical fit** is how often the pattern held *on the same data "
+            "used to find it*. That is not a forecast accuracy. When we tested "
+            "these links properly — fitting on the past and scoring on days the "
+            "model had never seen — they were right about 49% of the time, i.e. "
+            "a coin flip.\n"
+            "- **So what is this good for?** Seeing what is moving together right "
+            "now, and which corners of the market are connected. That context is "
+            "real. The direction call is not.\n"
             "- **🔄 Refresh** grabs the newest prices and recomputes everything.\n\n"
             "It's a research tool, not advice. Forecasts can be wrong, so never "
             "bet more than you can afford to lose.")
@@ -2780,6 +2789,28 @@ with tab_guide:
         "forecast cards at the top of the Cascade Map tab are just this same "
         "information rewritten in plain English, so you rarely need the map "
         "itself unless you want to see the whole web at once.")
+
+    st.divider()
+    st.markdown("### 🔬 What has actually been validated")
+    st.markdown(
+        "Not every part of this app earns the same trust. Walk-forward tested on "
+        "real data, out of sample:\n\n"
+        "| Layer | Verdict |\n|---|---|\n"
+        "| Sector money flow (Top 20 filter + tilt) | ✅ **+3.41% excess / 21 sessions**, 60% hit, positive in both halves. Cold sectors underperform, so the signal is directional. |\n"
+        "| Catalyst fingerprints | ✅ Lifted top-20 excess **+2.78% → +3.58%** as a 0.15x modifier. Worthless alone (−0.16%). |\n"
+        "| Analog forecast (Stock Lookup / Best Odds) | ✅ Distributional, not directional — it reports what look-alikes actually did, on 300+ cases minimum. |\n"
+        "| APEX FLOW daily | ✅ 60.2% win rate vs 50.7% baseline on 984 held-out tickers. Intraday is **unvalidated**. |\n"
+        "| Cascade edges / storm tracks | ❌ **No out-of-sample skill.** 49% directional accuracy over 52 windows on 804 sessions × 91 nodes — a coin flip at every threshold tested. |\n"
+        "| Cascade tailwind pillar (29 pts of Cascade Score) | ⚠️ **Unresolved.** The nightly dump only keeps 1 year, giving 8 test points. No evidence for or against. |\n\n"
+        "The cascade edge result held up against reduced node sets, edge "
+        "persistence filters and longer horizons. A positive control — a "
+        "synthetic edge planted in the data — *was* detected in 81% of windows "
+        "at 77% accuracy, so the engine works; the effect simply is not there "
+        "in liquid ETFs at a 10-day horizon. That matches the published "
+        "literature, where exploitable lead-lag effects are an intraday "
+        "phenomenon that decays within minutes.")
+    st.caption("Keeping this table honest is the point. If a layer earns its "
+               "keep later, the evidence goes here.")
 
     st.divider()
     st.markdown("### 💾 Export the node history")
