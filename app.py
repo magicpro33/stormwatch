@@ -2782,6 +2782,22 @@ with tab_guide:
         "itself unless you want to see the whole web at once.")
 
     st.divider()
+    st.markdown("### 💾 Export the node history")
+    st.caption("The node panel is built at runtime and lives on the server's "
+               "ephemeral disk — it is not in the repo. Download it here to "
+               "back-test offline or to share for analysis.")
+    try:
+        _exp = closes.copy()
+        _csv = _exp.to_csv().encode("utf-8")
+        st.download_button(
+            f"⬇️ Download node history ({_exp.shape[0]} sessions × "
+            f"{_exp.shape[1]} nodes)", _csv,
+            file_name=f"moneyweather_nodes_{asof}.csv", mime="text/csv",
+            key="dl_nodes")
+    except Exception as _de:
+        st.caption(f"Export unavailable: {_de}")
+
+    st.divider()
     st.markdown("### ⚙️ How the data flows")
     st.markdown(
         f"- **Stock Lookup chain:** Alpaca (live) → Yahoo → nightly dump — the "
