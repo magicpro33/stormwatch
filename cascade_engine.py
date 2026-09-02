@@ -95,7 +95,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.28"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.29"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -2804,6 +2804,21 @@ def macro_advisor(node_closes: pd.DataFrame, pressure: dict | None = None,
         elif tlt > 0.05:
             vote("qe", 1.0, "Long bonds (TLT)", f"{tlt:+.0%}/63d — yields falling")
 
+    # ── the bond master switch: only the tested leg votes ────────────
+    try:
+        _bond = bond_master_switch(node_closes)
+    except Exception:
+        _bond = {}
+    if _bond.get("score") is not None:
+        _hz = _bond["score"]
+        if _hz <= -1.5:
+            vote("bear", 3.0, "Credit spreads (HY)",
+                 f"z {_hz:+.1f} — widening sharply (rank IC {BOND_SPREAD_IC:+.2f} vs SPY 21d)")
+        elif _hz <= -0.75:
+            vote("bear", 1.5, "Credit spreads (HY)", f"z {_hz:+.1f} — drifting wider")
+        elif _hz >= 1.0:
+            vote("bull", 1.5, "Credit spreads (HY)", f"z {_hz:+.1f} — tightening, risk appetite healthy")
+
     # ── 8. news ──────────────────────────────────────────────────────
     news = macro_news_scan() if include_news else {}
     n_articles = news.pop("_articles", 0) if news else 0
@@ -3203,3 +3218,99 @@ def geopolitical_stress(closes: pd.DataFrame, lookback: int = 21) -> dict:
     legs.sort(key=lambda l: -l["z"])
     return dict(score=round(score, 0), mean_z=round(mean_z, 2), label=label,
                 legs=legs, missing=missing, lookback=lookback)
+
+
+# ═════════ 🏛 BOND MASTER SWITCH — risk-free rate + credit spreads ═════════
+# Tested on 804 sessions of real node history (2023-08 -> 2026-09):
+#   HY spread widening (HYG/IEF falling), 21d ahead:  rank IC +0.155
+#       widest quintile -> SPY +0.60% vs +2.00% otherwise   ✅ EARLY WARNING
+#   IG spread (LQD/IEF):                              rank IC -0.01  ❌ no signal
+#   Rising long yields (TLT falling), 21d ahead:      rank IC +0.199
+#       BUT THE SIGN IS POSITIVE: fastest-rising yields preceded SPY
+#       +3.69% vs +1.22%. In this sample rising yields came WITH growth,
+#       not instead of it. So the "rising yields reprice risk down" mechanism
+#       is reported as CONTEXT ONLY and never scored.
+# Net: junk-credit spreads earn a vote. The risk-free rate does not.
+BOND_SPREAD_IC = 0.155
+
+
+def bond_master_switch(closes: pd.DataFrame) -> dict:
+    """Credit-spread early warning plus a descriptive read on the risk-free rate.
+
+    Credit spreads are proxied by price ratios: HYG/IEF for junk, LQD/IEF for
+    investment grade. When the ratio FALLS, credit is demanding more yield —
+    spreads are widening. Each is z-scored against its own trailing year so
+    "unusual" means unusual for that relationship.
+    """
+    out = dict(available=False, legs=[], warning=None, score=None)
+    if closes is None or closes.empty:
+        return out
+
+    def _z(series, win=21):
+        s = series.dropna()
+        if len(s) < 150:
+            return None, None
+        chg = s.pct_change(win)
+        mu = chg.rolling(252, min_periods=120).mean()
+        sd = chg.rolling(252, min_periods=120).std()
+        z = (chg - mu) / sd
+        return (float(z.iloc[-1]) if np.isfinite(z.iloc[-1]) else None,
+                float(chg.iloc[-1]) if np.isfinite(chg.iloc[-1]) else None)
+
+    legs = []
+    hy_z = None
+    if "HYG" in closes.columns and "IEF" in closes.columns:
+        z, chg = _z(closes["HYG"] / closes["IEF"])
+        if z is not None:
+            hy_z = z
+            legs.append(dict(leg="Junk credit (HY spread)", z=round(z, 2),
+                             move=round(chg * 100, 2), scored=True,
+                             note=("widening — credit is charging more for risk"
+                                   if z < -0.5 else
+                                   "tightening — credit is relaxed" if z > 0.5
+                                   else "steady")))
+    if "LQD" in closes.columns and "IEF" in closes.columns:
+        z, chg = _z(closes["LQD"] / closes["IEF"])
+        if z is not None:
+            legs.append(dict(leg="Investment-grade spread", z=round(z, 2),
+                             move=round(chg * 100, 2), scored=False,
+                             note="context only — showed no predictive value in testing"))
+    if "TLT" in closes.columns:
+        z, chg = _z(closes["TLT"])
+        if z is not None:
+            legs.append(dict(leg="Long yields (via TLT)", z=round(-z, 2),
+                             move=round(-chg * 100, 2), scored=False,
+                             note=("yields rising — historically came WITH growth "
+                                   "in this sample, not instead of it" if z < 0
+                                   else "yields falling")))
+    if "SHY" in closes.columns and "TLT" in closes.columns:
+        try:
+            curve = (closes["TLT"] / closes["SHY"]).dropna()
+            if len(curve) > 130:
+                z, chg = _z(curve)
+                if z is not None:
+                    legs.append(dict(leg="Curve (long vs short)", z=round(z, 2),
+                                     move=round(chg * 100, 2), scored=False,
+                                     note="context only"))
+        except Exception:
+            pass
+    if not legs:
+        return out
+
+    out["available"] = True
+    out["legs"] = legs
+    if hy_z is None:
+        out["warning"] = "⚪ No junk-credit reading available"
+        return out
+    # only the validated leg drives the warning
+    out["score"] = round(float(hy_z), 2)
+    if hy_z <= -1.5:
+        out["warning"] = ("🔴 Credit spreads widening sharply — the one bond signal "
+                          "that tested predictive. Historically preceded weaker equities.")
+    elif hy_z <= -0.75:
+        out["warning"] = "🟠 Credit spreads drifting wider — worth watching."
+    elif hy_z >= 1.0:
+        out["warning"] = "🟢 Credit spreads tightening — risk appetite healthy."
+    else:
+        out["warning"] = "🟡 Credit spreads steady."
+    return out

@@ -37,7 +37,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.28"
+REQUIRED_ENGINE = "2.29"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -2429,7 +2429,11 @@ with tab_macro:
             <span style="font-weight:700;">📡 Live regime (app-detected): {_reg_live['label']}</span><br>
             <span style="color:{DIM};font-size:12px;">From: {' · '.join(_reg_live['drivers'])} —
             set the simulator's sliders to match (or to your what-if), then run the
-            Top 20 tab under that same scenario with its Macro scenario picker.</span></div>""",
+            Top 20 tab under that same scenario with its Macro scenario picker.</span>
+            <br><span style="color:{DIM};font-size:12px;">🏛 <b>Bond check:</b>
+            {_esc(ce.bond_master_switch(closes).get('warning','—'))} — the simulator's
+            rate sliders move the same lever, so set them consistently with what
+            credit is actually doing.</span></div>""",
             unsafe_allow_html=True)
     except Exception:
         pass
@@ -2537,6 +2541,47 @@ with tab_sentinels:
 
 # ── 📅 forced flows ──────────────────────────────────────────────────
 with tab_sentinels:
+    st.markdown("#### 🏛 Bond master switch — the risk-free rate & credit spreads")
+    try:
+        _bond = ce.bond_master_switch(closes)
+    except Exception as _be:
+        _bond = {}; st.caption(f"Bond reading unavailable: {_be}")
+    if _bond.get("available"):
+        _bz = _bond.get("score")
+        _bc = (RED if (_bz is not None and _bz <= -1.5) else
+               "#d0b040" if (_bz is not None and _bz <= -0.75) else
+               GREEN if (_bz is not None and _bz >= 1.0) else DIM)
+        st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+            border-left:5px solid {_bc};border-radius:10px;padding:12px 16px;margin-bottom:8px;">
+            <div style="font-weight:700;font-size:15px;">{_esc(_bond.get('warning',''))}</div>
+            <div style="color:{DIM};font-size:12px;margin-top:6px;">
+            The bond market is bigger than the stock market and prices everything
+            else off the risk-free rate. But only ONE bond signal earned a vote here:
+            <b>junk-credit spreads</b>. Tested on 3 years of real data, widening HY
+            spreads preceded weaker equities (rank IC +0.16 vs SPY 21 days out;
+            widest quintile +0.60% vs +2.00%). Investment-grade spreads showed
+            nothing, and rising long yields actually preceded <i>stronger</i>
+            equities in this sample — so those are shown as context and never scored.
+            </div></div>""", unsafe_allow_html=True)
+        _bl = pd.DataFrame(_bond["legs"])
+        _bl["Role"] = np.where(_bl.scored, "✅ scored", "· context")
+        st.dataframe(
+            _bl[["leg", "z", "move", "Role", "note"]]
+            .rename(columns={"leg": "Signal", "z": "z-score",
+                             "move": "21d move %", "note": "Reading"})
+            .style.format({"z-score": "{:+.2f}", "21d move %": "{:+.2f}%"})
+            .map(lambda v: _css_sign(v) if isinstance(v, (int, float)) else "",
+                 subset=["z-score"]),
+            width="stretch", hide_index=True,
+            column_config={
+                "z-score": st.column_config.Column(help="How unusual this 21-day move is versus its own past year. Negative on a spread proxy = spreads WIDENING."),
+                "Role": st.column_config.Column(help="Only the junk-credit leg tested predictive, so only it votes in the macro advisor."),
+            })
+        st.caption("Why price ratios: HYG/IEF and LQD/IEF compare corporate bonds "
+                   "against duration-matched treasuries, so the ratio falling means "
+                   "credit is demanding more yield — spreads widening — without "
+                   "needing a yield feed.")
+    st.divider()
     st.markdown("#### 🇯🇵 Yen carry trade monitor")
     try:
         _cm = ce.yen_carry_monitor(closes)
