@@ -20,6 +20,11 @@ import streamlit as st
 
 import html as _html
 import cascade_engine as ce
+try:
+    import poc_future as pfut
+    _POC_ERR = None
+except Exception as _pe:            # scoped to its own tab, never st.stop()
+    pfut, _POC_ERR = None, _pe
 
 
 def _esc(s) -> str:
@@ -293,6 +298,16 @@ def _flow_sessions(asof: str):
 def _apex_sector_list(asof: str):
     import apex_flow as _af
     return _af.available_sectors()
+
+
+@st.cache_data(ttl=1800, show_spinner="🎯 Hunting coils, sweeps and POC reclaims…")
+def _poc_scan(asof: str, stages: tuple, top: int, accum_len: int,
+              max_range_atr: float, max_bars_ago: int, sectors_key: str):
+    import json as _j
+    secs = _j.loads(sectors_key) if sectors_key else None
+    return pfut.scan(stages=stages, top=top, accum_len=accum_len,
+                     max_range_atr=max_range_atr, max_bars_ago=max_bars_ago,
+                     only_sectors=secs)
 
 
 @st.cache_data(ttl=1800, show_spinner="🎩 Running the five-test quality checklist on all 5,700 stocks…")
@@ -984,10 +999,10 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
 
 asof = str(closes.index[-1].date())
 (tab_map, tab_lookup, tab_top20, tab_apex, tab_macro, tab_pressure,
- tab_sentinels, tab_forced, tab_lab, tab_guide) = st.tabs(
+ tab_poc, tab_sentinels, tab_forced, tab_lab, tab_guide) = st.tabs(
     ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "⚡ APEX FLOW",
-     "🧪 Macro Sim", "🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows",
-     "🔬 Validation Lab", "📖 Guide"])
+     "🧪 Macro Sim", "🎯 POC Future", "🌡 Pressure", "🛰 Sentinels",
+     "📅 Forced Flows", "🔬 Validation Lab", "📖 Guide"])
 
 
 # Pressure gauge, resolved once for every tab. It used to be computed inside
@@ -1474,10 +1489,50 @@ with tab_lookup:
     # ── watchlist ────────────────────────────────────────────────────
     st.divider()
     st.subheader("⭐ Watchlist")
+
+    # Persistence has three layers, weakest to strongest:
+    #   1. data/watchlist.json on the server — survives tab close and restarts,
+    #      but Streamlit Cloud wipes it whenever the container is rebuilt.
+    #   2. the ?wl= URL parameter — bookmark the page and the list rides along,
+    #      surviving redeploys and following you to another device/browser.
+    #   3. the JSON backup file — a manual, permanent copy.
+    # On load, anything in the URL that is missing from the file is restored.
+    try:
+        _wl_param = st.query_params.get("wl", "")
+    except Exception:
+        _wl_param = ""
+    if _wl_param and not st.session_state.get("_wl_restored"):
+        st.session_state["_wl_restored"] = True
+        _have = {w["ticker"] for w in ce.watchlist_load()}
+        _restored = []
+        for _t in [x.strip().upper() for x in _wl_param.split(",") if x.strip()]:
+            if _t and _t not in _have:
+                try:
+                    _d = ce.dump_ohlcv(_t)
+                    ce.watchlist_add(_t, float(_d.Close.iloc[-1]) if not _d.empty else float("nan"))
+                    _restored.append(_t)
+                except Exception:
+                    continue
+        if _restored:
+            st.success(f"↩️ Restored {len(_restored)} saved ticker(s) from your link: "
+                       + ", ".join(_restored))
+
     wl = ce.watchlist_load()
+    # keep the URL in step so the current list is always bookmarkable
+    try:
+        _cur = ",".join(sorted(w["ticker"] for w in wl))
+        if _cur != st.query_params.get("wl", ""):
+            if _cur:
+                st.query_params["wl"] = _cur
+            elif "wl" in st.query_params:
+                del st.query_params["wl"]
+    except Exception:
+        pass
     if not wl:
-        st.caption("Nothing saved yet — look up a stock and hit ⭐ Save. Each save "
-                   "snapshots the price so you can score your calls later.")
+        st.caption("Nothing saved yet — every stock you look up is saved here "
+                   "automatically, with its price snapshotted so you can score "
+                   "your calls later. The list is stored on the server and in "
+                   "this page's URL, so bookmarking keeps it.")
     else:
         wdf = pd.DataFrame(wl)
         live = ce.alpaca_prices(list(wdf.ticker))
@@ -1511,9 +1566,39 @@ with tab_lookup:
         if rc2.button("🗑 Remove", width="stretch") and _rm != "—":
             ce.watchlist_remove(_rm)
             st.rerun()
-        st.caption("ℹ️ The watchlist lives in a file on the app server — it survives "
-                   "restarts but resets if Streamlit Cloud rebuilds the container "
-                   "(redeploys). Download-worthy calls belong in your own notes too.")
+        st.caption("🔗 Your list is saved on the server AND encoded in this page's "
+                   "URL — bookmark the page and it comes back even after a "
+                   "redeploy or on another device. Use the backup below for a "
+                   "permanent copy.")
+        bc1, bc2 = st.columns(2)
+        try:
+            import json as _json
+            bc1.download_button("⬇️ Backup watchlist (JSON)",
+                                _json.dumps(wl, indent=2).encode("utf-8"),
+                                file_name=f"watchlist_{asof}.json",
+                                mime="application/json", width="stretch",
+                                key="wl_backup")
+        except Exception:
+            pass
+        _up = bc2.file_uploader("⬆️ Restore from backup", type=["json"],
+                                key="wl_restore", label_visibility="collapsed")
+        if _up is not None and not st.session_state.get("_wl_uploaded"):
+            try:
+                import json as _json
+                _items = _json.loads(_up.read().decode("utf-8"))
+                _have = {w["ticker"] for w in ce.watchlist_load()}
+                _n = 0
+                for _it in _items:
+                    _t = str(_it.get("ticker", "")).strip().upper()
+                    if _t and _t not in _have:
+                        ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
+                                         _it.get("note", ""))
+                        _n += 1
+                st.session_state["_wl_uploaded"] = True
+                st.success(f"Restored {_n} ticker(s) from backup.")
+                st.rerun()
+            except Exception as _ue:
+                st.error(f"Could not read that backup: {_ue}")
 
 
 # ── 🏆 top 20 mega screener ──────────────────────────────────────────
@@ -2461,6 +2546,143 @@ with tab_macro:
                  "in the repo to enable this tab.")
     except Exception as _me:
         st.error(f"Simulator embed failed: {_me}")
+
+# ── 🎯 POC Future — AMD accumulation / manipulation / distribution ────
+with tab_poc:
+    st.markdown("### 🎯 POC Future — coil, sweep, reclaim")
+    if _POC_ERR:
+        st.error(f"⚠️ **poc_future.py missing** — {_POC_ERR}. Push it alongside "
+                 "app.py, cascade_engine.py and apex_flow.py, then reboot. "
+                 "The rest of the app still works.")
+    else:
+        st.caption("A screener port of your AMD + Volume Profile indicator. It "
+                   "hunts the same three-act pattern: price **coils** in a tight "
+                   "range, **sweeps** the lows to grab stops, then **reclaims the "
+                   "POC** — the price where the coil did most of its business. "
+                   "The reclaim is the trigger and the trade runs long.")
+
+        _pc1, _pc2, _pc3 = st.columns([2, 1, 1])
+        _stage_pick = _pc1.multiselect(
+            "Show stages", ["TRIGGERED", "SWEPT", "COILING"],
+            default=["TRIGGERED", "SWEPT"], key="poc_stages",
+            help="TRIGGERED = the POC was reclaimed, entry is live. "
+                 "SWEPT = lows taken, waiting on the reclaim. "
+                 "COILING = a tight range is forming, no sweep yet.")
+        _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200], index=1,
+                                  key="poc_top")
+        _poc_fresh = _pc3.selectbox("Max bars since trigger", [1, 2, 3, 5, 10],
+                                    index=3, key="poc_fresh",
+                                    help="A reclaim from three weeks ago is "
+                                         "history, not a setup.")
+        with st.expander("⚙️ Pattern settings"):
+            _e1, _e2 = st.columns(2)
+            _accum = _e1.slider("Accumulation length (bars)", 8, 40,
+                                pfut.ACCUM_LEN, key="poc_accum",
+                                help="Your backtest retuned this from 20 to 15: "
+                                     "4.6x more setups at the same expectancy "
+                                     "and positive in 10 of 10 months.")
+            _rng = _e2.slider("Max range (x ATR)", 1.0, 4.0,
+                              pfut.MAX_RANGE_ATR, step=0.1, key="poc_rng",
+                              help="The coil must be no wider than this many "
+                                   "ATRs. Lower = tighter, rarer bases.")
+            try:
+                _poc_secs = _apex_sector_list(asof)
+            except Exception:
+                _poc_secs = []
+            _psec = st.multiselect("Sectors", _poc_secs, default=[],
+                                   key="poc_sectors",
+                                   help="Leave empty for every sector.")
+        if st.button("🎯 Scan for setups", type="primary", key="poc_go",
+                     width="stretch"):
+            st.session_state["poc_run"] = True
+
+        if st.session_state.get("poc_run"):
+            import json as _pj
+            try:
+                _pdf = _poc_scan(asof, tuple(_stage_pick or ["TRIGGERED"]),
+                                 int(_poc_top), int(_accum), float(_rng),
+                                 int(_poc_fresh),
+                                 _pj.dumps(_psec) if _psec else "")
+            except Exception as _perr:
+                _pdf = pd.DataFrame(); st.error(f"Scan failed: {_perr}")
+            if _pdf is None or _pdf.empty:
+                st.info("No setups match right now. Widen the stages, loosen the "
+                        "range, or check back after the next dump.")
+            else:
+                _cnt = _pdf.Stage.value_counts().to_dict()
+                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                    <b>{len(_pdf)} setups</b> —
+                    <span style="color:{GREEN};">{_cnt.get('TRIGGERED',0)} triggered</span> ·
+                    <span style="color:#d0b040;">{_cnt.get('SWEPT',0)} swept, awaiting reclaim</span> ·
+                    <span style="color:{DIM};">{_cnt.get('COILING',0)} still coiling</span>
+                    <br><span style="color:{DIM};font-size:12px;">Freshest first, then
+                    tightest coil. Entry is the POC, stop sits below the sweep,
+                    target is the far side of the range.</span></div>""",
+                    unsafe_allow_html=True)
+                _psel = st.dataframe(
+                    _pdf.style.format({
+                        "Price": "${:,.2f}", "POC": "${:,.2f}", "ToPOC%": "{:+.1f}%",
+                        "Entry": "${:,.2f}", "Stop": "${:,.2f}", "Target": "${:,.2f}",
+                        "R:R": "{:.2f}", "RangeATR": "{:.2f}",
+                        "RangeLow": "${:,.2f}", "RangeHigh": "${:,.2f}",
+                        "VAH": "${:,.2f}", "VAL": "${:,.2f}"}, na_rep="—")
+                    .map(lambda v: (f"color:{GREEN};font-weight:700" if v == "TRIGGERED"
+                                    else ("color:#d0b040" if v == "SWEPT"
+                                          else f"color:{DIM}")), subset=["Stage"])
+                    .map(lambda v: _css_sign(v) if isinstance(v, (int, float)) else "",
+                         subset=["ToPOC%"]),
+                    width="stretch", hide_index=True, height=620,
+                    on_select="rerun", selection_mode="single-row", key="poc_table",
+                    column_order=["Ticker", "Sector", "Stage", "BarsAgo", "Price",
+                                  "POC", "ToPOC%", "Entry", "Stop", "Target",
+                                  "R:R", "RangeATR"],
+                    column_config={
+                        "Stage": st.column_config.Column(help="TRIGGERED = POC reclaimed. SWEPT = lows taken, reclaim pending. COILING = range forming."),
+                        "BarsAgo": st.column_config.Column(help="Sessions since the stage began. 0 = it happened on the latest bar."),
+                        "POC": st.column_config.Column(help="Point of Control — where the coil traded the most volume. The entry level."),
+                        "ToPOC%": st.column_config.Column(help="How far price sits from the POC. Negative = still below it."),
+                        "R:R": st.column_config.Column(help="Reward-to-risk from POC entry to the far side of the range. These win on hit rate (~78%), not payoff — a median near 0.4 is expected."),
+                        "RangeATR": st.column_config.Column(help="Width of the coil in ATRs when it locked. Tighter is cleaner."),
+                    })
+                _pr = (_psel.selection.rows if _psel and getattr(_psel, "selection", None) else [])
+                if _pr:
+                    _ptk = _pdf.iloc[_pr[0]].Ticker
+                    if st.session_state.get("_poc_handled") != _ptk:
+                        st.session_state["_poc_handled"] = _ptk
+                        st.session_state["lk_tk"] = _ptk
+                        st.rerun()
+                st.caption("👆 Tap a row to open the full analysis in Stock Lookup.")
+
+        with st.expander("❓ What this is, and what the testing actually showed"):
+            st.markdown(
+                "**The three acts**\n"
+                "1. **Accumulation** — price coils. The whole high-low range over "
+                "the lookback is no wider than a set number of ATRs.\n"
+                "2. **Manipulation** — price sweeps *below* the range, taking the "
+                "stops resting under it, then fails to hold down there.\n"
+                "3. **Distribution** — price closes back inside and reclaims the "
+                "**POC**, the price where the coil did most of its volume. That "
+                "reclaim is the entry; stop goes below the sweep; target is the "
+                "far side of the range.\n\n"
+                "**What your backtest found** (carried over from the script)\n"
+                "- Long, POC reclaim, accumulation length 15: **1,175 trades, "
+                "77.8% hit, +0.178R, PF 1.83** — positive in 10 of 10 months, "
+                "both ticker halves, both date halves, and 21 of 21 parameter "
+                "combinations.\n"
+                "- **Shorts lost money in every configuration tested** (−0.08R to "
+                "−0.26R), so this scanner is long-only.\n"
+                "- Fills were modelled at the **next bar's open** with a 10bp "
+                "round trip. Filling at the signal bar's close flattered it from "
+                "−0.057R to +0.147R — the difference between an edge and reading "
+                "the future.\n"
+                "- The **84% re-entry rule did not reproduce**: second entries came "
+                "in at 25–31% across every window tested, never near 84%.\n\n"
+                "**Honest limits.** The sample is ~11 months of one regime, and the "
+                "September-2026 replication covers the same window shifted a day — "
+                "a replication, not an out-of-sample test. Daily bars only; the "
+                "method is usually traded intraday and that is untested here. The "
+                "low R:R is by design: these win on hit rate, not payoff.")
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
