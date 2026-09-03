@@ -998,8 +998,8 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
     st.stop()
 
 asof = str(closes.index[-1].date())
-(tab_map, tab_lookup, tab_top20, tab_apex, tab_macro, tab_pressure,
- tab_poc, tab_sentinels, tab_forced, tab_lab, tab_guide) = st.tabs(
+(tab_map, tab_lookup, tab_top20, tab_apex, tab_macro, tab_poc,
+ tab_pressure, tab_sentinels, tab_forced, tab_lab, tab_guide) = st.tabs(
     ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "⚡ APEX FLOW",
      "🧪 Macro Sim", "🎯 POC Future", "🌡 Pressure", "🛰 Sentinels",
      "📅 Forced Flows", "🔬 Validation Lab", "📖 Guide"])
@@ -2564,14 +2564,14 @@ with tab_poc:
         _pc1, _pc2, _pc3 = st.columns([2, 1, 1])
         _stage_pick = _pc1.multiselect(
             "Show stages", ["TRIGGERED", "SWEPT", "COILING"],
-            default=["TRIGGERED", "SWEPT"], key="poc_stages",
+            default=["TRIGGERED", "SWEPT", "COILING"], key="poc_stages",
             help="TRIGGERED = the POC was reclaimed, entry is live. "
                  "SWEPT = lows taken, waiting on the reclaim. "
                  "COILING = a tight range is forming, no sweep yet.")
-        _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200], index=1,
+        _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200, 500], index=1,
                                   key="poc_top")
-        _poc_fresh = _pc3.selectbox("Max bars since trigger", [1, 2, 3, 5, 10],
-                                    index=3, key="poc_fresh",
+        _poc_fresh = _pc3.selectbox("Max bars since trigger", [3, 5, 10, 20, 45],
+                                    index=2, key="poc_fresh",
                                     help="A reclaim from three weeks ago is "
                                          "history, not a setup.")
         with st.expander("⚙️ Pattern settings"):
@@ -2618,7 +2618,9 @@ with tab_poc:
                     <span style="color:{DIM};">{_cnt.get('COILING',0)} still coiling</span>
                     <br><span style="color:{DIM};font-size:12px;">Freshest first, then
                     tightest coil. Entry is the POC, stop sits below the sweep,
-                    target is the far side of the range.</span></div>""",
+                    target is the far side of the range. Coils always outnumber
+                    triggers — most bases never get swept, and most sweeps never
+                    reclaim. The coiling list is the early-warning queue.</span></div>""",
                     unsafe_allow_html=True)
                 _psel = st.dataframe(
                     _pdf.style.format({

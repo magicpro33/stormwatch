@@ -100,15 +100,26 @@ def _profile(h, l, c, v, lo, hi, bins=VP_BINS, va_pct=VA_PCT):
 
 def scan_symbol(h, l, c, v, accum_len=ACCUM_LEN, max_range_atr=MAX_RANGE_ATR,
                 min_sweep_atr=MIN_SWEEP_ATR, max_wait=MAX_WAIT,
-                max_entry_wait=MAX_ENTRY_WAIT, stop_buf_atr=STOP_BUF_ATR):
-    """Run the AMD state machine over one symbol's daily bars.
+                max_entry_wait=MAX_ENTRY_WAIT, stop_buf_atr=STOP_BUF_ATR,
+                search_back=45):
+    """Evaluate the stock's CURRENT structure and return its live stage.
 
-    Returns the CURRENT state at the last bar, or None if the symbol is not in
-    a setup. Stages, in the order they occur:
+    Design note — this is deliberately not a forward replay. An earlier version
+    walked history greedily, locked the first coil it met and reported whatever
+    state it ended in; on a year of bars that meant 1,003 of 2,479 names showed
+    "TRIGGERED" with a MEDIAN age of 99 sessions. Technically true, useless as a
+    scan: it answered "did this ever happen?" rather than "what is this stock
+    doing now?"
 
-        COILING   an accumulation range is locked, waiting for the sweep
-        SWEPT     the lows have been swept, waiting for the POC reclaim
-        TRIGGERED the reclaim happened on the final bar — the entry is live
+    So instead we search BACKWARD for the most recent accumulation window, then
+    walk forward from it to classify what has happened since:
+
+        COILING    the range is locked and no sweep yet (still within max_wait)
+        SWEPT      the lows were taken and the reclaim window is still open
+        TRIGGERED  price closed back above the POC — entry is live
+
+    Anything older than that has expired and returns None, so every row on the
+    board is current by construction.
     """
     T = len(c)
     if T < accum_len + ATR_LEN + 5:
@@ -116,100 +127,78 @@ def scan_symbol(h, l, c, v, accum_len=ACCUM_LEN, max_range_atr=MAX_RANGE_ATR,
     atr = _atr(h, l, c)
     if not np.isfinite(atr[-1]) or atr[-1] <= 0:
         return None
+    last = T - 1
 
-    state = 0                     # 0 hunting | 1 range locked | 2 swept
-    acc_hi = acc_lo = np.nan
-    acc_start = acc_end = -1
-    acc_atr = np.nan              # ATR AT LOCK TIME — range width is judged
-    poc = vah = val = np.nan      # against the volatility that formed it
-    sweep_px = np.nan
-    sweep_bar = -1
-    fired_bar = -1
-    # the machine keeps running to the last bar so we report the CURRENT state.
-    # Breaking on the first trigger would surface a setup from months ago as if
-    # it were live; every symbol eventually triggers once over a year of bars.
-    last = None
-
-    start = max(accum_len, ATR_LEN) + 1
-    for i in range(start, T):
-        a = atr[i]
+    # most recent bar at which a compressed window could have closed
+    lo_k = max(accum_len, ATR_LEN) + 1
+    for k in range(last, max(lo_k, last - search_back) - 1, -1):
+        a = atr[k]
         if not np.isfinite(a) or a <= 0:
             continue
+        s0 = k - accum_len + 1
+        if s0 < 0:
+            continue
+        w_hi = np.nanmax(h[s0:k + 1])
+        w_lo = np.nanmin(l[s0:k + 1])
+        if not (np.isfinite(w_hi) and np.isfinite(w_lo)) or w_hi <= w_lo:
+            continue
+        if (w_hi - w_lo) > a * max_range_atr:
+            continue                      # not a coil
 
-        if state == 0:
-            w_hi = np.nanmax(h[i - accum_len + 1:i + 1])
-            w_lo = np.nanmin(l[i - accum_len + 1:i + 1])
-            if np.isfinite(w_hi) and np.isfinite(w_lo) and w_hi > w_lo \
-                    and (w_hi - w_lo) <= a * max_range_atr:
-                acc_hi, acc_lo = w_hi, w_lo
-                acc_start, acc_end = i - accum_len + 1, i
-                acc_atr = a
-                sl = slice(acc_start, acc_end + 1)
-                poc, vah, val = _profile(h[sl], l[sl], c[sl], v[sl], acc_lo, acc_hi)
-                if np.isfinite(poc):
-                    state = 1
+        poc, vah, val = _profile(h[s0:k + 1], l[s0:k + 1], c[s0:k + 1],
+                                 v[s0:k + 1], w_lo, w_hi)
+        if not np.isfinite(poc):
             continue
 
-        if state == 1:
-            if (i - acc_end) > max_wait:          # coil went stale
-                state = 0
-                continue
-            depth = a * min_sweep_atr
-            if l[i] < acc_lo - depth:             # LONG side: lows swept
-                state = 2
-                sweep_px = l[i]
+        depth = a * min_sweep_atr
+        # did the lows get swept after the coil closed?
+        sweep_bar = -1
+        sweep_px = np.nan
+        for i in range(k + 1, min(k + max_wait, last) + 1):
+            if l[i] < w_lo - depth:
                 sweep_bar = i
-            continue
+                sweep_px = float(np.nanmin(l[k + 1:i + 1]))
+                break
 
-        if state == 2:
-            if (i - sweep_bar) > max_entry_wait:  # never reclaimed
-                state = 0
-                continue
-            sweep_px = min(sweep_px, l[i])        # track a deeper sweep
-            if np.isfinite(poc) and c[i] > poc:   # DISTRIBUTION: POC reclaimed
-                fired_bar = i
-                last = dict(kind="TRIGGERED", bar=i, poc=poc, vah=vah, val=val,
-                            acc_hi=acc_hi, acc_lo=acc_lo, acc_atr=acc_atr,
-                            sweep_px=sweep_px)
-                state = 0                        # hunt the next coil
-            continue
+        px = float(c[last])
+        base = dict(poc=float(poc), vah=float(vah), val=float(val),
+                    acc_hi=float(w_hi), acc_lo=float(w_lo), atr=float(a),
+                    price=px, range_atr=float((w_hi - w_lo) / a),
+                    dist_to_poc=float((px - poc) / px * 100))
 
-    # A live coil or sweep outranks a past trigger; otherwise report the most
-    # recent trigger and let BarsAgo say how stale it is.
-    if state == 1:
-        stage, bar = "COILING", acc_end
-    elif state == 2:
-        stage, bar = "SWEPT", sweep_bar
-    elif last is not None:
-        stage, bar = "TRIGGERED", last["bar"]
-        poc, vah, val = last["poc"], last["vah"], last["val"]
-        acc_hi, acc_lo, acc_atr = last["acc_hi"], last["acc_lo"], last["acc_atr"]
-        sweep_px = last["sweep_px"]
-    else:
-        return None
+        if sweep_bar < 0:
+            if (last - k) <= max_wait:    # still coiling, sweep may yet come
+                base.update(stage="COILING", bars_in_stage=int(last - k),
+                            entry=np.nan, stop=np.nan, target=np.nan, rr=np.nan)
+                return base
+            continue                      # coil went stale — look further back
 
-    px = float(c[-1])
-    a = float(acc_atr) if np.isfinite(acc_atr) and acc_atr > 0 else float(atr[-1])
-    out = dict(stage=stage, bars_in_stage=int(T - 1 - bar),
-               poc=float(poc) if np.isfinite(poc) else np.nan,
-               vah=float(vah) if np.isfinite(vah) else np.nan,
-               val=float(val) if np.isfinite(val) else np.nan,
-               acc_hi=float(acc_hi), acc_lo=float(acc_lo), atr=a, price=px,
-               range_atr=float((acc_hi - acc_lo) / a) if a > 0 else np.nan,
-               dist_to_poc=float((px - poc) / px * 100) if np.isfinite(poc) else np.nan)
+        # deepest point of the sweep, and the reclaim search window
+        w_end = min(sweep_bar + max_entry_wait, last)
+        sweep_px = float(np.nanmin(l[k + 1:w_end + 1]))
+        fired = -1
+        for i in range(sweep_bar, w_end + 1):
+            if c[i] > poc:
+                fired = i
+                break
 
-    if stage == "COILING":
-        out.update(entry=np.nan, stop=np.nan, target=np.nan, rr=np.nan)
-        return out
+        stop = float(sweep_px - a * stop_buf_atr)
+        entry = float(poc)
+        target = float(w_hi)
+        risk = entry - stop
+        rr = (target - entry) / risk if risk > 0 else np.nan
+        base.update(sweep_px=sweep_px, stop=stop, entry=entry, target=target,
+                    rr=float(rr) if np.isfinite(rr) else np.nan)
 
-    stop = float(sweep_px - a * stop_buf_atr)
-    target = float(acc_hi)                        # far side of the range
-    entry = float(poc)
-    risk = entry - stop
-    rr = (target - entry) / risk if risk > 0 else np.nan
-    out.update(sweep_px=float(sweep_px), stop=stop, target=target, entry=entry,
-               rr=float(rr) if np.isfinite(rr) else np.nan)
-    return out
+        if fired >= 0:
+            base.update(stage="TRIGGERED", bars_in_stage=int(last - fired))
+            return base
+        if (last - sweep_bar) <= max_entry_wait:
+            base.update(stage="SWEPT", bars_in_stage=int(last - sweep_bar))
+            return base
+        continue                          # reclaim window closed — keep looking
+
+    return None
 
 
 def scan(min_price: float = 5.0, min_dollar_vol: float = 5e6,
