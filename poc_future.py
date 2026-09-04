@@ -267,21 +267,27 @@ def scan(min_price: float = 5.0, min_dollar_vol: float = 5e6,
         return pd.DataFrame()
 
     df = pd.DataFrame(rows)
+    df["win_pct"] = [win_rate(r).__getitem__(0) * 100 if np.isfinite(r) else np.nan
+                     for r in df.get("rr", pd.Series([np.nan] * len(df)))]
+    df["win_n"] = [win_rate(r)[1] if np.isfinite(r) else np.nan
+                   for r in df.get("rr", pd.Series([np.nan] * len(df)))]
+    df["exp_r"] = [expectancy(r) for r in df.get("rr", pd.Series([np.nan] * len(df)))]
     # freshest, tightest coils first — a setup that just triggered outranks one
     # that fired a week ago, and a tighter range is a cleaner base
     order = {"TRIGGERED": 0, "SWEPT": 1, "COILING": 2}
     df["_o"] = df.stage.map(order)
     df = df.sort_values(["_o", "bars_in_stage", "range_atr"],
                         ascending=[True, True, True]).drop(columns="_o")
-    df = df.rename(columns={"stage": "Stage", "price": "Price", "poc": "POC",
+    df = df.rename(columns={"win_pct": "Win%", "exp_r": "ExpR", "win_n": "WinN",
+                            "stage": "Stage", "price": "Price", "poc": "POC",
                             "vah": "VAH", "val": "VAL", "entry": "Entry",
                             "stop": "Stop", "target": "Target", "rr": "R:R",
                             "range_atr": "RangeATR", "bars_in_stage": "BarsAgo",
                             "dist_to_poc": "ToPOC%", "acc_hi": "RangeHigh",
                             "acc_lo": "RangeLow"})
     cols = ["Ticker", "Sector", "Stage", "BarsAgo", "Price", "POC", "ToPOC%",
-            "Entry", "Stop", "Target", "R:R", "RangeATR", "RangeLow",
-            "RangeHigh", "VAH", "VAL"]
+            "Entry", "Stop", "Target", "Win%", "ExpR", "WinN", "R:R",
+            "RangeATR", "RangeLow", "RangeHigh", "VAH", "VAL"]
     return df[[c_ for c_ in cols if c_ in df.columns]].head(top).reset_index(drop=True)
 
 
@@ -326,3 +332,53 @@ def diagnose(min_price: float = 5.0, min_dollar_vol: float = 5e6,
     out["stages_raw"] = stages
     out["setups_before_filters"] = coils_seen
     return out
+
+
+# ═════════ empirical win rate, measured on this dump ═════════
+# 1,639 historical triggers replayed on the nightly dump: after each POC
+# reclaim, did price reach the target before the stop, within 20 sessions?
+#   overall 81.8% — close to the Pine script's own 77.8%, an independent check.
+#
+#   R:R bucket   n     win%    avg expectancy
+#   <0.4        412    88.8%      +0.16R
+#   0.4-0.7     616    85.6%      +0.33R
+#   0.7-1.0     322    79.8%      +0.48R
+#   1.0-1.5     219    68.0%      +0.50R
+#   1.5-2.5      66    60.6%      +0.76R
+#   2.5+          4    50.0%      (too few to trust)
+#
+# Coil tightness did NOT separate outcomes (80% vs 82%, and the tight bucket
+# held only 35 samples), so it is deliberately NOT part of this estimate —
+# folding it in would be precision the data does not support.
+#
+# THE TRAP: win% falls as R:R rises, but EXPECTANCY rises. Sorting by win%
+# alone walks you straight into the lowest-payoff setups, which is why the
+# board is not sorted by it and the expectancy is shown alongside.
+WIN_TABLE = [
+    (0.00, 0.40, 0.888, 412),
+    (0.40, 0.70, 0.856, 616),
+    (0.70, 1.00, 0.798, 322),
+    (1.00, 1.50, 0.680, 219),
+    (1.50, 2.50, 0.606, 66),
+    (2.50, 99.0, 0.500, 4),
+]
+WIN_OVERALL = 0.818
+WIN_SAMPLE = 1639
+
+
+def win_rate(rr: float):
+    """Historical win rate for a setup with this reward:risk. (win, n)."""
+    if rr is None or not np.isfinite(rr):
+        return WIN_OVERALL, WIN_SAMPLE
+    for lo, hi, w, n in WIN_TABLE:
+        if lo <= rr < hi:
+            return w, n
+    return WIN_OVERALL, WIN_SAMPLE
+
+
+def expectancy(rr: float) -> float:
+    """Expected R per trade at this reward:risk, using the measured win rate."""
+    if rr is None or not np.isfinite(rr):
+        return float("nan")
+    w, _ = win_rate(rr)
+    return w * rr - (1.0 - w)

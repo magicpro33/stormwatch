@@ -2627,25 +2627,32 @@ with tab_poc:
                         "Price": "${:,.2f}", "POC": "${:,.2f}", "ToPOC%": "{:+.1f}%",
                         "Entry": "${:,.2f}", "Stop": "${:,.2f}", "Target": "${:,.2f}",
                         "R:R": "{:.2f}", "RangeATR": "{:.2f}",
+                        "Win%": "{:.0f}%", "ExpR": "{:+.2f}R",
                         "RangeLow": "${:,.2f}", "RangeHigh": "${:,.2f}",
                         "VAH": "${:,.2f}", "VAL": "${:,.2f}"}, na_rep="—")
                     .map(lambda v: (f"color:{GREEN};font-weight:700" if v == "TRIGGERED"
                                     else ("color:#d0b040" if v == "SWEPT"
                                           else f"color:{DIM}")), subset=["Stage"])
                     .map(lambda v: _css_sign(v) if isinstance(v, (int, float)) else "",
-                         subset=["ToPOC%"]),
+                         subset=["ToPOC%"])
+                    .map(lambda v: (f"color:{GREEN};font-weight:700" if v >= 85
+                                    else ("color:#d0b040" if v >= 75 else f"color:{DIM}"))
+                         if isinstance(v, (int, float)) else "", subset=["Win%"])
+                    .map(lambda v: (f"color:{GREEN};font-weight:700" if v >= 0.50
+                                    else (f"color:{DIM}" if v >= 0.25 else f"color:{RED}"))
+                         if isinstance(v, (int, float)) else "", subset=["ExpR"]),
                     width="stretch", hide_index=True, height=620,
                     on_select="rerun", selection_mode="single-row", key="poc_table",
-                    column_order=["Ticker", "Sector", "Stage", "BarsAgo", "Price",
-                                  "POC", "ToPOC%", "Entry", "Stop", "Target",
-                                  "R:R", "RangeATR"],
+                    column_order=["Ticker", "Sector", "Stage", "Price", "POC",
+                                  "ToPOC%", "Entry", "Stop", "Target",
+                                  "Win%", "ExpR"],
                     column_config={
                         "Stage": st.column_config.Column(help="TRIGGERED = POC reclaimed. SWEPT = lows taken, reclaim pending. COILING = range forming."),
                         "BarsAgo": st.column_config.Column(help="Sessions since the stage began. 0 = it happened on the latest bar."),
                         "POC": st.column_config.Column(help="Point of Control — where the coil traded the most volume. The entry level."),
                         "ToPOC%": st.column_config.Column(help="How far price sits from the POC. Negative = still below it."),
-                        "R:R": st.column_config.Column(help="Reward-to-risk from POC entry to the far side of the range. These win on hit rate (~78%), not payoff — a median near 0.4 is expected."),
-                        "RangeATR": st.column_config.Column(help="Width of the coil in ATRs when it locked. Tighter is cleaner."),
+                        "Win%": st.column_config.Column(help="How often setups with this reward-to-risk actually reached target before stop — measured by replaying 1,639 real triggers on the nightly dump (81.8% overall, matching the Pine script's 77.8%). It is an estimate from the bucket, not a promise about this stock."),
+                        "ExpR": st.column_config.Column(help="Expected return per trade in R, using that measured win rate. THE CATCH: win% falls as reward-to-risk rises, but expectancy RISES. An 89% setup pays +0.16R; a 61% setup pays +0.76R. Chasing the highest Win% column walks you into the lowest-payoff trades — read the two together."),
                     })
                 _pr = (_psel.selection.rows if _psel and getattr(_psel, "selection", None) else [])
                 if _pr:
@@ -2654,7 +2661,13 @@ with tab_poc:
                         st.session_state["_poc_handled"] = _ptk
                         st.session_state["lk_tk"] = _ptk
                         st.rerun()
-                st.caption("👆 Tap a row to open the full analysis in Stock Lookup.")
+                st.caption(f"👆 Tap a row to open the full analysis in Stock Lookup. "
+                           f"**Win%** comes from replaying {pfut.WIN_SAMPLE:,} real "
+                           f"triggers on this dump — but read it next to **ExpR**: "
+                           f"the highest win rates come from the nearest targets, "
+                           f"which pay the least. Best expectancy usually sits "
+                           f"around a 1.0-2.0 reward-to-risk, not at the top of "
+                           f"the Win% column.")
 
         with st.expander("🩺 Diagnostics — why am I seeing this many setups?"):
             st.caption("Runs the funnel on THIS deployment's data, so a thin "
