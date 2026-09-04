@@ -40,6 +40,8 @@ import numpy as np
 import pandas as pd
 
 # defaults mirror the Pine script's tuned inputs
+POC_VERSION    = "1.2"   # shown in the tab — confirms which build is deployed
+
 ACCUM_LEN      = 15      # retuned from 20; 4.6x more setups at equal expectancy
 MAX_RANGE_ATR  = 2.5     # the coil must be no wider than this many ATRs
 ATR_LEN        = 14
@@ -54,10 +56,17 @@ MAX_RR         = 4.00
 
 
 def _atr(h, l, c, n=ATR_LEN):
-    """Wilder-style ATR on (T,) arrays."""
+    """Wilder-style ATR on (T,) arrays, tolerant of gaps.
+
+    The dump panel only forward-fills CLOSES — highs, lows and volume keep
+    their NaNs wherever a symbol had no bar. A plain rolling mean turns a
+    single NaN into a NaN ATR for the next 14 bars, which made scan_symbol
+    bail out on 2,485 of 2,486 names. min_periods lets the average form from
+    whatever real bars are in the window.
+    """
     pc = np.roll(c, 1); pc[0] = c[0]
     tr = np.maximum(h - l, np.maximum(np.abs(h - pc), np.abs(l - pc)))
-    return pd.Series(tr).rolling(n).mean().values
+    return pd.Series(tr).rolling(n, min_periods=max(3, n // 3)).mean().values
 
 
 def _profile(h, l, c, v, lo, hi, bins=VP_BINS, va_pct=VA_PCT):
@@ -121,6 +130,22 @@ def scan_symbol(h, l, c, v, accum_len=ACCUM_LEN, max_range_atr=MAX_RANGE_ATR,
     Anything older than that has expired and returns None, so every row on the
     board is current by construction.
     """
+    # Compact to the symbol's REAL bars. The panel is a dense date grid, so a
+    # stock that listed late or missed prints carries NaNs; highs/lows are not
+    # forward-filled at all. Working on the valid rows keeps every window
+    # (coil, sweep, reclaim) counted in actual sessions.
+    c = np.asarray(c, dtype=float)
+    good = np.isfinite(c)
+    if good.sum() < accum_len + ATR_LEN + 5:
+        return None
+    c = c[good]
+    h = np.asarray(h, dtype=float)[good]
+    l = np.asarray(l, dtype=float)[good]
+    v = np.nan_to_num(np.asarray(v, dtype=float)[good])
+    # a missing high/low on a real bar falls back to the close
+    h = np.where(np.isfinite(h), h, c)
+    l = np.where(np.isfinite(l), l, c)
+
     T = len(c)
     if T < accum_len + ATR_LEN + 5:
         return None
@@ -258,3 +283,46 @@ def scan(min_price: float = 5.0, min_dollar_vol: float = 5e6,
             "Entry", "Stop", "Target", "R:R", "RangeATR", "RangeLow",
             "RangeHigh", "VAH", "VAL"]
     return df[[c_ for c_ in cols if c_ in df.columns]].head(top).reset_index(drop=True)
+
+
+def diagnose(min_price: float = 5.0, min_dollar_vol: float = 5e6,
+             accum_len: int = ACCUM_LEN,
+             max_range_atr: float = MAX_RANGE_ATR) -> dict:
+    """Report the funnel on THIS deployment's data.
+
+    Written because the scanner returned ~750 setups locally and 2 on the live
+    app off the same nightly dump. Rather than guess across machines, the app
+    now reports its own counts at every stage.
+    """
+    import cascade_engine as ce
+    panel, tickers, sectors, mdv, dts = ce.load_dump_panel()
+    h, l, c, v = panel["h"], panel["l"], panel["c"], panel["v"]
+    px = c[-1]
+    n_total = len(px)
+    f_price = np.isfinite(px) & (px >= min_price)
+    f_liq = f_price & (mdv >= min_dollar_vol)
+    recent = ce._recent_ok_mask(panel)
+    f_all = f_liq & recent
+
+    out = dict(version=POC_VERSION, bars=int(c.shape[0]),
+               last_date=str(pd.to_datetime(dts[-1]).date()),
+               universe=n_total, after_price=int(f_price.sum()),
+               after_liquidity=int(f_liq.sum()),
+               recent_ok=int(recent.sum()), scannable=int(f_all.sum()))
+
+    # how many even have enough bars / a valid ATR?
+    need = accum_len + ATR_LEN + 5
+    out["enough_bars"] = int(c.shape[0] >= need)
+    stages = {"COILING": 0, "SWEPT": 0, "TRIGGERED": 0, "NONE": 0}
+    coils_seen = 0
+    for j in np.where(f_all)[0]:
+        r = scan_symbol(h[:, j], l[:, j], c[:, j], np.nan_to_num(v[:, j]),
+                        accum_len=accum_len, max_range_atr=max_range_atr)
+        if r is None:
+            stages["NONE"] += 1
+        else:
+            stages[r["stage"]] += 1
+            coils_seen += 1
+    out["stages_raw"] = stages
+    out["setups_before_filters"] = coils_seen
+    return out

@@ -2656,6 +2656,33 @@ with tab_poc:
                         st.rerun()
                 st.caption("👆 Tap a row to open the full analysis in Stock Lookup.")
 
+        with st.expander("🩺 Diagnostics — why am I seeing this many setups?"):
+            st.caption("Runs the funnel on THIS deployment's data, so a thin "
+                       "board can be traced to the exact step that drops names "
+                       "instead of guessed at.")
+            if st.button("Run diagnostics", key="poc_diag"):
+                try:
+                    _d = pfut.diagnose(accum_len=int(_accum),
+                                       max_range_atr=float(_rng))
+                    _s = _d["stages_raw"]
+                    st.markdown(
+                        f"- module **poc_future v{_d['version']}**, "
+                        f"{_d['bars']} bars, last bar **{_d['last_date']}**\n"
+                        f"- dump universe: **{_d['universe']:,}**\n"
+                        f"- priced ≥ $5: **{_d['after_price']:,}**\n"
+                        f"- and ≥ $5M median dollar volume: **{_d['after_liquidity']:,}**\n"
+                        f"- with a real recent print: **{_d['scannable']:,}** ← scanned\n"
+                        f"- **setups found before your filters: "
+                        f"{_d['setups_before_filters']:,}** "
+                        f"(coiling {_s['COILING']:,} · swept {_s['SWEPT']:,} · "
+                        f"triggered {_s['TRIGGERED']:,} · no setup {_s['NONE']:,})")
+                    if _d["setups_before_filters"] < 20:
+                        st.warning("Very few setups before filtering — that points "
+                                   "at the data, not your settings. Hit 🔄 Refresh "
+                                   "on the Cascade Map and check the last bar date.")
+                except Exception as _de:
+                    st.error(f"Diagnostics failed: {_de}")
+
         with st.expander("❓ What this is, and what the testing actually showed"):
             st.markdown(
                 "**The three acts**\n"
