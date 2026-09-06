@@ -42,7 +42,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.29"
+REQUIRED_ENGINE = "2.30"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -1114,7 +1114,10 @@ with tab_map:
                 💰 Where money moved — {_mlbl}</div>
               <div style="color:{DIM};font-size:12px;margin-bottom:8px;">
                 Money leaves some corners of the market and shows up in others.
-                Window: {_mflow.attrs.get('window_start','—')} → {_mflow.attrs.get('window_end','—')}.</div>
+                Window: {_mflow.attrs.get('window_start','—')} → {_mflow.attrs.get('window_end','—')}
+                · nightly dump through <b>{_mflow.attrs.get('window_end','—')}</b>.
+                If that is behind the last trading day, the dump has not published
+                yet — hit 🔄 Refresh above.</div>
               <div style="font-size:12px;color:{GREEN};margin-bottom:2px;">FLOWED IN →</div>
               <div>{''.join(_chip(r.Sector, r.Ret, GREEN) for _, r in _in.iterrows())}</div>
               <div style="font-size:12px;color:{RED};margin:8px 0 2px;">FLOWED OUT →</div>

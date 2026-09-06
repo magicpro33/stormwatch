@@ -95,7 +95,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.29"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.30"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -845,17 +845,24 @@ _PANEL_CACHE = {}          # in-process: avoid re-reading the ~27MB npz per call
 
 def load_dump_panel():
     """Full OHLCV panel for ~5,700 stocks from the nightly magicpro33/stock
-    dump. Cached to disk AND in-process (mtime-keyed); refetched when >4 days
-    stale. Returns (panel dict, tickers, sectors, mdv, dates)."""
+    dump. Cached to disk AND in-process (mtime-keyed).
+
+    Freshness is judged against the LAST COMPLETED SESSION, not a rolling
+    window of calendar days. The old rule ("refetch when >4 days stale") meant
+    a dump ending Wednesday still counted as fresh on Friday, so the app could
+    sit up to four sessions behind data that was already published — the money-
+    movement panel would keep reporting a stale session with no way to tell.
+    Returns (panel dict, tickers, sectors, mdv, dates).
+    """
     import gzip as _gz
     if os.path.exists(LOCAL_DUMP):
         mt = os.path.getmtime(LOCAL_DUMP)
         hit = _PANEL_CACHE.get("panel")
         if hit and hit[0] == mt:
-            return hit[1]
+            return hit[1]          # already loaded this process — never re-download
         z = np.load(LOCAL_DUMP, allow_pickle=True)
         dts = pd.to_datetime(z["dates"])
-        if (pd.Timestamp.today() - dts[-1]).days <= 4:
+        if pd.Timestamp(dts[-1]).normalize() >= _last_completed_session():
             panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
             out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
             _PANEL_CACHE["panel"] = (mt, out)
