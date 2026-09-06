@@ -95,7 +95,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.30"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.31"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1485,6 +1485,64 @@ DUMP_INFO_MAP = {
 }
 
 
+def dump_analyzer_pack(ticker: str) -> dict:
+    """The cached analyzer profile the nightly scan now stores per ticker.
+
+    The scan already downloads `info` and the three statements for its scoring,
+    so it writes the Stock Lookup fields alongside them. Reading them here turns
+    a lookup that needed a live (slow, rate-limited) yfinance call into a local
+    dict read. Returns {} for dumps written before this existed, in which case
+    fetch_analyzer just falls back to the live path as it always did.
+    """
+    j = _ticker_index(ticker)
+    if j is None:
+        return {}
+    try:
+        raw = _dump_records_cache()
+        rec = raw.get(str(ticker).strip().upper())
+        return (rec or {}).get("_analyzer") or {}
+    except Exception:
+        return {}
+
+
+_RECORDS_CACHE = {}
+
+
+def _dump_records_cache() -> dict:
+    """Ticker -> raw dump record, kept in-process (the gz is ~20MB)."""
+    import gzip as _gz
+    path = os.path.join(os.path.dirname(__file__), "data", "stock_data.json.gz")
+    if not os.path.exists(path):
+        return {}
+    mt = os.path.getmtime(path)
+    if _RECORDS_CACHE.get("mt") == mt:
+        return _RECORDS_CACHE["by_ticker"]
+    try:
+        with _gz.open(path, "rt", encoding="utf-8") as f:
+            rows = json.load(f)
+    except Exception:
+        return {}
+    by = {str(r.get("Ticker", "")).upper(): r for r in rows}
+    _RECORDS_CACHE.clear()
+    _RECORDS_CACHE["mt"] = mt
+    _RECORDS_CACHE["by_ticker"] = by
+    return by
+
+
+ANALYZER_INFO_MAP = {
+    "shortName": "shortName", "industry": "industry", "beta": "beta",
+    "forwardPE": "forwardPE", "priceToBook": "priceToBook",
+    "priceToSales": "priceToSalesTrailing12Months",
+    "fiftyTwoWeekHigh": "fiftyTwoWeekHigh", "fiftyTwoWeekLow": "fiftyTwoWeekLow",
+    "profitMargins": "profitMargins", "operatingMargins": "operatingMargins",
+    "grossMargins": "grossMargins", "returnOnEquity": "returnOnEquity",
+    "returnOnAssets": "returnOnAssets", "debtToEquity": "debtToEquity",
+    "currentRatio": "currentRatio", "targetMeanPrice": "targetMeanPrice",
+    "targetLowPrice": "targetLowPrice", "targetHighPrice": "targetHighPrice",
+    "numberOfAnalystOpinions": "numberOfAnalystOpinions",
+}
+
+
 def fetch_analyzer(ticker: str):
     """IGNITION Stock Analyzer data chain, ported: Alpaca history first,
     yfinance for history fallback + fundamentals + EPS, nightly dump for
@@ -1520,8 +1578,18 @@ def fetch_analyzer(ticker: str):
     if hist.empty:
         _issues.append("price history: no bars from Alpaca, Yahoo, or the nightly dump")
 
-    # ── Step 2: fundamentals from yfinance ───────────────────────────
-    if tk is not None:
+    # ── Step 2: fundamentals — cached pack first, live only if needed ─
+    _pack = dump_analyzer_pack(ticker)
+    if _pack:
+        for k, ik in ANALYZER_INFO_MAP.items():
+            v = _pack.get(k)
+            if v is not None:
+                info[ik] = v
+        info["_from_analyzer_cache"] = True
+        if _pack.get("eps_history"):
+            info["_cached_eps"] = _pack["eps_history"]
+
+    if tk is not None and not _pack:
         try:
             info = tk.info or {}
             if not info or len(info) < 3:
@@ -1611,7 +1679,10 @@ def fetch_analyzer(ticker: str):
     # ── Step 4: EPS history — earnings_history → income stmt fallback ─
     # (NEVER tk.quarterly_earnings: deprecated + crash-prone upstream)
     eps_history = []
-    if tk is not None:
+    if info.get("_cached_eps"):
+        eps_history = [q for q in info["_cached_eps"]
+                       if q.get("actual") is not None or q.get("estimate") is not None][-8:]
+    if not eps_history and tk is not None:
         try:
             eh = getattr(tk, "earnings_history", None)
             if eh is not None and hasattr(eh, "empty") and not eh.empty:
