@@ -95,7 +95,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.31"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.32"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1787,6 +1787,7 @@ REGIME_LABELS = {
     "bear":   "⛈️ Fear / Risk-Off — money flees to safety & gold",
     "strong": "💵 Rising Dollar — US quality holds, gold & foreign lag",
     "repress": "💸 Debasement — money printed to cap yields; cash & bonds bleed, hard assets hold",
+    "reset":   "🌍 Reserve Reset — foreign creditors step back; gold, miners & hard security lead",
     "base":   "⛅ No Clear Driver — no dominant force, quality quietly wins",
 }
 
@@ -1794,7 +1795,8 @@ REGIME_LABELS = {
 REGIME_NAMES = {
     "qe": "💧 Easy Money", "stag": "🔥 Hot Inflation", "bull": "☀️ Risk-On Calm",
     "bear": "⛈️ Fear / Risk-Off", "strong": "💵 Rising Dollar",
-    "repress": "💸 Debasement", "base": "⛅ No Clear Driver",
+    "repress": "💸 Debasement", "reset": "🌍 Reserve Reset",
+    "base": "⛅ No Clear Driver",
 }
 
 # structured explainer cards (Option 3): name, aka, story, leads, lags, trigger
@@ -1852,6 +1854,19 @@ REGIME_CARDS = {
         lags="Cash · Long-duration bonds · Unprofitable growth · High-multiple tech",
         trigger="Treasury buybacks expand and the Fed's balance sheet grows while "
                 "long yields stay pinned, gold makes new highs, and the dollar erodes"),
+    "reset": dict(
+        emoji="🌍", name="Reserve Reset", aka="de-dollarisation / political Fed",
+        story="Foreign creditors are stepping back from the dollar — central banks "
+              "repatriating gold, sovereign funds trimming Treasuries — while the "
+              "central bank comes under political pressure to cut rates. Unlike "
+              "Debasement, long yields RISE here, because the buyers are leaving "
+              "rather than being replaced by the printer. Money moves toward things "
+              "no government can issue and toward assets outside the dollar.",
+        leads="Gold & silver miners · Uranium & nuclear · Defense · Shipping · "
+              "Platinum · Non-US equities · Utilities · Industrials",
+        lags="Energy (oil) · Healthcare & biotech · Regional banks · Long bonds · Cash",
+        trigger="gold is outrunning stocks, the dollar is falling AND long yields "
+                "are rising together — creditors leaving, not policy pinning"),
     "base": dict(
         emoji="⛅", name="No Clear Driver", aka="base case",
         story="No single macro force is in charge. Without a dominant tailwind or "
@@ -1893,8 +1908,43 @@ SECTOR_TILTS = {
                 "Real Estate": 1.10, "Industrials": 1.06, "Consumer Defensive": 1.05,
                 "Utilities": 1.00, "Consumer Cyclical": 0.95, "Healthcare": 0.95,
                 "Communication Services": 0.85, "Technology": 0.82},
+    # Reserve Reset — derived from 804 sessions of real node history rather than
+    # from the narrative. Regime defined as gold outperforming stocks + a weak
+    # dollar + RISING long yields (the opposite bond leg to Debasement), which
+    # fired on 15% of sessions. Sector excess vs SPY, 21d forward, in-regime:
+    #   Utilities +1.29  Technology +0.92  Industrials +0.74  Cons Def +0.13
+    #   Cons Cyc -0.09  Comm Svcs -0.17  Basic Mat -0.31  Financials -0.41
+    #   Real Estate -0.72  Energy -1.54  Healthcare -2.18
+    # NOTE the surprises, kept because the data says so: Energy LAGGED badly
+    # (oil -3.7%, oil services -2.9%) even though the thesis is inflationary,
+    # and Technology was mildly POSITIVE despite the "avoid the AI mega-caps"
+    # argument. The sector layer is deliberately mild — the real expression of
+    # this regime is thematic (see RESET_THEMES) and sector tilts cannot carry it.
+    "reset":  {"Utilities": 1.19, "Technology": 1.15, "Industrials": 1.12,
+               "Consumer Defensive": 1.04, "Consumer Cyclical": 1.02,
+               "Communication Services": 1.01, "Basic Materials": 0.99,
+               "Financial Services": 0.97, "Real Estate": 0.93,
+               "Energy": 0.83, "Healthcare": 0.74},
     "base":   {},
 }
+
+# Where this regime ACTUALLY paid — measured excess vs SPY over 21 sessions,
+# in-regime minus out-of-regime. These are themes, not GICS sectors, which is
+# why the sector tilts above look mild next to the numbers here.
+RESET_THEMES = [
+    ("GDXJ", "Junior gold miners", 6.50),
+    ("GDX",  "Gold miners", 5.99),
+    ("URA",  "Uranium", 5.48),
+    ("SIL",  "Silver miners", 5.40),
+    ("BOAT", "Global shipping", 4.72),
+    ("NLR",  "Nuclear energy", 4.71),
+    ("SHLD", "Global defense", 4.37),
+    ("GLD",  "Gold bullion", 2.89),
+    ("EWW",  "Mexico equities", 2.86),
+    ("PPLT", "Platinum", 2.74),
+    ("EWG",  "Germany equities", 2.56),
+    ("MOO",  "Agribusiness", 2.49),
+]
 
 
 def macro_regime(closes: pd.DataFrame, pressure_gauge=None) -> dict:
@@ -1929,6 +1979,14 @@ def macro_regime(closes: pd.DataFrame, pressure_gauge=None) -> dict:
           and np.isfinite(imp.get("QQQ", np.nan)) and imp.get("QQQ") <= -0.75):
         reg = "bear"; drivers.append(
             f"yen carry unwind signature (FXY z {imp.get('FXY'):+.1f}, QQQ draining)")
+    elif (np.isfinite(gold) and np.isfinite(uup) and np.isfinite(tlt)
+          and gold > 0.05 and uup < 0.0 and tlt < -0.02):
+        # gold up + dollar down + long yields UP = creditors stepping back.
+        # The rising-yield leg is what separates this from Debasement, where
+        # policy buying pins yields down.
+        reg = "reset"
+        drivers.append(f"gold {gold:+.0%} with the dollar {uup:+.0%} and long "
+                       f"yields rising (TLT {tlt:+.0%}) — creditors backing away")
     elif np.isfinite(uup) and uup > 0.04:
         reg = "strong"; drivers.append(f"dollar +{uup:.0%}/63d")
     else:
