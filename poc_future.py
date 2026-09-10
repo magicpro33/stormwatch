@@ -40,7 +40,7 @@ import numpy as np
 import pandas as pd
 
 # defaults mirror the Pine script's tuned inputs
-POC_VERSION    = "1.2"   # shown in the tab — confirms which build is deployed
+POC_VERSION    = "1.3"   # shown in the tab — confirms which build is deployed
 
 ACCUM_LEN      = 15      # retuned from 20; 4.6x more setups at equal expectancy
 MAX_RANGE_ATR  = 2.5     # the coil must be no wider than this many ATRs
@@ -53,6 +53,36 @@ VP_BINS        = 24
 VA_PCT         = 70.0
 MIN_RR         = 0.30    # POC entries win on hit rate, not payoff — median RR ~0.39
 MAX_RR         = 4.00
+
+# Basic-mode presets. Labels are the ones shown in the app.
+# accum_len / max_range_atr / stages / max_bars_ago feed scan() unchanged.
+POC_PRESET_DEFAULT = "Ready to buy now"
+POC_PRESETS = {
+    "Ready to buy now": dict(
+        stages=("TRIGGERED",),
+        accum_len=15, max_range_atr=2.5, max_bars_ago=5,
+        blurb="Only names that already reclaimed the POC. The trigger already fired."),
+    "Waiting on the reclaim": dict(
+        stages=("TRIGGERED", "SWEPT"),
+        accum_len=15, max_range_atr=2.5, max_bars_ago=10,
+        blurb="Lows were swept. Watching for price to climb back through the POC."),
+    "Forming bases (early look)": dict(
+        stages=("COILING",),
+        accum_len=15, max_range_atr=2.5, max_bars_ago=10,
+        blurb="Tight coils that have not swept yet — the early-warning queue."),
+    "Tight bases only": dict(
+        stages=("TRIGGERED", "SWEPT", "COILING"),
+        accum_len=15, max_range_atr=1.8, max_bars_ago=10,
+        blurb="Same pattern, but the coil has to be tighter than usual. Fewer names."),
+    "Wider hunt": dict(
+        stages=("TRIGGERED", "SWEPT", "COILING"),
+        accum_len=12, max_range_atr=3.2, max_bars_ago=20,
+        blurb="Looser coils so more names show up. Expect more noise."),
+    "Backtest default": dict(
+        stages=("TRIGGERED", "SWEPT", "COILING"),
+        accum_len=15, max_range_atr=2.5, max_bars_ago=10,
+        blurb="The Pine-script settings that made money in testing: 15-bar coil, 2.5 ATR."),
+}
 
 
 def _atr(h, l, c, n=ATR_LEN):

@@ -2611,40 +2611,117 @@ with tab_poc:
                    "POC** — the price where the coil did most of its business. "
                    "The reclaim is the trigger and the trade runs long.")
 
-        _pc1, _pc2, _pc3 = st.columns([2, 1, 1])
-        _stage_pick = _pc1.multiselect(
-            "Show stages", ["TRIGGERED", "SWEPT", "COILING"],
-            default=["TRIGGERED", "SWEPT", "COILING"], key="poc_stages",
-            help="TRIGGERED = the POC was reclaimed, entry is live. "
-                 "SWEPT = lows taken, waiting on the reclaim. "
-                 "COILING = a tight range is forming, no sweep yet.")
-        _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200, 500], index=1,
-                                  key="poc_top")
-        _poc_fresh = _pc3.selectbox("Max bars since trigger", [3, 5, 10, 20, 45],
-                                    index=2, key="poc_fresh",
-                                    help="A reclaim from three weeks ago is "
-                                         "history, not a setup.")
-        with st.expander("⚙️ Pattern settings"):
-            _e1, _e2 = st.columns(2)
-            _accum = _e1.slider("Accumulation length (bars)", 8, 40,
-                                pfut.ACCUM_LEN, key="poc_accum",
-                                help="Your backtest retuned this from 20 to 15: "
-                                     "4.6x more setups at the same expectancy "
-                                     "and positive in 10 of 10 months.")
-            _rng = _e2.slider("Max range (x ATR)", 1.0, 4.0,
-                              pfut.MAX_RANGE_ATR, step=0.1, key="poc_rng",
-                              help="The coil must be no wider than this many "
-                                   "ATRs. Lower = tighter, rarer bases.")
+        _poc_mode = st.radio(
+            "Controls", ["Basic", "Advanced"], horizontal=True,
+            key="poc_ui_mode",
+            help="Basic = pick a plain-English pattern. Advanced = every knob "
+                 "(coil length, range, stages, freshness).")
+        _poc_basic = _poc_mode == "Basic"
+
+        if _poc_basic:
+            _preset_names = list(pfut.POC_PRESETS)
+            _preset_ix = _preset_names.index(pfut.POC_PRESET_DEFAULT) \
+                if pfut.POC_PRESET_DEFAULT in _preset_names else 0
+            _p1, _pc2 = st.columns([2, 1])
+            _preset = _p1.selectbox(
+                "What to hunt", _preset_names, index=_preset_ix,
+                key="poc_preset",
+                help="Each choice is a named bundle of the same settings "
+                     "Advanced exposes as sliders.")
+            _pp = pfut.POC_PRESETS[_preset]
+            _stage_pick = list(_pp["stages"])
+            _accum = int(_pp["accum_len"])
+            _rng = float(_pp["max_range_atr"])
+            _poc_fresh = int(_pp["max_bars_ago"])
+            _p1.caption(_pp["blurb"])
+            _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200, 500],
+                                      index=1, key="poc_top")
+        else:
+            _pc1, _pc2, _pc3 = st.columns([2, 1, 1])
+            _stage_pick = _pc1.multiselect(
+                "Show stages", ["TRIGGERED", "SWEPT", "COILING"],
+                default=["TRIGGERED", "SWEPT", "COILING"], key="poc_stages",
+                help="TRIGGERED = the POC was reclaimed, entry is live. "
+                     "SWEPT = lows taken, waiting on the reclaim. "
+                     "COILING = a tight range is forming, no sweep yet.")
+            _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200, 500],
+                                      index=1, key="poc_top")
+            _poc_fresh = _pc3.selectbox("Max bars since trigger", [3, 5, 10, 20, 45],
+                                        index=2, key="poc_fresh",
+                                        help="A reclaim from three weeks ago is "
+                                             "history, not a setup.")
+            with st.expander("⚙️ Pattern settings"):
+                _e1, _e2 = st.columns(2)
+                _accum = _e1.slider("Accumulation length (bars)", 8, 40,
+                                    pfut.ACCUM_LEN, key="poc_accum",
+                                    help="Your backtest retuned this from 20 to 15: "
+                                         "4.6x more setups at the same expectancy "
+                                         "and positive in 10 of 10 months.")
+                _rng = _e2.slider("Max range (x ATR)", 1.0, 4.0,
+                                  pfut.MAX_RANGE_ATR, step=0.1, key="poc_rng",
+                                  help="The coil must be no wider than this many "
+                                       "ATRs. Lower = tighter, rarer bases.")
+
+        # sectors — same picker as APEX / Top 20, in both modes
+        _poc_pending = st.session_state.pop("_poc_sectors_pending", None)
+        if _poc_pending:
+            st.session_state["poc_sectors"] = _poc_pending
+        try:
+            _poc_secs = _apex_sector_list(asof)
+        except Exception:
+            _poc_secs = []
+        _p_lb, _p_off, _p_lbl = flow_window_picker("poc")
+        _hs1, _hs2 = st.columns([1, 3])
+        if _hs1.button("🔥 Use today's hot sectors", key="poc_hot_btn",
+                       width="stretch",
+                       help="Replace the sector selection with the sectors that "
+                            "received the most money in the chosen window."):
             try:
-                _poc_secs = _apex_sector_list(asof)
-            except Exception:
-                _poc_secs = []
-            _psec = st.multiselect("Sectors", _poc_secs, default=[],
-                                   key="poc_sectors",
-                                   help="Leave empty for every sector.")
+                _hot = ce.hot_sectors(5, lookback=_p_lb, offset=_p_off)
+                if _hot:
+                    st.session_state["_poc_sectors_pending"] = _hot
+                    st.rerun()
+            except Exception as _he:
+                st.caption(f"Hot sectors unavailable: {_he}")
+        try:
+            _hs_now = ce.hot_sectors(5, lookback=_p_lb, offset=_p_off)
+            if _hs_now:
+                _hs2.caption(f"🔥 Hottest ({_p_lbl}): " + " · ".join(_hs_now))
+        except Exception:
+            pass
+        _ms_kw = ({} if "poc_sectors" in st.session_state
+                  else {"default": _poc_secs})
+        _psec = st.multiselect(
+            "Sectors", _poc_secs, key="poc_sectors", **_ms_kw,
+            help="Defaults to every sector. Narrow it to focus the scan. "
+                 "Use today's hot sectors to start from the names that "
+                 "received the most money, then add or remove.")
+        _sec_filter = (None if (not _psec or len(_psec) == len(_poc_secs))
+                       else list(_psec))
+        if _sec_filter:
+            st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_poc_secs)} sectors.")
+
+        _stage_txt = ", ".join(_stage_pick or ["TRIGGERED"]).title()
+        _sec_txt = (f"{len(_sec_filter)} hot/selected sectors ({_p_lbl})"
+                    if _sec_filter else "every sector")
+        st.markdown(
+            f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
+            padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
+            Hunting <b style="color:{ACCENT};">{_stage_txt}</b>
+            · coil {_accum} bars / {_rng:.1f} ATR
+            · {_sec_txt}.</div>""",
+            unsafe_allow_html=True)
+
+        _poc_sig = (tuple(_stage_pick or ["TRIGGERED"]), int(_poc_top),
+                    int(_accum), float(_rng), int(_poc_fresh),
+                    tuple(sorted(_sec_filter)) if _sec_filter else ())
         if st.button("🎯 Scan for setups", type="primary", key="poc_go",
                      width="stretch"):
             st.session_state["poc_run"] = True
+            st.session_state["poc_run_sig"] = _poc_sig
+        elif (st.session_state.get("poc_run")
+              and st.session_state.get("poc_run_sig") not in (None, _poc_sig)):
+            st.session_state["poc_run"] = False
 
         if st.session_state.get("poc_run"):
             import json as _pj
@@ -2652,7 +2729,7 @@ with tab_poc:
                 _pdf = _poc_scan(asof, tuple(_stage_pick or ["TRIGGERED"]),
                                  int(_poc_top), int(_accum), float(_rng),
                                  int(_poc_fresh),
-                                 _pj.dumps(_psec) if _psec else "")
+                                 _pj.dumps(_sec_filter) if _sec_filter else "")
             except Exception as _perr:
                 _pdf = pd.DataFrame(); st.error(f"Scan failed: {_perr}")
             if _pdf is None or _pdf.empty:
