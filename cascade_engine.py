@@ -95,7 +95,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.33"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.34"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1799,82 +1799,514 @@ REGIME_NAMES = {
     "base": "⛅ No Clear Driver",
 }
 
-# structured explainer cards (Option 3): name, aka, story, leads, lags, trigger
+# display order for the Lenses tab and comparison tables
+LENS_ORDER = ["qe", "stag", "bull", "bear", "strong", "repress", "reset", "base"]
+
+# structured explainer cards — compact fields (leads/lags/trigger) feed the
+# Top 20 / APEX strips; the rest is the Lenses tab playbook.
+# wins/loses: (name, why). examples are illustrations, not recommendations.
 REGIME_CARDS = {
     "qe": dict(
         emoji="💧", name="Easy Money", aka="QE / liquidity flood",
-        story="The Fed is pumping liquidity into the system. With cheap money "
-              "everywhere, investors reach for risk — the more speculative, the "
-              "better — and hard assets like gold rise as the dollar is diluted.",
+        thesis="Cheap money everywhere. Duration, speculation, and anything that "
+               "isn't cash all get bid.",
+        story="The Fed (or a close substitute — SLR relief, bank-driven Treasury "
+              "buying) is pumping liquidity into the system. With the discount rate "
+              "falling, investors reach further out the risk curve: speculative "
+              "growth, small caps, and anything with a long-duration cash-flow "
+              "story. Hard assets like gold rise too, because the extra dollars "
+              "dilute the ones already in circulation. This is a risk-on flood, "
+              "not a fear trade — people are reaching, not hiding.",
+        mechanism="Liquidity expanding (Fed balance sheet, stablecoins, easy credit) "
+                 "lowers the hurdle rate. Distant cash flows get marked up, so high-"
+                 "multiple tech and unprofitable growth can lead even without a "
+                 "fundamental upgrade. Gold and crypto-adjacent names ride the same "
+                 "wave as a debasement hedge. Cash and boring defensives don't fall "
+                 "so much as they get left behind — their yield looks worse against "
+                 "everything else that's ripping.",
         leads="Tech · Growth · Small caps · Gold & miners · Crypto-adjacent",
         lags="Cash · Defensive staples · Utilities",
+        wins=[
+            ("Tech & growth",
+             "Cheaper capital expands multiples. AI, software, and long-duration "
+             "growth are the first place surplus liquidity goes."),
+            ("Small caps",
+             "Higher beta plus a looser cost of capital. When money is free, the "
+             "names that needed it most bounce hardest."),
+            ("Gold, miners, crypto-adjacent",
+             "More dollars chasing a fixed (or scarce) float. Gold is the classic "
+             "liquidity hedge; crypto is the leveraged version of the same trade."),
+            ("Materials & financials (mild)",
+             "Reflation bid and a steeper, more tradeable curve. Banks can carry "
+             "bonds again; miners get a nominal-price tailwind."),
+        ],
+        loses=[
+            ("Cash & T-bills",
+             "Opportunity cost. Holding dollars is the one thing this regime "
+             "explicitly punishes."),
+            ("Defensive staples",
+             "People still buy toothpaste — they just stop paying a scarcity "
+             "premium for it. Relative underperformance, not a collapse."),
+            ("Utilities",
+             "Bond-proxy. When risk is on, nobody needs a 3% yield with capex "
+             "risk attached."),
+        ],
+        examples_win="QQQ / SMH, small-cap growth, GDX, IBIT, high-beta tech",
+        examples_lose="Money-market funds, XLU, defensive staples, long-duration "
+                      "Treasuries once the 'risk-on' bid arrives",
+        vs="Easy Money bids speculative duration (tech, small caps). Debasement "
+           "looks similar on the liquidity gauge but tech is a *laggard* there "
+           "(0.82×) because the trade is 'own what can't be printed,' not 'reach "
+           "for risk.' If gold is ripping and the dollar is soft while the gauge "
+           "is only mildly positive, that's Debasement, not this.",
+        watch="Gauge firmly positive is the live trigger. If VIX spikes or the "
+              "yen-carry unwind fires, this lens is wrong even if liquidity still "
+              "looks easy on paper.",
+        rhymes="2010–2014 post-GFC QE · 2020–2021 stimulus melt-up",
+        how="Sector multipliers only — Tech 1.20×, Materials 1.18×, Comm Services "
+            "1.12×, Cyclicals/Financials 1.10×. Staples and Utilities 0.88×. "
+            "Quality scores, analog odds, and APEX gates do not change; only the "
+            "order of names that already passed them.",
         trigger="the pressure gauge is firmly positive and liquidity is expanding"),
     "stag": dict(
         emoji="🔥", name="Hot Inflation", aka="stagflation",
-        story="Prices are rising faster than the economy is growing. Oil, metals, "
-              "and the companies that dig them up hold their value; anything priced "
-              "on future growth gets marked down as rates stay high.",
+        thesis="Prices rising faster than growth. Hard assets and necessities win; "
+               "duration and discretionary lose.",
+        story="Oil and other input costs are climbing faster than the economy can "
+              "grow into them. Households spend more on energy and food, less on "
+              "wants. The Fed (or the bond market) keeps real rates high, so anything "
+              "priced on distant growth gets marked down. Companies that sell what "
+              "you must buy, or that produce the scarce stuff, pass costs through. "
+              "This is a grind, not a crash — leadership rotates and stays rotated.",
+        mechanism="High oil + weak bonds = the inflation tax is on. Real rates stay "
+                 "elevated, which compresses growth multiples even if earnings hold. "
+                 "Consumer cyclicals take a double hit: volumes fall as gas and "
+                 "groceries eat the budget, *and* the market cuts the multiple. "
+                 "Energy, miners, and staples have the pricing power (or the "
+                 "commodity beta) to keep nominal earnings alive.",
         leads="Energy · Materials & miners · Consumer staples · Utilities",
         lags="Tech · Consumer discretionary · Real estate · High-growth",
+        wins=[
+            ("Energy (producers, refiners, tankers)",
+             "The input that is hurting everyone else *is* their revenue. Highest "
+             "sector tilt in the whole playbook (1.25×)."),
+            ("Materials & miners",
+             "Nominal prices of stuff in the ground go up. Gold miners also catch "
+             "the inflation-hedge bid."),
+            ("Consumer staples",
+             "You still have to eat. Pricing-power grocers and branded food hold "
+             "volume while cyclicals lose it."),
+            ("Utilities",
+             "Regulated pass-through of higher fuel/power costs, plus a defensive "
+             "bid while growth is being repriced."),
+        ],
+        loses=[
+            ("Tech & high-growth",
+             "Duration. High real rates crush the present value of cash flows that "
+             "are supposed to arrive in 2032. Multiples compress even if the "
+             "product is fine."),
+            ("Consumer discretionary",
+             "Gas eats $200–$400/month of the household budget. Furniture, cars, "
+             "restaurants, and 'want' brands are the first cut. Worst tilt in "
+             "this lens (0.80×)."),
+            ("Real estate",
+             "Higher cap rates and a squeezed consumer. Rate-sensitive, cyclical, "
+             "and unloved at the same time (0.82×)."),
+        ],
+        examples_win="XLE, EOG / MPC, GDX, WMT / COST, staples with pricing power",
+        examples_lose="QQQ, unprofitable growth, furniture/auto/retail cyclicals, REITs",
+        vs="Unlike Debasement, policy is *fighting* inflation (rates stay high) "
+           "rather than printing to cap yields. Unlike Fear / Risk-Off, this can "
+           "last for quarters — it is a regime, not a panic. Energy leads here "
+           "on purpose; in Reserve Reset the data said energy *lagged*.",
+        watch="Oil up ~15%+ over a quarter with bonds soft is the live trigger. If "
+              "oil rolls over and vol stays calm, this was a scare, not a regime "
+              "— flip toward Risk-On Calm.",
+        rhymes="1973–74 oil shock · 2022 inflation spike",
+        how="Sector multipliers: Energy 1.25×, Materials 1.18×, Staples 1.10×, "
+            "Utilities 1.06×. Cyclicals 0.80×, Real Estate 0.82×, Tech 0.85×. "
+            "Ranking re-orders toward hard assets and necessities.",
         trigger="oil is climbing, the Fed is holding rates high, and bonds are weak"),
     "bull": dict(
         emoji="☀️", name="Risk-On Calm", aka="calm melt-up",
-        story="The economy is growing steadily and fear is low, so money moves out "
-              "the risk curve into the things that do best when the expansion runs — "
-              "economically-sensitive and higher-beta names.",
+        thesis="Expansion running, fear low. Cyclicals and higher-beta lead; "
+               "defensives and energy lag.",
+        story="The economy is growing steadily and nothing is on fire. Oil is soft "
+              "(which is the backdrop that *lets* the expansion run), volatility "
+              "is quiet, and credit is behaving. Money leaves the safety trade and "
+              "walks out the risk curve into economically sensitive names — the "
+              "things that make more money when people are employed, shopping, "
+              "and building. This is the 'nothing to see here, own the cycle' "
+              "playbook.",
+        mechanism="Soft oil + calm vol = no inflation scare and no shock. Earnings "
+                 "revisions for cyclicals, industrials, and financials improve; "
+                 "multiples for growth can expand because the discount rate isn't "
+                 "being jacked around. Energy lags because cheap oil is the *input* "
+                 "the rest of the market is celebrating. Staples and utilities "
+                 "become the funding source — you sell what you owned for safety "
+                 "to buy what you own for growth.",
         leads="Consumer discretionary · Tech · Industrials · Financials · Small caps",
         lags="Defensive staples · Utilities · Energy",
+        wins=[
+            ("Consumer discretionary",
+             "People have leftover paycheck after gas and groceries. Highest "
+             "tilt here (1.18×) — the cycle trade."),
+            ("Tech",
+             "Risk appetite plus a calm discount rate. Not a liquidity flood "
+             "(that's Easy Money) — just a market that's willing to pay for "
+             "growth again (1.15×)."),
+            ("Industrials & financials",
+             "Capex, freight, and loan growth. Banks like a quiet tape and a "
+             "functioning curve; industrials like order books that stay full."),
+            ("Small caps",
+             "Higher beta on a rising tape. When fear is low, the names that "
+             "were ignored for being 'too messy' start to work."),
+        ],
+        loses=[
+            ("Defensive staples & utilities",
+             "You don't pay a premium for safety when nobody is scared. Same "
+             "businesses, worse relative bid (0.88×)."),
+            ("Energy",
+             "Cheap oil is the *reason* this regime exists. Producers lag even "
+             "if they're well-run (0.90×). Don't fight the setup that made "
+             "the melt-up possible."),
+        ],
+        examples_win="Consumer cyclicals, QQQ, industrials, banks, small-cap beta",
+        examples_lose="XLU, staples, XLE — the stuff you owned last time you were scared",
+        vs="Easy Money is this, plus a liquidity hose — gold and crypto join the "
+           "bid. Hot Inflation is the opposite oil tape. If VIX is actually "
+           "elevated, you are not in this regime no matter how good the narrative "
+           "sounds.",
+        watch="Oil down ~5%+ over a quarter and VIX not elevated. A yen-carry "
+              "unwind or a VIX impulse ≥ 1.25 overrides this immediately.",
+        rhymes="2017 · 2019 · late-2023 / 2024 calm grind",
+        how="Sector multipliers: Cyclicals 1.18×, Tech 1.15×, Industrials/"
+            "Financials 1.10×, Comm Services 1.08×. Energy 0.90×, Staples/"
+            "Utilities 0.88×.",
         trigger="oil is soft, volatility is calm, and no shock is on the tape"),
     "bear": dict(
         emoji="⛈️", name="Fear / Risk-Off", aka="shock / crash",
-        story="Something broke and volatility is spiking. Money doesn't ask "
-              "questions — it flees anything risky and crowds into safety, "
-              "defensives, and gold until the dust settles.",
+        thesis="Something broke. Don't ask questions — own what people still buy "
+               "when they're scared.",
+        story="A shock is on the tape: VIX is spiking, or the yen-carry unwind "
+              "signature is firing (yen surging while QQQ/BTC dump). Money does "
+              "not debate fundamentals. It sells whatever it can sell — high-beta, "
+              "levered, discretionary, small, crypto-adjacent — and crowds into "
+              "what still clears: staples, utilities, healthcare, gold, defense. "
+              "This is a regime you survive, not one you try to outsmart with "
+              "cyclical precision.",
+        mechanism="Forced selling and a collapsing risk appetite. Credit spreads "
+                 "usually gap wider (the pressure gauge's HY leg). The yen-carry "
+                 "unwind is a special case of the same thing: leveraged longs that "
+                 "were funded in cheap yen get margin-called at once, and the "
+                 "liquidation cascade does not care about your thesis. Gold and "
+                 "defense catch a geopolitical/safe-haven bid; staples hold volume "
+                 "because dinner is not optional.",
         leads="Consumer staples · Utilities · Healthcare · Gold · Defense",
         lags="High-beta · Tech · Consumer discretionary · Small caps · Crypto-adjacent",
+        wins=[
+            ("Consumer staples",
+             "Volume that does not require confidence. Highest defensive tilt "
+             "tied with energy (1.15×)."),
+            ("Utilities",
+             "Bond-proxy plus 'keep the lights on.' Money hides here when it "
+             "cannot stomach duration in Treasuries or risk in equities (1.12×)."),
+            ("Healthcare",
+             "Non-discretionary demand and a lower beta. Not exciting; that's "
+             "the point (1.08×)."),
+            ("Gold & defense",
+             "The two safe-havens that aren't someone else's liability. Gold "
+             "when the shock is financial; defense when it's geopolitical."),
+            ("Energy (tilt, not the slogan)",
+             "The sector layer inherited a 1.15× energy bid from the simulator "
+             "because shocks are often commodity/geopolitical. The narrative "
+             "list leads with defensives; the ranking still gives energy a "
+             "bump. Size knowing those two stories can disagree."),
+        ],
+        loses=[
+            ("High-beta tech & growth",
+             "First thing sold, last thing rebought. Duration plus leverage "
+             "(0.85×)."),
+            ("Consumer discretionary",
+             "Confidence is the product. When it vanishes, so do the earnings "
+             "(0.80×)."),
+            ("Small caps & crypto-adjacent",
+             "Illiquidity plus leverage. These are where forced sellers meet "
+             "no bids."),
+            ("Real estate & financials (mild)",
+             "Credit and rate shocks hit both. Not the first to die, but they "
+             "don't hide you either (0.85–0.90×)."),
+        ],
+        examples_win="XLP, XLU, healthcare quality, GLD / GDX, defense primes",
+        examples_lose="QQQ, high-beta tech, discretionary retail, IBIT, small caps",
+        vs="Hot Inflation can also hurt tech and cyclicals, but it *rewards* "
+           "energy as a fundamental winner over months. Fear / Risk-Off is "
+           "about survival over days and weeks. A confirmed yen-carry unwind "
+           "(FXY ▲ + QQQ/BTC ▼ + VIX ▲) forces this lens even if oil is calm.",
+        watch="VIX impulse z ≥ 1.25, or the yen-carry unwind signature. When "
+              "vol collapses back, this lens is late — that's when Risk-On "
+              "Calm or Easy Money takes the baton.",
+        rhymes="2008 · March 2020 · August 2024 yen-carry unwind",
+        how="Sector multipliers: Energy/Staples 1.15×, Utilities 1.12×, "
+            "Healthcare 1.08×. Cyclicals 0.80×, Tech/Real Estate 0.85×. The "
+            "lens re-orders survivors to the top; it does not invent safety.",
         trigger="the VIX is spiking, or a yen-carry unwind signature is firing"),
     "strong": dict(
         emoji="💵", name="Rising Dollar", aka="strong-dollar squeeze",
-        story="A strengthening dollar squeezes anything that earns money abroad or "
-              "is priced in dollars. Domestic, US-focused quality holds up while "
-              "commodities and foreign markets lag.",
+        thesis="Dollar squeeze. US-earned, US-spent quality holds; anything priced "
+               "in dollars abroad or commodity-linked lags.",
+        story="The dollar is trending higher over a quarter. That is tighter "
+              "global financial conditions in one chart: commodities (priced in "
+              "USD) get cheaper in dollar terms and more expensive for everyone "
+              "else, emerging-market borrowers who owe dollars get squeezed, "
+              "and US multinationals watch foreign revenue translate into fewer "
+              "dollars. The names that hold up are domestic — US banks, US "
+              "staples, US quality that invoices in dollars and spends in "
+              "dollars.",
+        mechanism="A rising DXY is a global margin call. Gold, materials, and "
+                 "EM are the most direct victims. Exporters and multinationals "
+                 "take a translation hit. US financials often catch a relative "
+                 "bid because they are USD-revenue and a stronger dollar is "
+                 "frequently a 'US exceptionalism / higher-for-longer' tape, "
+                 "which is not terrible for banks. Utilities and staples pick "
+                 "up a mild defensive bid as global risk appetite cools.",
         leads="US-focused financials · Domestic quality · Defensive staples",
         lags="Gold · Emerging markets · Materials · Multinational exporters",
+        wins=[
+            ("US-focused financials",
+             "USD revenue, a higher-for-longer curve, and they are not "
+             "commodity beta. Highest tilt (1.10×)."),
+            ("Domestic quality & staples",
+             "Earn in dollars, spend in dollars, sell to US households. No "
+             "translation hit, no EM credit risk (staples 1.05×)."),
+            ("Utilities & healthcare (mild)",
+             "Quiet domestic cash flows. Not a leadership story — a 'hurt "
+             "less' story (1.04–1.06×)."),
+        ],
+        loses=[
+            ("Gold & precious metals",
+             "Priced in dollars. Strong dollar is the textbook headwind."),
+            ("Materials & energy",
+             "Commodities are dollar-denominated. Strong DXY = lower nominal "
+             "prices and weaker foreign demand (materials 0.85×, energy 0.92×)."),
+            ("Emerging markets & exporters",
+             "Dollar-debt squeeze abroad, translation hit at home. This is "
+             "the regime that makes 'US only' look smart."),
+        ],
+        examples_win="JPM / US banks, domestic staples, US quality compounders",
+        examples_lose="GLD / GDX, EEM, materials miners, heavy-overseas-revenue megacaps",
+        vs="Easy Money and Debasement both want a *soft* dollar. If the dollar "
+           "is the thing that's actually trending up, those playbooks are "
+           "fighting the tape. Reserve Reset also wants a falling dollar — "
+           "plus rising long yields. This lens is the opposite dollar bet.",
+        watch="UUP / DXY trending strongly higher over ~63 sessions. If gold "
+              "is making new highs anyway, the dollar tape may be lying — "
+              "check Debasement / Reset before trusting this.",
+        rhymes="2014–15 dollar spike · 2022 DXY squeeze",
+        how="Sector multipliers: Financials 1.10×, Utilities 1.06×, Staples "
+            "1.05×, Healthcare 1.04×. Materials 0.85×, Energy/Real Estate "
+            "~0.92×. Mildest tilt set after Base — this is a relative-survival "
+            "lens, not a moonshot.",
         trigger="the dollar is trending strongly higher over the past quarter"),
     "repress": dict(
         emoji="💸", name="Debasement", aka="financial repression / stealth QE",
-        story="The government is buying its own debt with newly created money to "
-              "hold borrowing costs down. Liquidity expands like QE, but yields are "
-              "capped by policy rather than by demand — so the currency quietly "
-              "erodes instead. Cash and long bonds lose purchasing power while "
-              "things that can't be printed, and businesses that pass inflation "
-              "straight through, hold their value.",
+        thesis="The printer is buying the bonds so yields stay pinned. Cash and "
+               "duration bleed purchasing power; things that can't be printed hold.",
+        story="The government is buying its own debt with newly created money "
+              "(or a close cousin: Treasury buybacks, stealth QE, banks absorbed "
+              "as a policy tool) to hold borrowing costs down. Liquidity expands "
+              "*like* Easy Money, but the intent is different: yields are capped "
+              "by policy, not by organic demand. The currency quietly erodes. "
+              "Cash and long bonds lose purchasing power. Businesses that pass "
+              "inflation straight through, and assets no one can print, hold "
+              "their real value — even if the nominal tape still looks 'fine.'",
+        mechanism="Gauge positive + gold leading + a soft dollar, while long yields "
+                 "stay pinned. That combination is currency erosion, not a "
+                 "speculative melt-up. High-multiple growth is the *funding source* "
+                 "— you sell duration-that-isn't-real to buy duration-that-is "
+                 "(gold in the ground, real assets, tollbooth cash flows). "
+                 "Payments and insurance work because they reprice every year.",
         leads="Gold & silver miners · Materials · Energy · Payment & insurance "
               "tolls · Real assets · Cash-generative compounders",
         lags="Cash · Long-duration bonds · Unprofitable growth · High-multiple tech",
+        wins=[
+            ("Gold & silver miners",
+             "The thing that can't be printed, with operating leverage to the "
+             "metal price. This is the flagship trade."),
+            ("Materials & energy",
+             "Real stuff with pass-through pricing. Highest GICS tilt is "
+             "Materials at 1.25×; Energy 1.15×."),
+            ("Payment rails & insurance tolls",
+             "They take a cut of nominal activity. Inflation raises the "
+             "notional; the take-rate stays. Visa-like networks, insurers, "
+             "exchanges."),
+            ("Real assets & cash compounders",
+             "REITs, infrastructure, and high-ROIC compounders that can "
+             "reprice. You want earnings that inflate, not a story that "
+             "needs a lower discount rate."),
+        ],
+        loses=[
+            ("Cash & long-duration bonds",
+             "The policy is *designed* to make these lose in real terms. "
+             "Yields pinned + inflation = slow confiscation."),
+            ("Unprofitable growth & high-multiple tech",
+             "They need a falling discount rate *and* a risk-on bid. Here "
+             "the discount rate is pinned by policy while the bid is for "
+             "hard assets. Tech is 0.82× — a lag, not a crash, but you are "
+             "funding the winners by owning this."),
+            ("Story stocks",
+             "No cash, no pass-through, no scarce asset. Debasement is a "
+             "terrible tape for narratives that only work when money is "
+             "both cheap *and* optimistic."),
+        ],
+        examples_win="GDX / SIL, materials, energy, V / MA, insurers, real-asset compounders",
+        examples_lose="Cash, TLT, unprofitable tech, high-P/E growth that isn't a tollbooth",
+        vs="Easy Money: both have expanding liquidity, but Easy Money *rewards* "
+           "tech/small-caps (1.20× / risk-on). Debasement *uses* them as the "
+           "funding source (Tech 0.82×). Reserve Reset: both bid gold, but "
+           "Reset has *rising* long yields (creditors leaving). Debasement has "
+           "*pinned* yields (the printer replacing those creditors). That bond "
+           "leg is the tell.",
+        watch="Gauge positive, gold +8%+ over a quarter, dollar not strengthening. "
+              "If long yields are *rising* while gold leads and the dollar falls, "
+              "you have Reset, not this.",
+        rhymes="1940s financial repression · 2020–21 (partial — liquidity plus "
+              "gold, but tech also won then; this lens is the cleaner 'own "
+              "the unprintable' cut of that tape)",
+        how="Sector multipliers: Materials 1.25×, Energy 1.15×, Financials "
+            "1.12×, Real Estate 1.10×. Tech 0.82×, Comm Services 0.85×. Tollbooth "
+            "financials are in the *leads* list even though GICS 'Financials' is "
+            "a mixed bag — the tilt is the blunt instrument, the story is the "
+            "filter.",
         trigger="Treasury buybacks expand and the Fed's balance sheet grows while "
                 "long yields stay pinned, gold makes new highs, and the dollar erodes"),
     "reset": dict(
         emoji="🌍", name="Reserve Reset", aka="de-dollarisation / political Fed",
+        thesis="Foreign creditors step back from the dollar. Gold, hard security, "
+               "and assets outside the dollar lead. Long yields *rise* — that's "
+               "the tell.",
         story="Foreign creditors are stepping back from the dollar — central banks "
               "repatriating gold, sovereign funds trimming Treasuries — while the "
               "central bank comes under political pressure to cut rates. Unlike "
               "Debasement, long yields RISE here, because the buyers are leaving "
-              "rather than being replaced by the printer. Money moves toward things "
-              "no government can issue and toward assets outside the dollar.",
+              "rather than being replaced by the printer. Money moves toward "
+              "things no government can issue (gold, silver, uranium, platinum) "
+              "and toward assets that live outside the dollar (non-US equities, "
+              "shipping, defense). This is a political-economy regime, not a "
+              "business-cycle one.",
+        mechanism="Live trigger: gold outrunning stocks + a weak dollar + *rising* "
+                 "long yields. Sector tilts are deliberately mild — GICS cannot "
+                 "express 'junior gold miners' vs 'software.' The real expression "
+                 "is thematic (see the measured 21-day excesses). Two honest "
+                 "surprises from 804 sessions of node history, kept because the "
+                 "data said so: Energy *lagged* badly (oil −3.7%) even though "
+                 "the thesis sounds inflationary, and Technology was mildly "
+                 "*positive* despite the 'avoid the AI mega-caps' argument.",
         leads="Gold & silver miners · Uranium & nuclear · Defense · Shipping · "
               "Platinum · Non-US equities · Utilities · Industrials",
         lags="Energy (oil) · Healthcare & biotech · Regional banks · Long bonds · Cash",
+        wins=[
+            ("Gold & silver miners (the actual trade)",
+             "Measured 21-session excess vs SPY, in-regime: GDXJ +6.50, GDX "
+             "+5.99, SIL +5.40, GLD +2.89. This is where the regime paid."),
+            ("Uranium, nuclear, defense, shipping",
+             "Hard security and real-world throughput. URA +5.48, NLR +4.71, "
+             "SHLD +4.37, BOAT +4.72. These are themes, not sectors."),
+            ("Non-US equities & platinum",
+             "Assets outside the dollar. EWW (Mexico) +2.86, EWG (Germany) "
+             "+2.56, PPLT +2.74, MOO (agri) +2.49."),
+            ("Utilities & industrials (GICS layer)",
+             "The sector tilts that *did* show up: Utilities 1.19×, "
+             "Industrials 1.12×. Quiet compounders plus anything that builds "
+             "or ships real stuff."),
+            ("Technology (mild, data not narrative)",
+             "1.15× because in-regime excess was positive. Do not confuse "
+             "this with Easy Money's growth bid — the winners here were not "
+             "'unprofitable duration.'"),
+        ],
+        loses=[
+            ("Energy / oil (the surprise lag)",
+             "In-regime oil −3.7%, oil services −2.9%, Energy sector 0.83×. "
+             "The inflationary story said 'own oil.' The tape said no. Kept "
+             "because the data won."),
+            ("Healthcare & biotech",
+             "Worst GICS tilt in the app (0.74×). Dollar-system, long-duration "
+             "cash flows with political/pricing risk on top."),
+            ("Regional banks, long bonds, cash",
+             "The creditors leaving *are* the Treasury bid. Banks that live "
+             "on that stack, and the bonds themselves, are the other side of "
+             "the gold trade."),
+        ],
+        examples_win="GDXJ / GDX / SIL, URA / NLR, SHLD, BOAT, GLD, PPLT, EWW / EWG",
+        examples_lose="XLE / oil services, XBI / healthcare, KRE, TLT, cash",
+        vs="Debasement also bids gold, but yields are *pinned* (printer in). "
+           "Reset has yields *rising* (buyers gone). Easy Money bids tech as "
+           "speculation; any tech that works here is incidental. Hot Inflation "
+           "bids oil as the feature — Reset's measured record says oil was a "
+           "bug. Trust the bond-leg tell: rising long yields + falling dollar "
+           "+ gold leading stocks.",
+        watch="Gold outrunning the stock tape, dollar falling, *and* long "
+              "yields rising together. Missing any one of those three and you "
+              "probably have a different lens (often Debasement or Easy Money).",
+        rhymes="1971 Nixon shock · 1970s gold/hard-asset decade · modern "
+               "central-bank gold buying",
+        how="GICS multipliers are mild by design (Utilities 1.19× … Healthcare "
+            "0.74×, Energy 0.83×) because the edge lives in themes, not sectors. "
+            "Use the Top 20 / APEX lens to nudge the list, then look for miners, "
+            "uranium, defense, shipping — the ranking cannot see those tickers "
+            "as a group.",
         trigger="gold is outrunning stocks, the dollar is falling AND long yields "
                 "are rising together — creditors leaving, not policy pinning"),
     "base": dict(
         emoji="⛅", name="No Clear Driver", aka="base case",
-        story="No single macro force is in charge. Without a dominant tailwind or "
-              "headwind, the market rewards fundamentals — durable, well-run, "
-              "reasonably-priced businesses quietly win.",
+        thesis="No dominant force. Quality quietly wins; story stocks and deep "
+               "cyclicals don't get a tailwind.",
+        story="No single macro force is in charge — oil isn't dictating, the "
+              "dollar isn't squeezing, the Fed isn't flooding, and nothing just "
+              "broke. Without a dominant tailwind or headwind, the market "
+              "falls back to the thing it always does in the gaps: it pays for "
+              "durable, well-run, reasonably-priced businesses and ignores "
+              "narratives that needed a regime to work. This is the default, "
+              "not a forecast.",
+        mechanism="None of the other live triggers is clearly present, so the "
+                 "engine applies *no* sector multipliers. The ranking is the "
+                 "raw score — Felix quality, cascade score, analog odds, or "
+                 "APEX gates, depending on which brain you picked. The 'winners' "
+                 "here are a statement about what tends to compound when nobody "
+                 "is forcing a rotation, not a sector bet.",
         leads="Quality across sectors · Steady compounders",
         lags="Story stocks without earnings · Deep cyclicals",
-        trigger="none of the other five conditions is clearly present"),
+        wins=[
+            ("Quality compounders, any sector",
+             "High ROIC / ROCE, fortress Piotroski, owner-earnings that show "
+             "up in cash. Without a macro wind, this is what still works."),
+            ("Reasonably priced cash generators",
+             "You are not being paid to stretch for duration or for a "
+             "commodity spike that isn't happening."),
+        ],
+        loses=[
+            ("Story stocks without earnings",
+             "Those names need Easy Money or a thematic regime to keep the "
+             "bid alive. In the gap, they just sit there."),
+            ("Deep cyclicals waiting on a regime",
+             "Energy waiting on Hot Inflation, miners waiting on Debasement, "
+             "high-beta waiting on Easy Money. No wind, no lift."),
+        ],
+        examples_win="High-ROIC compounders you'd own anyway — Costco-like economics, not a ticker call",
+        examples_lose="Pre-revenue narratives, deep cyclicals owned 'because of the macro'",
+        vs="Off (the dropdown, not this card) also applies no tilt — but Off "
+           "is a *choice* to ignore a detected regime. No Clear Driver is the "
+           "detected regime when the tape itself has no author. If Auto is "
+           "pointing here, the app is saying 'don't overlay a story.'",
+        watch="This is the residual. The moment oil trends, the dollar trends, "
+              "the gauge floods, or vol spikes, Auto will leave. If you still "
+              "want no tilt after that, that's what Off is for.",
+        rhymes="Most of the time, actually — regimes are the exception; this is "
+               "the gap between them",
+        how="Empty sector-tilt table. Ranking is unmodified. Functionally "
+            "identical to Off for ordering; different as a *diagnosis* (the "
+            "app looked and found nothing, vs you asked it not to look).",
+        trigger="none of the other conditions is clearly present"),
 }
 
 # regime → sector multiplier (distilled from the simulator's per-stock

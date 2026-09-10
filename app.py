@@ -42,7 +42,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.33"
+REQUIRED_ENGINE = "2.34"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -131,6 +131,11 @@ HELP = {
     "honesty": "The sample is split in half by time. A real signal earns "
         "excess in BOTH halves; a curve-fit earns it all in one. This split "
         "has killed prettier backtests than this one — respect it.",
+    "macro_lens": "A playbook overlaid on a ranking. Off = no sector tilt. "
+        "Auto = the regime the app detects live. A named lens re-orders names "
+        "toward that scenario's winners — it does not change quality scores, "
+        "analog odds, or APEX gates. Full win/lose playbooks live in the "
+        "Lenses tab.",
 }
 
 CREATOR_NAME = "AIupscale"
@@ -386,6 +391,103 @@ def mrow(label, tooltip, value):
 def mtable(rows):
     st.markdown("<table style='width:100%;border-collapse:collapse'>" + "".join(rows)
                 + "</table>", unsafe_allow_html=True)
+
+
+def _tilt_chip(mult: float) -> str:
+    """1.20 → '+20%', 0.82 → '−18%'."""
+    pct = (float(mult) - 1.0) * 100
+    if abs(pct) < 0.5:
+        return f"<span style='color:{DIM}'>flat</span>"
+    col = GREEN if pct > 0 else RED
+    return f"<span style='color:{col};font-weight:700'>{pct:+.0f}%</span>"
+
+
+def render_lens_playbook(cd: dict, regkey: str | None = None, *, full: bool = True):
+    """Shared playbook renderer for compact expanders and the Lenses tab."""
+    if not cd:
+        return
+    name, emoji, aka = cd.get("name", ""), cd.get("emoji", ""), cd.get("aka", "")
+    st.markdown(f"**{emoji} {name}** — *a.k.a. {_esc(aka)}*")
+    thesis = cd.get("thesis")
+    if thesis:
+        st.markdown(f"<div style='color:{ACCENT};font-size:14px;font-weight:600;"
+                    f"margin:4px 0 10px'>{_esc(thesis)}</div>",
+                    unsafe_allow_html=True)
+    st.markdown(cd.get("story", ""))
+    if full and cd.get("mechanism"):
+        st.markdown("**How the tape actually pays**")
+        st.markdown(cd["mechanism"])
+    _l, _r = st.columns(2)
+    wins, loses = cd.get("wins") or [], cd.get("loses") or []
+    if wins:
+        with _l:
+            st.markdown(
+                f"<div style='font-size:12px;letter-spacing:1px;text-transform:uppercase;"
+                f"color:{GREEN};font-weight:700;margin-bottom:6px'>▲ What this lens says will win</div>",
+                unsafe_allow_html=True)
+            for title, why in wins:
+                st.markdown(
+                    f"<div style='background:#0c1829;border-left:3px solid {GREEN};"
+                    f"padding:8px 12px;margin:0 0 8px;border-radius:0 8px 8px 0'>"
+                    f"<div style='font-weight:700;font-size:13px;color:{GREEN}'>{_esc(title)}</div>"
+                    f"<div style='color:{DIM};font-size:12.5px;line-height:1.5'>{_esc(why)}</div>"
+                    f"</div>", unsafe_allow_html=True)
+    else:
+        _l.markdown(f"**▲ Leads**\n\n{cd.get('leads', '')}")
+    if loses:
+        with _r:
+            st.markdown(
+                f"<div style='font-size:12px;letter-spacing:1px;text-transform:uppercase;"
+                f"color:{RED};font-weight:700;margin-bottom:6px'>▼ What this lens says will lose</div>",
+                unsafe_allow_html=True)
+            for title, why in loses:
+                st.markdown(
+                    f"<div style='background:#0c1829;border-left:3px solid {RED};"
+                    f"padding:8px 12px;margin:0 0 8px;border-radius:0 8px 8px 0'>"
+                    f"<div style='font-weight:700;font-size:13px;color:{RED}'>{_esc(title)}</div>"
+                    f"<div style='color:{DIM};font-size:12.5px;line-height:1.5'>{_esc(why)}</div>"
+                    f"</div>", unsafe_allow_html=True)
+    else:
+        _r.markdown(f"**▼ Lags**\n\n{cd.get('lags', '')}")
+    if cd.get("examples_win") or cd.get("examples_lose"):
+        _e1, _e2 = st.columns(2)
+        if cd.get("examples_win"):
+            _e1.caption(f"Typical winners (illustrations, not a buy list): {cd['examples_win']}")
+        if cd.get("examples_lose"):
+            _e2.caption(f"Typical losers / funding source: {cd['examples_lose']}")
+    if full:
+        if cd.get("vs"):
+            st.markdown("**Don't confuse it with…**")
+            st.markdown(cd["vs"])
+        if cd.get("watch"):
+            st.markdown("**Pick this when / flip away when**")
+            st.markdown(cd["watch"])
+        if cd.get("rhymes"):
+            st.caption(f"Historical rhyme: {cd['rhymes']}")
+        if cd.get("how"):
+            st.markdown("**What the screener actually does**")
+            st.markdown(cd["how"])
+        if regkey == "reset" and getattr(ce, "RESET_THEMES", None):
+            st.markdown("**Measured 21-session excess vs SPY, in-regime** "
+                        "(themes — this is where Reset actually paid)")
+            _tm = pd.DataFrame(ce.RESET_THEMES,
+                               columns=["Ticker", "Theme", "Excess % / 21d"])
+            st.dataframe(_tm, width="stretch", hide_index=True)
+        tilts = (ce.SECTOR_TILTS.get(regkey) or {}) if regkey else {}
+        if tilts:
+            _rows = sorted(tilts.items(), key=lambda kv: -kv[1])
+            chips = " ".join(
+                f"<span style='display:inline-block;background:#0c1829;border:1px solid "
+                f"#1d2b40;border-radius:6px;padding:3px 9px;margin:2px;font-size:12px'>"
+                f"{_esc(sec)} {_tilt_chip(m)}</span>"
+                for sec, m in _rows)
+            st.markdown(
+                f"<div style='margin-top:8px'><span style='color:{DIM};font-size:12px;"
+                f"letter-spacing:1px;text-transform:uppercase'>Sector multipliers</span>"
+                f"<br>{chips}</div>", unsafe_allow_html=True)
+        elif regkey == "base":
+            st.caption("No sector multipliers — ranking is the raw score.")
+    st.caption(f"Live trigger: pick this when {cd.get('trigger', '—')}.")
 
 
 def az_section(title):
@@ -1004,10 +1106,10 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
     st.stop()
 
 asof = str(closes.index[-1].date())
-(tab_map, tab_lookup, tab_top20, tab_apex, tab_macro, tab_poc,
+(tab_map, tab_lookup, tab_top20, tab_apex, tab_macro, tab_lenses, tab_poc,
  tab_pressure, tab_sentinels, tab_forced, tab_lab, tab_guide) = st.tabs(
     ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "⚡ APEX FLOW",
-     "🧪 Macro Sim", "🎯 POC Future", "🌡 Pressure", "🛰 Sentinels",
+     "🧪 Macro Sim", "🔭 Lenses", "🎯 POC Future", "🌡 Pressure", "🛰 Sentinels",
      "📅 Forced Flows", "🔬 Validation Lab", "📖 Guide"])
 
 
@@ -1665,20 +1767,18 @@ with tab_top20:
         _lens_label = st.selectbox(
             "Macro lens", _lens_choices, key="top20_lens",
             disabled=(_method == "felix"), label_visibility="collapsed",
-            help="Off = rank with no sector tilt at all. Auto = use the regime "
-                 "the app detects live. Or pick a scenario to run under that "
-                 "playbook. Felix ignores the lens entirely.")
+            help=HELP["macro_lens"])
         _lens = _scn_opts.get(_lens_label)
         if _method == "felix":
             st.caption("Felix is quality-only — the lens doesn't apply.")
         elif _lens == "off":
-            st.caption("No sector tilt. Pure ranking.")
+            st.caption("No sector tilt. Pure ranking. Open 🔭 Lenses for the playbooks.")
         elif _lens is None:
-            st.caption("Uses whichever regime is detected now.")
+            st.caption("Uses whichever regime is detected now. 🔭 Lenses has the full playbooks.")
         else:
             _cd0 = ce.REGIME_CARDS.get(_lens, {})
-            st.caption(f"Leads: {_cd0.get('leads', '')[:58]}…"
-                       if _cd0 else "")
+            _th = _cd0.get("thesis") or _cd0.get("leads", "")
+            st.caption(_th)
 
     # macro-only needs a concrete scenario — fall back to the detected one
     _apply_macro = not (_method == "felix" or _lens == "off")
@@ -1884,16 +1984,13 @@ with tab_top20:
                 margin:6px 0;font-size:13px;">
                 <span style="font-size:17px;">{_cd['emoji']}</span>
                 <span><b>{_cd['name']}</b>
-                <span style="color:{GREEN};"> ▲ {_cd['leads'][:46]}…</span>
-                <span style="color:{RED};"> ▼ {_cd['lags'][:38]}…</span></span></div>""",
+                <span style="color:{DIM};font-size:12px;"> — {_esc(_cd.get('thesis') or '')}</span>
+                <br><span style="color:{GREEN};"> ▲ {_esc(_cd['leads'])}</span>
+                <span style="color:{RED};"> ▼ {_esc(_cd['lags'])}</span></span></div>""",
                 unsafe_allow_html=True)
-            with st.expander(f"📖 What {_cd['name']} means"):
-                st.markdown(f"**{_cd['emoji']} {_cd['name']}** — *a.k.a. {_cd['aka']}*")
-                st.markdown(_cd["story"])
-                _l, _r = st.columns(2)
-                _l.markdown(f"**▲ Leads**\n\n{_cd['leads']}")
-                _r.markdown(f"**▼ Lags**\n\n{_cd['lags']}")
-                st.caption(f"Pick this when {_cd['trigger']}.")
+            with st.expander(f"📖 What {_cd['name']} means — who wins, who loses"):
+                render_lens_playbook(_cd, _rk, full=False)
+                st.caption("Full playbooks, comparisons, and sector multipliers are in the 🔭 Lenses tab.")
 
     def _apply_live(_df):
         """Refresh the on-screen list against live market data (any mode)."""
@@ -2321,10 +2418,9 @@ with tab_apex:
         _ax_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
         _ax_lens_label = _ax_l1.selectbox(
             "Macro lens", list(_ax_opts), key="apex_lens",
-            help="Off = rank purely by the APEX score (the validated default). "
-                 "Auto = tilt toward the regime detected live. Or pick a scenario. "
-                 "The lens NEVER changes the APEX score or the CALM/RS gates — it "
-                 "only re-orders the names that already passed them.")
+            help=HELP["macro_lens"] + " The lens NEVER changes the APEX score or "
+                 "the CALM/RS gates — it only re-orders the names that already "
+                 "passed them.")
         _ax_lens = _ax_opts.get(_ax_lens_label)
         if _ax_lens == "off":
             _ax_tilts = None
@@ -2345,8 +2441,15 @@ with tab_apex:
                     f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
                     padding:7px 12px;margin-top:26px;font-size:12.5px;">
                     <b>{_axc['emoji']} {_axc['name']}</b>
-                    <span style="color:{GREEN};"> ▲ {_axc['leads'][:34]}…</span></div>""",
+                    <span style="color:{DIM};"> — {_esc(_axc.get('thesis') or '')}</span>
+                    <br><span style="color:{GREEN};"> ▲ {_esc(_axc['leads'])}</span>
+                    <br><span style="color:{RED};"> ▼ {_esc(_axc['lags'])}</span></div>""",
                     unsafe_allow_html=True)
+                with st.expander(f"📖 {_axc['name']} playbook — who wins, who loses"):
+                    render_lens_playbook(_axc, _ax_regkey, full=False)
+                    st.caption("Full playbooks are in the 🔭 Lenses tab.")
+            else:
+                _ax_l2.caption("No tilt card for this regime.")
         else:
             _ax_l2.caption("No tilt — pure APEX ranking.")
 
@@ -2596,6 +2699,104 @@ with tab_macro:
                  "in the repo to enable this tab.")
     except Exception as _me:
         st.error(f"Simulator embed failed: {_me}")
+
+
+# ── 🔭 Lenses — full playbooks for every macro regime ─────────────────
+with tab_lenses:
+    st.markdown("### 🔭 Macro lenses — who wins, who loses")
+    st.markdown(
+        "A **macro lens** is a playbook you overlay on a ranking. It does **not** "
+        "change a stock's quality score, analog odds, or APEX CALM/RS gates. Those "
+        "numbers stay honest. The lens only **re-orders** names that already passed "
+        "the filter, tilting toward sectors (and, for Reserve Reset, themes) that "
+        "the playbook says will lead, and away from the ones it says will lag.")
+    st.markdown(
+        "- **🚫 Off** — you asked for no tilt, even if a regime is detected.\n"
+        "- **📡 Auto** — use whatever the app reads live from oil, the dollar, "
+        "VIX, gold, and the pressure gauge.\n"
+        "- **A named lens** — run Top 20 or APEX under that playbook on purpose "
+        "(what-if, or because you disagree with Auto).")
+    st.caption("Playbooks are distilled from the Macro Simulator plus, for Reserve "
+               "Reset, 804 sessions of measured node history. Probability tilts, "
+               "not prophecy. Not investment advice.")
+
+    try:
+        _live = ce.macro_regime(closes, pressure_gauge=GAUGE)
+        _lk = _live.get("regime")
+        _lcd = ce.REGIME_CARDS.get(_lk, {})
+        st.markdown(
+            f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+            border-left:4px solid {ACCENT};border-radius:10px;padding:12px 16px;margin:8px 0 14px;">
+            <div style="font-weight:700;font-size:15px;">📡 Live Auto call:
+            {_esc(_lcd.get('emoji',''))} {_esc(_lcd.get('name', _live.get('label','')))}</div>
+            <div style="color:{ACCENT};margin:4px 0 6px">{_esc(_lcd.get('thesis',''))}</div>
+            <div style="color:{DIM};font-size:12.5px">From: {_esc(' · '.join(_live.get('drivers') or []))}</div>
+            <div style="margin-top:6px;font-size:13px">
+            <span style="color:{GREEN}">▲ {_esc(_lcd.get('leads',''))}</span>
+            &nbsp;·&nbsp;
+            <span style="color:{RED}">▼ {_esc(_lcd.get('lags',''))}</span></div>
+            </div>""", unsafe_allow_html=True)
+    except Exception:
+        _lk = None
+
+    st.markdown("#### At a glance")
+    _glance_rows = []
+    for _gk in getattr(ce, "LENS_ORDER", list(ce.REGIME_CARDS)):
+        _gcd = ce.REGIME_CARDS.get(_gk) or {}
+        _live_mark = " ← live" if _gk == _lk else ""
+        _glance_rows.append({
+            "Lens": f"{_gcd.get('emoji','')} {_gcd.get('name','')}{_live_mark}",
+            "The bet": _gcd.get("thesis", ""),
+            "Wins": _gcd.get("leads", ""),
+            "Loses": _gcd.get("lags", ""),
+        })
+    st.dataframe(pd.DataFrame(_glance_rows), width="stretch", hide_index=True)
+
+    st.divider()
+    st.markdown("#### Open a playbook")
+    _lens_pick_opts = {
+        f"{ce.REGIME_CARDS[k]['emoji']} {ce.REGIME_CARDS[k]['name']}": k
+        for k in getattr(ce, "LENS_ORDER", list(ce.REGIME_CARDS))
+        if k in ce.REGIME_CARDS
+    }
+    _default_pick = 0
+    if _lk in list(_lens_pick_opts.values()):
+        _default_pick = list(_lens_pick_opts.values()).index(_lk)
+    _pick_label = st.selectbox(
+        "Playbook", list(_lens_pick_opts), index=_default_pick,
+        key="lenses_pick", label_visibility="collapsed")
+    _pick_key = _lens_pick_opts[_pick_label]
+    render_lens_playbook(ce.REGIME_CARDS[_pick_key], _pick_key, full=True)
+
+    st.divider()
+    st.markdown("#### Sector multiplier grid")
+    st.caption("How each lens re-weights GICS sectors in Top 20 and APEX. "
+               "1.00 = no change. Green = promoted, red = demoted. Base is "
+               "omitted because every sector is 1.00. Reserve Reset's real edge "
+               "is thematic (miners, uranium, defense) — the GICS layer is mild "
+               "on purpose.")
+    _tilt_keys = [k for k in getattr(ce, "LENS_ORDER", [])
+                  if k != "base" and ce.SECTOR_TILTS.get(k)]
+    _all_secs = sorted({s for t in ce.SECTOR_TILTS.values() for s in t})
+    if _tilt_keys and _all_secs:
+        _grid = pd.DataFrame(
+            {ce.REGIME_CARDS[k]["name"]: [
+                ce.SECTOR_TILTS.get(k, {}).get(s, 1.0) for s in _all_secs]
+             for k in _tilt_keys},
+            index=_all_secs)
+
+        def _tilt_css(v):
+            if v > 1.02:
+                return f"color:{GREEN};font-weight:600"
+            if v < 0.98:
+                return f"color:{RED};font-weight:600"
+            return f"color:{DIM}"
+
+        _fmt = _grid.style.format("{:.2f}")
+        _styled = (_fmt.map(_tilt_css) if hasattr(_fmt, "map")
+                   else _fmt.applymap(_tilt_css))
+        st.dataframe(_styled, width="stretch")
+
 
 # ── 🎯 POC Future — AMD accumulation / manipulation / distribution ────
 with tab_poc:
@@ -3181,7 +3382,8 @@ with tab_guide:
         ("Analog forecast", "We find every past (day, stock) that looked like this one does now — same momentum percentile, range position, volume buzz, trend — and report what actually happened to them next. A distribution, not a prophecy."),
         ("Landing zone", "The middle 80% of analog outcomes (10th to 90th percentile). Its WIDTH is the risk."),
         ("Pop / crash odds", "Share of analogs that gained/lost 15%+ in 21 sessions, with the lift vs an average stock's base rate."),
-        ("Macro regime", "The app's live read of the environment (QE / stagflation / melt-up / shock / strong dollar / base) from oil, dollar, VIX, and the pressure gauge — the same six regimes as your Macro Simulator."),
+        ("Macro regime", "The app's live read of the environment from oil, the dollar, VIX, gold, and the pressure gauge. Eight playbooks: Easy Money, Hot Inflation, Risk-On Calm, Fear / Risk-Off, Rising Dollar, Debasement, Reserve Reset, No Clear Driver. Full win/lose writeups live in the 🔭 Lenses tab."),
+        ("Macro lens", "A playbook overlaid on Top 20 or APEX. It re-orders names that already passed the filter; it does not change quality scores, analog odds, or APEX gates. Off ignores a detected regime; Auto uses the live call; a named lens is a what-if."),
         ("MacroFit", "The sector multiplier the current regime's playbook applies to a stock's score."),
         ("Pressure gauge", "Net Fed liquidity + stablecoin flows + credit spreads combined into −3…+3. Positive = money looking for a home."),
         ("RVOL", "Recent volume vs its own average. 2.5x+ means attention arrived."),
