@@ -1,0 +1,801 @@
+Money Weather — pre-deploy audit (engine v2.24)
+================================================================
+Date:     2026-08-30
+Source:   C:\Users\magic\Desktop\stock screener app\STORM WATCH\moneyweather cursor fixes
+Lock:     cascade_engine.ENGINE_VERSION = "2.24"
+          app.py REQUIRED_ENGINE        = "2.24"
+Method:   full source read of app.py, cascade_engine.py, apex_flow.py,
+          macro_simulator.html, README.md, requirements.txt, config.toml
+          + 67 automated simulations against the real functions
+          (synthetic OHLCV, calendar fixtures, formula unit tests).
+          No application code was changed.
+
+THIS IS NOT THE v2.20 CHANGES.txt. That older audit is stale.
+v2.24 already fixed several of those P0s. This file is what is still
+wrong, misleading, or going to hurt you on share.streamlit.io.
+
+
+How to ship this zip
+--------------------
+Push app.py + cascade_engine.py + apex_flow.py from THIS folder together.
+The version gate still st.stop()s the whole app on mismatch — that is
+intentional. Also ship macro_simulator.html, assets/aiupscale_logo.png,
+requirements.txt, .streamlit/config.toml, data/.gitkeep.
+
+Set Streamlit Cloud secrets before the first visitor hits the URL:
+    ALPACA_API_KEY
+    ALPACA_SECRET_KEY
+(the code also accepts ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY and
+the APCA_* names). Without keys, node history falls through to Yahoo
+and will rate-limit; APEX intraday will return empty.
+
+
+================================================================
+PART 0 — What v2.24 already got right (do not re-fix)
+================================================================
+
+These were open in the 2.20 zip. They are done here. Another programmer
+should treat them as closed unless a remaining-issue note says otherwise.
+
+  1. Pension MTD is year-filtered
+     closes.index.month == last.month AND year == last.year.
+     Simulation (Aug 2026 history): unfiltered MTD = 53 rows across
+     2024/2025/2026; filtered = 10 rows in 2026. Forced Flows now
+     prints a this-month SPY/TLT gap, not a multi-year gap.
+
+  2. Dump stale fallback
+     load_dump_panel catches GitHub failure and serves the local npz
+     instead of crashing Top 20 / Lookup / APEX.
+
+  3. recent_ok captured BEFORE close ffill
+     Halted/delisted names no longer look "fresh" for five extra
+     sessions. Simulation: a name with no print in the last 3 bars
+     is False on the pre-ffill mask and True after ffill(limit=5).
+     mega_scan / forecast_all / felix / sector_flow / macro_only
+     all consume _recent_ok_mask.
+
+  4. history.parquet is aligned on LOAD, not only after a fetch
+     A cache written before the weekend fix is cleaned on the way in.
+
+  5. Pressure gauge does not vote "Draining" on missing feeds
+     Zero feeds → gauge=None, "Unavailable". Simulation: empty
+     components → None; one supportive feed → +1; all three → +3.
+     The old default-0 path still votes -3 — that code is gone.
+
+  6. Streamlit cache keys no longer use leading-underscore args
+     asof / gauge / override are hashed. A +3 mega_scan is not reused
+     at -3.
+
+  7. APEX import failure is scoped to that tab (no st.stop inside tabs)
+
+  8. Best Odds Auto applies the live regime
+     _forecast_all(asof, _rk if _apply_macro else None)
+
+  9. Analog rvol is stored uncapped; both sides cap at 3 when matching
+     Lookup and universe Odds Up no longer disagree on high-rvol names
+     for that reason.
+
+ 10. alpaca_prices is chunked (80). Ticker lookup is case-tolerant
+     via _ticker_index. forecast_all(only_tickers=) exists.
+
+ 11. Alpaca daily history uses adjustment="all".
+
+ 12. Unknown fundamentals rank at the bottom, not as average
+     (mega_scan quality, Felix, macro-only). Data completeness is shown.
+
+ 13. Diversified sector allocation (slot quotas + cap) so one favored
+     sector cannot take the whole Top 20. Score itself is NOT multiplied
+     by MacroFit — see P1 below, the UI still says it is.
+
+
+================================================================
+PART 1 — P0  (wrong numbers on screen, or a tab dies in production)
+================================================================
+
+P0-1  APEX "5-factor regime" is 4 factors. Thresholds assume 5.
+      File: apex_flow.py score_panel ~156-168
+            app.py APEX help + column_config still say "5-factor"
+
+      tally = px>sma20 + px>sma50 + sma20>sma50 + px>sma200
+      Missing: sma50 > sma200 (the 5th vote the Pine script / docs
+      describe as "MA stack").
+
+      Simulation on synthetic panel:
+        4-factor unique tallies = {-4, -2, 0}   (always even)
+        5-factor unique tallies  = {-5, -3, -1}   (odd possible)
+      STRONG BULL is coded as tally >= 3. With 4 votes of ±1 the
+      only way to get >=3 is tally == 4 (unanimous). MILD BULL is
+      tally == 2 (exactly 3-of-4). NEUTRAL is 2-2. You can never
+      land on the odd buckets the labels were written for.
+
+      This changes the 15-point regime component, therefore Score,
+      therefore Gate (Score >= 80). Adding the 5th factor WILL
+      change scores vs this zip — do it on purpose, or retitle
+      everything to 4-factor and keep the current numbers.
+
+      Recommend: add sma50>sma200 to match the Pine indicator you
+      told users this ranks identically to. Then re-check that a
+      known chart still prints the same 0-100. If it already was
+      4-factor in Pine, change the UI copy instead — but pick one.
+
+
+P0-2  APEX intraday stacks last-N bars with timestamps discarded.
+      File: apex_flow.py _alpaca_bars (keeps only o,h,l,c,v)
+            scan_intraday ~361-369
+              T = min(len(frames[s]) for s in names)
+              T = max(T, MIN_BARS)
+              stack frames[s][key].to_numpy()[-T:]
+
+      Simulation: AAA has 250 bars, BBB has 300.
+        T = 250. BBB's last 250 is bars 50..299, not the same clock
+        as AAA's 0..249. Relative strength vs SPY is then
+        "last 21 prints" of mismatched sessions — a 5-min RS of
+        ±3% vs SPY is not a 21-bar contemporaneous test.
+
+      Also: if the shortest series is < 210, T is inflated to 210
+      and those symbols are dropped. _alpaca_bars already requires
+      MIN_BARS, so the max() is a landmine if that filter ever moves.
+
+      Recommend: keep the bar timestamp. Inner-join on timestamp
+      (or asof-align to SPY's index) before stacking. Drop T=max(...).
+      Raise in score_panel if T < 210 instead of silently using
+      c[-200:] of an 80-row array (see P0-3).
+
+
+P0-3  score_panel does not require MIN_BARS. SMA200 becomes SMA-whatever.
+      File: apex_flow.py score_panel (no T check)
+            scan_daily raises if dump < 210; scan_intraday does not
+            call that raise — it filters symbols, then scores.
+
+      Simulation: T=80 panel scores without error.
+        _coverage = 80/200 = 0.40 so _finalize WILL drop them under
+        the liquidity guard — good for the daily path with the guard
+        on. If anyone calls score_panel directly, or the guard is
+        turned off, SMA200 / coverage / regime are fiction.
+
+      Recommend: `if T < MIN_BARS: raise` at the top of score_panel.
+
+
+P0-4  Best Odds "limited to the N hottest sectors" is a lie.
+      File: app.py recipe line ~1609-1614
+            _forecast_all / _forecast_scan calls ~1759-1768
+            cascade_engine.forecast_scan ~2248-2270
+
+      The recipe banner is shown for every method except Felix:
+        "limited to the {_hot_n} hottest sectors ({_t_lbl})"
+      Cascade Score honors _hot_n / _use_flow / the day picker.
+      Best Odds does not:
+        whole-universe path → forecast_all(regime=...)  no hot filter
+        shortlist path      → forecast_scan → mega_scan(top=120)
+                               with default hot_only=0, apply_macro=True
+
+      Two extra bugs on the shortlist path:
+        (a) _analog_library(asof) is loaded then discarded —
+            forecast_scan ignores F, R and calls forecast_all.
+        (b) lens Off still runs mega_scan(apply_macro=True) because
+            forecast_scan never receives apply_macro=False.
+            Auto-regime still tilts the shortlist you thought was
+            "no macro lens".
+
+      Recommend: pass hot_only, flow window, apply_macro into
+      forecast_scan / forecast_all. Stop drawing the hot-sector
+      clause on methods that ignore it. Don't build the analog
+      library twice.
+
+
+P0-5  fetch_history can overwrite a good parquet with a thin download.
+      File: cascade_engine.py fetch_history ~171-175
+        if len(closes) < 30 or closes.shape[1] < 3:   # failed
+            restore stale
+        else:
+            closes.to_parquet(LOCAL_HISTORY)
+
+      Simulation: NODES has 81 symbols. Gate is "30 rows and 3
+      columns", not "covers most of NODES". A Yahoo fallback that
+      returns SPY/QQQ/IWM for 40 days will clobber a 3-year 81-column
+      cache. After that, sentinels, ratios, yen-carry, and the
+      cascade graph run on a skeleton until someone hits Refresh
+      AND the feeds fully succeed.
+
+      Also LAST_HISTORY_SOURCE: if Alpaca returns empty for every
+      symbol, the label is "yfinance (Alpaca keys not set)" even
+      when keys exist and IEX/rate-limit was the actual cause.
+
+      Recommend: refuse to write parquet unless
+        (a) n_cols >= 0.8 * len(NODES)  OR
+        (b) n_cols >= stale_df.shape[1]
+      and only then. Keep stale otherwise. Fix the source string
+      to "Alpaca empty (keys present, feed failed)".
+
+
+P0-6  History cache can serve Friday's close until Wednesday.
+      File: cascade_engine.py fetch_history
+        if (pd.Timestamp.today() - df.index[-1]).days <= 4:
+            return aligned parquet
+
+      Combined with app.py @_history ttl=3600.
+      A Friday close is still "fresh" on Tuesday (3 days) and on
+      Wednesday morning (4 days). Live Top 20 / Cascade / regime
+      will think it is still Friday after two full sessions.
+
+      Recommend: treat as stale if last bar's date is older than
+      the previous completed US session (skip weekends), not "4
+      calendar days". Keep the 4-day fallback only for when the
+      refetch fails.
+
+
+P0-7  html.escape is still missing on unsafe_allow_html interpolations.
+      File: app.py  (dozens of f-strings into unsafe_allow_html)
+
+      Company names (Yahoo shortName), tickers, sector strings,
+      Forced Flow Buy text, cascade source/target names, advisor
+      labels, recipe HTML all go in raw.
+
+      This is a Streamlit Cloud app. You do not control Yahoo
+      shortName. A name containing </div><img...> will break the
+      layout; a name containing <script> is an XSS footgun in any
+      browser context that still executes markup Streamlit injects.
+
+      Recommend: one _esc(s) = html.escape(str(s), quote=True) and
+      run every interpolated field through it. Forced-flow "Buy"
+      strings too.
+
+
+================================================================
+PART 2 — P1  (silent wrong, or the user is told a different story)
+================================================================
+
+P1-1  Top 20 help still says the score is multiplied by MacroFit.
+      File: app.py expander "How the Top 20 is chosen" ~2068
+            column_config Score help ~1981
+              "42% technicals + 23% quality + 29% cascade tailwind
+               + 6% catalysts, multiplied by the macro-regime sector fit"
+
+      Code (mega_scan ~1974-2040):
+        core = 42*tech + 23*quality + 29*tail_pct + 6*cat
+               + 8*flow_pct (optional)
+        Score column = core
+        MacroFit is a display column
+        Ranking under a regime is diversified SLOT ALLOCATION
+        (quota per lead sector, 35% cap, backfill). The multiplier
+        is used on the backfill score, not on the printed Score.
+
+      Simulation (repress, top=20):
+        7 lead sectors including Utilities at tilt 1.00 (neutral)
+        quota rounds to 3 each = 21 slots, then truncated to 20.
+        Neutral Utilities get the same 3-slot floor as Energy 1.15.
+
+      Recommend:
+        - Change the help to match the allocator.
+        - Exclude tilt == 1.0 from "leads" (use > 1.0), or they
+          steal slots from the thesis.
+        - Cap sum(quota) to `top` before picking, not after.
+
+
+P1-2  Tailwind / fastest_followers correlation is not pairwise-complete.
+      File: cascade_engine.py _node_follow_corr ~1796-1817
+            fastest_followers ~975-981
+        xm = x - nanmean(x)          # over the FULL column
+        ym = y - nanmean(y, axis=0)
+        corr = nansum(xm * ym) / ...
+
+      Simulation (T=200, second series missing first 80 bars):
+        complete series: col-mean corr == pairwise  (Δ ~ 0)
+        gappy series:     col-mean = 0.763
+                          pairwise  = 0.994
+        Δ = 0.23 on a series that is actually almost perfectly
+        correlated on the overlapping window.
+
+      This is the cascade TAILWIND pillar (29 points of the
+      cascade score) and the "fastest followers" table. Gappy dump
+      names (IPOs, recent listings, halt-resume) get a systematically
+      wrong follow-corr, then a wrong percentile, then a wrong
+      Top 20 rank.
+
+      Recommend: the same pairwise mask already used in
+      upstream_drivers (~1307-1315). Vectorize with a validity
+      mask (Xm.T @ Ym for counts, zero the invalid products).
+
+
+P1-3  Edge hit_rate is fully in-sample.
+      File: estimate_edges ~307-320
+      The Spearman IC screen and the directional hit rate use the
+      same trailing window. Live ranking, forecast_board conviction,
+      and the backtest's "conv" weight all consume it.
+
+      Walk-forward backtest itself is honest (asof slices to
+      asof-horizon; simulation produced 11 periods, excess in both
+      halves). The hit_rate NUMBER shown to users is not.
+
+      Recommend: compute hit_rate on the most recent 20-30% of the
+      train window held out of the IC screen, or at least print
+      n_obs next to every hit % so "8 observations of 75%" is
+      visibly weaker than 60 of 62%.
+
+
+P1-4  US holidays stay in the equity calendar.
+      File: _align_to_equity_calendar only drops dayofweek >= 5.
+
+      Simulation: Memorial Day Monday is kept. Caller then ffills
+      Friday's SPY onto that row. Impulse 5d / z / IC treat a 0%
+      holiday as a real session — the same class of bug weekends
+      used to be, just rarer.
+
+      Monday crypto still carries the weekend (and holiday) move
+      in one bar; equities don't. BTC vs SPY 5d impulses are not
+      the same horizon.
+
+      Recommend: drop rows where SPY (or a majority of non-crypto
+      columns) is a ffilled holiday — e.g. require a raw, non-ffill
+      print in a core equity column before the row counts as a
+      session. Document the crypto Monday lump separately.
+
+
+P1-5  January reversal card never appears in November.
+      File: forced_flows ~655-683
+
+      Simulation:
+        today = 2026-11-15, days_ahead=80 → 0 January-reversal rows
+        today = 2026-12-15              → 1 row dated 2027-01-05
+      In November the event date is date(today.year, 1, 5) =
+      2026-01-05 (already past), so the filter today <= Date drops it.
+      The buy-window copy also uses date(today.year, 12, 24) which
+      is fine in Nov, but the event itself is gone.
+
+      Recommend: always target the NEXT January 5
+        y = today.year + (0 if today.month == 1 and today.day <= 5 else
+                           1 if today.month >= 11 else 0)
+      and use that year for the Dec 24–31 buy dates too.
+
+
+P1-6  Stock Lookup Odds and Best Odds can disagree on the same ticker.
+      outcome_forecast keeps a sample at n >= 60 (and will display it).
+      forecast_all default min_n=300 (universe / Best Odds).
+      Same analog math, different floors.
+
+      Recommend: one constant (300, matching the UI copy "300+
+      enforced") in both paths, or show a "thin sample" badge in
+      Lookup when 60 <= n < 300 instead of a full forecast card.
+
+
+P1-7  RSI in mega_scan is SMA-14; ticker_stats is Wilder.
+      Simulation on one series: SMA=45.6, Wilder=53.1.
+      Top 20 "RSI sweet spot 45-65" can flip relative to Lookup.
+      The analyzer in app.py also uses rolling(14).mean (SMA).
+
+      Recommend: one RSI. Wilder is the convention. At minimum
+      don't call it the IGNITION RSI if the two screens disagree
+      by 7+ points on the same bars.
+
+
+P1-8  Sector-flow formula does not implement the 40/25/20/15 mix
+      the UI describes.
+      File: cascade_engine.py sector_flow ~2916-2917
+        flow = 0.40*(ret-mkt)
+             + 0.25*(breadth-0.5)*0.10
+             + 0.20*tanh(sg-1.0)*0.02
+             + 0.15*ret
+
+      Simulation, typical session (+0.6% vs market, 58% up, 1.2x
+      dollar volume):
+        rs=0.00240  breadth=0.00200  volsurge=0.00079  ret=0.00090
+      The extra *0.10 and *0.02 look like leftover unit conversions.
+      Volsurge is nearly inert (max contribution ~0.004 even on a
+      3x surge). Breadth can rival RS on a quiet day and collapse
+      on a 5% day. The validated "+3.41% / 21d" result used THIS
+      formula, so changing it changes the backtest — but the caption
+      "a sector is hot when money-weighted return, breadth and
+      turnover all lean the same way" oversells turnover especially.
+
+      Recommend: either drop the *0.10/*0.02 and re-run the
+      walk-forward, or rewrite the caption to "mostly dollar-weighted
+      relative return, with a small breadth kicker".
+
+
+P1-9  macro_regime is not the simulator's gkey().
+      Docstring: "same decision order as the simulator's gkey():
+      qe → stag → bull → bear → strong → base"
+      Actual app order: repress → qe → stag → bull → bear →
+      yen-unwind-as-bear → strong → base.
+      Simulator gkey(): carry → qe → stag → iran-bear → stag →
+      bull → strong → inflate → base.
+
+      Simulation: gauge +2, gold +9%/63d, dollar flat → repress,
+      which blocks QE. The simulator's Inflate tab is a different
+      key with different expected-return columns. Live "Debasement"
+      Top 20 is NOT what the Macro Sim Inflate grid is scoring.
+
+      Recommend: stop claiming they match. Map repress ↔ inflate
+      in the UI, or add carry/inflate keys to SECTOR_TILTS so the
+      two tools can be set to the same playbook.
+
+
+P1-10 APEX Auto lens reads _gauge_cache which is only set if the
+      user has already opened the Top 20 tab this session.
+      File: app.py ~1489 (set inside tab_top20)
+            APEX Auto ~2156  st.session_state.get("_gauge_cache")
+            Macro Sim banner ~2381  same
+
+      Visiting APEX or Macro Sim first → gauge=None → repress/QE
+      branch never fires; you get stag/bull/bear/strong/base from
+      oil/VIX/dollar alone. Different regime than Top 20 Auto on
+      the same reload if they clicked Top 20 first.
+
+      Recommend: compute _pressure() once above the tabs and pass
+      gauge everywhere. Do not depend on tab visit order.
+
+
+P1-11 APEX scan re-runs the whole market on every widget change
+      after the first "Run".
+      File: app.py ~2242  if session_state["apex_run"]: scan_daily(...)
+      There is no @st.cache_data on scan_daily. Results are not
+      stored. Changing min score / CALM / RS / $vol / top-N after
+      a run re-scores ~5,700 names. Opposite of the old "sticky
+      stale filters" bug — now it is an accidental denial-of-service
+      on your own Cloud CPU.
+
+      Recommend: hash (tf, sectors, lens, min_score, calm, rs,
+      price, dv, top) and cache the result 15 minutes, OR store
+      the DataFrame in session_state and only recompute on Run.
+
+
+P1-12 dump_fundamentals / _now_features still use tickers == ticker
+      (case-sensitive). _ticker_index is case-tolerant. Lookup
+      uppercases first so the live path is OK; any other caller
+      passing "aapl" misses the dump and looks like "no analog".
+
+
+P1-13 ShortPctFloat squeeze tag uses >= 0.15.
+      Yahoo shortPercentOfFloat is a fraction (0.15 = 15%).
+      If the nightly dump stores 15 meaning 15%, almost every
+      name with any short interest tags 🩳. If it stores 0.15,
+      you are fine. Confirm the dump unit and document it.
+      Analyzer pill `spf > 0.15` has the same fork.
+
+
+P1-14 alpaca_history ffills BEFORE fetch_history aligns weekends.
+      alpaca_history ~1140  return df.sort_index().ffill(limit=5)
+      fetch_history then aligns and ffills again. Crypto weekend
+      rows can carry Friday equity closes into the join for a
+      moment. Align is applied after the join, so the live path
+      is OK — but anyone calling alpaca_history() directly gets
+      weekend-contaminated equities.
+
+      Recommend: return raw from alpaca_history; let the caller
+      align then ffill. One ffill, after the calendar cut.
+
+
+P1-15 Simulator honesty (byte-level claims unchanged).
+      macro_simulator.html:
+        "Screened from 5,637 Stocks" + badge "REAL DATA"
+        footer: "ROIC, Piotroski, Golden Cross, OBV & MFI composite"
+      Live refresh only updates prices. The book is curated.
+      mkGrid: val = s[key] != null ? s[key] : (s.base || 0)
+      Names without a carry/inflate expected-return get the BASE
+      number — often the wrong sign under those tabs.
+      Duplicate tickers (V, MCO, WMT, COST, …) in multiple DB
+      arrays → duplicate id="lpx-TICKER" when two grids render.
+
+      Recommend: "Illustrative book, live prices" badge. Fallback
+      to 0 or hide the card when the scenario key is missing, never
+      to base. Deduplicate ids with a grid prefix.
+
+
+P1-16 README is still the 2.18 deploy blurb.
+      No secrets checklist, no "first visit downloads the dump
+      (1–2 min, can look dead)", no "push all three py files".
+      The in-app version-mismatch error is good; the README is not.
+
+
+================================================================
+PART 3 — P2  (deploy reliability, UX, copy, safety)
+================================================================
+
+P2-1  No tests in the zip. The v2.19 tree had tests/test_logic.py.
+      Ship at least: calendar align, pension year filter, pressure
+      empty-feed, recent_ok vs ffill, tf_scale, 4-vs-5 factor
+      tally, pairwise corr, score_panel MIN_BARS, forced_flows
+      January year. The simulations in this audit are a starting
+      list.
+
+P2-2  Watchlist is data/watchlist.json on the server.
+      Streamlit Cloud filesystems are ephemeral and shared.
+      Every visitor on a given replica shares one list; a reboot
+      wipes it. Caption already warns a little — make it "this
+      demo host does not persist a personal watchlist" or move to
+      st.session_state / a user store.
+
+P2-3  IEX feed is hardcoded on every Alpaca call
+      (snapshots, daily bars, analyzer OHLCV, APEX intraday).
+      IEX is a subset of the tape. During the session a "live"
+      price can print far from NBBO and Chg% looks like a bug.
+      Document it, or allow feed=sip via secret for paid keys.
+
+P2-4  APEX intraday still requests adjustment="split"
+      while daily history uses "all". Split-only vs split+dividend
+      will disagree with the daily APEX score on the same name
+      around ex-div. Use "all" everywhere.
+
+P0-adjacent: Alpaca snapshots
+      r.json() is iterated as {symbol: snapshot}. Confirm against
+      the live schema; some Alpaca versions wrap under "snapshots".
+      A schema change returns {} and live update silently shows
+      "unavailable" for every row.
+
+P2-5  Dump URL is a public GitHub raw file, timeout=120, no retry.
+      First Cloud visitor pays the gzip JSON → 5700-name panel
+      parse. If GitHub is slow the request dies and — if no local
+      npz — Top 20/Lookup/APEX raise. After the first success the
+      npz is on disk (until the replica dies).
+
+      Recommend: retry 3x with backoff; stream to disk; show a
+      progress caption; consider committing a starter dump_panel_v4.npz
+      so cold start is a 4-day-stale scan rather than an error.
+
+P2-6  mega_scan RSI/MACD still run ewm/rolling on the full T×~5700
+      panel. Simulation: T=400 N=5700 MACD ewm ≈ 0.51s on this
+      machine, plus RSI, plus one _node_follow_corr per hot node
+      (matrix over the whole dump). Last ~240 rows would match
+      last-bar RSI/MACD. Cut the window.
+
+P2-7  news_catalysts and upcoming_earnings are per-ticker yfinance
+      calls. Top 20 fetches news for the final 20 (OK). Forced
+      Flows earnings for 7 buyback titans is cached 24h. A lookup
+      of a random ticker can 429. You already degrade; surface
+      "_issues" more loudly so "no EPS" is not read as "no earnings".
+
+P2-8  Division by zero in score_panel
+      rets = diff(c[-21:]) / c[-21:-1]
+      Simulation: zero prices → RuntimeWarning, nan vol, Risk may
+      misclassify. Guard c[-21:-1] > 0 the same way you guard rng.
+
+P2-9  BRK.B / BF.B / class-share tickers
+      Alpaca wants BRK.B, Yahoo often BRK-B. Analyzer chain can
+      succeed on dump OHLCV and fail on Alpaca/Yahoo for the same
+      lookup. Map a small alias table (BRK-B→BRK.B etc).
+
+P2-10 components.html injects the entire 210 KB simulator.
+      Fine functionally. Height 1700 + nested scroll is easy to
+      miss on a laptop. The simulator's live feeds run in the
+      visitor's browser (good). Its "REAL DATA" badge is not.
+
+P2-11 No .streamlit/secrets.toml.example. README should show:
+        [alpaca]
+        # actually the code reads top-level keys, not a table:
+        ALPACA_API_KEY = "..."
+        ALPACA_SECRET_KEY = "..."
+      Confirm Cloud secrets are top-level, not nested, because
+      st.secrets.get("ALPACA_API_KEY") is what the getters use.
+
+P2-12 pandas Timestamp.now(tz="US/Eastern")
+      Needs zoneinfo/tzdata on the Cloud image. If it raises, live
+      update / advisor stamp fail. Catch and fall back to UTC.
+
+P2-13 Intraday RS is 20 bars, not 20 days.
+      Honest for the indicator, easy to misread next to daily 60.2%
+      win-rate copy. The unvalidated badge is good; add one line:
+      "RS here is 20 five-minute returns vs SPY, not 20 sessions."
+
+P2-14 Sector name mismatch vs SECTOR_TILTS.
+      Tilts use Yahoo-style: "Consumer Cyclical", "Consumer Defensive",
+      "Financial Services", "Communication Services", "Basic Materials".
+      If the dump emits "Consumer Discretionary", "Financials",
+      "Communications", MacroFit is 1.0 for everyone in that sector
+      and the allocator skips them as leads. Log unknown sectors
+      once per dump load.
+
+P2-15 _forecast_scan cache key is (asof, gauge, override, top).
+      It does not include apply_macro, hot_only, flow window.
+      Combined with P0-4, even after you wire those args, remember
+      to add them to the cache wrapper.
+
+P2-16 Felix / macro-only hide Score-like columns via column_order
+      but the styler still references MacroFit / Data. Harmless.
+      Felix column_order drops Tests and Felix — the user cannot
+      see the actual rank score, only the fundamentals. Either
+      show Felix+Tests or stop computing a ranking you won't display.
+
+P2-17 investment_plan prints dollar stops for cascade NODES (ETFs).
+      Fine. If this is ever reused on dump stocks, closes[tgt]
+      KeyError. Not today.
+
+P2-18 Crowd: CATALYST_KEYWORDS "profit"/"loss"/"oil"/"china" will
+      tag almost any headline. Min-hits and sector whitelist help.
+      Still informational — keep it that way, don't score it.
+
+
+================================================================
+PART 4 — Optimizations that will make the app feel finished
+================================================================
+
+O-1  Cache scan_daily / mega_scan RSI-MACD window
+     Slice C[-240:] before ewm. Same last-bar RSI/MACD, less RAM
+     on Cloud (1 GB). Combined with in-process _PANEL_CACHE this
+     is the difference between a 8s Top 20 and a 20s one when
+     several hot nodes each run _node_follow_corr.
+
+O-2  Vectorize cat_tags / _missing_names Python loops over N=5700
+     They are cosmetic. A few hundred ms, but they run every scan.
+
+O-3  Do not call hot_sectors twice on the APEX tab
+     (button path + caption path). Reuse _sector_flow(asof, ...).
+
+O-4  progress / status on first load
+     fetch_history and load_dump_panel can sit on a spinner that
+     only says "Loading 3 years of global node history" while the
+     dump is the slow part. Split the spinners: "node history"
+     vs "5,700-name dump".
+
+O-5  Precompute analog library at dump load and pickle it next
+     to the npz. _feature_panels is ~150k rows, rebuilt on every
+     process start. First Best Odds on a fresh replica is the
+     longest click in the app.
+
+O-6  requests User-Agent on FRED
+     FRED periodically 403s default python-requests. A simple
+     browser-like User-Agent on _fred() avoids a "pressure
+     unavailable" morning.
+
+O-7  Deduplicate Alpaca key resolution
+     _alpaca_keys_simple and the copy inside alpaca_prices are
+     two implementations. One helper.
+
+O-8  score_panel np.vectorize(dict.get) for 5 regime labels
+     N is small (one last bar) so it's fine. Don't "optimize" it.
+     Do add MIN_BARS.
+
+O-9  Streamlit theme is already set. Good.
+     Add a secrets-missing caption on Cascade Map when
+     LAST_HISTORY_SOURCE contains "keys not set" / "yfinance".
+
+O-10 Pin streamlit more tightly if Cloud ever floats a breaking
+     dataframe on_select / width="stretch" API. You use both.
+
+
+================================================================
+PART 5 — Simulation log (what was actually run)
+================================================================
+
+67 checks against the real v2.24 functions. 66 recorded PASS
+(meaning "the code behaves as described in the test", including
+tests whose described behavior is a BUG). 1 FAIL was a docstring
+string-match across a newline — the claim is still in the docstring.
+
+Confirmed by running the functions, not by reading them:
+
+  • Weekend aligner drops Sat/Sun when any non-crypto column exists;
+    crypto-only frames keep weekends.
+  • Memorial Day Monday is kept (holiday hole).
+  • Unfiltered MTD in August spans 2024-2026; year filter is current
+    month only; Forced Flows play string uses the filtered gap.
+  • January reversal is absent on 2026-11-15 (80-day look-ahead)
+    and present on 2026-12-15 as 2027-01-05.
+  • Empty pressure components → gauge None, not -3.
+  • Calm synthetic name → Risk=CALM, 35 risk points, vol=0.9%.
+    High-vol name → HIGH, vol=28%.
+  • 4-factor tally is always even; 5th factor produces odd buckets.
+  • score_panel(T=80) returns coverage=0.40 and does not raise.
+  • 5-min CALM threshold = 0.283%, floor = 0.068%.
+  • Intraday last-N stack is not timestamp-aligned.
+  • Sector-flow typical-day mix is not 40/25/20/15.
+  • recent_ok pre-ffill is False for a 3-bar halt; post-ffill is True.
+  • Column-mean follow-corr on a gappy series: 0.763 vs pairwise 0.994.
+  • estimate_edges returns edges; hit_rate is in-sample; backtest
+    produces both-half excess on synthetic correlated walkers.
+  • gauge+2 + gold rally + soft dollar → repress, blocking QE.
+  • repress quotas sum to 21 for top=20 (over-allocate then truncate).
+  • RSI SMA vs Wilder differed by 7.5 points on one series.
+  • Yen-spike + QQQ/BTC/VIX/Nikkei drain → unwind signature.
+  • score_panel on zero prices warns but does not raise.
+  • Full-panel MACD ewm (400 × 5700) ≈ 0.51s on the audit machine.
+
+Warnings observed (will hit Cloud logs):
+  apex_flow.py:91  invalid value encountered in divide   (zero closes)
+  numpy nanvar  Degrees of freedom <= 0 for slice        (same)
+
+
+================================================================
+PART 6 — Suggested fix order before you share the URL
+================================================================
+
+Must-fix before "it's live" (wrong or dead):
+
+  1. P0-5   parquet coverage gate + honest LAST_HISTORY_SOURCE
+  2. P0-6   stale-if-not-last-session, not "4 calendar days"
+  3. P0-4   Best Odds honors hot sectors / lens Off, or the banner
+             stops claiming it does
+  4. P1-10  compute pressure gauge once above the tabs
+  5. P0-1   5th regime factor OR retitle to 4-factor (pick one;
+             this changes APEX scores if you add it)
+  6. P0-2   timestamp-align APEX intraday; drop T=max(T, MIN_BARS)
+  7. P0-3   MIN_BARS raise inside score_panel
+  8. P0-7   html.escape helper on every unsafe_allow_html field
+  9. Secrets in Cloud + a README checklist so the first visitor
+     is not a Yahoo 429
+ 10. P1-2   pairwise-complete follow-corr (Tailwind is 29 points)
+
+Then, still this week:
+
+ 11. P1-1   Top 20 copy vs allocator; leads are tilt > 1.0
+ 12. P1-5   January reversal year
+ 13. P1-6   one analog n-floor
+ 14. P1-9   stop claiming gkey() parity; map repress/inflate
+ 15. P1-11  cache APEX results so widget twitches don't rescan
+ 16. P1-8   sector-flow caption or formula, not both
+ 17. P1-15  simulator "REAL DATA" / OBV-MFI / base fallback
+ 18. P2-1   ship tests so the next zip cannot regress P0-1..7
+ 19. O-1    RSI/MACD on last 240 bars
+ 20. O-5    persist analog library next to the npz
+
+Do not change Score weights, CALM/RS gates, or analog tolerances
+without a new held-out number. Those are the validated bits. The
+list above is "make the app tell the truth about what it already
+computes" plus a few landmines that will fire on Cloud.
+
+
+================================================================
+PART 7 — Deploy checklist (operations, not code)
+================================================================
+
+  [ ] Streamlit Cloud secrets: ALPACA_API_KEY + ALPACA_SECRET_KEY
+      (top-level keys, matching st.secrets.get)
+  [ ] Python version on Cloud matches pandas<3 / pyarrow<25
+      (do not let it float to pyarrow 25 — the comment in
+      requirements.txt is a segfault you have already paid for)
+  [ ] First-load test from a logged-out browser:
+        Cascade Map renders a date and a source line
+        Pressure is not stuck on "Unavailable" for > 30s
+        Top 20 Run scan returns rows
+        APEX daily Run scan returns rows with Gate
+        Stock Lookup AAPL (or SPY) shows a price and analog card
+        Macro Sim iframe is the simulator, not a filename
+  [ ] With secrets removed, app still loads (Yahoo fallback) and
+      APEX intraday shows the keys warning, not a traceback
+  [ ] Version mismatch: deploy app.py 2.24 with an old engine
+      and confirm the red banner + stop, then fix by pushing both
+  [ ] Watchlist: accept that Cloud will not keep it, or don't
+      show Save
+  [ ] Confirm dump sector strings match SECTOR_TILTS keys
+      (print sorted unique sectors from a local npz once)
+  [ ] Confirm ShortPctFloat unit (0.15 vs 15) on one known-high
+      short name
+  [ ] APEX: open a Gate-passing name on the TradingView indicator
+      and confirm Score matches to 0.1. If it doesn't, P0-1 is
+      why — do not ship "looks identical on your chart" until it does
+
+
+================================================================
+File map (this folder)
+================================================================
+
+  cascade_engine.py   v2.24  ~2947 lines  engine
+  app.py              2.24   ~2764 lines  UI
+  apex_flow.py        (no ver) ~399 lines  APEX
+  macro_simulator.html        ~2270 lines  static book + live prices
+  README.md                   2.18-era blurb
+  requirements.txt            streamlit, yfinance==1.5.1, pandas<3,
+                              pyarrow<25, numpy, requests, plotly
+  .streamlit/config.toml      theme + headless
+  assets/aiupscale_logo.png
+  data/.gitkeep
+
+Nothing in this file was applied as code. It is the punch list.
+
+
+================================================================
+How this zip differs from the 2.20 audit you already have
+================================================================
+
+Fixed since 2.20: pension year filter, dump stale fallback, recent_ok
+pre-ffill, parquet align on load, pressure empty-feed, cache-key
+underscores, APEX no-stop, Best Odds Auto regime, rvol parity,
+chunked snapshots, case-tolerant ticker index, unknown≠average
+fundamentals, diversified slot allocator, dump coverage cache.
+
+Still open, and new in 2.24: 4-vs-5 APEX factor, intraday clock
+misalignment, score_panel MIN_BARS, Best Odds hot-sector banner lie,
+parquet 3-column overwrite, 4-day stale history, XSS, follow-corr
+pairwise, in-sample hit rates, holidays, January year, analog n-floor
+split, RSI SMA vs Wilder, sector-flow units, gkey() claim, gauge
+tab-order, APEX auto-rescan, simulator claims, no tests, IEX, README.
+)

@@ -2,12 +2,15 @@
 # Hard-won pins from the stock app (do not float these):
 #  - pyarrow<25: 25.0.0 segfaults in pandas<->arrow conversion under Streamlit
 #  - pandas<3:   arrow-backed strings route through the crashing path
+#  - streamlit>=1.40: app uses width="stretch" (added ~1.40)
+#  - tzdata: America/New_York session clock (zoneinfo) on Cloud/Windows
 #  - curl_cffi is disabled at runtime via YF_DISABLE_CURL_CFFI=1 in app.py
 #    (0.15.x has memory-corruption bugs, upstream #677)
-streamlit>=1.32
+streamlit>=1.40,<2
 yfinance==1.5.1
 pandas>=2.0,<3.0
 pyarrow<25
 numpy>=1.24
 requests>=2.31
 plotly>=5.18
+tzdata>=2024.1

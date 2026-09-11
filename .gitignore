@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
+.streamlit/secrets.toml
+data/watchlist.json
+data/history.parquet
+data/*.npz
+data/stock_data.json.gz
+.DS_Store
+*.log
+moneyweather.zip

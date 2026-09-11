@@ -11,6 +11,7 @@ Run:  streamlit run app.py
 First load downloads ~3 years of daily data for ~50 tickers (1-2 min), then
 caches to data/history.parquet.
 """
+from __future__ import annotations
 import os
 os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")   # curl_cffi segfault guard
 
@@ -42,7 +43,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.35"
+REQUIRED_ENGINE = "2.36"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -131,6 +132,10 @@ HELP = {
     "honesty": "The sample is split in half by time. A real signal earns "
         "excess in BOTH halves; a curve-fit earns it all in one. This split "
         "has killed prettier backtests than this one — respect it.",
+    "price_range": "High and low of the same bars the chart uses, over the "
+        "lookback you pick. 1 month ≈ 21 sessions, 1 year ≈ 252. The bar is "
+        "where the live price sits in that window — 100% = at the high. "
+        "Changing the lookback recomputes instantly; it does not re-download.",
     "macro_lens": "A playbook overlaid on a ranking. Off = no sector tilt. "
         "Auto = the regime the app detects live. A named lens re-orders names "
         "toward that scenario's winners — it does not change quality scores, "
@@ -143,12 +148,19 @@ CREATOR_URL = "https://aiupscalellc.netlify.app/"
 LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "aiupscale_logo.png")
 
 
+@st.cache_data
+def _logo_b64() -> str:
+    if not os.path.isfile(LOGO_PATH):
+        return ""
+    import base64
+    return base64.b64encode(open(LOGO_PATH, "rb").read()).decode()
+
+
 def _clickable_logo(width: int = 150) -> None:
     """AI Upscale logo linking to the site — same as the hybrid screener."""
-    if not os.path.isfile(LOGO_PATH):
+    encoded = _logo_b64()
+    if not encoded:
         return
-    import base64
-    encoded = base64.b64encode(open(LOGO_PATH, "rb").read()).decode()
     st.markdown(
         f'<a href="{CREATOR_URL}" target="_blank" rel="noopener noreferrer">'
         f'<img src="data:image/png;base64,{encoded}" width="{width}" '
@@ -297,6 +309,11 @@ def _sector_flow(asof: str, lookback: int = 1, offset: int = 0,
     return ce.sector_flow(lookback=lookback, offset=offset, use_live=live)
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def _hot_sectors(asof: str, k: int = 5, lookback: int = 1, offset: int = 0):
+    return ce.hot_sectors(int(k), lookback=int(lookback), offset=int(offset))
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def _flow_sessions(asof: str):
     return ce.flow_sessions()
@@ -360,7 +377,7 @@ def az_pill(label, good):
     bc = "#1e6b35" if good is True else ("#a03535" if good is False else "#907020")
     return (f"<span style='display:inline-block;background:{bg};color:{col};"
             f"border:1px solid {bc};border-radius:4px;font-family:monospace;"
-            f"font-size:11px;padding:2px 9px;margin:2px 4px 2px 0'>{label}</span>")
+            f"font-size:11px;padding:2px 9px;margin:2px 4px 2px 0'>{_esc(label)}</span>")
 
 
 def az_tag(v, hi, lo, fmt="{:.2f}", suffix=""):
@@ -503,6 +520,79 @@ def pct_color(v):
     return f"<span style='font-family:monospace;color:{col}'>{'+' if v >= 0 else ''}{v:.2f}%</span>"
 
 
+# Price Range Analysis lookbacks. Session counts are trading days
+# (~21 per month). "1 year" is the original default (~252 sessions).
+PRICE_RANGE_OPTS = {("1 month" if m == 1 else f"{m} months"): m * 21
+                    for m in range(1, 12)}
+PRICE_RANGE_OPTS["1 year"] = 252
+PRICE_RANGE_OPTS["Year to date"] = "ytd"
+PRICE_RANGE_DEFAULT = "1 year"
+
+
+def _fmt_bar_date(ix) -> str:
+    ts = pd.Timestamp(ix)
+    if getattr(ts, "tzinfo", None) is not None:
+        try:
+            ts = ts.tz_convert("UTC").tz_localize(None)
+        except (TypeError, ValueError):
+            ts = pd.Timestamp(ts).replace(tzinfo=None)
+    return ts.strftime("%b %d, %Y")
+
+
+def price_range_window(hist: pd.DataFrame, spec, px: float | None = None):
+    """High / low of an OHLCV (or Close-only) window.
+
+    `spec` is a session count, or 'ytd'. Live `px` is folded in so a print
+    outside the last bar doesn't sit off the gauge. Returns None when the
+    window has no usable prices.
+    """
+    if hist is None or hist.empty:
+        return None
+    cols = {str(c).lower(): c for c in hist.columns}
+    hi_c, lo_c, cl_c = cols.get("high"), cols.get("low"), cols.get("close")
+    if cl_c is None:
+        return None
+    if spec == "ytd":
+        idx = pd.to_datetime(hist.index)
+        if getattr(idx, "tz", None) is not None:
+            idx = idx.tz_convert("UTC").tz_localize(None)
+        last = idx[-1]
+        start = pd.Timestamp(year=int(last.year), month=1, day=1)
+        w = hist.iloc[np.asarray(idx >= start)]
+        if w.empty:
+            w = hist.tail(1)
+    else:
+        try:
+            n = max(2, int(spec))
+        except (TypeError, ValueError):
+            n = 252
+        w = hist.tail(n)
+    if w.empty:
+        return None
+    if hi_c is not None and lo_c is not None:
+        hi_s = pd.to_numeric(w[hi_c], errors="coerce").dropna()
+        lo_s = pd.to_numeric(w[lo_c], errors="coerce").dropna()
+    else:
+        cl_s = pd.to_numeric(w[cl_c], errors="coerce").dropna()
+        hi_s = lo_s = cl_s
+    if hi_s.empty or lo_s.empty:
+        return None
+    hi, lo = float(hi_s.max()), float(lo_s.min())
+    hi_dt, lo_dt = hi_s.idxmax(), lo_s.idxmin()
+    try:
+        live = float(px) if px is not None else None
+    except (TypeError, ValueError):
+        live = None
+    if live is not None and np.isfinite(live) and live > 0:
+        last_ix = hist.index[-1]
+        if live > hi:
+            hi, hi_dt = live, last_ix
+        if live < lo:
+            lo, lo_dt = live, last_ix
+    return dict(high=hi, low=lo, high_dt=hi_dt, low_dt=lo_dt,
+                n=int(len(w)), start=w.index[0], end=w.index[-1])
+
+
 def render_eps_trend(eps_history, eps_forward=None, why=""):
     eps_forward = eps_forward or []
     timeline = []
@@ -571,8 +661,16 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
     mcap = info.get("marketCap"); pe = info.get("trailingPE"); fwpe = info.get("forwardPE")
     pb = info.get("priceToBook"); ps = info.get("priceToSalesTrailing12Months")
     beta = info.get("beta")
-    hi52 = info.get("fiftyTwoWeekHigh") or (float(hist.High.max()) if not hist.empty and "High" in hist else 0)
-    lo52 = info.get("fiftyTwoWeekLow") or (float(hist.Low.min()) if not hist.empty and "Low" in hist else 0)
+    _yr = price_range_window(hist, 252, px)
+    if _yr and _yr["high"] != _yr["low"]:
+        hi52, lo52 = _yr["high"], _yr["low"]
+    else:
+        hi52 = info.get("fiftyTwoWeekHigh") or 0
+        lo52 = info.get("fiftyTwoWeekLow") or 0
+        if (not hi52 or not lo52) and not hist.empty:
+            _fb = price_range_window(hist, len(hist), px)
+            if _fb:
+                hi52, lo52 = _fb["high"], _fb["low"]
     spf = info.get("shortPercentOfFloat"); sratio = info.get("shortRatio")
     am = info.get("targetMeanPrice"); al = info.get("targetLowPrice"); ah = info.get("targetHighPrice")
     nana = info.get("numberOfAnalystOpinions") or 0
@@ -587,43 +685,76 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
     aus = ((am - px) / px * 100) if (am and px > 0) else None
     rng52 = ((px - lo52) / (hi52 - lo52) * 100) if (hi52 and lo52 and hi52 != lo52) else None
 
-    # technicals from history
+    # technicals from history — compute whatever the bar count can support
     rsi_v = ma50_v = ma200_v = macd_v = macd_s = vol_avg = vol_td = None
     pct1d = pct5d = pct1m = pct3m = atr = bb_u = bb_m = bb_l = None
-    if not hist.empty and len(hist) >= 35:
-        cl = hist["Close"].dropna()
-        vl = hist["Volume"].dropna() if "Volume" in hist else pd.Series(dtype=float)
-        try:
-            dlt = cl.diff(); g = dlt.clip(lower=0).rolling(14).mean()
-            ls = (-dlt.clip(upper=0)).rolling(14).mean()
-            r3 = (100 - 100 / (1 + g / ls.replace(0, np.nan))).dropna()
-            rsi_v = float(r3.iloc[-1]) if not r3.empty else None
-        except Exception: pass
-        try:
-            e12 = cl.ewm(span=12, adjust=False).mean(); e26 = cl.ewm(span=26, adjust=False).mean()
-            ml = e12 - e26; macd_v = float(ml.iloc[-1])
-            macd_s = float(ml.ewm(span=9, adjust=False).mean().iloc[-1])
-        except Exception: pass
-        if len(cl) >= 50: ma50_v = float(cl.rolling(50).mean().iloc[-1])
-        if len(cl) >= 200: ma200_v = float(cl.rolling(200).mean().iloc[-1])
+    if not hist.empty:
+        _hcols = {str(c).lower(): c for c in hist.columns}
+        _cl_c = _hcols.get("close")
+        cl = pd.to_numeric(hist[_cl_c], errors="coerce").dropna() if _cl_c else pd.Series(dtype=float)
+        _vl_c = _hcols.get("volume")
+        vl = pd.to_numeric(hist[_vl_c], errors="coerce").dropna() if _vl_c else pd.Series(dtype=float)
+        if len(cl) >= 15:
+            try:
+                dlt = cl.diff()
+                g = dlt.clip(lower=0)
+                ls = (-dlt.clip(upper=0))
+                avg_g = g.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+                avg_l = ls.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+                r3 = (100 - 100 / (1 + avg_g / avg_l.replace(0, np.nan))).dropna()
+                rsi_v = float(r3.iloc[-1]) if not r3.empty else None
+            except Exception:
+                pass
+        if len(cl) >= 26:
+            try:
+                e12 = cl.ewm(span=12, adjust=False).mean()
+                e26 = cl.ewm(span=26, adjust=False).mean()
+                ml = e12 - e26
+                macd_v = float(ml.iloc[-1])
+                macd_s = float(ml.ewm(span=9, adjust=False).mean().iloc[-1])
+            except Exception:
+                pass
+        if len(cl) >= 50:
+            ma50_v = float(cl.rolling(50).mean().iloc[-1])
+        if len(cl) >= 200:
+            ma200_v = float(cl.rolling(200).mean().iloc[-1])
         if len(vl) >= 21:
-            vol_avg = float(vl.iloc[-21:-1].mean()); vol_td = float(vl.iloc[-1])
-        for att, nn in (("pct1d", 2), ("pct5d", 6), ("pct1m", 22), ("pct3m", 66)):
-            if len(cl) >= nn:
-                locals_v = (float(cl.iloc[-1]) - float(cl.iloc[-nn])) / float(cl.iloc[-nn]) * 100
-                if att == "pct1d": pct1d = locals_v
-                elif att == "pct5d": pct5d = locals_v
-                elif att == "pct1m": pct1m = locals_v
-                else: pct3m = locals_v
-        try:
-            if {"High", "Low"}.issubset(hist.columns):
-                hi = hist["High"].dropna(); lo = hist["Low"].dropna()
-                tr = pd.concat([hi - lo, (hi - cl.shift()).abs(), (lo - cl.shift()).abs()], axis=1).max(axis=1)
-                atr = float(tr.rolling(14).mean().iloc[-1])
-        except Exception: pass
+            vol_avg = float(vl.iloc[-21:-1].mean())
+            vol_td = float(vl.iloc[-1])
+        _last = float(cl.iloc[-1]) if len(cl) else None
+        if _last and _last != 0:
+            for att, nn in (("pct1d", 2), ("pct5d", 6), ("pct1m", 22), ("pct3m", 66)):
+                if len(cl) >= nn:
+                    base = float(cl.iloc[-nn])
+                    if base:
+                        locals_v = (_last - base) / base * 100
+                        if att == "pct1d":
+                            pct1d = locals_v
+                        elif att == "pct5d":
+                            pct5d = locals_v
+                        elif att == "pct1m":
+                            pct1m = locals_v
+                        else:
+                            pct3m = locals_v
+        _hi_c, _lo_c = _hcols.get("high"), _hcols.get("low")
+        if _hi_c and _lo_c and len(cl) >= 15:
+            try:
+                hlc = hist[[_hi_c, _lo_c, _cl_c]].apply(pd.to_numeric, errors="coerce")
+                tr = pd.concat([
+                    hlc[_hi_c] - hlc[_lo_c],
+                    (hlc[_hi_c] - hlc[_cl_c].shift()).abs(),
+                    (hlc[_lo_c] - hlc[_cl_c].shift()).abs(),
+                ], axis=1).max(axis=1)
+                _atr_s = tr.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean().dropna()
+                atr = float(_atr_s.iloc[-1]) if not _atr_s.empty else None
+            except Exception:
+                pass
         if len(cl) >= 20:
-            bm = cl.rolling(20).mean(); bs = cl.rolling(20).std()
-            bb_m = float(bm.iloc[-1]); bb_u = float((bm + 2 * bs).iloc[-1]); bb_l = float((bm - 2 * bs).iloc[-1])
+            bm = cl.rolling(20).mean()
+            bs = cl.rolling(20).std()
+            bb_m = float(bm.iloc[-1])
+            bb_u = float((bm + 2 * bs).iloc[-1])
+            bb_l = float((bm - 2 * bs).iloc[-1])
 
     # cascade push (substitute for Ignition score)
     try:
@@ -641,7 +772,7 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
         else: pills += az_pill("RSI Neutral", None)
     if macd_v is not None and macd_s is not None:
         pills += az_pill("MACD Bullish" if macd_v > macd_s else "MACD Bearish", macd_v > macd_s)
-    if ma50_v and ma200_v:
+    if ma50_v is not None and ma200_v is not None:
         pills += az_pill("Golden Cross" if ma50_v > ma200_v else "Death Cross", ma50_v > ma200_v)
     elif info.get("_scan_golden_cross") is not None:
         pills += az_pill("Golden Cross" if info["_scan_golden_cross"] >= 1 else "No Golden Cross",
@@ -664,7 +795,7 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
     m3.metric("RVOL", f"{(vol_td / vol_avg):.1f}x" if vol_avg and vol_td else "--",
               help="Latest volume vs the trailing 20-day average.")
     m4.metric("52W Pos", f"{rng52:.0f}%" if rng52 is not None else "--",
-              help="Where price sits in its 52-week range. 100% = at the highs.")
+              help="Where price sits in its last 252 sessions (~1 year), from the same bars as Price Range Analysis. 100% = at the highs.")
     m5.metric("Target", f"${am:,.2f}" if am else "--",
               delta=f"{aus:.1f}%" if aus is not None else None,
               help="Analyst consensus mean target and implied upside.")
@@ -698,17 +829,40 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
     colA, colB, colC = st.columns(3)
     with colA:
         az_section("Price Range Analysis")
-        if hi52 and lo52 and px:
-            pp = max(0.0, min(1.0, (px - lo52) / (hi52 - lo52))) if hi52 != lo52 else 0.5
+        _pr_labels = list(PRICE_RANGE_OPTS)
+        _pr_default = _pr_labels.index(PRICE_RANGE_DEFAULT) \
+            if PRICE_RANGE_DEFAULT in _pr_labels else len(_pr_labels) - 2
+        _pr_pick = st.selectbox(
+            "Lookback", _pr_labels, index=_pr_default, key="az_prange",
+            help=HELP["price_range"])
+        _pr_spec = PRICE_RANGE_OPTS[_pr_pick]
+        _rw = price_range_window(hist, _pr_spec, px)
+        if _rw and px:
+            _hi, _lo = _rw["high"], _rw["low"]
+            pp = max(0.0, min(1.0, (px - _lo) / (_hi - _lo))) if _hi != _lo else 0.5
             bc = "#4dd880" if pp > 0.7 else ("#d0b040" if pp > 0.35 else "#ff4444")
+            _off_hi = ((px - _hi) / _hi * 100) if _hi else None
+            _asked = 252 if _pr_spec == "ytd" else int(_pr_spec)
+            _short = _rw["n"] < (_asked * 0.85) if _pr_spec != "ytd" else False
+            _span = f"{_fmt_bar_date(_rw['start'])} – {_fmt_bar_date(_rw['end'])}"
             st.markdown(
                 f"<div style='background:#0d1e33;border:1px solid #1e3a5f;border-radius:8px;padding:12px 14px;margin-bottom:10px'>"
                 f"<div style='display:flex;justify-content:space-between;font-family:monospace;font-size:11px;color:#7a9ab8;margin-bottom:6px'>"
-                f"<span>52W Low ${lo52:,.2f}</span><span>52W High ${hi52:,.2f}</span></div>"
+                f"<span>Low ${_lo:,.2f}<br><span style='font-size:10px'>{_fmt_bar_date(_rw['low_dt'])}</span></span>"
+                f"<span style='text-align:right'>High ${_hi:,.2f}<br><span style='font-size:10px'>{_fmt_bar_date(_rw['high_dt'])}</span></span></div>"
                 f"<div style='background:#081325;border-radius:4px;height:10px;position:relative'>"
                 f"<div style='background:{bc};height:10px;border-radius:4px;width:{int(pp*100)}%'></div></div>"
                 f"<div style='text-align:center;font-family:monospace;font-size:12px;color:{bc};margin-top:6px'>"
-                f"${px:,.2f} · {int(pp*100)}% of range</div></div>", unsafe_allow_html=True)
+                f"${px:,.2f} · {int(pp*100)}% of range"
+                f"{'' if _off_hi is None else f' · {_off_hi:+.1f}% vs high'}</div>"
+                f"<div style='text-align:center;font-size:11px;color:#7a9ab8;margin-top:4px'>"
+                f"{_esc(_pr_pick)} · {_rw['n']} sessions · {_span}</div></div>",
+                unsafe_allow_html=True)
+            if _short:
+                st.caption(f"Only {_rw['n']} sessions on hand — showing everything available "
+                           f"(asked for ~{_asked}).")
+        else:
+            st.caption("Not enough price history to draw this window.")
         az_section("Price Performance")
         mtable([mrow("1 Day", "Daily price change vs yesterday's close.", pct_color(pct1d)),
                 mrow("5 Day", "Five trading days — roughly one week.", pct_color(pct5d)),
@@ -721,16 +875,16 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
             ri = "oversold" if rsi_v < 30 else ("overbought" if rsi_v > 70 else "sweet spot" if 45 < rsi_v < 65 else "neutral")
             rows.append(mrow("RSI (14d)", "0-100. Below 30 oversold, above 70 overbought, 45-65 momentum sweet spot.",
                              f"<span style='color:{rc};font-family:monospace'>{rsi_v:.1f}</span> <span style='font-size:11px;color:#7a9ab8'>{ri}</span>"))
-        if macd_v is not None:
+        if macd_v is not None and macd_s is not None:
             mc = "#4dd880" if macd_v > macd_s else "#ff4444"
             rows.append(mrow("MACD", "MACD above its signal line = buyers in control.",
                              f"<span style='color:{mc};font-family:monospace'>{macd_v:.3f}</span> <span style='font-size:11px;color:#7a9ab8'>{'bullish' if macd_v > macd_s else 'bearish'}</span>"))
-        if ma50_v:
+        if ma50_v is not None:
             pvs = (px - ma50_v) / ma50_v * 100
             rows.append(mrow("50-Day MA", "Price just above = support; below = watch for reclaim.",
                              f"${ma50_v:,.2f} <span style='color:{'#4dd880' if pvs >= 0 else '#ff4444'};font-size:11px'>({pvs:+.1f}%)</span>"))
-        if ma200_v:
-            gi = "golden cross" if (ma50_v and ma50_v > ma200_v) else "below 50MA"
+        if ma200_v is not None:
+            gi = "golden cross" if (ma50_v is not None and ma50_v > ma200_v) else "below 50MA"
             rows.append(mrow("200-Day MA", "Golden Cross (50MA over 200MA) = major trend signal.",
                              f"${ma200_v:,.2f} <span style='font-size:11px;color:#7a9ab8'>{gi}</span>"))
         if vol_avg and vol_td:
@@ -738,10 +892,10 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
             vc = "#4dd880" if vr > 1.5 else ("#7a9ab8" if vr > 0.5 else "#d0b040")
             rows.append(mrow("Volume", "Latest volume vs 20-day average — high volume confirms moves.",
                              f"<span style='color:{vc};font-family:monospace'>{vr:.2f}x avg</span>"))
-        if atr:
+        if atr is not None:
             rows.append(mrow("ATR (14d)", "Average True Range — typical daily travel in dollars.",
                              f"<span style='font-family:monospace;color:#b0c8e8'>${atr:,.2f}</span>"))
-        if bb_u:
+        if bb_u is not None and bb_l is not None:
             bpos = "above upper" if px > bb_u else ("below lower" if px < bb_l else "inside")
             rows.append(mrow("Bollinger 20/2", "Price vs 2-sigma bands: outside the bands = stretched.",
                              f"<span style='font-family:monospace;color:#b0c8e8'>{bpos}</span> <span style='font-size:11px;color:#7a9ab8'>${bb_l:,.0f}–${bb_u:,.0f}</span>"))
@@ -1838,14 +1992,14 @@ with tab_top20:
                             "plus the flow tilt lifted top-20 excess from -0.02% "
                             "to +3.41% per 21 sessions."):
             try:
-                _hot = ce.hot_sectors(5, lookback=_t_lb, offset=_t_off)
+                _hot = _hot_sectors(asof, 5, _t_lb, _t_off)
                 if _hot:
                     st.session_state["_top20_sectors_pending"] = _hot
                     st.rerun()
             except Exception as _he:
                 st.caption(f"Hot sectors unavailable: {_he}")
         try:
-            _hs_now = ce.hot_sectors(5, lookback=_t_lb, offset=_t_off)
+            _hs_now = _hot_sectors(asof, 5, _t_lb, _t_off)
             if _hs_now:
                 _hs2.caption(f"🔥 Hottest ({_t_lbl}): " + " · ".join(_hs_now))
         except Exception:
@@ -2479,14 +2633,14 @@ with tab_apex:
                        help="Replace the sector selection with the sectors that "
                             "received the most money in the last session."):
             try:
-                _hot = ce.hot_sectors(5, lookback=_a_lb, offset=_a_off)
+                _hot = _hot_sectors(asof, 5, _a_lb, _a_off)
                 if _hot:
                     st.session_state["_apex_sectors_pending"] = _hot
                     st.rerun()
             except Exception as _he:
                 st.caption(f"Hot sectors unavailable: {_he}")
         try:
-            _hs_now = ce.hot_sectors(5, lookback=_a_lb, offset=_a_off)
+            _hs_now = _hot_sectors(asof, 5, _a_lb, _a_off)
             if _hs_now:
                 _hs2.caption(f"🔥 Hottest ({_a_lbl}): " + " · ".join(_hs_now))
         except Exception:
@@ -2897,14 +3051,14 @@ with tab_poc:
                        help="Replace the sector selection with the sectors that "
                             "received the most money in the chosen window."):
             try:
-                _hot = ce.hot_sectors(5, lookback=_p_lb, offset=_p_off)
+                _hot = _hot_sectors(asof, 5, _p_lb, _p_off)
                 if _hot:
                     st.session_state["_poc_sectors_pending"] = _hot
                     st.rerun()
             except Exception as _he:
                 st.caption(f"Hot sectors unavailable: {_he}")
         try:
-            _hs_now = ce.hot_sectors(5, lookback=_p_lb, offset=_p_off)
+            _hs_now = _hot_sectors(asof, 5, _p_lb, _p_off)
             if _hs_now:
                 _hs2.caption(f"🔥 Hottest ({_p_lbl}): " + " · ".join(_hs_now))
         except Exception:

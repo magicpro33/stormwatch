@@ -15,6 +15,7 @@ Layers:
 
 All estimation is walk-forward-safe: edges at time t use only data <= t.
 """
+from __future__ import annotations
 import os
 import io
 import json
@@ -95,7 +96,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.35"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.36"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -136,6 +137,57 @@ def ratio_sentinel_impulses(closes: pd.DataFrame) -> pd.DataFrame:
 LOCAL_HISTORY = os.path.join(os.path.dirname(__file__), "data", "history.parquet")
 HISTORY_YEARS = 3
 
+
+def _data_read_path(preferred: str) -> str:
+    """Prefer the repo data/ file; fall back to a temp copy on Cloud.
+
+    If both exist, use whichever is newer — a read-only app dir can leave a
+    shipped parquet in place while refreshes write to temp.
+    """
+    import tempfile
+    tmp = os.path.join(tempfile.gettempdir(), "mw_" + os.path.basename(preferred))
+    pref_ok = os.path.exists(preferred)
+    tmp_ok = os.path.exists(tmp)
+    if pref_ok and tmp_ok:
+        try:
+            if os.path.getmtime(tmp) > os.path.getmtime(preferred):
+                return tmp
+        except OSError:
+            pass
+        return preferred
+    if pref_ok:
+        return preferred
+    if tmp_ok:
+        return tmp
+    return preferred
+
+
+def _dump_mtime() -> float:
+    """mtime of the dump npz, or 0 if it lives only in memory."""
+    try:
+        return os.path.getmtime(_data_read_path(LOCAL_DUMP))
+    except OSError:
+        return 0.0
+
+
+def _data_write_path(preferred: str) -> str:
+    """Write under data/ when the app dir is writable; otherwise temp."""
+    import tempfile
+    probe = preferred + ".wprobe"
+    try:
+        os.makedirs(os.path.dirname(preferred), exist_ok=True)
+        with open(probe, "wb") as f:
+            f.write(b"1")
+        os.remove(probe)
+        return preferred
+    except Exception:
+        try:
+            if os.path.exists(probe):
+                os.remove(probe)
+        except Exception:
+            pass
+        return os.path.join(tempfile.gettempdir(), "mw_" + os.path.basename(preferred))
+
 IMPULSE_W = 5          # days for the impulse return
 IMPULSE_Z_WIN = 126    # z-score window
 EDGE_HALFLIFE = None    # recency decay on edges — DISABLED, see note below.
@@ -154,8 +206,9 @@ WAVE_Z = 1.25          # |impulse z| to call a node "active"
 def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
     """Daily closes for all nodes. Local parquet first (offline/test seam),
     then yfinance batch download. Returns DataFrame[date x symbol]."""
-    if os.path.exists(LOCAL_HISTORY):
-        df = pd.read_parquet(LOCAL_HISTORY)
+    _hist_path = _data_read_path(LOCAL_HISTORY)
+    if os.path.exists(_hist_path):
+        df = pd.read_parquet(_hist_path)
         df.index = pd.to_datetime(df.index)
         df = df.sort_index()
         # refetch when stale (>4 calendar days) — but keep the stale copy
@@ -174,17 +227,20 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
     missing = [s for s in NODES if s not in closes.columns
                or closes[s].dropna().empty] if not closes.empty else list(NODES)
     if missing:                                           # ── fallback: yfinance
-        os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
-        import yfinance as yf
-        start = (date.today() - timedelta(days=int(years * 365.25 + 30))).isoformat()
-        raw = yf.download(missing, start=start, auto_adjust=True,
-                          progress=False, group_by="column")
-        yfc = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw
-        if isinstance(yfc, pd.Series):
-            yfc = yfc.to_frame(missing[0])
-        yfc = yfc.dropna(how="all")
-        yfc.index = pd.to_datetime(yfc.index).tz_localize(None)
-        closes = yfc if closes.empty else closes.join(yfc, how="outer")
+        try:
+            os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+            import yfinance as yf
+            start = (date.today() - timedelta(days=int(years * 365.25 + 30))).isoformat()
+            raw = yf.download(missing, start=start, auto_adjust=True,
+                              progress=False, group_by="column")
+            yfc = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw
+            if isinstance(yfc, pd.Series):
+                yfc = yfc.to_frame(missing[0])
+            yfc = yfc.dropna(how="all")
+            yfc.index = pd.to_datetime(yfc.index).tz_localize(None)
+            closes = yfc if closes.empty else closes.join(yfc, how="outer")
+        except Exception:
+            pass
     if len(missing) < len(NODES):
         LAST_HISTORY_SOURCE = ("Alpaca (primary)"
                                + (f" + yfinance ({len(missing)} symbols)" if missing else ""))
@@ -211,7 +267,7 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
             return _align_to_equity_calendar(stale_df)
         return closes
     try:
-        closes.to_parquet(LOCAL_HISTORY)
+        closes.to_parquet(_data_write_path(LOCAL_HISTORY))
     except Exception:
         pass
     return closes
@@ -225,9 +281,22 @@ def _last_completed_session(now: pd.Timestamp | None = None) -> pd.Timestamp:
     are not modelled — they just make the check one day conservative, which
     triggers a refetch rather than serving stale data.
     """
-    now = now or pd.Timestamp.now()
-    d = now.normalize()
-    if now.hour < 17:
+    if now is None:
+        try:
+            now = pd.Timestamp.now(tz="America/New_York")
+        except Exception:
+            now = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=4)
+    if getattr(now, "tzinfo", None) is not None:
+        try:
+            now = now.tz_convert("America/New_York")
+        except Exception:
+            pass
+        hour = int(now.hour)
+        d = pd.Timestamp(year=int(now.year), month=int(now.month), day=int(now.day))
+    else:
+        hour = int(now.hour)
+        d = pd.Timestamp(now).normalize()
+    if hour < 17:
         d -= pd.Timedelta(days=1)
     while d.dayofweek >= 5:
         d -= pd.Timedelta(days=1)
@@ -258,19 +327,21 @@ def refresh_history():
     fail — a manual refresh should never leave you with less than you had."""
     backup = None
     try:
-        backup = pd.read_parquet(LOCAL_HISTORY)
+        backup = pd.read_parquet(_data_read_path(LOCAL_HISTORY))
         backup.index = pd.to_datetime(backup.index)
     except Exception:
         pass
     try:
-        os.remove(LOCAL_HISTORY)
+        os.remove(_data_read_path(LOCAL_HISTORY))
     except FileNotFoundError:
+        pass
+    except Exception:
         pass
     fresh = fetch_history()
     if (fresh is None or len(fresh) < 30) and backup is not None:
         global LAST_HISTORY_SOURCE
         try:
-            backup.to_parquet(LOCAL_HISTORY)
+            backup.to_parquet(_data_write_path(LOCAL_HISTORY))
         except Exception:
             pass
         LAST_HISTORY_SOURCE = "previous cache (refresh failed — feeds unreachable)"
@@ -831,6 +902,7 @@ def investment_plan(b, closes: pd.DataFrame) -> dict:
 # ═════════════════════════════════════════════════════════════════════
 DUMP_URL = "https://raw.githubusercontent.com/magicpro33/stock/main/data/stock_data.json.gz"
 LOCAL_DUMP = os.path.join(os.path.dirname(__file__), "data", "dump_panel_v4.npz")
+LOCAL_DUMP_GZ = os.path.join(os.path.dirname(__file__), "data", "stock_data.json.gz")
 
 FUND_FIELDS = ["ShortPctFloat", "DaysToCover", "P/E", "RevenueGrowth",
                "EarningsGrowth", "MarketCap", "Piotroski", "GoldenCross",
@@ -855,8 +927,10 @@ def load_dump_panel():
     Returns (panel dict, tickers, sectors, mdv, dates).
     """
     import gzip as _gz
-    if os.path.exists(LOCAL_DUMP):
-        mt = os.path.getmtime(LOCAL_DUMP)
+    target = _last_completed_session()
+    LOCAL_DUMP_R = _data_read_path(LOCAL_DUMP)
+    if os.path.exists(LOCAL_DUMP_R):
+        mt = os.path.getmtime(LOCAL_DUMP_R)
         hit = _PANEL_CACHE.get("panel")
         # The in-process cache must be validated for FRESHNESS, not just for a
         # matching mtime. Returning on mtime alone meant that once a dump was
@@ -866,19 +940,24 @@ def load_dump_panel():
         # plain module dict and the Refresh button never reached it.
         if hit and hit[0] == mt:
             cached_last = _PANEL_CACHE.get("last_date")
-            if cached_last is not None and cached_last >= _last_completed_session():
+            if cached_last is not None and cached_last >= target:
+                return hit[1]
+            # GitHub was already pulled for this session and is still a day
+            # behind — do not re-download 20MB on every widget click.
+            if _PANEL_CACHE.get("fetched_for") == target:
                 return hit[1]
             # stale: drop it and fall through to the re-download below
             _PANEL_CACHE.pop("panel", None)
             _PANEL_CACHE.pop("tick_ix", None)
-        z = np.load(LOCAL_DUMP, allow_pickle=True)
+        z = np.load(LOCAL_DUMP_R, allow_pickle=True)
         dts = pd.to_datetime(z["dates"])
-        if pd.Timestamp(dts[-1]).normalize() >= _last_completed_session():
+        last = pd.Timestamp(dts[-1]).normalize()
+        if last >= target or _PANEL_CACHE.get("fetched_for") == target:
             panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
             out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
             _PANEL_CACHE["panel"] = (mt, out)
             _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
-            _PANEL_CACHE["last_date"] = pd.Timestamp(dts[-1]).normalize()
+            _PANEL_CACHE["last_date"] = last
             return out
     try:
         r = requests.get(DUMP_URL, timeout=120)
@@ -886,11 +965,17 @@ def load_dump_panel():
     except Exception as _de:
         # GitHub unreachable and the cache is >4 days old. A stale dump beats
         # a dead Top 20 / Lookup / APEX — fetch_history already works this way.
-        if os.path.exists(LOCAL_DUMP):
+        if os.path.exists(_data_read_path(LOCAL_DUMP)):
             z = _np_load_dump()
             if z is not None:
+                _PANEL_CACHE["fetched_for"] = target
                 return z
         raise RuntimeError(f"nightly dump unavailable and no local copy: {_de}")
+    try:
+        with open(_data_write_path(LOCAL_DUMP_GZ), "wb") as _gf:
+            _gf.write(r.content)
+    except Exception:
+        pass
     data = json.loads(_gz.decompress(r.content).decode())
     rows = [x for x in data if len(x.get("_hist", {}).get("dates", [])) >= 120]
     all_d = sorted({d for x in rows for d in x["_hist"]["dates"]})
@@ -922,15 +1007,21 @@ def load_dump_panel():
     panel["c"] = pd.DataFrame(panel["c"]).ffill(limit=5).values.astype(np.float32)
     mdv = np.nanmedian((panel["c"] * np.nan_to_num(panel["v"]))[-21:], axis=0)
     tickers, sectors = np.array(tickers), np.array(sectors)
-    np.savez_compressed(LOCAL_DUMP, tickers=tickers, sectors=sectors,
-                        mdv=mdv, dates=np.array(all_d), recent_ok=recent_ok, **panel,
-                        **{f"fund_{i}": funds[f] for i, f in enumerate(FUND_FIELDS)})
+    _dump_w = _data_write_path(LOCAL_DUMP)
+    try:
+        np.savez_compressed(_dump_w, tickers=tickers, sectors=sectors,
+                            mdv=mdv, dates=np.array(all_d), recent_ok=recent_ok, **panel,
+                            **{f"fund_{i}": funds[f] for i, f in enumerate(FUND_FIELDS)})
+        mt = os.path.getmtime(_dump_w)
+    except Exception:
+        mt = 0.0
     out = (panel, tickers, sectors, mdv, pd.to_datetime(all_d))
-    mt = os.path.getmtime(LOCAL_DUMP)
     _PANEL_CACHE.clear()
     _PANEL_CACHE["panel"] = (mt, out)
     _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(tickers)})
+    _PANEL_CACHE["funds"] = (mt, funds)
     _PANEL_CACHE["last_date"] = pd.Timestamp(all_d[-1]).normalize()
+    _PANEL_CACHE["fetched_for"] = target
     return out
 
 
@@ -938,11 +1029,12 @@ def _np_load_dump():
     """Load whatever dump npz is on disk, ignoring its age. Used as the
     stale fallback when the GitHub download fails."""
     try:
-        z = np.load(LOCAL_DUMP, allow_pickle=True)
+        _p = _data_read_path(LOCAL_DUMP)
+        z = np.load(_p, allow_pickle=True)
         dts = pd.to_datetime(z["dates"])
         panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
         out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
-        mt = os.path.getmtime(LOCAL_DUMP)
+        mt = os.path.getmtime(_p)
         _PANEL_CACHE["panel"] = (mt, out)
         _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
         return out
@@ -959,7 +1051,7 @@ def _recent_ok_mask(panel) -> np.ndarray:
     next nightly rebuild writes the real mask.
     """
     try:
-        z = np.load(LOCAL_DUMP, allow_pickle=True)
+        z = np.load(_data_read_path(LOCAL_DUMP), allow_pickle=True)
         if "recent_ok" in z.files:
             return z["recent_ok"].astype(bool)
     except Exception:
@@ -977,12 +1069,13 @@ def refresh_dump(force: bool = False):
     _PANEL_CACHE.clear()
     _RECORDS_CACHE.clear()
     if force:
-        try:
-            os.remove(LOCAL_DUMP)
-        except FileNotFoundError:
-            pass
-        except Exception:
-            pass
+        for _p in {LOCAL_DUMP, _data_read_path(LOCAL_DUMP), _data_write_path(LOCAL_DUMP)}:
+            try:
+                os.remove(_p)
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
     try:
         panel, tickers, sectors, mdv, dts = load_dump_panel()
         return pd.Timestamp(dts[-1]).normalize()
@@ -1004,14 +1097,17 @@ def _ticker_index(ticker: str):
 def dump_fundamentals_all():
     """All dump fundamentals as {field: array} aligned to load_dump_panel tickers."""
     load_dump_panel()   # ensure the npz exists / is fresh
-    mt = os.path.getmtime(LOCAL_DUMP)
+    mt = _dump_mtime()
     hit = _PANEL_CACHE.get("funds")
     if hit and hit[0] == mt:
         return hit[1]
-    z = np.load(LOCAL_DUMP, allow_pickle=True)
-    out = {f: z[f"fund_{i}"] for i, f in enumerate(FUND_FIELDS)}
-    _PANEL_CACHE["funds"] = (mt, out)
-    return out
+    _p = _data_read_path(LOCAL_DUMP)
+    if os.path.exists(_p):
+        z = np.load(_p, allow_pickle=True)
+        out = {f: z[f"fund_{i}"] for i, f in enumerate(FUND_FIELDS)}
+        _PANEL_CACHE["funds"] = (mt, out)
+        return out
+    return hit[1] if hit else {f: np.array([]) for f in FUND_FIELDS}
 
 
 def dump_fundamentals(ticker: str) -> dict:
@@ -1261,7 +1357,7 @@ def _feature_panels():
     dump — the analog library. Sampled every 3 sessions after warmup.
     Cached in-process (mtime-keyed) — it's ~150k rows of pure numpy."""
     panel, tickers, sectors, mdv, dts = load_dump_panel()
-    mt = os.path.getmtime(LOCAL_DUMP)
+    mt = _dump_mtime()
     hit = _PANEL_CACHE.get("featpan")
     if hit and hit[0] == mt:
         return hit[1]
@@ -1439,7 +1535,7 @@ def upstream_drivers(ticker: str, node_closes: pd.DataFrame, top: int = 5,
 # ── watchlist persistence ────────────────────────────────────────────
 def watchlist_load() -> list:
     try:
-        with open(WATCHLIST_PATH) as f:
+        with open(_data_read_path(WATCHLIST_PATH)) as f:
             return json.load(f)
     except Exception:
         return []
@@ -1447,7 +1543,9 @@ def watchlist_load() -> list:
 
 def watchlist_save(items: list):
     try:
-        with open(WATCHLIST_PATH, "w") as f:
+        path = _data_write_path(WATCHLIST_PATH)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
             json.dump(items, f, indent=1)
     except Exception:
         pass
@@ -1547,7 +1645,7 @@ _RECORDS_CACHE = {}
 def _dump_records_cache() -> dict:
     """Ticker -> raw dump record, kept in-process (the gz is ~20MB)."""
     import gzip as _gz
-    path = os.path.join(os.path.dirname(__file__), "data", "stock_data.json.gz")
+    path = _data_read_path(LOCAL_DUMP_GZ)
     if not os.path.exists(path):
         return {}
     mt = os.path.getmtime(path)
