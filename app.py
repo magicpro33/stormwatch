@@ -136,9 +136,10 @@ HELP = {
         "lookback you pick. 1 month ≈ 21 sessions, 1 year ≈ 252. The bar is "
         "where the live price sits in that window — 100% = at the high. "
         "Changing the lookback recomputes instantly; it does not re-download.",
-    "biz_summary": "What the company (or fund) actually does, from its published "
-        "profile. This is a description, not a rating — it does not change the "
-        "analog forecast or the analyzer scores.",
+    "biz_summary": "Company Overview and Business Summary come from the same "
+        "live Yahoo profile the IGNITION Analyze tab uses. Description and "
+        "governance scores are not ratings — they do not change the analog "
+        "forecast or the analyzer scores.",
     "macro_lens": "A playbook overlaid on a ranking. Off = no sector tilt. "
         "Auto = the regime the app detects live. A named lens re-orders names "
         "toward that scenario's winners — it does not change quality scores, "
@@ -276,6 +277,37 @@ def _tk_earnings(tk: str):
 @st.cache_data(ttl=900, show_spinner="Running the full analyzer chain (Alpaca → Yahoo → dump)…")
 def _analyzer(tk: str, asof: str):
     return ce.fetch_analyzer(tk)
+
+
+@st.cache_data(ttl=900, show_spinner="Fetching company profile…")
+def _yf_info(tk: str) -> dict:
+    """Live Yahoo profile — same pull as IGNITION's Analyze a Stock tab.
+
+    Three tries with 3s/6s backoff. A rate-limited stub is usually 1–2 keys;
+    a real response has quoteType/symbol or at least 5 fields. The nightly
+    dump's `_analyzer` pack does not store longBusinessSummary, so this is
+    the source the Analyze tab actually uses for the write-up.
+    """
+    import time
+    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+    try:
+        import yfinance as yf
+        stock = yf.Ticker(str(tk).strip().upper())
+    except Exception:
+        return {}
+    info = {}
+    for attempt in range(3):
+        try:
+            fetched = stock.info or {}
+            if (fetched.get("quoteType") or fetched.get("symbol")
+                    or len(fetched) >= 5):
+                return fetched
+            if attempt < 2:
+                time.sleep(3 + attempt * 3)
+        except Exception:
+            if attempt < 2:
+                time.sleep(3)
+    return info
 
 
 @st.cache_data(ttl=1800, show_spinner="Scanning all 5,700 stocks across every pillar…")
@@ -655,48 +687,103 @@ def _profile_url(u) -> str:
     return ""
 
 
+def _ov_na(v, default="N/A"):
+    if v is None or v == "" or (isinstance(v, float) and not np.isfinite(v)):
+        return default
+    return str(v)
+
+
+def _ov_fiscal_ye(v) -> str:
+    if v in (None, "", "N/A"):
+        return "N/A"
+    months = ("", "January", "February", "March", "April", "May", "June",
+              "July", "August", "September", "October", "November", "December")
+    try:
+        n = int(v)
+        if 1 <= n <= 12:
+            return months[n]
+        if n > 10_000:
+            return pd.Timestamp(n, unit="s").strftime("%B")
+    except Exception:
+        pass
+    return str(v)
+
+
+def _ov_row(label, value, tip=None, html_value=False):
+    """IGNITION Analyze `irow` — label left, value right, optional tooltip."""
+    tip_html = (f" <span title='{_esc(tip)}' style='cursor:help;color:{DIM};"
+                f"font-size:11px'>ℹ️</span>") if tip else ""
+    val = value if html_value else _esc(_ov_na(value))
+    st.markdown(
+        f"<div style='display:flex;justify-content:space-between;gap:12px;"
+        f"padding:6px 0;border-bottom:1px solid #1d2b40'>"
+        f"<span style='color:{DIM};flex-shrink:0'>{_esc(label)}{tip_html}</span>"
+        f"<span style='font-weight:600;color:#F6F4E9;text-align:right'>{val}</span>"
+        f"</div>",
+        unsafe_allow_html=True)
+
+
 def render_business_summary(info: dict, tk: str) -> None:
-    """Plain-language 'what does this company do?' card on Stock Lookup."""
+    """Company Overview + Business Summary — IGNITION Analyze Overview tab."""
     info = info or {}
-    text = str(info.get("longBusinessSummary") or info.get("description") or "").strip()
-    name = info.get("longName") or info.get("shortName") or tk
-    sec = info.get("sector") or ""
-    ind = info.get("industry") or ""
-    loc = ", ".join(x for x in (info.get("city"), info.get("state"),
-                                info.get("country")) if x)
+    text = str(info.get("longBusinessSummary") or info.get("description")
+               or info.get("Description") or "").strip()
+    officers = info.get("companyOfficers") or []
+    ceo = "N/A"
+    if isinstance(officers, (list, tuple)):
+        for o in officers:
+            if isinstance(o, dict) and "ceo" in str(o.get("title") or "").lower():
+                ceo = o.get("name") or "N/A"
+                break
+        if ceo == "N/A" and officers and isinstance(officers[0], dict):
+            ceo = officers[0].get("name") or "N/A"
     emps = info.get("fullTimeEmployees")
     try:
-        emps_s = f"{int(emps):,} employees" if emps else ""
+        emps_s = f"{int(emps):,}" if emps else "N/A"
     except (TypeError, ValueError):
-        emps_s = ""
+        emps_s = "N/A"
     url = _profile_url(info.get("website"))
-    qtype = str(info.get("quoteType") or "").upper()
-    fund = info.get("fundFamily") or ""
-    cat = info.get("category") or ""
-    bits = [x for x in (
-        f"{sec} / {ind}" if (sec and ind) else (sec or ind),
-        cat, fund,
-        "ETF" if qtype == "ETF" else "",
-        loc, emps_s,
-    ) if x]
-
-    st.subheader("🏢 Business Summary")
-    st.caption(HELP["biz_summary"])
-    meta = " · ".join(_esc(b) for b in bits)
     site = (f"<a href='{_esc(url)}' target='_blank' rel='noopener noreferrer' "
-            f"style='color:{ACCENT}'>{_esc(url.replace('https://','').replace('http://',''))}</a>"
-            if url else "")
+            f"style='color:{ACCENT}'>{_esc(url)}</a>" if url else "N/A")
+
+    st.subheader("🏢 Company Overview")
+    st.caption(HELP["biz_summary"])
+    c1, c2 = st.columns(2)
+    with c1:
+        _ov_row("Full Name", info.get("longName") or info.get("shortName") or tk)
+        _ov_row("Exchange", info.get("exchange") or info.get("fullExchangeName"),
+                "The stock exchange where shares are listed and traded")
+        _ov_row("Sector", info.get("sector"),
+                "GICS sector classification — broad industry group the company belongs to")
+        _ov_row("Industry", info.get("industry"),
+                "Specific industry within the sector")
+        _ov_row("Country", info.get("country"),
+                "Country where the company is headquartered")
+        _ov_row("Employees", emps_s,
+                "Total number of full-time employees")
+        _ov_row("Website", site, html_value=True)
+    with c2:
+        _ov_row("CEO", ceo,
+                "Chief Executive Officer — the top executive responsible for running the company")
+        _ov_row("Fiscal YE", _ov_fiscal_ye(info.get("fiscalYearEnd")
+                                          or info.get("lastFiscalYearEnd")),
+                "Fiscal Year End — the month the company closes its annual accounting period")
+        _ov_row("Audit Risk", info.get("auditRisk"),
+                "Score 1–10 rating audit-related governance risk. Lower = less risk")
+        _ov_row("Board Risk", info.get("boardRisk"),
+                "Score 1–10 rating board structure and independence risk. Lower = less risk")
+        _ov_row("Comp Risk", info.get("compensationRisk"),
+                "Compensation Risk — score 1–10 rating executive pay structure risk. Lower = less risk")
+        _ov_row("SH Rights", info.get("shareHolderRightsRisk"),
+                "Shareholder Rights Risk — score 1–10. High = management has too much power vs shareholders")
+        _ov_row("Overall Risk", info.get("overallRisk"),
+                "Overall governance risk score 1–10. Combines audit, board, compensation and shareholder rights scores")
+
+    st.markdown("#### Business Summary")
     if text:
         st.markdown(
-            f"<div style='background:#0c1829;border:1px solid #1d2b40;"
-            f"border-left:4px solid {ACCENT};border-radius:10px;"
-            f"padding:14px 16px;margin:4px 0 10px'>"
-            f"<div style='font-weight:700;font-size:15px;margin-bottom:4px'>"
-            f"{_esc(name)}</div>"
-            f"<div style='color:{DIM};font-size:12.5px;margin-bottom:10px'>"
-            f"{meta}{(' · ' + site) if site else ''}</div>"
-            f"<div style='font-size:14px;line-height:1.55;color:#F6F4E9'>"
-            f"{_esc(text)}</div></div>",
+            f"<div style='color:#ccc;line-height:1.6;padding:4px 0 10px'>"
+            f"{_esc(text)}</div>",
             unsafe_allow_html=True)
     else:
         st.info(f"No published business description for **{tk}**. "
@@ -1736,7 +1823,18 @@ with tab_lookup:
                                df=df_tk, src_label=_hs)
 
         try:
-            render_business_summary(_info or {}, tk)
+            _biz = dict(_info or {})
+            try:
+                _live = _yf_info(tk) or {}
+            except Exception:
+                _live = {}
+            if _live.get("longBusinessSummary") or _live.get("description"):
+                _biz.update({k: _live[k] for k in _live if _live.get(k) not in (None, "")})
+            else:
+                for k, v in _live.items():
+                    if v not in (None, "") and not _biz.get(k):
+                        _biz[k] = v
+            render_business_summary(_biz, tk)
         except Exception as _bse:
             st.caption(f"Business summary unavailable: {_bse}")
 
