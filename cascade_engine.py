@@ -95,7 +95,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.34"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.35"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -858,8 +858,19 @@ def load_dump_panel():
     if os.path.exists(LOCAL_DUMP):
         mt = os.path.getmtime(LOCAL_DUMP)
         hit = _PANEL_CACHE.get("panel")
+        # The in-process cache must be validated for FRESHNESS, not just for a
+        # matching mtime. Returning on mtime alone meant that once a dump was
+        # loaded, the process served it forever — and Streamlit Cloud keeps a
+        # process alive for days, so the app could sit a session behind with no
+        # way to recover. st.cache_data.clear() cannot help: _PANEL_CACHE is a
+        # plain module dict and the Refresh button never reached it.
         if hit and hit[0] == mt:
-            return hit[1]          # already loaded this process — never re-download
+            cached_last = _PANEL_CACHE.get("last_date")
+            if cached_last is not None and cached_last >= _last_completed_session():
+                return hit[1]
+            # stale: drop it and fall through to the re-download below
+            _PANEL_CACHE.pop("panel", None)
+            _PANEL_CACHE.pop("tick_ix", None)
         z = np.load(LOCAL_DUMP, allow_pickle=True)
         dts = pd.to_datetime(z["dates"])
         if pd.Timestamp(dts[-1]).normalize() >= _last_completed_session():
@@ -867,6 +878,7 @@ def load_dump_panel():
             out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
             _PANEL_CACHE["panel"] = (mt, out)
             _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
+            _PANEL_CACHE["last_date"] = pd.Timestamp(dts[-1]).normalize()
             return out
     try:
         r = requests.get(DUMP_URL, timeout=120)
@@ -918,6 +930,7 @@ def load_dump_panel():
     _PANEL_CACHE.clear()
     _PANEL_CACHE["panel"] = (mt, out)
     _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(tickers)})
+    _PANEL_CACHE["last_date"] = pd.Timestamp(all_d[-1]).normalize()
     return out
 
 
@@ -952,6 +965,29 @@ def _recent_ok_mask(panel) -> np.ndarray:
     except Exception:
         pass
     return np.isfinite(panel["c"][-3:]).any(axis=0)
+
+
+def refresh_dump(force: bool = False):
+    """Drop the in-process dump cache so the next read re-checks GitHub.
+
+    `force=True` also deletes the local npz, guaranteeing a fresh download even
+    if the file on disk still looks current. Returns the dump's last session
+    date after reloading, so the caller can report what it actually got.
+    """
+    _PANEL_CACHE.clear()
+    _RECORDS_CACHE.clear()
+    if force:
+        try:
+            os.remove(LOCAL_DUMP)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+    try:
+        panel, tickers, sectors, mdv, dts = load_dump_panel()
+        return pd.Timestamp(dts[-1]).normalize()
+    except Exception:
+        return None
 
 
 def _ticker_index(ticker: str):

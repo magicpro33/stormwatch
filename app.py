@@ -42,7 +42,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.34"
+REQUIRED_ENGINE = "2.35"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -1165,7 +1165,26 @@ with tab_map:
                 ce.refresh_history()
             except Exception:
                 pass
+            # The nightly dump has its own in-process cache that
+            # st.cache_data.clear() cannot reach, so refresh it explicitly —
+            # otherwise "Refresh" only updated the node history and the dump
+            # could stay a session behind for the life of the process.
+            _new_dump = None
+            try:
+                _new_dump = ce.refresh_dump()
+            except Exception:
+                pass
             st.cache_data.clear()
+        if _new_dump is not None:
+            _lcs = ce._last_completed_session()
+            if pd.Timestamp(_new_dump) >= _lcs:
+                st.success(f"✅ Dump is current — through {_new_dump.date()}.")
+            else:
+                st.warning(
+                    f"⚠️ Dump still ends {_new_dump.date()}, but the last "
+                    f"completed session was {_lcs.date()}. The app is up to "
+                    "date with GitHub — the nightly scan has not published "
+                    "that session yet. Check the Action run in magicpro33/stock.")
         st.rerun()
 
     edges = _edges(asof)
