@@ -43,7 +43,7 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
-REQUIRED_ENGINE = "2.36"
+REQUIRED_ENGINE = "2.37"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -136,6 +136,9 @@ HELP = {
         "lookback you pick. 1 month ≈ 21 sessions, 1 year ≈ 252. The bar is "
         "where the live price sits in that window — 100% = at the high. "
         "Changing the lookback recomputes instantly; it does not re-download.",
+    "biz_summary": "What the company (or fund) actually does, from its published "
+        "profile. This is a description, not a rating — it does not change the "
+        "analog forecast or the analyzer scores.",
     "macro_lens": "A playbook overlaid on a ranking. Off = no sector tilt. "
         "Auto = the regime the app detects live. A named lens re-orders names "
         "toward that scenario's winners — it does not change quality scores, "
@@ -641,6 +644,64 @@ def render_eps_trend(eps_history, eps_forward=None, why=""):
                 + "".join(bars) + "".join(labs) + "</svg>", unsafe_allow_html=True)
     st.caption("green = beat estimates · red = miss · amber dashed = analyst projection · "
                "grey ticks = the estimate each quarter")
+
+
+def _profile_url(u) -> str:
+    s = str(u or "").strip()
+    if s.startswith(("http://", "https://")):
+        return s
+    if s.startswith("www."):
+        return "https://" + s
+    return ""
+
+
+def render_business_summary(info: dict, tk: str) -> None:
+    """Plain-language 'what does this company do?' card on Stock Lookup."""
+    info = info or {}
+    text = str(info.get("longBusinessSummary") or info.get("description") or "").strip()
+    name = info.get("longName") or info.get("shortName") or tk
+    sec = info.get("sector") or ""
+    ind = info.get("industry") or ""
+    loc = ", ".join(x for x in (info.get("city"), info.get("state"),
+                                info.get("country")) if x)
+    emps = info.get("fullTimeEmployees")
+    try:
+        emps_s = f"{int(emps):,} employees" if emps else ""
+    except (TypeError, ValueError):
+        emps_s = ""
+    url = _profile_url(info.get("website"))
+    qtype = str(info.get("quoteType") or "").upper()
+    fund = info.get("fundFamily") or ""
+    cat = info.get("category") or ""
+    bits = [x for x in (
+        f"{sec} / {ind}" if (sec and ind) else (sec or ind),
+        cat, fund,
+        "ETF" if qtype == "ETF" else "",
+        loc, emps_s,
+    ) if x]
+
+    st.subheader("🏢 Business Summary")
+    st.caption(HELP["biz_summary"])
+    meta = " · ".join(_esc(b) for b in bits)
+    site = (f"<a href='{_esc(url)}' target='_blank' rel='noopener noreferrer' "
+            f"style='color:{ACCENT}'>{_esc(url.replace('https://','').replace('http://',''))}</a>"
+            if url else "")
+    if text:
+        st.markdown(
+            f"<div style='background:#0c1829;border:1px solid #1d2b40;"
+            f"border-left:4px solid {ACCENT};border-radius:10px;"
+            f"padding:14px 16px;margin:4px 0 10px'>"
+            f"<div style='font-weight:700;font-size:15px;margin-bottom:4px'>"
+            f"{_esc(name)}</div>"
+            f"<div style='color:{DIM};font-size:12.5px;margin-bottom:10px'>"
+            f"{meta}{(' · ' + site) if site else ''}</div>"
+            f"<div style='font-size:14px;line-height:1.55;color:#F6F4E9'>"
+            f"{_esc(text)}</div></div>",
+            unsafe_allow_html=True)
+    else:
+        st.info(f"No published business description for **{tk}**. "
+                "Common for some ETFs, funds, and crypto — or the profile "
+                "feed is rate-limited. Try again in a minute.")
 
 
 def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
@@ -1648,8 +1709,13 @@ with tab_lookup:
                "every (stock, day) in the data that looked like this one does "
                "today — a measured distribution, not a guess.")
     lc1, lc2 = st.columns([4, 1], vertical_alignment="bottom")
+    def _lk_submit():
+        q = str(st.session_state.get("lk_query") or "").strip().upper()
+        if q:
+            st.session_state["lk_tk"] = q
     _q = lc1.text_input("Ticker", key="lk_query", placeholder="e.g. NVDA",
-                        label_visibility="collapsed").strip().upper()
+                        label_visibility="collapsed",
+                        on_change=_lk_submit).strip().upper()
     if lc2.button("🔎 Look up", type="primary", width="stretch") and _q:
         st.session_state["lk_tk"] = _q
 
@@ -1668,6 +1734,11 @@ with tab_lookup:
         # IGNITION-style header, pills, candles (shared renderer)
         render_ticker_analysis(tk, closes, state_key="lk_tk",
                                df=df_tk, src_label=_hs)
+
+        try:
+            render_business_summary(_info or {}, tk)
+        except Exception as _bse:
+            st.caption(f"Business summary unavailable: {_bse}")
 
         if df_tk is None or df_tk.empty:
             st.error(f"No price history found for **{tk}** from Alpaca, Yahoo, "

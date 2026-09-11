@@ -96,7 +96,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.36"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.37"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1664,7 +1664,12 @@ def _dump_records_cache() -> dict:
 
 
 ANALYZER_INFO_MAP = {
-    "shortName": "shortName", "industry": "industry", "beta": "beta",
+    "shortName": "shortName", "longName": "longName",
+    "longBusinessSummary": "longBusinessSummary", "description": "description",
+    "website": "website", "fullTimeEmployees": "fullTimeEmployees",
+    "city": "city", "state": "state", "country": "country",
+    "quoteType": "quoteType", "fundFamily": "fundFamily", "category": "category",
+    "industry": "industry", "beta": "beta",
     "forwardPE": "forwardPE", "priceToBook": "priceToBook",
     "priceToSales": "priceToSalesTrailing12Months",
     "fiftyTwoWeekHigh": "fiftyTwoWeekHigh", "fiftyTwoWeekLow": "fiftyTwoWeekLow",
@@ -1809,6 +1814,21 @@ def fetch_analyzer(ticker: str):
     if filled:
         info["_from_scan_dump"] = True
         info["_dump_fields"] = filled
+
+    # Profile prose is not in the numeric dump. If the cached pack omitted it
+    # (older dumps), pull just the company description from Yahoo so Lookup
+    # can show a Business Summary without a second analyzer pass.
+    if tk is not None and not (info.get("longBusinessSummary") or info.get("description")):
+        try:
+            extra = tk.info or {}
+            for k in ("longBusinessSummary", "description", "longName",
+                      "website", "fullTimeEmployees", "city", "state",
+                      "country", "quoteType", "fundFamily", "category",
+                      "sector", "industry"):
+                if extra.get(k) not in (None, "") and not info.get(k):
+                    info[k] = extra[k]
+        except Exception:
+            pass
 
     # ── Step 4: EPS history — earnings_history → income stmt fallback ─
     # (NEVER tk.quarterly_earnings: deprecated + crash-prone upstream)
