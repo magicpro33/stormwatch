@@ -1229,7 +1229,7 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None):
 
 
 def _apex_console_board(df: pd.DataFrame) -> str:
-    """Option C split-console results table — framed ledger, no checkmarks."""
+    """Clean Option C card: rank, ticker, score, risk, value, RS, price."""
     va_map = {
         "BELOW VALUE": "Below",
         "IN VALUE": "In value",
@@ -1237,21 +1237,23 @@ def _apex_console_board(df: pd.DataFrame) -> str:
     }
     risk_col = {"CALM": GREEN, "NORMAL": "#d0b040", "HIGH": RED}
     th = (
-        f"text-align:left;color:{DIM};font-size:11px;letter-spacing:.06em;"
-        f"text-transform:uppercase;font-weight:500;padding:10px 8px;"
+        f"text-align:left;color:{DIM};font-size:11px;letter-spacing:.08em;"
+        f"text-transform:uppercase;font-weight:500;padding:8px 14px 14px;"
         f"border-bottom:1px solid #1d2b40"
     )
-    td = "padding:11px 8px;border-bottom:1px solid #122540;vertical-align:middle"
+    n = len(df)
     rows = []
-    for _, r in df.iterrows():
+    for i, (_, r) in enumerate(df.iterrows(), start=1):
+        try:
+            rank = int(r["#"]) if "#" in r.index and pd.notna(r["#"]) else i
+        except (TypeError, ValueError):
+            rank = i
         tk = _esc(r.get("Ticker", ""))
-        sec = _esc(str(r.get("Sector") or "—"))
         try:
             sc = float(r["Score"])
         except (TypeError, ValueError):
-            sc = 0.0
-        if not np.isfinite(sc):
-            sc = 0.0
+            sc = float("nan")
+        sc_txt = f"{sc:.1f}" if np.isfinite(sc) else "—"
         risk = str(r.get("Risk") or "—")
         rc = risk_col.get(risk, DIM)
         va = va_map.get(str(r.get("ValueArea") or ""), str(r.get("ValueArea") or "—"))
@@ -1259,7 +1261,7 @@ def _apex_console_board(df: pd.DataFrame) -> str:
             rsf = float(r.get("RS"))
             if not np.isfinite(rsf):
                 raise ValueError
-            rs_txt = f"{rsf:+.2f}%"
+            rs_txt = f"{rsf:+.1f}%"
             rs_c = GREEN if rsf > 0 else (RED if rsf < 0 else DIM)
         except (TypeError, ValueError):
             rs_txt, rs_c = "—", DIM
@@ -1267,33 +1269,32 @@ def _apex_console_board(df: pd.DataFrame) -> str:
             pxv = float(r.get("Price"))
             if not np.isfinite(pxv):
                 raise ValueError
-            px_txt = f"${pxv:,.2f}"
+            px_txt = f"${pxv:,.0f}" if abs(pxv) >= 10 else f"${pxv:,.2f}"
         except (TypeError, ValueError):
             px_txt = "—"
-        w = max(0.0, min(100.0, sc))
+        last = i == n
+        td = (
+            "padding:14px;vertical-align:middle;"
+            + ("" if last else "border-bottom:1px solid #16253a")
+        )
         rows.append(
             f"<tr>"
-            f"<td style='{td}'><div style='font-family:ui-monospace,monospace;"
-            f"font-weight:600'>{tk}</div>"
-            f"<div style='font-size:11px;color:{DIM};margin-top:2px'>{sec}</div></td>"
-            f"<td style='{td};min-width:128px;font-family:ui-monospace,monospace'>"
-            f"{sc:.1f}"
-            f"<div style='height:4px;background:#081325;border-radius:99px;"
-            f"margin-top:6px;overflow:hidden'>"
-            f"<div style='width:{w:.0f}%;height:100%;background:{ACCENT}'></div>"
-            f"</div></td>"
+            f"<td style='{td};color:{DIM};width:36px'>{rank}</td>"
+            f"<td style='{td};font-weight:600'>{tk}</td>"
+            f"<td style='{td}'>{sc_txt}</td>"
             f"<td style='{td};color:{rc};font-weight:600'>{_esc(risk)}</td>"
             f"<td style='{td}'>{_esc(va)}</td>"
-            f"<td style='{td};font-family:ui-monospace,monospace;color:{rs_c}'>{rs_txt}</td>"
-            f"<td style='{td};font-family:ui-monospace,monospace'>{px_txt}</td>"
+            f"<td style='{td};color:{rs_c}'>{rs_txt}</td>"
+            f"<td style='{td}'>{px_txt}</td>"
             f"</tr>"
         )
     return (
-        f"<div style='background:#0c1829;border:1px solid #1d2b40;"
-        f"border-radius:14px;padding:4px 10px 8px;overflow:auto'>"
-        f"<table style='width:100%;border-collapse:collapse;font-size:13px;"
+        f"<div style='background:#0b1524;border:1px solid #1d2b40;"
+        f"border-radius:22px;padding:18px 10px 8px;overflow:auto'>"
+        f"<table style='width:100%;border-collapse:collapse;font-size:14px;"
         f"color:#F6F4E9'>"
         f"<thead><tr>"
+        f"<th style='{th}'>#</th>"
         f"<th style='{th}'>Ticker</th>"
         f"<th style='{th}'>Score</th>"
         f"<th style='{th}'>Risk</th>"
@@ -2937,14 +2938,9 @@ with tab_apex:
                                "intraday bars come from Alpaca. If keys are set, try a "
                                "larger universe or a looser min score.")
             else:
-                _m1, _m2, _m3 = st.columns(3)
-                _m1.metric("Names found", len(_res))
-                _m2.metric("Top score", f"{_res['Score'].max():.1f}")
-                _m3.metric("Median vol", f"{_res['Vol%'].median():.2f}%")
-                st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
-
                 _show = _res.copy()
                 st.markdown(_apex_console_board(_show), unsafe_allow_html=True)
+                st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
                 _pick = st.selectbox(
                     "Load into Lookup",
                     ["—"] + [str(t) for t in _show["Ticker"].tolist()],
