@@ -2156,6 +2156,23 @@ with tab_hybrid:
                 render_ignition_analyzer(_htk, closes, key_prefix="hsaz")
             except Exception as _hae:
                 st.caption(f"Analyzer unavailable: {_hae}")
+            try:
+                _hinfo = _analyzer(_htk, asof)[0]
+                _biz = dict(_hinfo or {})
+                try:
+                    _live = _yf_info(_htk) or {}
+                except Exception:
+                    _live = {}
+                if _live.get("longBusinessSummary") or _live.get("description"):
+                    _biz.update({k: _live[k] for k in _live
+                                 if _live.get(k) not in (None, "")})
+                else:
+                    for k, v in _live.items():
+                        if v not in (None, "") and not _biz.get(k):
+                            _biz[k] = v
+                render_business_summary(_biz, _htk)
+            except Exception as _hbse:
+                st.caption(f"Business summary unavailable: {_hbse}")
 
 
 # ── 🏆 top 20 mega screener ──────────────────────────────────────────
