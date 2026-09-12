@@ -96,7 +96,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.37"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.38"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -901,7 +901,7 @@ def investment_plan(b, closes: pd.DataFrame) -> dict:
 # Stock-level layer: nightly dump + Alpaca + earnings dates
 # ═════════════════════════════════════════════════════════════════════
 DUMP_URL = "https://raw.githubusercontent.com/magicpro33/stock/main/data/stock_data.json.gz"
-LOCAL_DUMP = os.path.join(os.path.dirname(__file__), "data", "dump_panel_v4.npz")
+LOCAL_DUMP = os.path.join(os.path.dirname(__file__), "data", "dump_panel_v5.npz")
 LOCAL_DUMP_GZ = os.path.join(os.path.dirname(__file__), "data", "stock_data.json.gz")
 
 FUND_FIELDS = ["ShortPctFloat", "DaysToCover", "P/E", "RevenueGrowth",
@@ -999,6 +999,17 @@ def load_dump_panel():
                     funds[f][j] = float(v)
                 except (TypeError, ValueError):
                     pass
+    # Nightly dumps before 2026-09-12 kept yfinance's volume-only last bar
+    # (OHLC all NaN). That date becomes the panel's last session; ffill then
+    # copies yesterday's close and sector_flow prints 0% for every sector.
+    while T > 2:
+        n_real = int(np.isfinite(panel["c"][-1]).sum())
+        if n_real >= max(80, int(0.15 * N)):
+            break
+        for f in panel:
+            panel[f] = panel[f][:-1]
+        all_d = all_d[:-1]
+        T -= 1
     # The tradeable guard needs to know whether a name actually PRINTED
     # recently. Snapshot that from the raw closes BEFORE the ffill — reading
     # it afterwards is a no-op, because ffill(limit=5) makes a halted or
