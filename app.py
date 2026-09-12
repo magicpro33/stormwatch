@@ -1228,83 +1228,6 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None):
         st.plotly_chart(figh, width="stretch", key=f"lk_hist_{tk}")
 
 
-def _apex_console_board(df: pd.DataFrame) -> str:
-    """Clean Option C card: rank, ticker, score, risk, value, RS, price."""
-    va_map = {
-        "BELOW VALUE": "Below",
-        "IN VALUE": "In value",
-        "ABOVE VALUE": "Above",
-    }
-    risk_col = {"CALM": GREEN, "NORMAL": "#d0b040", "HIGH": RED}
-    th = (
-        f"text-align:left;color:{DIM};font-size:11px;letter-spacing:.08em;"
-        f"text-transform:uppercase;font-weight:500;padding:8px 14px 14px;"
-        f"border-bottom:1px solid #1d2b40"
-    )
-    n = len(df)
-    rows = []
-    for i, (_, r) in enumerate(df.iterrows(), start=1):
-        try:
-            rank = int(r["#"]) if "#" in r.index and pd.notna(r["#"]) else i
-        except (TypeError, ValueError):
-            rank = i
-        tk = _esc(r.get("Ticker", ""))
-        try:
-            sc = float(r["Score"])
-        except (TypeError, ValueError):
-            sc = float("nan")
-        sc_txt = f"{sc:.1f}" if np.isfinite(sc) else "—"
-        risk = str(r.get("Risk") or "—")
-        rc = risk_col.get(risk, DIM)
-        va = va_map.get(str(r.get("ValueArea") or ""), str(r.get("ValueArea") or "—"))
-        try:
-            rsf = float(r.get("RS"))
-            if not np.isfinite(rsf):
-                raise ValueError
-            rs_txt = f"{rsf:+.1f}%"
-            rs_c = GREEN if rsf > 0 else (RED if rsf < 0 else DIM)
-        except (TypeError, ValueError):
-            rs_txt, rs_c = "—", DIM
-        try:
-            pxv = float(r.get("Price"))
-            if not np.isfinite(pxv):
-                raise ValueError
-            px_txt = f"${pxv:,.0f}" if abs(pxv) >= 10 else f"${pxv:,.2f}"
-        except (TypeError, ValueError):
-            px_txt = "—"
-        last = i == n
-        td = (
-            "padding:14px;vertical-align:middle;"
-            + ("" if last else "border-bottom:1px solid #16253a")
-        )
-        rows.append(
-            f"<tr>"
-            f"<td style='{td};color:{DIM};width:36px'>{rank}</td>"
-            f"<td style='{td};font-weight:600'>{tk}</td>"
-            f"<td style='{td}'>{sc_txt}</td>"
-            f"<td style='{td};color:{rc};font-weight:600'>{_esc(risk)}</td>"
-            f"<td style='{td}'>{_esc(va)}</td>"
-            f"<td style='{td};color:{rs_c}'>{rs_txt}</td>"
-            f"<td style='{td}'>{px_txt}</td>"
-            f"</tr>"
-        )
-    return (
-        f"<div style='background:#0b1524;border:1px solid #1d2b40;"
-        f"border-radius:22px;padding:18px 10px 8px;overflow:auto'>"
-        f"<table style='width:100%;border-collapse:collapse;font-size:14px;"
-        f"color:#F6F4E9'>"
-        f"<thead><tr>"
-        f"<th style='{th}'>#</th>"
-        f"<th style='{th}'>Ticker</th>"
-        f"<th style='{th}'>Score</th>"
-        f"<th style='{th}'>Risk</th>"
-        f"<th style='{th}'>Value</th>"
-        f"<th style='{th}'>RS</th>"
-        f"<th style='{th}'>Price</th>"
-        f"</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
-    )
-
-
 def _open_analysis(tk: str):
     st.session_state["mw_analyze"] = tk
 
@@ -2938,22 +2861,65 @@ with tab_apex:
                                "intraday bars come from Alpaca. If keys are set, try a "
                                "larger universe or a looser min score.")
             else:
-                _show = _res.copy()
-                st.markdown(_apex_console_board(_show), unsafe_allow_html=True)
+                _g = int(_res["Gate"].sum())
+                _m1, _m2, _m3, _m4 = st.columns(4)
+                _m1.metric("Names found", len(_res))
+                _m2.metric("Full gate ✅", _g,
+                           help="Score ≥ 80 AND CALM AND relative strength in band — "
+                                "the exact configuration that was tested.")
+                _m3.metric("Top score", f"{_res['Score'].max():.1f}")
+                _m4.metric("Median vol", f"{_res['Vol%'].median():.2f}%")
                 st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
-                _pick = st.selectbox(
-                    "Load into Lookup",
-                    ["—"] + [str(t) for t in _show["Ticker"].tolist()],
-                    key="apex_table_pick")
-                if _pick != "—":
-                    if st.session_state.get("_apex_handled") != _pick:
-                        st.session_state["_apex_handled"] = _pick
-                        st.session_state["lk_tk"] = _pick
+
+                _show = _res.copy()
+                _show["✅"] = np.where(_show["Gate"], "✅", "")
+                _sel_ax = st.dataframe(
+                    _show.style.format({
+                        "Score": "{:.1f}", "Adj": "{:.1f}", "Macro": "{:.2f}",
+                        "Price": "${:,.2f}", "Vol%": "{:.2f}%",
+                        "RangePos": "{:.0f}%", "RS": "{:+.2f}%",
+                        "POC": "${:,.2f}", "VAL": "${:,.2f}", "VAH": "${:,.2f}"}, na_rep="—")
+                    .map(lambda v: f"color:{ACCENT};font-weight:700"
+                         if isinstance(v, (int, float)) and v >= 85 else "", subset=["Score"])
+                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "CALM"
+                                    else (f"color:{RED};font-weight:600" if v == "HIGH"
+                                          else "color:#d0b040")), subset=["Risk"])
+                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "BELOW VALUE"
+                                    else (f"color:{DIM}" if v == "IN VALUE"
+                                          else "color:#b565f3")), subset=["ValueArea"])
+                    .map(lambda v: _css_sign(-abs(v) + 3, dead=0) if isinstance(v, (int, float))
+                         else "", subset=["RS"]),
+                    width="stretch", hide_index=True, height=620,
+                    on_select="rerun", selection_mode="single-row", key="apex_table",
+                    column_order=["#", "✅", "Ticker", "Sector", "Score"]
+                                 + (["Macro", "Adj"] if "Adj" in _show.columns else [])
+                                 + ["Risk", "Vol%",
+                                  "RangePos", "ValueArea", "Regime", "RS", "Price",
+                                  "VAL", "POC", "VAH"],
+                    column_config={
+                        "✅": st.column_config.Column(width="small", help="Passes the full tested gate."),
+                        "Score": st.column_config.Column(help="APEX conviction 0-100. Same number the indicator shows."),
+                        "Risk": st.column_config.Column(help="Volatility state. CALM is the only one that passes the tested gate."),
+                        "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
+                        "RangePos": st.column_config.Column(help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
+                        "ValueArea": st.column_config.Column(help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
+                        "Regime": st.column_config.Column(help="5-factor trend tally. Context — trend direction showed no forward edge in testing."),
+                        "RS": st.column_config.Column(help="20-bar return minus SPY's. The filter keeps ±3% — the middle of the pack."),
+                        "VAL": st.column_config.Column(help="Value area low."),
+                        "POC": st.column_config.Column(help="Point of control — the heaviest-volume price level."),
+                        "VAH": st.column_config.Column(help="Value area high."),
+                    })
+                _rax = (_sel_ax.selection.rows if _sel_ax and getattr(_sel_ax, "selection", None) else [])
+                if _rax:
+                    _tkax = _show.iloc[_rax[0]].Ticker
+                    if st.session_state.get("_apex_handled") != _tkax:
+                        st.session_state["_apex_handled"] = _tkax
+                        st.session_state["lk_tk"] = _tkax
                         st.rerun()
                 if st.session_state.get("lk_tk"):
-                    st.info(f"**{st.session_state['lk_tk']}** loaded — open "
-                            "Stock Lookup for the full analysis.")
-                st.caption("Pick a ticker to load it into Stock Lookup.")
+                    st.info(f"🔎 **{st.session_state['lk_tk']}** loaded — open the "
+                            "**Stock Lookup** tab for the full analysis.")
+                st.caption("👆 Tap any row to load it into Stock Lookup.")
 
                 st.download_button("⬇ Download CSV", _res.to_csv(index=False),
                                    f"apex_flow_{_tf.replace(' ','')}_{asof}.csv",
