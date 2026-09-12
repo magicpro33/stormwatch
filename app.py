@@ -1557,9 +1557,10 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
 
 asof = str(closes.index[-1].date())
 (tab_map, tab_lookup, tab_hybrid, tab_top20, tab_apex, tab_poc, tab_macro,
- tab_advanced) = st.tabs(
+ tab_shakeout, tab_advanced) = st.tabs(
     ["🌊 Cascade Map", "🔎 Stock Lookup", "📊 Hybrid Screener", "🏆 Top 20",
-     "⚡ APEX FLOW", "🎯 POC Future", "🧪 Macro Sim", "📖 Advanced Guide"])
+     "⚡ APEX FLOW", "🎯 POC Future", "🧪 Macro Sim", "🌩 Shakeout",
+     "📖 Advanced Guide"])
 # Nested tabs must be created here — Lenses / Guide render earlier in the
 # file than Pressure, so defining them later raises NameError.
 with tab_advanced:
@@ -2173,6 +2174,15 @@ with tab_hybrid:
                 render_business_summary(_biz, _htk)
             except Exception as _hbse:
                 st.caption(f"Business summary unavailable: {_hbse}")
+
+
+# ── 🌩 shakeout coils (pre-move scan, backtested on the nightly dump) ──
+with tab_shakeout:
+    try:
+        from storm_watch_tab import render_storm_watch_tab
+        render_storm_watch_tab()
+    except Exception as _swe:
+        st.error(f"Shakeout tab failed to load: {_swe}")
 
 
 # ── 🏆 top 20 mega screener ──────────────────────────────────────────
