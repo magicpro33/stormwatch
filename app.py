@@ -1089,33 +1089,36 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None):
         pv, plabel, pcol = pressure["val"], pressure["label"], pressure["color"]
         ptxt = "n/a" if pv is None else f"{pv:+.2f}"
         right += (
-            f"<div style='font-size:12px;color:{DIM};letter-spacing:.06em;"
-            f"text-transform:uppercase;margin-bottom:4px;'>Net cascade pressure</div>"
-            f"<div style='font-size:22px;font-weight:700;color:{pcol};line-height:1.2;'>{ptxt}</div>"
-            f"<div style='font-size:13px;color:{pcol};margin:2px 0 12px;'>{_esc(plabel)}</div>"
+            f"<div style='font-size:13px;color:{DIM};letter-spacing:.06em;"
+            f"text-transform:uppercase;margin-bottom:6px;'>Net cascade pressure</div>"
+            f"<div style='font-size:2em;font-weight:700;color:{pcol};line-height:1.15;'>{ptxt}</div>"
+            f"<div style='font-size:1.05em;color:{pcol};margin:4px 0 16px;'>{_esc(plabel)}</div>"
         )
     if outlook:
         right += (
-            f"<div style='border-left:3px solid {outlook['color']};padding:6px 0 6px 12px;'>"
-            f"<div style='font-size:16px;font-weight:700;'>{outlook['emo']} Outlook</div>"
-            f"<div style='font-size:14px;color:#d7e0ec;margin-top:3px;'>{_esc(outlook['text'])}</div>"
+            f"<div style='border-left:4px solid {outlook['color']};padding:8px 0 8px 16px;'>"
+            f"<div style='font-size:1.25em;font-weight:700;'>{outlook['emo']} Outlook</div>"
+            f"<div style='font-size:1.05em;color:#d7e0ec;margin-top:6px;line-height:1.45;'>{_esc(outlook['text'])}</div>"
             f"</div>"
         )
     if not right:
-        right = f"<div style='color:{DIM};font-size:13px;'>across {n:,} look-alike cases</div>"
+        right = f"<div style='color:{DIM};font-size:1.05em;'>across {n:,} look-alike cases</div>"
 
-    st.markdown(f"""<div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;
-      background:linear-gradient(135deg,#0d1b2a,#1a2d45);border:1px solid #1e3a5f;
-      border-radius:14px;padding:18px 24px;margin-bottom:16px;">
+    st.markdown(f"""<div style="background:linear-gradient(135deg,#0d1b2a,#1a2d45);
+      border:1px solid #1e3a5f;border-radius:14px;padding:24px 28px 22px;margin-bottom:16px;">
+      <div style="font-size:1.45em;font-weight:700;color:#e8f4fd;letter-spacing:.3px;margin-bottom:14px;">
+        🌦 Forecast</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:28px;flex-wrap:wrap;">
       <div title="Share of the {n:,} analog cases that were positive 21 sessions later. 50% = coin flip.">
-        <svg viewBox="0 0 160 95" style="width:165px;">
+        <svg viewBox="0 0 160 95" style="width:240px;max-width:100%;">
           <path d="M15,85 A65,65 0 0 1 145,85" fill="none" stroke="#12233c" stroke-width="14" stroke-linecap="round"/>
           <path d="M15,85 A65,65 0 0 1 {ax:.1f},{ay:.1f}" fill="none" stroke="{acol}" stroke-width="14" stroke-linecap="round"/>
-          <text x="80" y="68" text-anchor="middle" font-size="24" font-weight="700" fill="#F6F4E9">{pu:.0%}</text>
-          <text x="80" y="88" text-anchor="middle" font-size="10" fill="{DIM}">odds of gain - 21 sessions</text>
+          <text x="80" y="66" text-anchor="middle" font-size="28" font-weight="700" fill="#F6F4E9">{pu:.0%}</text>
+          <text x="80" y="88" text-anchor="middle" font-size="11" fill="{DIM}">odds of gain - 21 sessions</text>
         </svg>
       </div>
-      <div style="flex:1;min-width:220px;">{right}</div>
+      <div style="flex:1;min-width:260px;">{right}</div>
+      </div>
     </div>""", unsafe_allow_html=True)
 
     with st.expander("🔬 More views — 100 look-alikes & full distribution"):
@@ -1236,7 +1239,7 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
         up_txt = (f"<span style='color:{tgt_col};font-weight:600;'>"
                   f"{upside:+.1f}%</span>" if upside is not None else "")
         tgt_html = (
-            f"<div style='font-size:0.88em;color:#7fb3d3;margin-top:6px;'>"
+            f"<div style='font-size:1.05em;color:#7fb3d3;margin-top:8px;'>"
             f"Target <span style='color:#e8f4fd;font-weight:700;'>${target:,.2f}</span>"
             f"{(' · ' + up_txt) if up_txt else ''}</div>"
         )
@@ -1264,12 +1267,12 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
 
     def _chip(label, value, color="#c5dff0"):
         return (
-            f"<div style='text-align:center;background:#0a1929;border-radius:8px;"
-            f"padding:8px 16px;min-width:92px;'>"
-            f"<div style='font-size:0.75em;color:{_HY_MUTED};text-transform:uppercase;"
+            f"<div style='text-align:center;background:#0a1929;border-radius:10px;"
+            f"padding:16px 10px;flex:1 1 0;min-width:0;'>"
+            f"<div style='font-size:0.85em;color:{_HY_MUTED};text-transform:uppercase;"
             f"letter-spacing:.06em;'>{label}</div>"
-            f"<div style='font-size:1em;font-weight:600;color:{color};margin-top:2px;'>"
-            f"{value}</div></div>"
+            f"<div style='font-size:1.45em;font-weight:700;color:{color};margin-top:6px;"
+            f"line-height:1.15;'>{value}</div></div>"
         )
 
     chips = (
@@ -1282,30 +1285,30 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
     )
     st.markdown(
         f"""<div style='background:linear-gradient(135deg,#0d1b2a 0%,#1a2d45 100%);
-        border:1px solid #1e3a5f;border-radius:14px;padding:20px 24px;margin-bottom:16px;'>
-        <div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;'>
-          <div>
-            <div style='font-size:1.6em;font-weight:700;color:#e8f4fd;letter-spacing:-0.5px;'>
+        border:1px solid #1e3a5f;border-radius:14px;padding:28px 28px 24px;margin-bottom:16px;'>
+        <div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;'>
+          <div style='flex:1;min-width:220px;'>
+            <div style='font-size:2.05em;font-weight:700;color:#e8f4fd;letter-spacing:-0.5px;line-height:1.15;'>
               {_esc(name)}
-              <span style='font-size:0.6em;font-weight:500;color:#5b9bd5;
-              background:#0d2137;padding:3px 10px;border-radius:6px;margin-left:10px;
+              <span style='font-size:0.48em;font-weight:500;color:#5b9bd5;
+              background:#0d2137;padding:4px 12px;border-radius:6px;margin-left:10px;
               vertical-align:middle;'>{_esc(tk)}</span>
             </div>
-            <div style='font-size:0.88em;color:#7fb3d3;margin-top:4px;'>
+            <div style='font-size:1.15em;color:#7fb3d3;margin-top:8px;'>
               {_esc(sector)}{" · " + _esc(industry) if industry else ""}
             </div>
           </div>
-          <div style='text-align:right;'>
-            <div style='font-size:2.2em;font-weight:700;color:#e8f4fd;line-height:1;'>
+          <div style='text-align:right;flex-shrink:0;'>
+            <div style='font-size:2.8em;font-weight:700;color:#e8f4fd;line-height:1;'>
               {"$" + f"{px:,.2f}" if px else "N/A"}
             </div>
-            <div style='font-size:1em;color:{chg_col};font-weight:600;margin-top:2px;'>
+            <div style='font-size:1.2em;color:{chg_col};font-weight:600;margin-top:4px;'>
               {chg_sym} {abs(chg_pct):.2f}% today
             </div>
             {tgt_html}
           </div>
         </div>
-        <div style='display:flex;gap:16px;margin-top:16px;flex-wrap:wrap;'>
+        <div style='display:flex;gap:12px;margin-top:22px;'>
           {chips}
         </div></div>""",
         unsafe_allow_html=True,
@@ -1321,11 +1324,14 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
     else:
         st.markdown(
             f"<div style='background:linear-gradient(135deg,#0d1b2a,#1a2d45);"
-            f"border:1px solid #1e3a5f;border-radius:14px;padding:18px 24px;"
-            f"margin-bottom:16px;color:{_HY_MUTED};font-size:0.95em;'>"
+            f"border:1px solid #1e3a5f;border-radius:14px;padding:24px 28px;"
+            f"margin-bottom:16px;'>"
+            f"<div style='font-size:1.45em;font-weight:700;color:#e8f4fd;"
+            f"letter-spacing:.3px;margin-bottom:12px;'>🌦 Forecast</div>"
+            f"<div style='color:{_HY_MUTED};font-size:1.05em;line-height:1.5;'>"
             f"Not enough look-alike history to forecast this one honestly "
             f"(needs ~70 sessions of price data to build a comparable profile)."
-            f"</div>",
+            f"</div></div>",
             unsafe_allow_html=True,
         )
     try:
@@ -1868,22 +1874,6 @@ with tab_lookup:
         render_ticker_analysis(tk, closes, state_key="lk_tk",
                                df=df_tk, src_label=_hs, info=_info)
 
-        try:
-            _biz = dict(_info or {})
-            try:
-                _live = _yf_info(tk) or {}
-            except Exception:
-                _live = {}
-            if _live.get("longBusinessSummary") or _live.get("description"):
-                _biz.update({k: _live[k] for k in _live if _live.get(k) not in (None, "")})
-            else:
-                for k, v in _live.items():
-                    if v not in (None, "") and not _biz.get(k):
-                        _biz[k] = v
-            render_business_summary(_biz, tk)
-        except Exception as _bse:
-            st.caption(f"Business summary unavailable: {_bse}")
-
         if df_tk is None or df_tk.empty:
             st.error(f"No price history found for **{tk}** from Alpaca, Yahoo, "
                      "or the nightly dump — double-check the symbol "
@@ -1906,6 +1896,22 @@ with tab_lookup:
             render_ignition_analyzer(tk, closes)
         except Exception as _ae:
             st.caption(f"Analyzer unavailable: {_ae}")
+
+        try:
+            _biz = dict(_info or {})
+            try:
+                _live = _yf_info(tk) or {}
+            except Exception:
+                _live = {}
+            if _live.get("longBusinessSummary") or _live.get("description"):
+                _biz.update({k: _live[k] for k in _live if _live.get(k) not in (None, "")})
+            else:
+                for k, v in _live.items():
+                    if v not in (None, "") and not _biz.get(k):
+                        _biz[k] = v
+            render_business_summary(_biz, tk)
+        except Exception as _bse:
+            st.caption(f"Business summary unavailable: {_bse}")
 
     # ── watchlist ────────────────────────────────────────────────────
     st.divider()
