@@ -1228,6 +1228,82 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None):
         st.plotly_chart(figh, width="stretch", key=f"lk_hist_{tk}")
 
 
+def _apex_console_board(df: pd.DataFrame) -> str:
+    """Option C split-console results table — framed ledger, no checkmarks."""
+    va_map = {
+        "BELOW VALUE": "Below",
+        "IN VALUE": "In value",
+        "ABOVE VALUE": "Above",
+    }
+    risk_col = {"CALM": GREEN, "NORMAL": "#d0b040", "HIGH": RED}
+    th = (
+        f"text-align:left;color:{DIM};font-size:11px;letter-spacing:.06em;"
+        f"text-transform:uppercase;font-weight:500;padding:10px 8px;"
+        f"border-bottom:1px solid #1d2b40"
+    )
+    td = "padding:11px 8px;border-bottom:1px solid #122540;vertical-align:middle"
+    rows = []
+    for _, r in df.iterrows():
+        tk = _esc(r.get("Ticker", ""))
+        sec = _esc(str(r.get("Sector") or "—"))
+        try:
+            sc = float(r["Score"])
+        except (TypeError, ValueError):
+            sc = 0.0
+        if not np.isfinite(sc):
+            sc = 0.0
+        risk = str(r.get("Risk") or "—")
+        rc = risk_col.get(risk, DIM)
+        va = va_map.get(str(r.get("ValueArea") or ""), str(r.get("ValueArea") or "—"))
+        try:
+            rsf = float(r.get("RS"))
+            if not np.isfinite(rsf):
+                raise ValueError
+            rs_txt = f"{rsf:+.2f}%"
+            rs_c = GREEN if rsf > 0 else (RED if rsf < 0 else DIM)
+        except (TypeError, ValueError):
+            rs_txt, rs_c = "—", DIM
+        try:
+            pxv = float(r.get("Price"))
+            if not np.isfinite(pxv):
+                raise ValueError
+            px_txt = f"${pxv:,.2f}"
+        except (TypeError, ValueError):
+            px_txt = "—"
+        w = max(0.0, min(100.0, sc))
+        rows.append(
+            f"<tr>"
+            f"<td style='{td}'><div style='font-family:ui-monospace,monospace;"
+            f"font-weight:600'>{tk}</div>"
+            f"<div style='font-size:11px;color:{DIM};margin-top:2px'>{sec}</div></td>"
+            f"<td style='{td};min-width:128px;font-family:ui-monospace,monospace'>"
+            f"{sc:.1f}"
+            f"<div style='height:4px;background:#081325;border-radius:99px;"
+            f"margin-top:6px;overflow:hidden'>"
+            f"<div style='width:{w:.0f}%;height:100%;background:{ACCENT}'></div>"
+            f"</div></td>"
+            f"<td style='{td};color:{rc};font-weight:600'>{_esc(risk)}</td>"
+            f"<td style='{td}'>{_esc(va)}</td>"
+            f"<td style='{td};font-family:ui-monospace,monospace;color:{rs_c}'>{rs_txt}</td>"
+            f"<td style='{td};font-family:ui-monospace,monospace'>{px_txt}</td>"
+            f"</tr>"
+        )
+    return (
+        f"<div style='background:#0c1829;border:1px solid #1d2b40;"
+        f"border-radius:14px;padding:4px 10px 8px;overflow:auto'>"
+        f"<table style='width:100%;border-collapse:collapse;font-size:13px;"
+        f"color:#F6F4E9'>"
+        f"<thead><tr>"
+        f"<th style='{th}'>Ticker</th>"
+        f"<th style='{th}'>Score</th>"
+        f"<th style='{th}'>Risk</th>"
+        f"<th style='{th}'>Value</th>"
+        f"<th style='{th}'>RS</th>"
+        f"<th style='{th}'>Price</th>"
+        f"</tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
+    )
+
+
 def _open_analysis(tk: str):
     st.session_state["mw_analyze"] = tk
 
@@ -2868,57 +2944,20 @@ with tab_apex:
                 st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
 
                 _show = _res.copy()
-                _sel_ax = st.dataframe(
-                    _show,
-                    width="stretch", hide_index=True, height=620,
-                    on_select="rerun", selection_mode="single-row", key="apex_table",
-                    column_order=["#", "Ticker", "Score", "Risk", "ValueArea", "RS", "Price"]
-                                 + (["Sector"] if "Sector" in _show.columns else [])
-                                 + (["Macro", "Adj"] if "Adj" in _show.columns else [])
-                                 + [c for c in ["Vol%", "RangePos", "Regime", "VAL", "POC", "VAH"]
-                                    if c in _show.columns],
-                    column_config={
-                        "#": st.column_config.NumberColumn(" ", format="%d", width="small"),
-                        "Ticker": st.column_config.TextColumn("Ticker", width="small"),
-                        "Score": st.column_config.ProgressColumn(
-                            "Score", min_value=0, max_value=100, format="%.1f",
-                            help="APEX conviction 0-100. Same number the indicator shows."),
-                        "Risk": st.column_config.TextColumn(
-                            "Risk",
-                            help="Volatility state. CALM is the only one that passes the tested gate."),
-                        "ValueArea": st.column_config.TextColumn(
-                            "Value",
-                            help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
-                        "RS": st.column_config.NumberColumn(
-                            "RS", format="%+.2f%%",
-                            help="20-bar return minus SPY's. The filter keeps ±3% — the middle of the pack."),
-                        "Price": st.column_config.NumberColumn("Price", format="$%.2f"),
-                        "Sector": st.column_config.TextColumn("Sector"),
-                        "Vol%": st.column_config.NumberColumn(
-                            "Vol%", format="%.2f%%",
-                            help="20-bar realized volatility, this timeframe's own scale."),
-                        "RangePos": st.column_config.NumberColumn(
-                            "Range", format="%.0f%%",
-                            help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
-                        "Regime": st.column_config.TextColumn(
-                            "Regime",
-                            help="5-factor trend tally. Context — trend direction showed no forward edge in testing."),
-                        "VAL": st.column_config.NumberColumn("VAL", format="$%.2f", help="Value area low."),
-                        "POC": st.column_config.NumberColumn("POC", format="$%.2f",
-                            help="Point of control — the heaviest-volume price level."),
-                        "VAH": st.column_config.NumberColumn("VAH", format="$%.2f", help="Value area high."),
-                    })
-                _rax = (_sel_ax.selection.rows if _sel_ax and getattr(_sel_ax, "selection", None) else [])
-                if _rax:
-                    _tkax = _show.iloc[_rax[0]].Ticker
-                    if st.session_state.get("_apex_handled") != _tkax:
-                        st.session_state["_apex_handled"] = _tkax
-                        st.session_state["lk_tk"] = _tkax
+                st.markdown(_apex_console_board(_show), unsafe_allow_html=True)
+                _pick = st.selectbox(
+                    "Load into Lookup",
+                    ["—"] + [str(t) for t in _show["Ticker"].tolist()],
+                    key="apex_table_pick")
+                if _pick != "—":
+                    if st.session_state.get("_apex_handled") != _pick:
+                        st.session_state["_apex_handled"] = _pick
+                        st.session_state["lk_tk"] = _pick
                         st.rerun()
                 if st.session_state.get("lk_tk"):
-                    st.info(f"🔎 **{st.session_state['lk_tk']}** loaded — open the "
-                            "**Stock Lookup** tab for the full analysis.")
-                st.caption("👆 Tap any row to load it into Stock Lookup.")
+                    st.info(f"**{st.session_state['lk_tk']}** loaded — open "
+                            "Stock Lookup for the full analysis.")
+                st.caption("Pick a ticker to load it into Stock Lookup.")
 
                 st.download_button("⬇ Download CSV", _res.to_csv(index=False),
                                    f"apex_flow_{_tf.replace(' ','')}_{asof}.csv",
