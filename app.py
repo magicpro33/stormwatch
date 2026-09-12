@@ -831,7 +831,6 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
     opm = info.get("_op_margin"); cfm = info.get("_cf_margin")
     fcfm = info.get("_fcf_margin")
     aus = ((am - px) / px * 100) if (am and px > 0) else None
-    rng52 = ((px - lo52) / (hi52 - lo52) * 100) if (hi52 and lo52 and hi52 != lo52) else None
 
     # technicals from history — compute whatever the bar count can support
     rsi_v = ma50_v = ma200_v = macd_v = macd_s = vol_avg = vol_td = None
@@ -904,76 +903,6 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
             bb_u = float((bm + 2 * bs).iloc[-1])
             bb_l = float((bm - 2 * bs).iloc[-1])
 
-    # cascade push (substitute for Ignition score)
-    try:
-        _dr = _drivers(tk, asof)
-        cpush = float(_dr.push.sum()) if not _dr.empty else None
-    except Exception:
-        cpush = None
-
-    # signal pills
-    pills = ""
-    if rsi_v is not None:
-        if rsi_v < 30: pills += az_pill("RSI Oversold", True)
-        elif rsi_v > 70: pills += az_pill("RSI Overbought", False)
-        elif 45 < rsi_v < 65: pills += az_pill("RSI Sweet Spot", True)
-        else: pills += az_pill("RSI Neutral", None)
-    if macd_v is not None and macd_s is not None:
-        pills += az_pill("MACD Bullish" if macd_v > macd_s else "MACD Bearish", macd_v > macd_s)
-    if ma50_v is not None and ma200_v is not None:
-        pills += az_pill("Golden Cross" if ma50_v > ma200_v else "Death Cross", ma50_v > ma200_v)
-    elif info.get("_scan_golden_cross") is not None:
-        pills += az_pill("Golden Cross" if info["_scan_golden_cross"] >= 1 else "No Golden Cross",
-                         info["_scan_golden_cross"] >= 1)
-    if vol_avg and vol_td:
-        if vol_td > vol_avg * 1.5: pills += az_pill("High Volume", True)
-        elif vol_td < vol_avg * 0.5: pills += az_pill("Low Volume", None)
-    if spf and spf > 0.15: pills += az_pill("High Short Interest", None)
-    if aus is not None and aus > 15: pills += az_pill(f"Analyst Upside {aus:.0f}%", True)
-    elif aus is not None and aus < -10: pills += az_pill(f"Above Target {aus:.0f}%", False)
-    if cpush is not None and cpush > 0.5: pills += az_pill("Cascade Tailwind", True)
-    elif cpush is not None and cpush < -0.5: pills += az_pill("Cascade Headwind", False)
-
-    st.markdown("<div style='font-size:20px;font-weight:700;letter-spacing:.6px;"
-                "margin:16px 0 4px'>🔥 Stock Analyzer</div>", unsafe_allow_html=True)
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric("Price", f"${px:,.2f}" if px else "--")
-    m2.metric("Cascade Push", f"{cpush:+.2f}" if cpush is not None else "--",
-              help="Sum of (driver-node lead correlation × its current impulse). Positive = waves pushing it up. IGNITION's Ignition-score slot, powered by the cascade engine.")
-    m3.metric("RVOL", f"{(vol_td / vol_avg):.1f}x" if vol_avg and vol_td else "--",
-              help="Latest volume vs the trailing 20-day average.")
-    m4.metric("52W Pos", f"{rng52:.0f}%" if rng52 is not None else "--",
-              help="Where price sits in its last 252 sessions (~1 year), from the same bars as Price Range Analysis. 100% = at the highs.")
-    m5.metric("Target", f"${am:,.2f}" if am else "--",
-              delta=f"{aus:.1f}%" if aus is not None else None,
-              help="Analyst consensus mean target and implied upside.")
-    m6.metric("Ann. Vol", f"{(hist.Close.pct_change().tail(21).std() * (252 ** 0.5)):.0%}"
-              if not hist.empty and len(hist) > 22 else "--",
-              help="Annualised 21-day volatility.")
-    st.markdown(f"<div style='margin:6px 0 4px'><strong>{_esc(name)}</strong>  "
-                f"<span style='color:{DIM};font-size:13px'>{_esc(sec_display)}</span></div>",
-                unsafe_allow_html=True)
-    if pills:
-        st.markdown(f"<div style='margin:6px 0 12px'>{pills}</div>", unsafe_allow_html=True)
-
-    # data source badges — the Alpaca → Yahoo → dump chain, made visible
-    hs = info.get("_hist_source")
-    badge = lambda txt, col, bc: (f"<span style='font-family:monospace;font-size:10px;color:{col};"
-                                  f"border:1px solid {bc};border-radius:3px;padding:1px 7px'>{txt}</span>")
-    parts = []
-    if hs == "alpaca": parts.append(badge("Alpaca history (live)", "#4dd880", "#1e6b35"))
-    elif hs == "yahoo": parts.append(badge("Yahoo history", "#7a9ab8", "#1e3a5f"))
-    elif hs == "dump": parts.append(badge("nightly-dump history", "#d0b040", "#907020"))
-    if info.get("_from_scan_dump"):
-        parts.append(badge(f"dump filled {len(info.get('_dump_fields', []))} fields", "#d0b040", "#907020"))
-    if tk in live:
-        parts.append(badge("Alpaca live price", "#4dd880", "#1e6b35"))
-    st.markdown("<div style='display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px'>"
-                + "".join(parts) + "</div>", unsafe_allow_html=True)
-    for iss in info.get("_data_issues", []):
-        st.caption(f"⚠️ {iss}")
-    st.markdown("<hr style='border-color:#1e3a5f;margin:10px 0'>", unsafe_allow_html=True)
-
     colA, colB, colC = st.columns(3)
     with colA:
         az_section("Price Range Analysis")
@@ -1035,11 +964,6 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
             gi = "golden cross" if (ma50_v is not None and ma50_v > ma200_v) else "below 50MA"
             rows.append(mrow("200-Day MA", "Golden Cross (50MA over 200MA) = major trend signal.",
                              f"${ma200_v:,.2f} <span style='font-size:11px;color:#7a9ab8'>{gi}</span>"))
-        if vol_avg and vol_td:
-            vr = vol_td / vol_avg
-            vc = "#4dd880" if vr > 1.5 else ("#7a9ab8" if vr > 0.5 else "#d0b040")
-            rows.append(mrow("Volume", "Latest volume vs 20-day average — high volume confirms moves.",
-                             f"<span style='color:{vc};font-family:monospace'>{vr:.2f}x avg</span>"))
         if atr is not None:
             rows.append(mrow("ATR (14d)", "Average True Range — typical daily travel in dollars.",
                              f"<span style='font-family:monospace;color:#b0c8e8'>${atr:,.2f}</span>"))
@@ -1181,7 +1105,8 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None):
         right = f"<div style='color:{DIM};font-size:13px;'>across {n:,} look-alike cases</div>"
 
     st.markdown(f"""<div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;
-      background:#0c1829;border:1px solid #1d2b40;border-radius:10px;padding:14px 18px;">
+      background:linear-gradient(135deg,#0d1b2a,#1a2d45);border:1px solid #1e3a5f;
+      border-radius:14px;padding:18px 24px;margin-bottom:16px;">
       <div title="Share of the {n:,} analog cases that were positive 21 sessions later. 50% = coin flip.">
         <svg viewBox="0 0 160 95" style="width:165px;">
           <path d="M15,85 A65,65 0 0 1 145,85" fill="none" stroke="#12233c" stroke-width="14" stroke-linecap="round"/>
@@ -1232,11 +1157,196 @@ def _open_analysis(tk: str):
     st.session_state["mw_analyze"] = tk
 
 
+# ── Hybrid screener identity cards (Stock Lookup, above Price Range Analysis)
+_HY_UP = "#26c485"
+_HY_DN = "#ef5350"
+_HY_MUTED = "#4a7fa0"
+
+
+def _hy_finite(val, default=None):
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
+        return default
+    return f if np.isfinite(f) else default
+
+
+def _lookup_forecast_bundle(tk: str, df: pd.DataFrame):
+    """Analog forecast + cascade pressure + outlook, or None if too thin."""
+    try:
+        F, R = _analog_library(asof)
+        oc = ce.outcome_forecast(tk, F, R, hist=df)
+    except Exception:
+        return None
+    if not oc or oc.get("n", 0) < 60:
+        return None
+    try:
+        dr = _drivers(tk, asof)
+    except Exception:
+        dr = pd.DataFrame()
+    if dr is None or dr.empty:
+        tail, tcol, tlabel = None, DIM, "no reliable upstream drivers"
+    else:
+        tail = float(dr.push.sum())
+        tcol = GREEN if tail > 0.5 else (RED if tail < -0.5 else DIM)
+        tlabel = ("tailwind — upstream waves are pushing it UP" if tail > 0.5 else
+                  "headwind — upstream waves are pushing it DOWN" if tail < -0.5 else
+                  "neutral — no meaningful wave pressure")
+    score = (
+        (1 if oc["med21"] > 0.01 else -1 if oc["med21"] < -0.01 else 0)
+        + (1 if oc["p_up"] >= 0.56 else -1 if oc["p_up"] <= 0.46 else 0)
+        + (1 if tail is not None and tail > 0.5 else
+           -1 if tail is not None and tail < -0.5 else 0)
+    )
+    v_emo, v_txt, v_col = (
+        ("🌞", "Favorable — analogs lean positive AND the cascade is pushing the same way.", GREEN) if score >= 2 else
+        ("🌤", "Mildly favorable — the tilt is real but modest. Half-size territory.", GREEN) if score == 1 else
+        ("🌧", "Unfavorable — look-alikes lost ground and/or waves are pushing against it.", RED) if score <= -1 else
+        ("⛅", "Mixed — no measurable edge either way. Doing nothing is a position.", DIM))
+    return dict(
+        oc=oc,
+        pressure={"val": tail, "label": tlabel, "color": tcol},
+        outlook={"emo": v_emo, "text": v_txt, "color": v_col},
+    )
+
+
+def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
+                                px: float, chg: float, stats: dict,
+                                *, live_on: bool = False,
+                                src_label: str | None = None) -> None:
+    """Identity card + forecast card — the look above Price Range Analysis."""
+    info = info or {}
+    stats = stats or {}
+    name = info.get("longName") or info.get("shortName") or tk
+    sector = info.get("sector") or ""
+    industry = info.get("industry") or ""
+    if not sector:
+        try:
+            sector = (ce.dump_fundamentals(tk) or {}).get("Sector") or ""
+        except Exception:
+            pass
+    chg_pct = _hy_finite(chg, 0.0) * 100.0
+    chg_col = _HY_UP if chg_pct >= 0 else _HY_DN
+    chg_sym = "▲" if chg_pct >= 0 else "▼"
+    target = _hy_finite(info.get("targetMeanPrice") or info.get("targetMean"))
+    upside = ((target - px) / px * 100.0) if (target and px) else None
+    tgt_col = _HY_UP if (upside is not None and upside >= 0) else _HY_DN
+    tgt_html = ""
+    if target:
+        up_txt = (f"<span style='color:{tgt_col};font-weight:600;'>"
+                  f"{upside:+.1f}%</span>" if upside is not None else "")
+        tgt_html = (
+            f"<div style='font-size:0.88em;color:#7fb3d3;margin-top:6px;'>"
+            f"Target <span style='color:#e8f4fd;font-weight:700;'>${target:,.2f}</span>"
+            f"{(' · ' + up_txt) if up_txt else ''}</div>"
+        )
+
+    def _sgn(v, dead=0.002):
+        v = _hy_finite(v)
+        if v is None or abs(v) <= dead:
+            return _HY_MUTED
+        return _HY_UP if v > 0 else _HY_DN
+
+    r5 = _hy_finite(stats.get("r5"))
+    r21 = _hy_finite(stats.get("r21"))
+    rsi = _hy_finite(stats.get("rsi"))
+    rvol = _hy_finite(stats.get("rvol"))
+    rp = _hy_finite(stats.get("rangepos"))
+    av = _hy_finite(stats.get("vol21"))
+    rsi_col = (_HY_DN if rsi is not None and rsi >= 70 else
+               _HY_UP if rsi is not None and rsi <= 30 else _HY_MUTED)
+    rsi_txt = "—" if rsi is None else f"{rsi:.0f}" + (
+        " hot" if rsi >= 70 else " washed out" if rsi <= 30 else "")
+    rvol_col = _HY_UP if rvol is not None and rvol >= 1.5 else _HY_MUTED
+    rp_col = (_HY_UP if rp is not None and rp >= 0.8 else
+              _HY_DN if rp is not None and rp <= 0.2 else _HY_MUTED)
+    av_col = _HY_DN if av is not None and av >= 0.60 else _HY_MUTED
+
+    def _chip(label, value, color="#c5dff0"):
+        return (
+            f"<div style='text-align:center;background:#0a1929;border-radius:8px;"
+            f"padding:8px 16px;min-width:92px;'>"
+            f"<div style='font-size:0.75em;color:{_HY_MUTED};text-transform:uppercase;"
+            f"letter-spacing:.06em;'>{label}</div>"
+            f"<div style='font-size:1em;font-weight:600;color:{color};margin-top:2px;'>"
+            f"{value}</div></div>"
+        )
+
+    chips = (
+        _chip("5d", f"{r5:+.1%}" if r5 is not None else "—", _sgn(r5))
+        + _chip("21d", f"{r21:+.1%}" if r21 is not None else "—", _sgn(r21))
+        + _chip("RSI 14", rsi_txt, rsi_col)
+        + _chip("RVOL", f"{rvol:.2f}x" if rvol is not None else "—", rvol_col)
+        + _chip("Range pos", f"{rp:.0%}" if rp is not None else "—", rp_col)
+        + _chip("Ann. vol", f"{av:.0%}" if av is not None else "—", av_col)
+    )
+    st.markdown(
+        f"""<div style='background:linear-gradient(135deg,#0d1b2a 0%,#1a2d45 100%);
+        border:1px solid #1e3a5f;border-radius:14px;padding:20px 24px;margin-bottom:16px;'>
+        <div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;'>
+          <div>
+            <div style='font-size:1.6em;font-weight:700;color:#e8f4fd;letter-spacing:-0.5px;'>
+              {_esc(name)}
+              <span style='font-size:0.6em;font-weight:500;color:#5b9bd5;
+              background:#0d2137;padding:3px 10px;border-radius:6px;margin-left:10px;
+              vertical-align:middle;'>{_esc(tk)}</span>
+            </div>
+            <div style='font-size:0.88em;color:#7fb3d3;margin-top:4px;'>
+              {_esc(sector)}{" · " + _esc(industry) if industry else ""}
+            </div>
+          </div>
+          <div style='text-align:right;'>
+            <div style='font-size:2.2em;font-weight:700;color:#e8f4fd;line-height:1;'>
+              {"$" + f"{px:,.2f}" if px else "N/A"}
+            </div>
+            <div style='font-size:1em;color:{chg_col};font-weight:600;margin-top:2px;'>
+              {chg_sym} {abs(chg_pct):.2f}% today
+            </div>
+            {tgt_html}
+          </div>
+        </div>
+        <div style='display:flex;gap:16px;margin-top:16px;flex-wrap:wrap;'>
+          {chips}
+        </div></div>""",
+        unsafe_allow_html=True,
+    )
+
+    bundle = _lookup_forecast_bundle(tk, df)
+    if bundle:
+        render_outcome_forecast(
+            bundle["oc"], tk,
+            pressure=bundle["pressure"],
+            outlook=bundle["outlook"],
+        )
+    else:
+        st.markdown(
+            f"<div style='background:linear-gradient(135deg,#0d1b2a,#1a2d45);"
+            f"border:1px solid #1e3a5f;border-radius:14px;padding:18px 24px;"
+            f"margin-bottom:16px;color:{_HY_MUTED};font-size:0.95em;'>"
+            f"Not enough look-alike history to forecast this one honestly "
+            f"(needs ~70 sessions of price data to build a comparable profile)."
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    try:
+        ed = _tk_earnings(tk).get(tk)
+    except Exception:
+        ed = None
+    if ed:
+        days_to = (ed - pd.Timestamp.today().date()).days
+        if 0 <= days_to <= 21:
+            st.warning(f"⚠️ **Earnings {ed:%a %b %d} ({days_to}d away)** — a "
+                       "binary event INSIDE the forecast horizon. Analog "
+                       "statistics do not apply through earnings gaps; "
+                       "either exit before, or size for the gap.")
+
+
 def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                            state_key: str = "mw_analyze", closable: bool = True,
                            df: pd.DataFrame | None = None,
-                           src_label: str | None = None):
-    """IGNITION-style deep dive: candles + volume + indicator pack.
+                           src_label: str | None = None,
+                           info: dict | None = None):
+    """IGNITION-style deep dive: hybrid identity cards + candles + volume.
     Stocks come from the nightly dump (full OHLCV); nodes fall back to the
     close-only history; Alpaca supplies the live print when keyed."""
     import plotly.graph_objects as go
@@ -1252,61 +1362,23 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         st.warning(f"No history found for {tk}.")
         return
 
+    if info is None:
+        try:
+            info = _analyzer(tk, asof)[0]
+        except Exception:
+            info = {}
+
     stats = ce.ticker_stats(df)
     live = ce.alpaca_prices([tk])
     px = live.get(tk, stats["price"])
     chg = px / df["Close"].iloc[-2] - 1 if len(df) > 1 else 0.0
 
-    hc, xc = st.columns([5, 1])
-    hc.markdown(
-        f"<span style='font-size:24px;font-weight:800;'>🔬 {tk}</span> "
-        f"<span style='font-size:20px;font-weight:700;'>${px:,.2f}</span> "
-        f"<span style='color:{GREEN if chg >= 0 else RED};font-weight:700;'>{chg:+.2%}</span> "
-        f"<span style='color:{DIM};font-size:12px;'>· {'live via Alpaca' if tk in live else src_label}</span>",
-        unsafe_allow_html=True)
-    if closable and xc.button("✕ Close", key=f"close_{state_key}"):
+    if closable and st.button("✕ Close", key=f"close_{state_key}"):
         st.session_state.pop(state_key, None)
         st.rerun()
-
-    def _pill(label, txt, css, tip):
-        return (f"<div title=\"{tip}\" style='background:#0c1829;border:1px solid #1d2b40;"
-                f"border-radius:10px;padding:8px 12px;text-align:center;flex:1;min-width:92px;'>"
-                f"<div style='font-size:11px;color:{DIM};'>{label} ⓘ</div>"
-                f"<div style='font-size:17px;font-weight:700;{css}'>{txt}</div></div>")
-
-    def _sgn_css(v, dead=0.002):
-        if not np.isfinite(v) or abs(v) <= dead:
-            return f"color:{DIM};"
-        return f"color:{GREEN};" if v > 0 else f"color:{RED};"
-
-    rsi = stats["rsi"]
-    rsi_css = (f"color:{RED};" if rsi >= 70 else
-               f"color:{GREEN};" if rsi <= 30 else f"color:{DIM};") if np.isfinite(rsi) else f"color:{DIM};"
-    rsi_tag = (" hot" if np.isfinite(rsi) and rsi >= 70 else
-               " washed out" if np.isfinite(rsi) and rsi <= 30 else "")
-    rvol = stats["rvol"]
-    rvol_css = (f"color:{GREEN};" if np.isfinite(rvol) and rvol >= 1.5 else f"color:{DIM};")
-    rp = stats["rangepos"]
-    rp_css = (f"color:{GREEN};" if np.isfinite(rp) and rp >= 0.8 else
-              f"color:{RED};" if np.isfinite(rp) and rp <= 0.2 else f"color:{DIM};")
-    av = stats["vol21"]
-    av_css = f"color:{RED};" if np.isfinite(av) and av >= 0.60 else f"color:{DIM};"
-
-    st.markdown(
-        "<div style='display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px;'>"
-        + _pill("5d", f"{stats['r5']:+.1%}" if np.isfinite(stats['r5']) else "—",
-                _sgn_css(stats['r5']), "Return over the last 5 sessions.")
-        + _pill("21d", f"{stats['r21']:+.1%}" if np.isfinite(stats['r21']) else "—",
-                _sgn_css(stats['r21']), "Return over the last month of sessions.")
-        + _pill("RSI 14", (f"{rsi:.0f}{rsi_tag}" if np.isfinite(rsi) else "—"), rsi_css,
-                "Momentum oscillator: 70+ overbought (red), 30- washed out and bounce-prone (green), 40-65 neutral (dim).")
-        + _pill("RVOL", f"{rvol:.2f}x" if np.isfinite(rvol) else "—", rvol_css,
-                "5d avg volume vs 63d avg. 1.5x+ (green) = unusual attention; near 1x = normal.")
-        + _pill("Range pos", f"{rp:.0%}" if np.isfinite(rp) else "—", rp_css,
-                "Where price sits in its 63-day range: 80%+ near highs = strength (green); 20%- near lows = weakness (red).")
-        + _pill("Ann. vol", f"{av:.0%}" if np.isfinite(av) else "—", av_css,
-                "Annualised 21-day volatility. 60%+ (red) = wide swings, size smaller.")
-        + "</div>", unsafe_allow_html=True)
+    render_hybrid_lookup_header(
+        tk, info, df, px, chg, stats,
+        live_on=tk in live, src_label=src_label)
 
     d = df.tail(180)
     has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
@@ -1793,9 +1865,8 @@ with tab_lookup:
                 "dump": "nightly dump" }.get((_info or {}).get("_hist_source"),
                                              (_info or {}).get("_hist_source"))
 
-        # IGNITION-style header, pills, candles (shared renderer)
         render_ticker_analysis(tk, closes, state_key="lk_tk",
-                               df=df_tk, src_label=_hs)
+                               df=df_tk, src_label=_hs, info=_info)
 
         try:
             _biz = dict(_info or {})
@@ -1828,58 +1899,6 @@ with tab_lookup:
                     pass
             st.caption(f"⭐ {tk} is on your watchlist — every search is saved "
                        "automatically so you can score it later.")
-
-            # ── outcome forecast ────────────────────────────────────
-            st.subheader("🌦 Forecast")
-            try:
-                F, R = _analog_library(asof)
-                oc = ce.outcome_forecast(tk, F, R, hist=df_tk)
-            except Exception as e:
-                oc, _err = {}, e
-            if not oc or oc.get("n", 0) < 60:
-                st.info("Not enough look-alike history to forecast this one "
-                        "honestly (needs ~70 sessions of price data to build "
-                        "a comparable profile).")
-            else:
-                dr = _drivers(tk, asof)
-                if dr.empty:
-                    tail = None
-                    tcol, tlabel = DIM, "no reliable upstream drivers"
-                else:
-                    tail = float(dr.push.sum())
-                    tcol = GREEN if tail > 0.5 else (RED if tail < -0.5 else DIM)
-                    tlabel = ("tailwind — upstream waves are pushing it UP" if tail > 0.5 else
-                              "headwind — upstream waves are pushing it DOWN" if tail < -0.5 else
-                              "neutral — no meaningful wave pressure")
-                score = (
-                    (1 if oc["med21"] > 0.01 else -1 if oc["med21"] < -0.01 else 0)
-                    + (1 if oc["p_up"] >= 0.56 else -1 if oc["p_up"] <= 0.46 else 0)
-                    + (1 if tail is not None and tail > 0.5 else
-                       -1 if tail is not None and tail < -0.5 else 0)
-                )
-                v_emo, v_txt, v_col = (
-                    ("🌞", "Favorable — analogs lean positive AND the cascade is pushing the same way.", GREEN) if score >= 2 else
-                    ("🌤", "Mildly favorable — the tilt is real but modest. Half-size territory.", GREEN) if score == 1 else
-                    ("🌧", "Unfavorable — look-alikes lost ground and/or waves are pushing against it.", RED) if score <= -1 else
-                    ("⛅", "Mixed — no measurable edge either way. Doing nothing is a position.", DIM))
-                render_outcome_forecast(
-                    oc, tk,
-                    pressure={"val": tail, "label": tlabel, "color": tcol},
-                    outlook={"emo": v_emo, "text": v_txt, "color": v_col},
-                )
-
-                # ── earnings landmine check ─────────────────────────
-                try:
-                    ed = _tk_earnings(tk).get(tk)
-                except Exception:
-                    ed = None
-                if ed:
-                    days_to = (ed - pd.Timestamp.today().date()).days
-                    if 0 <= days_to <= 21:
-                        st.warning(f"⚠️ **Earnings {ed:%a %b %d} ({days_to}d away)** — a "
-                                   "binary event INSIDE the forecast horizon. Analog "
-                                   "statistics do not apply through earnings gaps; "
-                                   "either exit before, or size for the gap.")
 
         # ── IGNITION Stock Analyzer (ported) — full fundamental deep dive ──
         st.divider()
