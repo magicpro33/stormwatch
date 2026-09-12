@@ -802,9 +802,14 @@ def render_business_summary(info: dict, tk: str) -> None:
                 "feed is rate-limited. Try again in a minute.")
 
 
-def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
+def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
+                            key_prefix: str = "az"):
     """The IGNITION Stock Analyzer, ported: Alpaca → yfinance → dump chain,
-    three-column deep dive."""
+    three-column deep dive.
+
+    key_prefix keeps widget keys unique when this block is drawn from more
+    than one tab in the same run (Streamlit renders every tab).
+    """
     info, hist, eps_history, eps_forward = _analyzer(tk, asof)
 
     px = float(info.get("currentPrice") or info.get("regularMarketPrice") or
@@ -981,7 +986,8 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
         _pr_default = _pr_labels.index(PRICE_RANGE_DEFAULT) \
             if PRICE_RANGE_DEFAULT in _pr_labels else len(_pr_labels) - 2
         _pr_pick = st.selectbox(
-            "Lookback", _pr_labels, index=_pr_default, key="az_prange",
+            "Lookback", _pr_labels, index=_pr_default,
+            key=f"{key_prefix}_prange",
             help=HELP["price_range"])
         _pr_spec = PRICE_RANGE_OPTS[_pr_pick]
         _rw = price_range_window(hist, _pr_spec, px)
@@ -1144,7 +1150,8 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
 
 
 
-def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None):
+def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
+                            key_prefix: str = "lk"):
     """Forecast card: odds-of-gain dial, cascade pressure, outlook.
     100-dots waffle and histogram stay behind More views."""
     import math
@@ -1224,7 +1231,8 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None):
                            margin=dict(l=10, r=10, t=10, b=30),
                            xaxis_title="return over next 21 sessions (%)",
                            showlegend=False)
-        st.plotly_chart(figh, width="stretch", key=f"lk_hist_{tk}")
+        st.plotly_chart(figh, width="stretch",
+                        key=f"{key_prefix}_hist_{tk}")
 
 
 def _open_analysis(tk: str):
@@ -1287,7 +1295,8 @@ def _lookup_forecast_bundle(tk: str, df: pd.DataFrame):
 def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
                                 px: float, chg: float, stats: dict,
                                 *, live_on: bool = False,
-                                src_label: str | None = None) -> None:
+                                src_label: str | None = None,
+                                key_prefix: str = "lk") -> None:
     """Identity card + forecast card — the look above Price Range Analysis."""
     info = info or {}
     stats = stats or {}
@@ -1399,6 +1408,7 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
             bundle["oc"], tk,
             pressure=bundle["pressure"],
             outlook=bundle["outlook"],
+            key_prefix=key_prefix,
         )
     else:
         st.markdown(
@@ -1463,7 +1473,8 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         st.rerun()
     render_hybrid_lookup_header(
         tk, info, df, px, chg, stats,
-        live_on=tk in live, src_label=src_label)
+        live_on=tk in live, src_label=src_label,
+        key_prefix=state_key)
 
     d = df.tail(180)
     has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
@@ -2130,7 +2141,7 @@ with tab_hybrid:
             st.divider()
             render_ticker_analysis(_htk, closes, state_key="hs_inline")
             try:
-                render_ignition_analyzer(_htk, closes)
+                render_ignition_analyzer(_htk, closes, key_prefix="hsaz")
             except Exception as _hae:
                 st.caption(f"Analyzer unavailable: {_hae}")
 
