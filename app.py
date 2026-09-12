@@ -1175,7 +1175,6 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None):
             f"<div style='border-left:3px solid {outlook['color']};padding:6px 0 6px 12px;'>"
             f"<div style='font-size:16px;font-weight:700;'>{outlook['emo']} Outlook</div>"
             f"<div style='font-size:14px;color:#d7e0ec;margin-top:3px;'>{_esc(outlook['text'])}</div>"
-            f"<div style='color:{DIM};font-size:12px;margin-top:6px;'>{_esc(outlook['detail'])}</div>"
             f"</div>"
         )
     if not right:
@@ -1378,10 +1377,10 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
 
 asof = str(closes.index[-1].date())
 (tab_map, tab_lookup, tab_top20, tab_apex, tab_macro, tab_lenses, tab_poc,
- tab_pressure, tab_sentinels, tab_forced, tab_lab, tab_guide) = st.tabs(
+ tab_forecast_info, tab_guide) = st.tabs(
     ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "⚡ APEX FLOW",
-     "🧪 Macro Sim", "🔭 Lenses", "🎯 POC Future", "🌡 Pressure", "🛰 Sentinels",
-     "📅 Forced Flows", "🔬 Validation Lab", "📖 Guide"])
+     "🧪 Macro Sim", "🔭 Lenses", "🎯 POC Future", "🌦 Forecast INFO",
+     "📖 Guide"])
 
 
 # Pressure gauge, resolved once for every tab. It used to be computed inside
@@ -1856,20 +1855,10 @@ with tab_lookup:
                     ("🌤", "Mildly favorable — the tilt is real but modest. Half-size territory.", GREEN) if score == 1 else
                     ("🌧", "Unfavorable — look-alikes lost ground and/or waves are pushing against it.", RED) if score <= -1 else
                     ("⛅", "Mixed — no measurable edge either way. Doing nothing is a position.", DIM))
-                p_detail = "n/a" if tail is None else f"{tail:+.2f}"
                 render_outcome_forecast(
                     oc, tk,
                     pressure={"val": tail, "label": tlabel, "color": tcol},
-                    outlook={
-                        "emo": v_emo, "text": v_txt, "color": v_col,
-                        "detail": (
-                            f"Analog median {oc['med21']:+.1%} · "
-                            f"odds up {oc['p_up']:.0%} · "
-                            f"cascade pressure {p_detail} · "
-                            f"{oc['n']:,} historical look-alikes. "
-                            "Probability tilt, not prophecy — not investment advice."
-                        ),
-                    },
+                    outlook={"emo": v_emo, "text": v_txt, "color": v_col},
                 )
 
                 # ── earnings landmine check ─────────────────────────
@@ -1949,8 +1938,19 @@ with tab_lookup:
             return float(d.Close.iloc[-1]) if not d.empty else np.nan
         wdf["price_now"] = wdf.ticker.map(_nowpx)
         wdf["since_add"] = wdf.price_now / wdf.price_at_add - 1
-        show = wdf[["ticker", "added", "price_at_add", "price_now", "since_add"]]
-        show.columns = ["Ticker", "Saved", "Price then", "Price now", "Since saved"]
+        try:
+            _p, _tks, _secs, _mdv, _dts = ce.load_dump_panel()
+            _sec_map = {str(t): str(s) for t, s in zip(_tks, _secs)}
+        except Exception:
+            _sec_map = {}
+        def _wl_sector(t):
+            if t in _sec_map and _sec_map[t] and _sec_map[t] != "nan":
+                return _sec_map[t]
+            meta = ce.NODES.get(t)
+            return meta[0] if meta else "—"
+        wdf["sector"] = wdf.ticker.map(_wl_sector)
+        show = wdf[["ticker", "sector", "added", "price_at_add", "price_now", "since_add"]]
+        show.columns = ["Ticker", "Sector", "Saved", "Price then", "Price now", "Since saved"]
         _wsel = st.dataframe(
             show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
                                "Since saved": "{:+.1%}"}, na_rep="—")
@@ -1967,44 +1967,45 @@ with tab_lookup:
                 st.session_state["lk_tk"] = _wtk
                 st.rerun()
         st.caption("👆 Tap a row to reload its full analysis and a fresh forecast.")
-        rc1, rc2 = st.columns([3, 1], vertical_alignment="bottom")
-        _rm = rc1.selectbox("Remove from watchlist", ["—"] + list(wdf.ticker), key="wl_rm")
-        if rc2.button("🗑 Remove", width="stretch") and _rm != "—":
-            ce.watchlist_remove(_rm)
-            st.rerun()
-        st.caption("🔗 Your list is saved on the server AND encoded in this page's "
-                   "URL — bookmark the page and it comes back even after a "
-                   "redeploy or on another device. Use the backup below for a "
-                   "permanent copy.")
-        bc1, bc2 = st.columns(2)
-        try:
-            import json as _json
-            bc1.download_button("⬇️ Backup watchlist (JSON)",
-                                _json.dumps(wl, indent=2).encode("utf-8"),
-                                file_name=f"watchlist_{asof}.json",
-                                mime="application/json", width="stretch",
-                                key="wl_backup")
-        except Exception:
-            pass
-        _up = bc2.file_uploader("⬆️ Restore from backup", type=["json"],
-                                key="wl_restore", label_visibility="collapsed")
-        if _up is not None and not st.session_state.get("_wl_uploaded"):
+        with st.expander("Manage watchlist", expanded=False):
+            rc1, rc2 = st.columns([3, 1], vertical_alignment="bottom")
+            _rm = rc1.selectbox("Remove from watchlist", ["—"] + list(wdf.ticker), key="wl_rm")
+            if rc2.button("🗑 Remove", width="stretch") and _rm != "—":
+                ce.watchlist_remove(_rm)
+                st.rerun()
+            st.caption("🔗 Your list is saved on the server AND encoded in this page's "
+                       "URL — bookmark the page and it comes back even after a "
+                       "redeploy or on another device. Use the backup below for a "
+                       "permanent copy.")
+            bc1, bc2 = st.columns(2)
             try:
                 import json as _json
-                _items = _json.loads(_up.read().decode("utf-8"))
-                _have = {w["ticker"] for w in ce.watchlist_load()}
-                _n = 0
-                for _it in _items:
-                    _t = str(_it.get("ticker", "")).strip().upper()
-                    if _t and _t not in _have:
-                        ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
-                                         _it.get("note", ""))
-                        _n += 1
-                st.session_state["_wl_uploaded"] = True
-                st.success(f"Restored {_n} ticker(s) from backup.")
-                st.rerun()
-            except Exception as _ue:
-                st.error(f"Could not read that backup: {_ue}")
+                bc1.download_button("⬇️ Backup watchlist (JSON)",
+                                    _json.dumps(wl, indent=2).encode("utf-8"),
+                                    file_name=f"watchlist_{asof}.json",
+                                    mime="application/json", width="stretch",
+                                    key="wl_backup")
+            except Exception:
+                pass
+            _up = bc2.file_uploader("⬆️ Restore from backup", type=["json"],
+                                    key="wl_restore", label_visibility="collapsed")
+            if _up is not None and not st.session_state.get("_wl_uploaded"):
+                try:
+                    import json as _json
+                    _items = _json.loads(_up.read().decode("utf-8"))
+                    _have = {w["ticker"] for w in ce.watchlist_load()}
+                    _n = 0
+                    for _it in _items:
+                        _t = str(_it.get("ticker", "")).strip().upper()
+                        if _t and _t not in _have:
+                            ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
+                                             _it.get("note", ""))
+                            _n += 1
+                    st.session_state["_wl_uploaded"] = True
+                    st.success(f"Restored {_n} ticker(s) from backup.")
+                    st.rerun()
+                except Exception as _ue:
+                    st.error(f"Could not read that backup: {_ue}")
 
 
 # ── 🏆 top 20 mega screener ──────────────────────────────────────────
@@ -3349,6 +3350,11 @@ with tab_poc:
                 "method is usually traded intraday and that is untested here. The "
                 "low R:R is by design: these win on hit rate, not payoff.")
 
+
+# ── 🌦 forecast info (pressure, sentinels, forced flows, validation) ─
+with tab_forecast_info:
+    tab_pressure, tab_sentinels, tab_forced, tab_lab = st.tabs(
+        ["🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab"])
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
 with tab_pressure:
