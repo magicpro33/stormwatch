@@ -1526,25 +1526,6 @@ with tab_map:
               <div style="font-size:12px;color:{RED};margin:8px 0 2px;">FLOWED OUT →</div>
               <div>{''.join(_chip(r.Sector, r.Ret, RED) for _, r in _out.iterrows())}</div>
             </div>""", unsafe_allow_html=True)
-        with st.expander("📊 Full sector breakdown"):
-            st.caption("A sector counts as 'receiving money' when its return, how "
-                       "many of its stocks rose, and how heavily it traded all "
-                       "lean the same way — not just because one big name jumped.")
-            st.dataframe(
-                _mflow[["Rank", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
-                .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
-                               "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
-                .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
-                     subset=["Ret", "RS"]),
-                width="stretch", hide_index=True,
-                column_config={
-                    "Ret": st.column_config.Column(help="Sector return, weighted by where the money actually traded."),
-                    "RS": st.column_config.Column(help="How much better or worse than the whole market."),
-                    "Breadth": st.column_config.Column(help="Share of the sector's stocks that went up."),
-                    "VolSurge": st.column_config.Column(help="Trading activity vs its own 63-day normal. Above 1 = busier than usual."),
-                })
-            st.caption("Used by the Top 20 tab's 🔥 hot-sector filter and its "
-                       "sector-flow tilt.")
 
         st.caption("Each card below is one market. Green = likely to rise, red = likely "
                    "to fall over the next week or two. The bar shows how strong the signal "
@@ -1738,6 +1719,26 @@ with tab_map:
                     "IC": st.column_config.Column(help=HELP["edge_ic"]),
                     "Hit %": st.column_config.Column(help=HELP["hit_rate"]),
                 })
+
+        with st.expander("📊 Full sector breakdown"):
+            st.caption("A sector counts as 'receiving money' when its return, how "
+                       "many of its stocks rose, and how heavily it traded all "
+                       "lean the same way — not just because one big name jumped.")
+            st.dataframe(
+                _mflow[["Rank", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
+                .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
+                               "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
+                .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
+                     subset=["Ret", "RS"]),
+                width="stretch", hide_index=True,
+                column_config={
+                    "Ret": st.column_config.Column(help="Sector return, weighted by where the money actually traded."),
+                    "RS": st.column_config.Column(help="How much better or worse than the whole market."),
+                    "Breadth": st.column_config.Column(help="Share of the sector's stocks that went up."),
+                    "VolSurge": st.column_config.Column(help="Trading activity vs its own 63-day normal. Above 1 = busier than usual."),
+                })
+            st.caption("Used by the Top 20 tab's 🔥 hot-sector filter and its "
+                       "sector-flow tilt.")
 
     # ── plain how-it-works, always available ─────────────────────────
     with st.expander("❓ What am I looking at? (plain-English)"):
@@ -2127,12 +2128,44 @@ with tab_top20:
                     st.rerun()
             except Exception as _he:
                 st.caption(f"Hot sectors unavailable: {_he}")
+        _hs_now = []
         try:
             _hs_now = _hot_sectors(asof, 5, _t_lb, _t_off)
             if _hs_now:
                 _hs2.caption(f"🔥 Hottest ({_t_lbl}): " + " · ".join(_hs_now))
         except Exception:
             pass
+        with st.expander("🔥 Where the money went in the last session"):
+            try:
+                _fl = _sector_flow(asof, _t_lb, _t_off)
+            except Exception as _fe:
+                _fl = pd.DataFrame(); st.caption(f"Sector flow unavailable: {_fe}")
+            if _fl is None or _fl.empty:
+                st.caption("No sector-flow reading available yet.")
+            else:
+                st.caption(f"{_t_lbl} ({_fl.attrs.get('window_start','—')} → "
+                           f"{_fl.attrs.get('window_end','—')}) · market "
+                           f"{_fl.attrs.get('market_return',0):+.2%} · a sector is "
+                           "'hot' when money-weighted return, breadth and turnover "
+                           "all lean the same way — not just because one big name ran.")
+                _fs = _fl.copy()
+                _hot_mark = set(_hs_now) if _hs_now else set(
+                    str(s) for s in _fs.Sector.head(5))
+                _fs["Hot"] = ["🔥" if str(s) in _hot_mark else "" for s in _fs.Sector]
+                st.dataframe(
+                    _fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
+                    .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
+                                   "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
+                    .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
+                         subset=["Ret", "RS"]),
+                    width="stretch", hide_index=True,
+                    column_config={
+                        "Ret": st.column_config.Column(help="Dollar-weighted sector return — weighted by where the money actually traded, not an equal average."),
+                        "RS": st.column_config.Column(help="Sector return minus the market's. Positive = outperforming."),
+                        "Breadth": st.column_config.Column(help="Share of names in the sector that rose. Low breadth with a positive return = one stock carrying it."),
+                        "VolSurge": st.column_config.Column(help="Median dollar-volume vs its own 63-day average. Above 1 = unusual turnover."),
+                        "Names": st.column_config.Column(help="Liquid names in the sector. Sectors under 15 are excluded as too thin to read."),
+                    })
         _ms_kw = ({} if "top20_sectors" in st.session_state
                   else {"default": _all_secs})
         _picked_secs = st.multiselect(
@@ -2207,40 +2240,8 @@ with tab_top20:
         st.session_state["macro_advice_nonce"] = \
             st.session_state.get("macro_advice_nonce", 0) + 1
 
-    # ── today's sector rotation ─────────────────────────────────────
-    with st.expander("🔥 Where the money went in the last session"):
-        try:
-            _fl = _sector_flow(asof, _t_lb, _t_off)
-        except Exception as _fe:
-            _fl = pd.DataFrame(); st.caption(f"Sector flow unavailable: {_fe}")
-        if _fl is None or _fl.empty:
-            st.caption("No sector-flow reading available yet.")
-        else:
-            st.caption(f"{_t_lbl} ({_fl.attrs.get('window_start','—')} → "
-                       f"{_fl.attrs.get('window_end','—')}) · market "
-                       f"{_fl.attrs.get('market_return',0):+.2%} · a sector is "
-                       "'hot' when money-weighted return, breadth and turnover "
-                       "all lean the same way — not just because one big name ran.")
-            _fs = _fl.copy()
-            _hot_mark = set(_sec_filter) if _sec_filter else set(
-                str(s) for s in _fs.Sector.head(5))
-            _fs["Hot"] = ["🔥" if str(s) in _hot_mark else "" for s in _fs.Sector]
-            st.dataframe(
-                _fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
-                .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
-                               "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
-                .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
-                     subset=["Ret", "RS"]),
-                width="stretch", hide_index=True,
-                column_config={
-                    "Ret": st.column_config.Column(help="Dollar-weighted sector return — weighted by where the money actually traded, not an equal average."),
-                    "RS": st.column_config.Column(help="Sector return minus the market's. Positive = outperforming."),
-                    "Breadth": st.column_config.Column(help="Share of names in the sector that rose. Low breadth with a positive return = one stock carrying it."),
-                    "VolSurge": st.column_config.Column(help="Median dollar-volume vs its own 63-day average. Above 1 = unusual turnover."),
-                    "Names": st.column_config.Column(help="Liquid names in the sector. Sectors under 15 are excluded as too thin to read."),
-                })
-
     # ── advisor result + scenario explainer ─────────────────────────
+    _adv = None
     if st.session_state.get("macro_advice_on") and _method != "felix":
         try:
             _adv = _macro_advice(asof, _gauge,
@@ -2263,17 +2264,6 @@ with tab_top20:
                 st.session_state["_scenario_pending"] = _rl
                 st.session_state["macro_advice_on"] = False
                 st.rerun()
-            with st.expander("🔍 The evidence behind this call"):
-                _ev = pd.DataFrame(_adv["evidence"])
-                if not _ev.empty:
-                    _ev["Argues for"] = _ev.regime.map(lambda r: ce.REGIME_NAMES.get(r, r))
-                    _ev = _ev.rename(columns={"signal": "Signal", "reading": "Reading",
-                                              "weight": "Weight"})
-                    st.dataframe(_ev[["Signal", "Reading", "Argues for", "Weight"]]
-                                 .style.format({"Weight": "{:.1f}"}),
-                                 width="stretch", hide_index=True)
-                st.caption("Headlines are capped at 2 points — news confirms the "
-                           "tape, it never outvotes it.")
 
     # compact scenario strip (full explainer one tap away)
     if _apply_macro and _method != "felix":
@@ -2293,6 +2283,19 @@ with tab_top20:
             with st.expander(f"📖 What {_cd['name']} means — who wins, who loses"):
                 render_lens_playbook(_cd, _rk, full=False)
                 st.caption("Full playbooks, comparisons, and sector multipliers are in the 🔭 Lenses tab.")
+
+    if _adv:
+        with st.expander("🔍 The evidence behind this call"):
+            _ev = pd.DataFrame(_adv["evidence"])
+            if not _ev.empty:
+                _ev["Argues for"] = _ev.regime.map(lambda r: ce.REGIME_NAMES.get(r, r))
+                _ev = _ev.rename(columns={"signal": "Signal", "reading": "Reading",
+                                          "weight": "Weight"})
+                st.dataframe(_ev[["Signal", "Reading", "Argues for", "Weight"]]
+                             .style.format({"Weight": "{:.1f}"}),
+                             width="stretch", hide_index=True)
+            st.caption("Headlines are capped at 2 points — news confirms the "
+                       "tape, it never outvotes it.")
 
     def _apply_live(_df):
         """Refresh the on-screen list against live market data (any mode)."""
@@ -2599,9 +2602,9 @@ with tab_top20:
                 return (f"<div style='display:flex;gap:8px;font-size:12px;line-height:1.9;'>"
                         f"<span style='min-width:118px;font-weight:600;'>{tag}</span>"
                         f"<span style='color:{DIM};'>{desc}</span></div>")
-            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+            with st.expander("🔑 Catalyst key", expanded=False):
+                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
                 border-radius:10px;padding:12px 16px;margin-top:6px;">
-                <div style="font-weight:700;font-size:13px;margin-bottom:4px;">🔑 Catalyst key</div>
                 <div style="color:{ACCENT};font-size:11px;letter-spacing:1px;text-transform:uppercase;margin:4px 0 2px;">
                   Data fingerprints — scanned across all 5,700 stocks (scored)</div>
                 {_krow("🚀 breakout", "closed at a new 63-day high — momentum entering fresh territory")}
@@ -3123,14 +3126,14 @@ with tab_poc:
         _poc_mode = st.radio(
             "Controls", ["Basic", "Advanced"], horizontal=True,
             key="poc_ui_mode",
-            help="Basic = pick a plain-English pattern. Advanced = every knob "
-                 "(coil length, range, stages, freshness).")
+            help="Basic = pick a plain-English pattern. Advanced = the same "
+                 "hunt menu plus coil, range, and freshness knobs.")
         _poc_basic = _poc_mode == "Basic"
 
+        _preset_names = list(pfut.POC_PRESETS)
+        _preset_ix = _preset_names.index(pfut.POC_PRESET_DEFAULT) \
+            if pfut.POC_PRESET_DEFAULT in _preset_names else 0
         if _poc_basic:
-            _preset_names = list(pfut.POC_PRESETS)
-            _preset_ix = _preset_names.index(pfut.POC_PRESET_DEFAULT) \
-                if pfut.POC_PRESET_DEFAULT in _preset_names else 0
             _p1, _pc2 = st.columns([2, 1])
             _preset = _p1.selectbox(
                 "What to hunt", _preset_names, index=_preset_ix,
@@ -3146,12 +3149,13 @@ with tab_poc:
                                       index=1, key="poc_top")
         else:
             _pc1, _pc2, _pc3 = st.columns([2, 1, 1])
-            _stage_pick = _pc1.multiselect(
-                "Show stages", ["TRIGGERED", "SWEPT", "COILING"],
-                default=["TRIGGERED", "SWEPT", "COILING"], key="poc_stages",
-                help="TRIGGERED = the POC was reclaimed, entry is live. "
-                     "SWEPT = lows taken, waiting on the reclaim. "
-                     "COILING = a tight range is forming, no sweep yet.")
+            _preset = _pc1.selectbox(
+                "What to hunt", _preset_names, index=_preset_ix,
+                key="poc_preset",
+                help="Sets which stages to scan. Coil length, range, and "
+                     "freshness stay on the knobs below.")
+            _pp = pfut.POC_PRESETS[_preset]
+            _stage_pick = list(_pp["stages"])
             _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200, 500],
                                       index=1, key="poc_top")
             _poc_fresh = _pc3.selectbox("Max bars since trigger", [3, 5, 10, 20, 45],
