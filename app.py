@@ -1380,6 +1380,13 @@ asof = str(closes.index[-1].date())
  tab_advanced) = st.tabs(
     ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "⚡ APEX FLOW",
      "🎯 POC Future", "🧪 Macro Sim", "📖 Advanced Guide"])
+# Nested tabs must be created here — Lenses / Guide render earlier in the
+# file than Pressure, so defining them later raises NameError.
+with tab_advanced:
+    (tab_pressure, tab_sentinels, tab_forced, tab_lab,
+     tab_lenses, tab_guide) = st.tabs(
+        ["🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab",
+         "🔭 Lenses", "📖 Guide"])
 
 
 # Pressure gauge, resolved once for every tab. It used to be computed inside
@@ -3349,13 +3356,6 @@ with tab_poc:
                 "method is usually traded intraday and that is untested here. The "
                 "low R:R is by design: these win on hit rate, not payoff.")
 
-
-# ── 📖 advanced guide (context, validation, lenses, glossary) ─
-with tab_advanced:
-    (tab_pressure, tab_sentinels, tab_forced, tab_lab,
-     tab_lenses, tab_guide) = st.tabs(
-        ["🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab",
-         "🔭 Lenses", "📖 Guide"])
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
 with tab_pressure:
