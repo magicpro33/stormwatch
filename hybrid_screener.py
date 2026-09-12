@@ -119,6 +119,13 @@ METRICS = {
         "weight": 4,
         "desc": "Yield + payout sustainability + payment frequency. 0 = no dividend.",
     },
+    "IPOAge": {
+        "label": "Fresh listing",
+        "weight": 5,
+        "desc": "1.0 = first dump print in the last few sessions; 0 = 90+ days "
+                "of tape (or a full year). Proxy for a recent IPO — older dumps "
+                "do not store Yahoo's official first-trade date.",
+    },
 }
 
 ALL_SECTORS = [
@@ -179,6 +186,7 @@ _METRIC_GROUPS = [
     ("Short Interest", ["ShortSqueeze"]),
     ("Dividend Income", ["DividendScore"]),
     ("Range & Breakout Setup", ["RangePosScore"]),
+    ("Listing", ["IPOAge"]),
 ]
 
 
@@ -208,6 +216,8 @@ def _ensure_defaults() -> None:
         "pe_range": (0, 50),
         "rev_filter": False,
         "rev_min": 0,
+        "ipo": False,
+        "ipo_days": 90,
         "exchange": "All Stocks",
         "sector": "All Sectors",
     }
@@ -220,7 +230,7 @@ def _ensure_defaults() -> None:
     _off = {
         "RangePosScore", "RSI", "MACD", "GoldenCross", "MFISweetSpot",
         "NoBearDiv", "MA50Proximity", "ShortSqueeze", "DividendScore",
-        "CleanSetupScore", "GrossMargin",
+        "CleanSetupScore", "GrossMargin", "IPOAge",
     }
     for key, cfg in METRICS.items():
         tog, wt = _k(f"tog_{key}"), _k(f"wt_{key}")
@@ -246,6 +256,8 @@ def _apply_preset(name: str) -> None:
     st.session_state[_k("range_pct")] = 10.0
     st.session_state[_k("pe_filter")] = False
     st.session_state[_k("rev_filter")] = False
+    st.session_state[_k("ipo")] = False
+    st.session_state[_k("ipo_days")] = 90
     _clear_metric_weights()
 
     if name == "clean":
@@ -389,6 +401,22 @@ def _apply_preset(name: str) -> None:
         st.session_state[_k("wt_GoldenCross")] = 2.0
         st.session_state[_k("tog_RSI")] = True
         st.session_state[_k("wt_RSI")] = 1.0
+    elif name == "ipo":
+        st.session_state[_k("max_price")] = 1000
+        st.session_state[_k("top_n")] = 50
+        st.session_state[_k("ipo")] = True
+        st.session_state[_k("ipo_days")] = 90
+        # Newest tape first; momentum confirms the name is actually trading.
+        st.session_state[_k("tog_IPOAge")] = True
+        st.session_state[_k("wt_IPOAge")] = 5.0
+        st.session_state[_k("tog_RSI")] = True
+        st.session_state[_k("wt_RSI")] = 3.0
+        st.session_state[_k("tog_MACD")] = True
+        st.session_state[_k("wt_MACD")] = 3.0
+        st.session_state[_k("tog_PCV")] = True
+        st.session_state[_k("wt_PCV")] = 2.0
+        st.session_state[_k("tog_MFI")] = True
+        st.session_state[_k("wt_MFI")] = 1.0
     st.rerun()
 
 
@@ -402,8 +430,30 @@ def _load_universe() -> tuple[pd.DataFrame, str]:
     if not raw:
         return pd.DataFrame(), "Nightly dump is empty — try Refresh on Cascade Map."
     drop = {"_hist", "_analyzer"}
-    rows = [{k: v for k, v in rec.items() if k not in drop}
-            for rec in raw.values() if rec.get("Ticker")]
+    rows = []
+    for rec in raw.values():
+        if not rec.get("Ticker"):
+            continue
+        row = {k: v for k, v in rec.items() if k not in drop}
+        dts = (rec.get("_hist") or {}).get("dates") or []
+        n = len(dts)
+        row["Sessions"] = n
+        row["FirstTrade"] = row.get("FirstTradeDate") or (dts[0] if dts else "")
+        age = np.nan
+        if n >= 2:
+            try:
+                age = float((pd.Timestamp(dts[-1]) - pd.Timestamp(dts[0])).days)
+            except Exception:
+                age = np.nan
+        elif row.get("FirstTradeDate"):
+            try:
+                age = float((pd.Timestamp(dts[-1] if dts else datetime.utcnow())
+                             - pd.Timestamp(row["FirstTradeDate"])).days)
+            except Exception:
+                age = np.nan
+        row["DaysListed"] = age
+        row["IPOAge"] = float(np.clip(1.0 - (age / 90.0), 0.0, 1.0)) if np.isfinite(age) else 0.0
+        rows.append(row)
     df = pd.DataFrame(rows)
     df.replace(["N/A", "None", "-", ""], pd.NA, inplace=True)
     if "Sector" in df.columns:
@@ -419,7 +469,7 @@ def _load_universe() -> tuple[pd.DataFrame, str]:
         "ShortSqueeze", "ShortPctFloat", "ShortPctFloatRaw",
         "DaysToCover", "ShortChange",
         "DividendYieldPct", "DividendRate", "DividendPayoutRatio", "DividendScore",
-        "CleanSetupScore", "GrossMargin",
+        "CleanSetupScore", "GrossMargin", "IPOAge", "DaysListed", "Sessions",
     ]
     for col in zero_cols:
         if col not in df.columns:
@@ -566,10 +616,15 @@ def _format_display(screened: pd.DataFrame, enabled: dict) -> pd.DataFrame:
             lambda x: f"${x:.2f}" if pd.notnull(x) and x else "—")
     if "MFI" in display.columns:
         display["MFI_Signal"] = display["MFI"].apply(_mfi_signal)
+    if "DaysListed" in display.columns:
+        display["Days listed"] = display["DaysListed"].apply(
+            lambda x: f"{int(x)}" if pd.notnull(x) else "—")
+    if "FirstTrade" in display.columns:
+        display["First print"] = display["FirstTrade"].fillna("").astype(str)
 
     skip = {"Ticker", "Sector", "MarketCap", "OwnerEarnings",
             "RevenueGrowth", "EarningsGrowth", "RangePct", "RangePos",
-            "MFI_Signal", "_exchanges"}
+            "MFI_Signal", "_exchanges", "FirstTrade"}
     for col in display.columns:
         if col not in skip and pd.api.types.is_numeric_dtype(display[col]):
             display[col] = display[col].apply(lambda x: round(x, 2) if pd.notnull(x) else x)
@@ -581,7 +636,8 @@ def _format_display(screened: pd.DataFrame, enabled: dict) -> pd.DataFrame:
         "DaysToCover", "ShortChange", "ShortSqueeze",
         "DividendYieldPct", "DividendRate", "DividendPayoutRatio",
         "DividendFrequency", "DividendScore", "CleanSetupScore",
-        "GrossMargin", "_exchanges", "_exchange",
+        "GrossMargin", "IPOAge", "DaysListed", "Sessions", "FirstTradeDate",
+        "_exchanges", "_exchange",
     }
     hidden += [c for c in always if c in display.columns and c not in hidden]
     if not enabled.get("MFI") and "MFI_Signal" in display.columns:
@@ -649,14 +705,21 @@ def _run_screen(settings: dict) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     else:
         in_rev = pd.Series(True, index=df.index)
 
-    sort_col = "Score" if active else "RangePct"
-    sort_asc = not bool(active)
-    screened = (
-        df[under_price & ma_ok & above_score & in_range & in_pe & in_rev]
-        .sort_values(sort_col, ascending=sort_asc, na_position="last")
-        .head(int(settings["top_n"]))
-        .reset_index(drop=True)
-    )
+    if settings.get("use_ipo"):
+        age = pd.to_numeric(df.get("DaysListed", pd.Series(np.nan, index=df.index)), errors="coerce")
+        in_ipo = age.notna() & (age <= float(settings.get("ipo_days") or 90))
+    else:
+        in_ipo = pd.Series(True, index=df.index)
+
+    mask = under_price & ma_ok & above_score & in_range & in_pe & in_rev & in_ipo
+    if settings.get("use_ipo") and "DaysListed" in df.columns:
+        screened = df[mask].sort_values(
+            ["DaysListed", "Score"], ascending=[True, False], na_position="last")
+    elif active:
+        screened = df[mask].sort_values("Score", ascending=False, na_position="last")
+    else:
+        screened = df[mask].sort_values("RangePct", ascending=True, na_position="last")
+    screened = screened.head(int(settings["top_n"])).reset_index(drop=True)
     diag = {
         "scanned": int(len(df)),
         "passed": int(len(screened)),
@@ -667,6 +730,7 @@ def _run_screen(settings: dict) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         "range": int(in_range.sum()),
         "pe": int(in_pe.sum()),
         "rev": int(in_rev.sum()),
+        "ipo": int(in_ipo.sum()),
         "err": "",
     }
     return df, screened, diag
@@ -682,7 +746,7 @@ def render_hybrid_screener() -> None:
         "computed overnight, with Price / MA50 / range refreshed from the dump panel."
     )
 
-    presets = st.columns(7)
+    presets = st.columns(8)
     _preset_btns = [
         ("clean", "📐 Clean Setup", "Trend + flag + RSI band. Strongest preset in the suite."),
         ("felix", "🎩 Felix", "ROIC, moat, cash, Piotroski, P/E ≤ 50."),
@@ -691,6 +755,10 @@ def render_hybrid_screener() -> None:
         ("volume", "⚡ Magic Volume", "OBV / PCV surge with MACD confirmation."),
         ("breakout", "🚀 Breakout Setup", "Tight coil at range low, ready to break."),
         ("insider", "🕵️ Insider Buying", "Accumulation footprints in quiet ranges."),
+        ("ipo", "🆕 Just IPO'd",
+         "Names whose first print in the nightly dump is within 90 days. "
+         "Proxy for a recent IPO — the scan keeps ~1 year of prices, so a "
+         "short tape usually means the name just started trading. Newest first."),
     ]
     for col, (key, label, help_) in zip(presets, _preset_btns):
         if col.button(label, width="stretch", key=_k(f"preset_{key}"), help=help_):
@@ -731,6 +799,18 @@ def render_hybrid_screener() -> None:
             "Min TTM revenue growth", options=REV_GROWTH_STEPS,
             format_func=lambda x: f"{x}%+", key=_k("rev_min"), disabled=not use_rev)
 
+        r4 = st.columns([1.2, 1.6])
+        use_ipo = r4[0].toggle(
+            "Recent listings only", key=_k("ipo"),
+            help="Keep names whose first dump print is within Max days. "
+                 "Stand-in for a recent IPO: the nightly file stores about a "
+                 "year of prices, so a short series usually means a new listing. "
+                 "Brand-new IPOs with fewer than ~30 sessions may be missing "
+                 "until the next scan.")
+        ipo_days = r4[1].slider(
+            "Max days since first print", 14, 180, step=1,
+            key=_k("ipo_days"), disabled=not use_ipo)
+
     enabled, weights = {}, {}
     with st.expander("📊 Metric weights", expanded=False):
         st.caption("Toggle a factor and set its weight in the hybrid score (0–5).")
@@ -766,6 +846,8 @@ def render_hybrid_screener() -> None:
             "pe_range": pe_range,
             "use_rev": use_rev,
             "rev_min": rev_min,
+            "use_ipo": use_ipo,
+            "ipo_days": ipo_days,
             "enabled": enabled,
             "weights": weights,
         }
@@ -793,6 +875,11 @@ def render_hybrid_screener() -> None:
         st.success("**Active metrics:** " + " · ".join(METRICS[k]["label"] for k in active if k in METRICS))
     else:
         st.info("No metrics active — sorted by tightest stored range.")
+    if diag.get("ipo") is not None and st.session_state.get(_k("ipo")):
+        st.caption(
+            "Recent listings are ranked by first print in the dump, newest "
+            "first. This is a tape-length proxy, not an official IPO calendar."
+        )
 
     m1, m2, m3, m4 = st.columns(4)
     raw = st.session_state.get("_hs_raw")
@@ -814,7 +901,8 @@ def render_hybrid_screener() -> None:
                 f"score: **{diag.get('score', 0)}** → "
                 f"range: **{diag.get('range', 0)}** → "
                 f"P/E: **{diag.get('pe', 0)}** → "
-                f"revenue: **{diag.get('rev', 0)}**"
+                f"revenue: **{diag.get('rev', 0)}** → "
+                f"IPO: **{diag.get('ipo', 0)}**"
             )
         return
 
@@ -834,7 +922,8 @@ def render_hybrid_screener() -> None:
                     st.session_state["lk_tk"] = tk
 
     order = [c for c in [
-        "Ticker", "Sector", "Price", "MarketCap", "P/E",
+        "Ticker", "Sector", "Price", "First print", "Days listed",
+        "MarketCap", "P/E",
         "OwnerEarnings", "MA50", "RangeHigh", "RangeLow", "RangePos",
         "MFI_Signal", "Score", "Short % Float", "Days to Cover",
         "Div Yield", "Div Rate",
