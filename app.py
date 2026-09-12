@@ -911,69 +911,6 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
     except Exception:
         cpush = None
 
-    # signal pills
-    pills = ""
-    if rsi_v is not None:
-        if rsi_v < 30: pills += az_pill("RSI Oversold", True)
-        elif rsi_v > 70: pills += az_pill("RSI Overbought", False)
-        elif 45 < rsi_v < 65: pills += az_pill("RSI Sweet Spot", True)
-        else: pills += az_pill("RSI Neutral", None)
-    if macd_v is not None and macd_s is not None:
-        pills += az_pill("MACD Bullish" if macd_v > macd_s else "MACD Bearish", macd_v > macd_s)
-    if ma50_v is not None and ma200_v is not None:
-        pills += az_pill("Golden Cross" if ma50_v > ma200_v else "Death Cross", ma50_v > ma200_v)
-    elif info.get("_scan_golden_cross") is not None:
-        pills += az_pill("Golden Cross" if info["_scan_golden_cross"] >= 1 else "No Golden Cross",
-                         info["_scan_golden_cross"] >= 1)
-    if vol_avg and vol_td:
-        if vol_td > vol_avg * 1.5: pills += az_pill("High Volume", True)
-        elif vol_td < vol_avg * 0.5: pills += az_pill("Low Volume", None)
-    if spf and spf > 0.15: pills += az_pill("High Short Interest", None)
-    if aus is not None and aus > 15: pills += az_pill(f"Analyst Upside {aus:.0f}%", True)
-    elif aus is not None and aus < -10: pills += az_pill(f"Above Target {aus:.0f}%", False)
-    if cpush is not None and cpush > 0.5: pills += az_pill("Cascade Tailwind", True)
-    elif cpush is not None and cpush < -0.5: pills += az_pill("Cascade Headwind", False)
-
-    st.markdown("<div style='font-size:20px;font-weight:700;letter-spacing:.6px;"
-                "margin:16px 0 4px'>🔥 Stock Analyzer</div>", unsafe_allow_html=True)
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric("Price", f"${px:,.2f}" if px else "--")
-    m2.metric("Cascade Push", f"{cpush:+.2f}" if cpush is not None else "--",
-              help="Sum of (driver-node lead correlation × its current impulse). Positive = waves pushing it up. IGNITION's Ignition-score slot, powered by the cascade engine.")
-    m3.metric("RVOL", f"{(vol_td / vol_avg):.1f}x" if vol_avg and vol_td else "--",
-              help="Latest volume vs the trailing 20-day average.")
-    m4.metric("52W Pos", f"{rng52:.0f}%" if rng52 is not None else "--",
-              help="Where price sits in its last 252 sessions (~1 year), from the same bars as Price Range Analysis. 100% = at the highs.")
-    m5.metric("Target", f"${am:,.2f}" if am else "--",
-              delta=f"{aus:.1f}%" if aus is not None else None,
-              help="Analyst consensus mean target and implied upside.")
-    m6.metric("Ann. Vol", f"{(hist.Close.pct_change().tail(21).std() * (252 ** 0.5)):.0%}"
-              if not hist.empty and len(hist) > 22 else "--",
-              help="Annualised 21-day volatility.")
-    st.markdown(f"<div style='margin:6px 0 4px'><strong>{_esc(name)}</strong>  "
-                f"<span style='color:{DIM};font-size:13px'>{_esc(sec_display)}</span></div>",
-                unsafe_allow_html=True)
-    if pills:
-        st.markdown(f"<div style='margin:6px 0 12px'>{pills}</div>", unsafe_allow_html=True)
-
-    # data source badges — the Alpaca → Yahoo → dump chain, made visible
-    hs = info.get("_hist_source")
-    badge = lambda txt, col, bc: (f"<span style='font-family:monospace;font-size:10px;color:{col};"
-                                  f"border:1px solid {bc};border-radius:3px;padding:1px 7px'>{txt}</span>")
-    parts = []
-    if hs == "alpaca": parts.append(badge("Alpaca history (live)", "#4dd880", "#1e6b35"))
-    elif hs == "yahoo": parts.append(badge("Yahoo history", "#7a9ab8", "#1e3a5f"))
-    elif hs == "dump": parts.append(badge("nightly-dump history", "#d0b040", "#907020"))
-    if info.get("_from_scan_dump"):
-        parts.append(badge(f"dump filled {len(info.get('_dump_fields', []))} fields", "#d0b040", "#907020"))
-    if tk in live:
-        parts.append(badge("Alpaca live price", "#4dd880", "#1e6b35"))
-    st.markdown("<div style='display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px'>"
-                + "".join(parts) + "</div>", unsafe_allow_html=True)
-    for iss in info.get("_data_issues", []):
-        st.caption(f"⚠️ {iss}")
-    st.markdown("<hr style='border-color:#1e3a5f;margin:10px 0'>", unsafe_allow_html=True)
-
     colA, colB, colC = st.columns(3)
     with colA:
         az_section("Price Range Analysis")
@@ -1232,11 +1169,311 @@ def _open_analysis(tk: str):
     st.session_state["mw_analyze"] = tk
 
 
+# ── Hybrid screener identity cards (Stock Lookup, above Price Range Analysis)
+_HY_UP = "#26c485"
+_HY_DN = "#ef5350"
+_HY_MUTED = "#4a7fa0"
+_LOOKUP_BANNER = (
+    ("OE_Yield", "OE Yield"),
+    ("ROIC", "ROIC"),
+    ("ROIC_Trend", "ROIC Trend"),
+    ("RevenueGrowth", "Revenue Growth"),
+    ("EarningsGrowth", "Earnings Growth"),
+    ("Piotroski", "Piotroski Score"),
+    ("MFI", "MFI (Money Flow Index)"),
+    ("GoldenCross", "Golden Cross"),
+)
+
+
+def _hy_finite(val, default=None):
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
+        return default
+    return f if np.isfinite(f) else default
+
+
+def _hy_score_color(val):
+    val = _hy_finite(val, default=None)
+    if val is None:
+        return "#555"
+    if val >= 0.8:
+        return _HY_UP
+    if val >= 0.5:
+        return "#f5a623"
+    return _HY_DN
+
+
+def _hy_arc_svg(score, size=80):
+    score = max(0.0, min(1.0, _hy_finite(score, 0.0)))
+    col = _hy_score_color(score)
+    cx, cy, r = size / 2, size / 2, size / 2 - 6
+    circ = 2 * 3.14159 * r
+    dash = circ * score
+    return (
+        f"<svg width='{size}' height='{size}' viewBox='0 0 {size} {size}'>"
+        f"<circle cx='{cx}' cy='{cy}' r='{r}' fill='none' stroke='#1e3a5f' stroke-width='6'/>"
+        f"<circle cx='{cx}' cy='{cy}' r='{r}' fill='none' stroke='{col}' stroke-width='6'"
+        f" stroke-dasharray='{dash:.1f} {circ:.1f}'"
+        f" stroke-dashoffset='{circ/4:.1f}' stroke-linecap='round'/>"
+        f"<text x='{cx}' y='{cy+5}' text-anchor='middle'"
+        f" fill='{col}' font-size='13' font-weight='700' font-family='monospace'>"
+        f"{int(round(score * 100))}</text></svg>"
+    )
+
+
+def _hy_fmt_cap(v):
+    v = _hy_finite(v)
+    if v is None:
+        return "N/A"
+    if abs(v) >= 1e12:
+        return f"${v / 1e12:.2f}T"
+    if abs(v) >= 1e9:
+        return f"${v / 1e9:.2f}B"
+    if abs(v) >= 1e6:
+        return f"${v / 1e6:.0f}M"
+    return f"${v:,.0f}"
+
+
+def _hy_fmt_vol(v):
+    v = _hy_finite(v)
+    if v is None or v == 0:
+        return "N/A"
+    if abs(v) >= 1e6:
+        return f"{v / 1e6:.2f}M"
+    if abs(v) >= 1e3:
+        return f"{v / 1e3:.1f}K"
+    return f"{v:,.0f}"
+
+
+def _hy_norm(key, val):
+    v = _hy_finite(val)
+    if v is None:
+        return None
+    if key == "OE_Yield":
+        return float(np.clip(v / 0.08, 0, 1))
+    if key == "ROIC":
+        return float(np.clip(v / 0.20, 0, 1))
+    if key == "ROIC_Trend":
+        return float(np.clip((v + 0.05) / 0.10, 0, 1))
+    if key in ("RevenueGrowth", "EarningsGrowth"):
+        return float(np.clip(v / 0.25, 0, 1))
+    if key == "Piotroski":
+        return float(np.clip(v / 9.0, 0, 1))
+    if key == "MFI":
+        m = v / 100.0 if v > 1.5 else v
+        return float(np.clip(m, 0, 1))
+    return float(np.clip(v, 0, 1))
+
+
+def _hy_fv(key, val):
+    v = _hy_finite(val)
+    if v is None:
+        return "N/A"
+    if key in ("OE_Yield", "RevenueGrowth", "EarningsGrowth", "ROIC", "ROIC_Trend"):
+        return f"{v:.2%}"
+    if key == "Piotroski":
+        return f"{int(round(v))} / 9"
+    if key in ("MFI", "PCV", "OBV"):
+        return f"{v:.4f}" if abs(v) <= 1.5 else f"{v:.1f}"
+    return str(round(v, 4))
+
+
+def _lookup_metric_raw(tk: str, info: dict, df: pd.DataFrame) -> dict:
+    """Gather the hybrid banner fields from analyzer info + nightly dump."""
+    info = info or {}
+    funds = {}
+    try:
+        funds = ce.dump_fundamentals(tk) or {}
+    except Exception:
+        funds = {}
+
+    def _pick(*keys):
+        for k in keys:
+            if info.get(k) is not None:
+                v = _hy_finite(info.get(k))
+                if v is not None:
+                    return v
+            if funds.get(k) is not None:
+                v = _hy_finite(funds.get(k))
+                if v is not None:
+                    return v
+        return None
+
+    raw = {
+        "OE_Yield": _pick("_scan_oe_yield", "OE_Yield"),
+        "ROIC": _pick("_scan_roic", "ROIC"),
+        "ROIC_Trend": _pick("_scan_roic_trend", "ROIC_Trend"),
+        "RevenueGrowth": _pick("revenueGrowth", "RevenueGrowth"),
+        "EarningsGrowth": _pick("earningsGrowth", "EarningsGrowth"),
+        "Piotroski": _pick("_scan_piotroski", "Piotroski"),
+        "MFI": _pick("_scan_mfi", "MFI"),
+        "GoldenCross": _pick("_scan_golden_cross", "GoldenCross"),
+    }
+    if raw["GoldenCross"] is None and df is not None and not df.empty and "Close" in df.columns:
+        cl = pd.to_numeric(df["Close"], errors="coerce").dropna()
+        if len(cl) >= 200:
+            raw["GoldenCross"] = (1.0 if float(cl.rolling(50).mean().iloc[-1])
+                                  > float(cl.rolling(200).mean().iloc[-1]) else 0.0)
+    return raw
+
+
+def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
+                                px: float, chg: float, *,
+                                live_on: bool = False,
+                                src_label: str | None = None) -> None:
+    """Hybrid Analyze header + composite banner — the look above Price Range."""
+    from datetime import datetime as _dt
+    info = info or {}
+    name = info.get("longName") or info.get("shortName") or tk
+    sector = info.get("sector") or ""
+    industry = info.get("industry") or ""
+    if not sector:
+        try:
+            sector = (ce.dump_fundamentals(tk) or {}).get("Sector") or ""
+        except Exception:
+            pass
+    mcap = _hy_finite(info.get("marketCap"))
+    if mcap is None:
+        try:
+            mcap = _hy_finite((ce.dump_fundamentals(tk) or {}).get("MarketCap"))
+        except Exception:
+            mcap = None
+    pe = _hy_finite(info.get("trailingPE") or info.get("P/E"))
+    if pe is None:
+        try:
+            pe = _hy_finite((ce.dump_fundamentals(tk) or {}).get("P/E"))
+        except Exception:
+            pe = None
+    hi52 = _hy_finite(info.get("fiftyTwoWeekHigh"))
+    lo52 = _hy_finite(info.get("fiftyTwoWeekLow"))
+    if (hi52 is None or lo52 is None) and df is not None and not df.empty and "Close" in df.columns:
+        cl = pd.to_numeric(df["Close"], errors="coerce").dropna()
+        win = cl.tail(252) if len(cl) else cl
+        if len(win):
+            hi52 = hi52 if hi52 is not None else float(win.max())
+            lo52 = lo52 if lo52 is not None else float(win.min())
+    vol = _hy_finite(info.get("volume") or info.get("regularMarketVolume"))
+    avg_vol = _hy_finite(info.get("averageVolume") or info.get("averageDailyVolume10Day"))
+    if df is not None and not df.empty and "Volume" in df.columns:
+        vl = pd.to_numeric(df["Volume"], errors="coerce").dropna()
+        if vol is None and len(vl):
+            vol = float(vl.iloc[-1])
+        if avg_vol is None and len(vl) >= 5:
+            avg_vol = float(vl.tail(21).mean())
+    chg_pct = _hy_finite(chg, 0.0) * 100.0
+    chg_col = _HY_UP if chg_pct >= 0 else _HY_DN
+    chg_sym = "▲" if chg_pct >= 0 else "▼"
+    if live_on:
+        fetched_at = _dt.now().strftime("%B %d, %Y %I:%M %p")
+    elif df is not None and not df.empty:
+        fetched_at = pd.Timestamp(df.index[-1]).strftime("%B %d, %Y")
+    else:
+        fetched_at = ""
+    src_note = "live via Alpaca" if live_on else (src_label or "")
+    if src_note and fetched_at:
+        fetched_at = f"{fetched_at} · {src_note}"
+    elif src_note:
+        fetched_at = src_note
+
+    def _chip(label, value):
+        return (
+            f"<div style='text-align:center;background:#0a1929;border-radius:8px;"
+            f"padding:8px 16px;min-width:100px;'>"
+            f"<div style='font-size:0.75em;color:{_HY_MUTED};text-transform:uppercase;"
+            f"letter-spacing:.06em;'>{label}</div>"
+            f"<div style='font-size:1em;font-weight:600;color:#c5dff0;margin-top:2px;'>"
+            f"{value}</div></div>"
+        )
+
+    st.markdown(
+        f"""<div style='background:linear-gradient(135deg,#0d1b2a 0%,#1a2d45 100%);
+        border:1px solid #1e3a5f;border-radius:14px;padding:20px 24px;margin-bottom:16px;'>
+        <div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;'>
+          <div>
+            <div style='font-size:1.6em;font-weight:700;color:#e8f4fd;letter-spacing:-0.5px;'>
+              {_esc(name)}
+              <span style='font-size:0.6em;font-weight:500;color:#5b9bd5;
+              background:#0d2137;padding:3px 10px;border-radius:6px;margin-left:10px;
+              vertical-align:middle;'>{_esc(tk)}</span>
+            </div>
+            <div style='font-size:0.88em;color:#7fb3d3;margin-top:4px;'>
+              {_esc(sector)}{" · " + _esc(industry) if industry else ""}
+            </div>
+            {f"<div style='font-size:0.78em;color:{_HY_MUTED};margin-top:2px;'>📅 { _esc(fetched_at)}</div>" if fetched_at else ""}
+          </div>
+          <div style='text-align:right;'>
+            <div style='font-size:2.2em;font-weight:700;color:#e8f4fd;line-height:1;'>
+              {"$" + f"{px:,.2f}" if px else "N/A"}
+            </div>
+            <div style='font-size:1em;color:{chg_col};font-weight:600;margin-top:2px;'>
+              {chg_sym} {abs(chg_pct):.2f}% today
+            </div>
+          </div>
+        </div>
+        <div style='display:flex;gap:24px;margin-top:16px;flex-wrap:wrap;'>
+          {_chip("Market Cap", _hy_fmt_cap(mcap))}
+          {_chip("P/E Ratio", f"{pe:.1f}x" if pe else "N/A")}
+          {_chip("52W High", f"${hi52:,.2f}" if hi52 else "N/A")}
+          {_chip("52W Low", f"${lo52:,.2f}" if lo52 else "N/A")}
+          {_chip("Volume", _hy_fmt_vol(vol))}
+          {_chip("Avg Volume", _hy_fmt_vol(avg_vol))}
+        </div></div>""",
+        unsafe_allow_html=True,
+    )
+
+    raw = _lookup_metric_raw(tk, info, df)
+    shown = []
+    norms = []
+    for key, label in _LOOKUP_BANNER:
+        val = raw.get(key)
+        n = _hy_norm(key, val)
+        if n is not None:
+            norms.append(n)
+        if val is None or (isinstance(val, float) and not np.isfinite(val)):
+            continue
+        if key != "GoldenCross" and val == 0:
+            continue
+        shown.append((key, label, val, n))
+    if not norms and not shown:
+        return
+    avg = (sum(norms) / len(norms)) if norms else 0.0
+    total = sum(norms) if norms else 0.0
+    comp_col = _hy_score_color(avg)
+    setup = ("Strong setup" if avg >= 0.7 else
+             ("Moderate" if avg >= 0.4 else "Weak setup"))
+    chips = "".join(
+        f"<div style='background:#0a1929;border-radius:8px;padding:6px 12px;"
+        f"border:1px solid #1e3a5f;text-align:center;min-width:90px;'>"
+        f"<div style='font-size:0.7em;color:{_HY_MUTED};'>{_esc(label)}</div>"
+        f"<div style='font-size:0.95em;font-weight:600;color:{_hy_score_color(n if n is not None else 0)};'>"
+        f"{_hy_fv(key, val)}</div></div>"
+        for key, label, val, n in shown[:8]
+    )
+    st.markdown(
+        f"<div style='background:linear-gradient(135deg,#0d1b2a,#1a2d45);"
+        f"border:1px solid #1e3a5f;border-radius:14px;padding:18px 24px;"
+        f"display:flex;align-items:center;gap:24px;margin-bottom:16px;'>"
+        f"<div style='flex-shrink:0;'>{_hy_arc_svg(avg, 80)}</div>"
+        f"<div style='flex:1;'>"
+        f"<div style='font-size:0.75em;color:{_HY_MUTED};text-transform:uppercase;"
+        f"letter-spacing:.08em;margin-bottom:4px;'>Composite Score</div>"
+        f"<div style='font-size:1.8em;font-weight:700;color:{comp_col};line-height:1;'>"
+        f"{total:.4f}</div>"
+        f"<div style='font-size:0.8em;color:{_HY_MUTED};margin-top:4px;'>"
+        f"{len(shown)} of {len(_LOOKUP_BANNER)} metrics with a reading · {setup}"
+        f"</div></div>"
+        f"<div style='display:flex;flex-wrap:wrap;gap:8px;'>{chips}</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                            state_key: str = "mw_analyze", closable: bool = True,
                            df: pd.DataFrame | None = None,
-                           src_label: str | None = None):
-    """IGNITION-style deep dive: candles + volume + indicator pack.
+                           src_label: str | None = None,
+                           info: dict | None = None):
+    """IGNITION-style deep dive: hybrid identity cards + candles + volume.
     Stocks come from the nightly dump (full OHLCV); nodes fall back to the
     close-only history; Alpaca supplies the live print when keyed."""
     import plotly.graph_objects as go
@@ -1252,61 +1489,23 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         st.warning(f"No history found for {tk}.")
         return
 
+    if info is None:
+        try:
+            info = _analyzer(tk, asof)[0]
+        except Exception:
+            info = {}
+
     stats = ce.ticker_stats(df)
     live = ce.alpaca_prices([tk])
     px = live.get(tk, stats["price"])
     chg = px / df["Close"].iloc[-2] - 1 if len(df) > 1 else 0.0
 
-    hc, xc = st.columns([5, 1])
-    hc.markdown(
-        f"<span style='font-size:24px;font-weight:800;'>🔬 {tk}</span> "
-        f"<span style='font-size:20px;font-weight:700;'>${px:,.2f}</span> "
-        f"<span style='color:{GREEN if chg >= 0 else RED};font-weight:700;'>{chg:+.2%}</span> "
-        f"<span style='color:{DIM};font-size:12px;'>· {'live via Alpaca' if tk in live else src_label}</span>",
-        unsafe_allow_html=True)
-    if closable and xc.button("✕ Close", key=f"close_{state_key}"):
+    if closable and st.button("✕ Close", key=f"close_{state_key}"):
         st.session_state.pop(state_key, None)
         st.rerun()
-
-    def _pill(label, txt, css, tip):
-        return (f"<div title=\"{tip}\" style='background:#0c1829;border:1px solid #1d2b40;"
-                f"border-radius:10px;padding:8px 12px;text-align:center;flex:1;min-width:92px;'>"
-                f"<div style='font-size:11px;color:{DIM};'>{label} ⓘ</div>"
-                f"<div style='font-size:17px;font-weight:700;{css}'>{txt}</div></div>")
-
-    def _sgn_css(v, dead=0.002):
-        if not np.isfinite(v) or abs(v) <= dead:
-            return f"color:{DIM};"
-        return f"color:{GREEN};" if v > 0 else f"color:{RED};"
-
-    rsi = stats["rsi"]
-    rsi_css = (f"color:{RED};" if rsi >= 70 else
-               f"color:{GREEN};" if rsi <= 30 else f"color:{DIM};") if np.isfinite(rsi) else f"color:{DIM};"
-    rsi_tag = (" hot" if np.isfinite(rsi) and rsi >= 70 else
-               " washed out" if np.isfinite(rsi) and rsi <= 30 else "")
-    rvol = stats["rvol"]
-    rvol_css = (f"color:{GREEN};" if np.isfinite(rvol) and rvol >= 1.5 else f"color:{DIM};")
-    rp = stats["rangepos"]
-    rp_css = (f"color:{GREEN};" if np.isfinite(rp) and rp >= 0.8 else
-              f"color:{RED};" if np.isfinite(rp) and rp <= 0.2 else f"color:{DIM};")
-    av = stats["vol21"]
-    av_css = f"color:{RED};" if np.isfinite(av) and av >= 0.60 else f"color:{DIM};"
-
-    st.markdown(
-        "<div style='display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px;'>"
-        + _pill("5d", f"{stats['r5']:+.1%}" if np.isfinite(stats['r5']) else "—",
-                _sgn_css(stats['r5']), "Return over the last 5 sessions.")
-        + _pill("21d", f"{stats['r21']:+.1%}" if np.isfinite(stats['r21']) else "—",
-                _sgn_css(stats['r21']), "Return over the last month of sessions.")
-        + _pill("RSI 14", (f"{rsi:.0f}{rsi_tag}" if np.isfinite(rsi) else "—"), rsi_css,
-                "Momentum oscillator: 70+ overbought (red), 30- washed out and bounce-prone (green), 40-65 neutral (dim).")
-        + _pill("RVOL", f"{rvol:.2f}x" if np.isfinite(rvol) else "—", rvol_css,
-                "5d avg volume vs 63d avg. 1.5x+ (green) = unusual attention; near 1x = normal.")
-        + _pill("Range pos", f"{rp:.0%}" if np.isfinite(rp) else "—", rp_css,
-                "Where price sits in its 63-day range: 80%+ near highs = strength (green); 20%- near lows = weakness (red).")
-        + _pill("Ann. vol", f"{av:.0%}" if np.isfinite(av) else "—", av_css,
-                "Annualised 21-day volatility. 60%+ (red) = wide swings, size smaller.")
-        + "</div>", unsafe_allow_html=True)
+    render_hybrid_lookup_header(
+        tk, info, df, px, chg,
+        live_on=tk in live, src_label=src_label)
 
     d = df.tail(180)
     has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
@@ -1793,9 +1992,8 @@ with tab_lookup:
                 "dump": "nightly dump" }.get((_info or {}).get("_hist_source"),
                                              (_info or {}).get("_hist_source"))
 
-        # IGNITION-style header, pills, candles (shared renderer)
         render_ticker_analysis(tk, closes, state_key="lk_tk",
-                               df=df_tk, src_label=_hs)
+                               df=df_tk, src_label=_hs, info=_info)
 
         try:
             _biz = dict(_info or {})
