@@ -3120,12 +3120,6 @@ with tab_poc:
                  "app.py, cascade_engine.py and apex_flow.py, then reboot. "
                  "The rest of the app still works.")
     else:
-        st.caption("A screener port of your AMD + Volume Profile indicator. It "
-                   "hunts the same three-act pattern: price **coils** in a tight "
-                   "range, **sweeps** the lows to grab stops, then **reclaims the "
-                   "POC** — the price where the coil did most of its business. "
-                   "The reclaim is the trigger and the trade runs long.")
-
         _poc_mode = st.radio(
             "Controls", ["Basic", "Advanced"], horizontal=True,
             key="poc_ui_mode",
@@ -3148,7 +3142,6 @@ with tab_poc:
             _accum = int(_pp["accum_len"])
             _rng = float(_pp["max_range_atr"])
             _poc_fresh = int(_pp["max_bars_ago"])
-            _p1.caption(_pp["blurb"])
             _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200, 500],
                                       index=1, key="poc_top")
         else:
@@ -3177,55 +3170,57 @@ with tab_poc:
                                   help="The coil must be no wider than this many "
                                        "ATRs. Lower = tighter, rarer bases.")
 
-        # sectors — same picker as APEX / Top 20, in both modes
-        _poc_pending = st.session_state.pop("_poc_sectors_pending", None)
-        if _poc_pending:
-            st.session_state["poc_sectors"] = _poc_pending
-        try:
-            _poc_secs = _apex_sector_list(asof)
-        except Exception:
-            _poc_secs = []
-        _p_lb, _p_off, _p_lbl = flow_window_picker("poc")
-        _hs1, _hs2 = st.columns([1, 3])
-        if _hs1.button("🔥 Use today's hot sectors", key="poc_hot_btn",
-                       width="stretch",
-                       help="Replace the sector selection with the sectors that "
-                            "received the most money in the chosen window."):
+        if _poc_basic:
+            _sec_filter = None
+        else:
+            _poc_pending = st.session_state.pop("_poc_sectors_pending", None)
+            if _poc_pending:
+                st.session_state["poc_sectors"] = _poc_pending
             try:
-                _hot = _hot_sectors(asof, 5, _p_lb, _p_off)
-                if _hot:
-                    st.session_state["_poc_sectors_pending"] = _hot
-                    st.rerun()
-            except Exception as _he:
-                st.caption(f"Hot sectors unavailable: {_he}")
-        try:
-            _hs_now = _hot_sectors(asof, 5, _p_lb, _p_off)
-            if _hs_now:
-                _hs2.caption(f"🔥 Hottest ({_p_lbl}): " + " · ".join(_hs_now))
-        except Exception:
-            pass
-        _ms_kw = ({} if "poc_sectors" in st.session_state
-                  else {"default": _poc_secs})
-        _psec = st.multiselect(
-            "Sectors", _poc_secs, key="poc_sectors", **_ms_kw,
-            help="Defaults to every sector. Narrow it to focus the scan. "
-                 "Use today's hot sectors to start from the names that "
-                 "received the most money, then add or remove.")
-        _sec_filter = (None if (not _psec or len(_psec) == len(_poc_secs))
-                       else list(_psec))
-        if _sec_filter:
-            st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_poc_secs)} sectors.")
+                _poc_secs = _apex_sector_list(asof)
+            except Exception:
+                _poc_secs = []
+            _p_lb, _p_off, _p_lbl = flow_window_picker("poc")
+            _hs1, _hs2 = st.columns([1, 3])
+            if _hs1.button("🔥 Use today's hot sectors", key="poc_hot_btn",
+                           width="stretch",
+                           help="Replace the sector selection with the sectors that "
+                                "received the most money in the chosen window."):
+                try:
+                    _hot = _hot_sectors(asof, 5, _p_lb, _p_off)
+                    if _hot:
+                        st.session_state["_poc_sectors_pending"] = _hot
+                        st.rerun()
+                except Exception as _he:
+                    st.caption(f"Hot sectors unavailable: {_he}")
+            try:
+                _hs_now = _hot_sectors(asof, 5, _p_lb, _p_off)
+                if _hs_now:
+                    _hs2.caption(f"🔥 Hottest ({_p_lbl}): " + " · ".join(_hs_now))
+            except Exception:
+                pass
+            _ms_kw = ({} if "poc_sectors" in st.session_state
+                      else {"default": _poc_secs})
+            _psec = st.multiselect(
+                "Sectors", _poc_secs, key="poc_sectors", **_ms_kw,
+                help="Defaults to every sector. Narrow it to focus the scan. "
+                     "Use today's hot sectors to start from the names that "
+                     "received the most money, then add or remove.")
+            _sec_filter = (None if (not _psec or len(_psec) == len(_poc_secs))
+                           else list(_psec))
+            if _sec_filter:
+                st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_poc_secs)} sectors.")
 
-        _stage_txt = ", ".join(_stage_pick or ["TRIGGERED"]).title()
-        _sec_txt = (f"{len(_sec_filter)} hot/selected sectors ({_p_lbl})"
-                    if _sec_filter else "every sector")
-        st.markdown(
-            f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
-            padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
-            Hunting <b style="color:{ACCENT};">{_stage_txt}</b>
-            · coil {_accum} bars / {_rng:.1f} ATR
-            · {_sec_txt}.</div>""",
-            unsafe_allow_html=True)
+            _stage_txt = ", ".join(_stage_pick or ["TRIGGERED"]).title()
+            _sec_txt = (f"{len(_sec_filter)} hot/selected sectors ({_p_lbl})"
+                        if _sec_filter else "every sector")
+            st.markdown(
+                f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
+                padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
+                Hunting <b style="color:{ACCENT};">{_stage_txt}</b>
+                · coil {_accum} bars / {_rng:.1f} ATR
+                · {_sec_txt}.</div>""",
+                unsafe_allow_html=True)
 
         _poc_sig = (tuple(_stage_pick or ["TRIGGERED"]), int(_poc_top),
                     int(_accum), float(_rng), int(_poc_fresh),
@@ -3311,62 +3306,63 @@ with tab_poc:
                            f"around a 1.0-2.0 reward-to-risk, not at the top of "
                            f"the Win% column.")
 
-        with st.expander("🩺 Diagnostics — why am I seeing this many setups?"):
-            st.caption("Runs the funnel on THIS deployment's data, so a thin "
-                       "board can be traced to the exact step that drops names "
-                       "instead of guessed at.")
-            if st.button("Run diagnostics", key="poc_diag"):
-                try:
-                    _d = pfut.diagnose(accum_len=int(_accum),
-                                       max_range_atr=float(_rng))
-                    _s = _d["stages_raw"]
-                    st.markdown(
-                        f"- module **poc_future v{_d['version']}**, "
-                        f"{_d['bars']} bars, last bar **{_d['last_date']}**\n"
-                        f"- dump universe: **{_d['universe']:,}**\n"
-                        f"- priced ≥ $5: **{_d['after_price']:,}**\n"
-                        f"- and ≥ $5M median dollar volume: **{_d['after_liquidity']:,}**\n"
-                        f"- with a real recent print: **{_d['scannable']:,}** ← scanned\n"
-                        f"- **setups found before your filters: "
-                        f"{_d['setups_before_filters']:,}** "
-                        f"(coiling {_s['COILING']:,} · swept {_s['SWEPT']:,} · "
-                        f"triggered {_s['TRIGGERED']:,} · no setup {_s['NONE']:,})")
-                    if _d["setups_before_filters"] < 20:
-                        st.warning("Very few setups before filtering — that points "
-                                   "at the data, not your settings. Hit 🔄 Refresh "
-                                   "on the Cascade Map and check the last bar date.")
-                except Exception as _de:
-                    st.error(f"Diagnostics failed: {_de}")
+        if not _poc_basic:
+            with st.expander("🩺 Diagnostics — why am I seeing this many setups?"):
+                st.caption("Runs the funnel on THIS deployment's data, so a thin "
+                           "board can be traced to the exact step that drops names "
+                           "instead of guessed at.")
+                if st.button("Run diagnostics", key="poc_diag"):
+                    try:
+                        _d = pfut.diagnose(accum_len=int(_accum),
+                                           max_range_atr=float(_rng))
+                        _s = _d["stages_raw"]
+                        st.markdown(
+                            f"- module **poc_future v{_d['version']}**, "
+                            f"{_d['bars']} bars, last bar **{_d['last_date']}**\n"
+                            f"- dump universe: **{_d['universe']:,}**\n"
+                            f"- priced ≥ $5: **{_d['after_price']:,}**\n"
+                            f"- and ≥ $5M median dollar volume: **{_d['after_liquidity']:,}**\n"
+                            f"- with a real recent print: **{_d['scannable']:,}** ← scanned\n"
+                            f"- **setups found before your filters: "
+                            f"{_d['setups_before_filters']:,}** "
+                            f"(coiling {_s['COILING']:,} · swept {_s['SWEPT']:,} · "
+                            f"triggered {_s['TRIGGERED']:,} · no setup {_s['NONE']:,})")
+                        if _d["setups_before_filters"] < 20:
+                            st.warning("Very few setups before filtering — that points "
+                                       "at the data, not your settings. Hit 🔄 Refresh "
+                                       "on the Cascade Map and check the last bar date.")
+                    except Exception as _de:
+                        st.error(f"Diagnostics failed: {_de}")
 
-        with st.expander("❓ What this is, and what the testing actually showed"):
-            st.markdown(
-                "**The three acts**\n"
-                "1. **Accumulation** — price coils. The whole high-low range over "
-                "the lookback is no wider than a set number of ATRs.\n"
-                "2. **Manipulation** — price sweeps *below* the range, taking the "
-                "stops resting under it, then fails to hold down there.\n"
-                "3. **Distribution** — price closes back inside and reclaims the "
-                "**POC**, the price where the coil did most of its volume. That "
-                "reclaim is the entry; stop goes below the sweep; target is the "
-                "far side of the range.\n\n"
-                "**What your backtest found** (carried over from the script)\n"
-                "- Long, POC reclaim, accumulation length 15: **1,175 trades, "
-                "77.8% hit, +0.178R, PF 1.83** — positive in 10 of 10 months, "
-                "both ticker halves, both date halves, and 21 of 21 parameter "
-                "combinations.\n"
-                "- **Shorts lost money in every configuration tested** (−0.08R to "
-                "−0.26R), so this scanner is long-only.\n"
-                "- Fills were modelled at the **next bar's open** with a 10bp "
-                "round trip. Filling at the signal bar's close flattered it from "
-                "−0.057R to +0.147R — the difference between an edge and reading "
-                "the future.\n"
-                "- The **84% re-entry rule did not reproduce**: second entries came "
-                "in at 25–31% across every window tested, never near 84%.\n\n"
-                "**Honest limits.** The sample is ~11 months of one regime, and the "
-                "September-2026 replication covers the same window shifted a day — "
-                "a replication, not an out-of-sample test. Daily bars only; the "
-                "method is usually traded intraday and that is untested here. The "
-                "low R:R is by design: these win on hit rate, not payoff.")
+            with st.expander("❓ What this is, and what the testing actually showed"):
+                st.markdown(
+                    "**The three acts**\n"
+                    "1. **Accumulation** — price coils. The whole high-low range over "
+                    "the lookback is no wider than a set number of ATRs.\n"
+                    "2. **Manipulation** — price sweeps *below* the range, taking the "
+                    "stops resting under it, then fails to hold down there.\n"
+                    "3. **Distribution** — price closes back inside and reclaims the "
+                    "**POC**, the price where the coil did most of its volume. That "
+                    "reclaim is the entry; stop goes below the sweep; target is the "
+                    "far side of the range.\n\n"
+                    "**What your backtest found** (carried over from the script)\n"
+                    "- Long, POC reclaim, accumulation length 15: **1,175 trades, "
+                    "77.8% hit, +0.178R, PF 1.83** — positive in 10 of 10 months, "
+                    "both ticker halves, both date halves, and 21 of 21 parameter "
+                    "combinations.\n"
+                    "- **Shorts lost money in every configuration tested** (−0.08R to "
+                    "−0.26R), so this scanner is long-only.\n"
+                    "- Fills were modelled at the **next bar's open** with a 10bp "
+                    "round trip. Filling at the signal bar's close flattered it from "
+                    "−0.057R to +0.147R — the difference between an edge and reading "
+                    "the future.\n"
+                    "- The **84% re-entry rule did not reproduce**: second entries came "
+                    "in at 25–31% across every window tested, never near 84%.\n\n"
+                    "**Honest limits.** The sample is ~11 months of one regime, and the "
+                    "September-2026 replication covers the same window shifted a day — "
+                    "a replication, not an out-of-sample test. Daily bars only; the "
+                    "method is usually traded intraday and that is untested here. The "
+                    "low R:R is by design: these win on hit rate, not payoff.")
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
