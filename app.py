@@ -43,6 +43,12 @@ try:
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
+try:
+    import hybrid_screener as hs
+    _HS_ERR = None
+except Exception as _he:
+    hs, _HS_ERR = None, _he
+
 REQUIRED_ENGINE = "2.38"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -149,7 +155,12 @@ HELP = {
 
 CREATOR_NAME = "AIupscale"
 CREATOR_URL = "https://aiupscalellc.netlify.app/"
-LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "aiupscale_logo.png")
+try:
+    from mw_paths import bundle_dir as _bundle_dir
+except ImportError:
+    def _bundle_dir() -> str:
+        return os.path.dirname(os.path.abspath(__file__))
+LOGO_PATH = os.path.join(_bundle_dir(), "assets", "aiupscale_logo.png")
 
 
 @st.cache_data
@@ -1512,7 +1523,7 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
                "history, so they're unavailable until the feed responds. The "
                "Macro Simulator below runs in your browser and works regardless.")
     try:
-        _sim_p = os.path.join(os.path.dirname(__file__), "macro_simulator.html")
+        _sim_p = os.path.join(_bundle_dir(), "macro_simulator.html")
         if os.path.exists(_sim_p):
             import streamlit.components.v1 as _c
             with open(_sim_p, encoding="utf-8") as _f:
@@ -1522,10 +1533,10 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
     st.stop()
 
 asof = str(closes.index[-1].date())
-(tab_map, tab_lookup, tab_top20, tab_apex, tab_poc, tab_macro,
+(tab_map, tab_lookup, tab_hybrid, tab_top20, tab_apex, tab_poc, tab_macro,
  tab_advanced) = st.tabs(
-    ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "⚡ APEX FLOW",
-     "🎯 POC Future", "🧪 Macro Sim", "📖 Advanced Guide"])
+    ["🌊 Cascade Map", "🔎 Stock Lookup", "📊 Hybrid Screener", "🏆 Top 20",
+     "⚡ APEX FLOW", "🎯 POC Future", "🧪 Macro Sim", "📖 Advanced Guide"])
 # Nested tabs must be created here — Lenses / Guide render earlier in the
 # file than Pressure, so defining them later raises NameError.
 with tab_advanced:
@@ -2106,6 +2117,22 @@ with tab_lookup:
                     st.rerun()
                 except Exception as _ue:
                     st.error(f"Could not read that backup: {_ue}")
+
+
+# ── 📊 hybrid screener (nightly-dump filters from magicpro33/stock) ──
+with tab_hybrid:
+    if _HS_ERR is not None or hs is None:
+        st.error(f"Hybrid Screener failed to load: {_HS_ERR}")
+    else:
+        hs.render_hybrid_screener()
+        _htk = st.session_state.get("hs_inline")
+        if _htk:
+            st.divider()
+            render_ticker_analysis(_htk, closes, state_key="hs_inline")
+            try:
+                render_ignition_analyzer(_htk, closes)
+            except Exception as _hae:
+                st.caption(f"Analyzer unavailable: {_hae}")
 
 
 # ── 🏆 top 20 mega screener ──────────────────────────────────────────
@@ -3086,7 +3113,7 @@ with tab_macro:
     except Exception:
         pass
     try:
-        _sim_path = os.path.join(os.path.dirname(__file__), "macro_simulator.html")
+        _sim_path = os.path.join(_bundle_dir(), "macro_simulator.html")
         if not os.path.exists(_sim_path):
             raise FileNotFoundError(_sim_path)
         try:
