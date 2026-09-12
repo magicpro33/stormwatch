@@ -63,6 +63,12 @@ try:
 except Exception as _he:
     hs, _HS_ERR = None, _he
 
+try:
+    from storm_watch_tab import render_storm_watch_tab
+    _SW_ERR = None
+except Exception as _swe:
+    render_storm_watch_tab, _SW_ERR = None, _swe
+
 REQUIRED_ENGINE = "2.38"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -2178,11 +2184,11 @@ with tab_hybrid:
 
 # ── 🌩 shakeout coils (pre-move scan, backtested on the nightly dump) ──
 with tab_shakeout:
-    try:
-        from storm_watch_tab import render_storm_watch_tab
+    if _SW_ERR is not None or render_storm_watch_tab is None:
+        st.error(f"Shakeout tab failed to load: {_SW_ERR}")
+        st.caption("Put storm_watch_tab.py and storm_watch_engine.py next to app.py, then reboot.")
+    else:
         render_storm_watch_tab()
-    except Exception as _swe:
-        st.error(f"Shakeout tab failed to load: {_swe}")
 
 
 # ── 🏆 top 20 mega screener ──────────────────────────────────────────
