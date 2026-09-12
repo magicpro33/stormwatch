@@ -2861,53 +2861,52 @@ with tab_apex:
                                "intraday bars come from Alpaca. If keys are set, try a "
                                "larger universe or a looser min score.")
             else:
-                _g = int(_res["Gate"].sum())
-                _m1, _m2, _m3, _m4 = st.columns(4)
+                _m1, _m2, _m3 = st.columns(3)
                 _m1.metric("Names found", len(_res))
-                _m2.metric("Full gate ✅", _g,
-                           help="Score ≥ 80 AND CALM AND relative strength in band — "
-                                "the exact configuration that was tested.")
-                _m3.metric("Top score", f"{_res['Score'].max():.1f}")
-                _m4.metric("Median vol", f"{_res['Vol%'].median():.2f}%")
+                _m2.metric("Top score", f"{_res['Score'].max():.1f}")
+                _m3.metric("Median vol", f"{_res['Vol%'].median():.2f}%")
                 st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
 
                 _show = _res.copy()
-                _show["✅"] = np.where(_show["Gate"], "✅", "")
                 _sel_ax = st.dataframe(
-                    _show.style.format({
-                        "Score": "{:.1f}", "Adj": "{:.1f}", "Macro": "{:.2f}",
-                        "Price": "${:,.2f}", "Vol%": "{:.2f}%",
-                        "RangePos": "{:.0f}%", "RS": "{:+.2f}%",
-                        "POC": "${:,.2f}", "VAL": "${:,.2f}", "VAH": "${:,.2f}"}, na_rep="—")
-                    .map(lambda v: f"color:{ACCENT};font-weight:700"
-                         if isinstance(v, (int, float)) and v >= 85 else "", subset=["Score"])
-                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "CALM"
-                                    else (f"color:{RED};font-weight:600" if v == "HIGH"
-                                          else "color:#d0b040")), subset=["Risk"])
-                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "BELOW VALUE"
-                                    else (f"color:{DIM}" if v == "IN VALUE"
-                                          else "color:#b565f3")), subset=["ValueArea"])
-                    .map(lambda v: _css_sign(-abs(v) + 3, dead=0) if isinstance(v, (int, float))
-                         else "", subset=["RS"]),
+                    _show,
                     width="stretch", hide_index=True, height=620,
                     on_select="rerun", selection_mode="single-row", key="apex_table",
-                    column_order=["#", "✅", "Ticker", "Sector", "Score"]
+                    column_order=["#", "Ticker", "Score", "Risk", "ValueArea", "RS", "Price"]
+                                 + (["Sector"] if "Sector" in _show.columns else [])
                                  + (["Macro", "Adj"] if "Adj" in _show.columns else [])
-                                 + ["Risk", "Vol%",
-                                  "RangePos", "ValueArea", "Regime", "RS", "Price",
-                                  "VAL", "POC", "VAH"],
+                                 + [c for c in ["Vol%", "RangePos", "Regime", "VAL", "POC", "VAH"]
+                                    if c in _show.columns],
                     column_config={
-                        "✅": st.column_config.Column(width="small", help="Passes the full tested gate."),
-                        "Score": st.column_config.Column(help="APEX conviction 0-100. Same number the indicator shows."),
-                        "Risk": st.column_config.Column(help="Volatility state. CALM is the only one that passes the tested gate."),
-                        "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
-                        "RangePos": st.column_config.Column(help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
-                        "ValueArea": st.column_config.Column(help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
-                        "Regime": st.column_config.Column(help="5-factor trend tally. Context — trend direction showed no forward edge in testing."),
-                        "RS": st.column_config.Column(help="20-bar return minus SPY's. The filter keeps ±3% — the middle of the pack."),
-                        "VAL": st.column_config.Column(help="Value area low."),
-                        "POC": st.column_config.Column(help="Point of control — the heaviest-volume price level."),
-                        "VAH": st.column_config.Column(help="Value area high."),
+                        "#": st.column_config.NumberColumn(" ", format="%d", width="small"),
+                        "Ticker": st.column_config.TextColumn("Ticker", width="small"),
+                        "Score": st.column_config.ProgressColumn(
+                            "Score", min_value=0, max_value=100, format="%.1f",
+                            help="APEX conviction 0-100. Same number the indicator shows."),
+                        "Risk": st.column_config.TextColumn(
+                            "Risk",
+                            help="Volatility state. CALM is the only one that passes the tested gate."),
+                        "ValueArea": st.column_config.TextColumn(
+                            "Value",
+                            help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
+                        "RS": st.column_config.NumberColumn(
+                            "RS", format="%+.2f%%",
+                            help="20-bar return minus SPY's. The filter keeps ±3% — the middle of the pack."),
+                        "Price": st.column_config.NumberColumn("Price", format="$%.2f"),
+                        "Sector": st.column_config.TextColumn("Sector"),
+                        "Vol%": st.column_config.NumberColumn(
+                            "Vol%", format="%.2f%%",
+                            help="20-bar realized volatility, this timeframe's own scale."),
+                        "RangePos": st.column_config.NumberColumn(
+                            "Range", format="%.0f%%",
+                            help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
+                        "Regime": st.column_config.TextColumn(
+                            "Regime",
+                            help="5-factor trend tally. Context — trend direction showed no forward edge in testing."),
+                        "VAL": st.column_config.NumberColumn("VAL", format="$%.2f", help="Value area low."),
+                        "POC": st.column_config.NumberColumn("POC", format="$%.2f",
+                            help="Point of control — the heaviest-volume price level."),
+                        "VAH": st.column_config.NumberColumn("VAH", format="$%.2f", help="Value area high."),
                     })
                 _rax = (_sel_ax.selection.rows if _sel_ax and getattr(_sel_ax, "selection", None) else [])
                 if _rax:
