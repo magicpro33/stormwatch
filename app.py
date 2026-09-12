@@ -1376,11 +1376,10 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
     st.stop()
 
 asof = str(closes.index[-1].date())
-(tab_map, tab_lookup, tab_top20, tab_apex, tab_macro, tab_lenses, tab_poc,
- tab_forecast_info, tab_guide) = st.tabs(
+(tab_map, tab_lookup, tab_top20, tab_apex, tab_poc, tab_macro,
+ tab_advanced) = st.tabs(
     ["🌊 Cascade Map", "🔎 Stock Lookup", "🏆 Top 20", "⚡ APEX FLOW",
-     "🧪 Macro Sim", "🔭 Lenses", "🎯 POC Future", "🌦 Forecast INFO",
-     "📖 Guide"])
+     "🎯 POC Future", "🧪 Macro Sim", "📖 Advanced Guide"])
 
 
 # Pressure gauge, resolved once for every tab. It used to be computed inside
@@ -3351,10 +3350,12 @@ with tab_poc:
                 "low R:R is by design: these win on hit rate, not payoff.")
 
 
-# ── 🌦 forecast info (pressure, sentinels, forced flows, validation) ─
-with tab_forecast_info:
-    tab_pressure, tab_sentinels, tab_forced, tab_lab = st.tabs(
-        ["🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab"])
+# ── 📖 advanced guide (context, validation, lenses, glossary) ─
+with tab_advanced:
+    (tab_pressure, tab_sentinels, tab_forced, tab_lab,
+     tab_lenses, tab_guide) = st.tabs(
+        ["🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab",
+         "🔭 Lenses", "📖 Guide"])
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
 with tab_pressure:
