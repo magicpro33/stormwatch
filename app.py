@@ -37,6 +37,20 @@ def _esc(s) -> str:
     """
     return _html.escape("" if s is None else str(s), quote=True)
 
+
+def _md_html(html: str) -> None:
+    """Render an HTML card without Streamlit's markdown parser.
+
+    A price like `$10.05` is enough for that parser to enter LaTeX mode;
+    everything after the dollar (the metric chips) then prints as raw
+    markup. `st.html` skips markdown. The `&#36;` fallback covers older
+    Streamlit builds.
+    """
+    if hasattr(st, "html"):
+        st.html(html)
+    else:
+        st.markdown(html.replace("$", "&#36;"), unsafe_allow_html=True)
+
 try:
     import apex_flow as af
     _APEX_ERR = ""
@@ -1354,7 +1368,7 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
             f"<div style='font-size:0.85em;color:{_HY_MUTED};text-transform:uppercase;"
             f"letter-spacing:.06em;'>{label}{tip_html}</div>"
             f"<div style='font-size:1.45em;font-weight:700;color:{color};margin-top:6px;"
-            f"line-height:1.15;'>{value}</div></div>"
+            f"line-height:1.15;'>{_esc(value)}</div></div>"
         )
 
     chips = (
@@ -1371,35 +1385,34 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
         + _chip("Ann. vol", f"{av:.0%}" if av is not None else "—", av_col,
                 "Annualised 21-day volatility. 60%+ (red) = wide swings, size smaller.")
     )
-    st.markdown(
-        f"""<div style='background:linear-gradient(135deg,#0d1b2a 0%,#1a2d45 100%);
-        border:1px solid #1e3a5f;border-radius:14px;padding:28px 28px 24px;margin-bottom:16px;'>
-        <div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;'>
-          <div style='flex:1;min-width:220px;'>
-            <div style='font-size:2.05em;font-weight:700;color:#e8f4fd;letter-spacing:-0.5px;line-height:1.15;'>
+    _md_html(
+        f"""<div style="background:linear-gradient(135deg,#0d1b2a 0%,#1a2d45 100%);
+        border:1px solid #1e3a5f;border-radius:14px;padding:28px 28px 24px;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;">
+          <div style="flex:1;min-width:220px;">
+            <div style="font-size:2.05em;font-weight:700;color:#e8f4fd;letter-spacing:-0.5px;line-height:1.15;">
               {_esc(name)}
-              <span style='font-size:0.48em;font-weight:500;color:#5b9bd5;
+              <span style="font-size:0.48em;font-weight:500;color:#5b9bd5;
               background:#0d2137;padding:4px 12px;border-radius:6px;margin-left:10px;
-              vertical-align:middle;'>{_esc(tk)}</span>
+              vertical-align:middle;">{_esc(tk)}</span>
             </div>
-            <div style='font-size:1.15em;color:#7fb3d3;margin-top:8px;'>
+            <div style="font-size:1.15em;color:#7fb3d3;margin-top:8px;">
               {_esc(sector)}{" · " + _esc(industry) if industry else ""}
             </div>
           </div>
-          <div style='text-align:right;flex-shrink:0;'>
-            <div style='font-size:2.8em;font-weight:700;color:#e8f4fd;line-height:1;'>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:2.8em;font-weight:700;color:#e8f4fd;line-height:1;">
               {"$" + f"{px:,.2f}" if px else "N/A"}
             </div>
-            <div style='font-size:1.2em;color:{chg_col};font-weight:600;margin-top:4px;'>
+            <div style="font-size:1.2em;color:{chg_col};font-weight:600;margin-top:4px;">
               {chg_sym} {abs(chg_pct):.2f}% today
             </div>
             {tgt_html}
           </div>
         </div>
-        <div style='display:flex;gap:12px;margin-top:22px;'>
+        <div style="display:flex;gap:12px;margin-top:22px;">
           {chips}
-        </div></div>""",
-        unsafe_allow_html=True,
+        </div></div>"""
     )
 
     bundle = _lookup_forecast_bundle(tk, df)
@@ -1411,7 +1424,7 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
             key_prefix=key_prefix,
         )
     else:
-        st.markdown(
+        _md_html(
             f"<div style='background:linear-gradient(135deg,#0d1b2a,#1a2d45);"
             f"border:1px solid #1e3a5f;border-radius:14px;padding:24px 28px;"
             f"margin-bottom:16px;'>"
@@ -1420,8 +1433,7 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
             f"<div style='color:{_HY_MUTED};font-size:1.05em;line-height:1.5;'>"
             f"Not enough look-alike history to forecast this one honestly "
             f"(needs ~70 sessions of price data to build a comparable profile)."
-            f"</div></div>",
-            unsafe_allow_html=True,
+            f"</div></div>"
         )
     try:
         ed = _tk_earnings(tk).get(tk)
