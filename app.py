@@ -1149,21 +1149,37 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
 
 
 
-def render_outcome_forecast(oc, tk):
-    """Think-tank forecast display: weather-dial headline + landing-zone bar,
-    with the 100-dots waffle and full histogram behind an expander."""
+def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None):
+    """Forecast card: odds-of-gain dial, cascade pressure, outlook.
+    100-dots waffle and histogram stay behind More views."""
     import math
     med, pu = oc["med21"], oc["p_up"]
     n = oc["n"]
-    mcol = GREEN if med > 0.005 else (RED if med < -0.005 else DIM)
     acol = GREEN if pu >= 0.55 else (RED if pu < 0.45 else "#d0b040")
     frac = min(max(pu, 0.02), 0.98)
     ang = math.pi * (1 - frac)
     ax, ay = 80 + 65 * math.cos(ang), 85 - 65 * math.sin(ang)
-    p_lift = oc["p_pop"] / max(oc["p_pop_base"], 1e-9)
-    d_lift = oc["p_drop"] / max(oc["p_drop_base"], 1e-9)
-    p_lc = GREEN if p_lift >= 1.15 else (RED if p_lift <= 0.85 else DIM)
-    d_lc = RED if d_lift >= 1.15 else (GREEN if d_lift <= 0.85 else DIM)
+
+    right = ""
+    if pressure:
+        pv, plabel, pcol = pressure["val"], pressure["label"], pressure["color"]
+        ptxt = "n/a" if pv is None else f"{pv:+.2f}"
+        right += (
+            f"<div style='font-size:12px;color:{DIM};letter-spacing:.06em;"
+            f"text-transform:uppercase;margin-bottom:4px;'>Net cascade pressure</div>"
+            f"<div style='font-size:22px;font-weight:700;color:{pcol};line-height:1.2;'>{ptxt}</div>"
+            f"<div style='font-size:13px;color:{pcol};margin:2px 0 12px;'>{_esc(plabel)}</div>"
+        )
+    if outlook:
+        right += (
+            f"<div style='border-left:3px solid {outlook['color']};padding:6px 0 6px 12px;'>"
+            f"<div style='font-size:16px;font-weight:700;'>{outlook['emo']} Outlook</div>"
+            f"<div style='font-size:14px;color:#d7e0ec;margin-top:3px;'>{_esc(outlook['text'])}</div>"
+            f"<div style='color:{DIM};font-size:12px;margin-top:6px;'>{_esc(outlook['detail'])}</div>"
+            f"</div>"
+        )
+    if not right:
+        right = f"<div style='color:{DIM};font-size:13px;'>across {n:,} look-alike cases</div>"
 
     st.markdown(f"""<div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;
       background:#0c1829;border:1px solid #1d2b40;border-radius:10px;padding:14px 18px;">
@@ -1175,55 +1191,8 @@ def render_outcome_forecast(oc, tk):
           <text x="80" y="88" text-anchor="middle" font-size="10" fill="{DIM}">odds of gain - 21 sessions</text>
         </svg>
       </div>
-      <div style="flex:1;min-width:220px;">
-        <div style="font-size:13px;color:{DIM};">typical (median) analog outcome</div>
-        <div style="font-size:34px;font-weight:800;color:{mcol};line-height:1.15;"
-             title="The median across all {n:,} analog cases: half did better, half worse. The most honest point estimate.">{med:+.1%}</div>
-        <div style="font-size:12px;color:{DIM};margin-bottom:10px;">across {n:,} look-alike cases</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <span title="Share of analogs that gained 15%+ in 21 sessions vs the all-stock base rate. Lift above 1.3x is a real tilt."
-                style="background:#0d2215;border:1px solid #1e6b35;color:#4dd880;border-radius:6px;font-size:12px;padding:3px 10px;">
-            🚀 pop +15%: {oc['p_pop']:.0%} <span style="color:{p_lc};">({p_lift:.1f}x base)</span></span>
-          <span title="Share of analogs that LOST 15%+, the other tail. Explosive setups usually carry both."
-                style="background:#220d0d;border:1px solid #a03535;color:#ff6b6b;border-radius:6px;font-size:12px;padding:3px 10px;">
-            💥 crash −15%: {oc['p_drop']:.0%} <span style="color:{d_lc};">({d_lift:.1f}x base)</span></span>
-        </div>
-      </div>
+      <div style="flex:1;min-width:220px;">{right}</div>
     </div>""", unsafe_allow_html=True)
-
-    q10, q90 = oc["q10"], oc["q90"]
-    span = (q90 - q10) or 1e-9
-    pos = lambda v: min(max((v - q10) / span, 0.0), 1.0) * 100
-    z, m = pos(0.0), pos(med)
-    zl = min(max(z, 6), 94)
-    ml = min(max(m, 8), 92)
-    if q10 >= 0:
-        segs = "<div style='position:absolute;top:26px;left:0;width:100%;height:12px;background:#1d5a41;border-radius:6px;'></div>"
-    elif q90 <= 0:
-        segs = "<div style='position:absolute;top:26px;left:0;width:100%;height:12px;background:#5a2626;border-radius:6px;'></div>"
-    else:
-        segs = (f"<div style='position:absolute;top:26px;left:0;width:{z:.1f}%;height:12px;background:#5a2626;border-radius:6px 0 0 6px;'></div>"
-                f"<div style='position:absolute;top:26px;left:{z:.1f}%;width:{100-z:.1f}%;height:12px;background:#1d5a41;border-radius:0 6px 6px 0;'></div>"
-                f"<div style='position:absolute;top:20px;left:{z:.1f}%;width:2px;height:24px;background:#F6F4E9;'></div>"
-                f"<div style='position:absolute;top:46px;left:{zl:.1f}%;transform:translateX(-50%);font-size:11px;color:{DIM};margin-top:4px;'>0%</div>")
-    st.markdown(f"""<div style="margin-top:10px;">
-      <div style="font-size:13px;color:{DIM};margin-bottom:2px;"
-           title="The 10th-to-90th percentile of analog outcomes: 8 of 10 look-alikes finished inside this range.">
-        Landing zone — where 80% of the {n:,} look-alikes finished:</div>
-      <div style="position:relative;height:76px;margin:0 10px;">
-        {segs}
-        <div style="position:absolute;top:14px;left:{m:.1f}%;width:3px;height:36px;background:{mcol};border-radius:2px;"></div>
-        <div style="position:absolute;top:0;left:{ml:.1f}%;transform:translateX(-50%);font-size:12px;font-weight:700;color:{mcol};white-space:nowrap;">median {med:+.1%}</div>
-        <div style="position:absolute;top:46px;left:6%;transform:translateX(-50%);font-size:11px;color:#ff6b6b;margin-top:4px;text-align:center;">{q10:+.0%}<br><span style="color:{DIM};">worst 10%</span></div>
-        <div style="position:absolute;top:46px;left:94%;transform:translateX(-50%);font-size:11px;color:#4dd880;margin-top:4px;text-align:center;">{q90:+.0%}<br><span style="color:{DIM};">best 10%</span></div>
-      </div>
-    </div>""", unsafe_allow_html=True)
-
-    st.caption(f"Matched on: momentum pctile {oc['feats']['mom_pct']:.0%} · "
-               f"range position {oc['feats']['rangepos']:.0%} · "
-               f"RVOL {oc['feats']['rvol']:.1f}x · "
-               f"{'above' if oc['feats']['above_ma50'] else 'below'} 50d MA"
-               + (f" · match widened {oc['widen']:.1f}×" if oc.get('widen', 1) > 1 else ""))
 
     with st.expander("🔬 More views — 100 look-alikes & full distribution"):
         n_pop = int(round(oc["p_pop"] * 100))
@@ -1855,7 +1824,7 @@ with tab_lookup:
                        "automatically so you can score it later.")
 
             # ── outcome forecast ────────────────────────────────────
-            st.subheader("🌦 Outcome forecast (analog method)")
+            st.subheader("🌦 Forecast")
             try:
                 F, R = _analog_library(asof)
                 oc = ce.outcome_forecast(tk, F, R, hist=df_tk)
@@ -1866,42 +1835,42 @@ with tab_lookup:
                         "honestly (needs ~70 sessions of price data to build "
                         "a comparable profile).")
             else:
-                render_outcome_forecast(oc, tk)
-
-                # ── cascade context ─────────────────────────────────
-                st.subheader("🌊 Cascade context — what leads this stock")
                 dr = _drivers(tk, asof)
                 if dr.empty:
-                    st.caption("No reliable upstream drivers found in the node graph.")
+                    tail = None
+                    tcol, tlabel = DIM, "no reliable upstream drivers"
                 else:
                     tail = float(dr.push.sum())
-                    st.dataframe(
-                        dr.rename(columns={"node_name": "Driver node",
-                                           "follow_corr": "Leads it (corr)",
-                                           "node_z": "Driver impulse now",
-                                           "push": "Push"})
-                        .drop(columns=["node"])
-                        .style.format({"Leads it (corr)": "{:+.2f}",
-                                       "Driver impulse now": "{:+.2f}",
-                                       "Push": "{:+.2f}"})
-                        .map(lambda v: _css_sign(v, dead=0.3), subset=["Driver impulse now"])
-                        .map(lambda v: _css_sign(v, dead=0.2), subset=["Push"]),
-                        width="stretch", hide_index=True,
-                        column_config={
-                            "Leads it (corr)": st.column_config.Column(
-                                help="How reliably this node's 5-day move shows up in the stock ONE WEEK later. Negative = inverse driver."),
-                            "Driver impulse now": st.column_config.Column(
-                                help="The driver's flow impulse z RIGHT NOW. A firing driver (|z|>1.25) is a wave already in motion toward this stock."),
-                            "Push": st.column_config.Column(
-                                help="corr × current impulse: the direction and rough strength of the pressure arriving over the next ~week."),
-                        })
                     tcol = GREEN if tail > 0.5 else (RED if tail < -0.5 else DIM)
                     tlabel = ("tailwind — upstream waves are pushing it UP" if tail > 0.5 else
                               "headwind — upstream waves are pushing it DOWN" if tail < -0.5 else
                               "neutral — no meaningful wave pressure")
-                    st.markdown(f"**Net cascade pressure:** "
-                                f"<span style='color:{tcol};font-weight:700;'>{tail:+.2f} · {tlabel}</span>",
-                                unsafe_allow_html=True)
+                score = (
+                    (1 if oc["med21"] > 0.01 else -1 if oc["med21"] < -0.01 else 0)
+                    + (1 if oc["p_up"] >= 0.56 else -1 if oc["p_up"] <= 0.46 else 0)
+                    + (1 if tail is not None and tail > 0.5 else
+                       -1 if tail is not None and tail < -0.5 else 0)
+                )
+                v_emo, v_txt, v_col = (
+                    ("🌞", "Favorable — analogs lean positive AND the cascade is pushing the same way.", GREEN) if score >= 2 else
+                    ("🌤", "Mildly favorable — the tilt is real but modest. Half-size territory.", GREEN) if score == 1 else
+                    ("🌧", "Unfavorable — look-alikes lost ground and/or waves are pushing against it.", RED) if score <= -1 else
+                    ("⛅", "Mixed — no measurable edge either way. Doing nothing is a position.", DIM))
+                p_detail = "n/a" if tail is None else f"{tail:+.2f}"
+                render_outcome_forecast(
+                    oc, tk,
+                    pressure={"val": tail, "label": tlabel, "color": tcol},
+                    outlook={
+                        "emo": v_emo, "text": v_txt, "color": v_col,
+                        "detail": (
+                            f"Analog median {oc['med21']:+.1%} · "
+                            f"odds up {oc['p_up']:.0%} · "
+                            f"cascade pressure {p_detail} · "
+                            f"{oc['n']:,} historical look-alikes. "
+                            "Probability tilt, not prophecy — not investment advice."
+                        ),
+                    },
+                )
 
                 # ── earnings landmine check ─────────────────────────
                 try:
@@ -1915,22 +1884,6 @@ with tab_lookup:
                                    "binary event INSIDE the forecast horizon. Analog "
                                    "statistics do not apply through earnings gaps; "
                                    "either exit before, or size for the gap.")
-
-                # ── plain-language verdict ──────────────────────────
-                score = (1 if oc["med21"] > 0.01 else -1 if oc["med21"] < -0.01 else 0)                         + (1 if oc["p_up"] >= 0.56 else -1 if oc["p_up"] <= 0.46 else 0)                         + (1 if not dr.empty and tail > 0.5 else -1 if not dr.empty and tail < -0.5 else 0)
-                v_emo, v_txt, v_col = (
-                    ("🌞", "Favorable — analogs lean positive AND the cascade is pushing the same way.", GREEN) if score >= 2 else
-                    ("🌤", "Mildly favorable — the tilt is real but modest. Half-size territory.", GREEN) if score == 1 else
-                    ("🌧", "Unfavorable — look-alikes lost ground and/or waves are pushing against it.", RED) if score <= -1 else
-                    ("⛅", "Mixed — no measurable edge either way. Doing nothing is a position.", DIM))
-                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                    border-left:4px solid {v_col};border-radius:10px;padding:12px 16px;margin-top:6px;">
-                    <span style="font-size:17px;font-weight:700;">{v_emo} Outlook: </span>
-                    <span style="font-size:14px;">{v_txt}</span><br>
-                    <span style="color:{DIM};font-size:12px;">Analog median {oc['med21']:+.1%} ·
-                    odds up {oc['p_up']:.0%} · cascade pressure {('n/a' if dr.empty else f'{tail:+.2f}')} ·
-                    {oc['n']:,} historical look-alikes. Probability tilt, not prophecy — not investment advice.</span>
-                    </div>""", unsafe_allow_html=True)
 
         # ── IGNITION Stock Analyzer (ported) — full fundamental deep dive ──
         st.divider()
