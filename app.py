@@ -2666,127 +2666,139 @@ with tab_apex:
                  "then reboot the app. The rest of the app still works.")
 
     else:
-        _rail, _board = st.columns([1, 2.55], gap="large")
+        st.caption("The APEX FLOW indicator, run across the whole market. Same 0-100 "
+                   "conviction score as the TradingView script — risk gate 35 + range "
+                   "position 25 + value-area structure 15 + regime 15 + trend quality 10 "
+                   "— so anything that ranks here looks identical on your chart.")
 
-        with _rail:
-            st.markdown(
-                "<div style='font-size:11px;letter-spacing:.12em;text-transform:uppercase;"
-                f"color:{DIM};margin-bottom:4px'>APEX FLOW</div>"
-                "<div style='font-size:20px;font-weight:700;margin-bottom:8px'>Scan console</div>",
+        _tf_names = list(af.TIMEFRAMES)
+        _ac1, _ac2, _ac3 = st.columns([2, 1, 1], vertical_alignment="bottom")
+        _tf = _ac1.radio("Timeframe", _tf_names, key="apex_tf", horizontal=True,
+                         help="1 Day is the only timeframe the score was validated on. "
+                              "Lower timeframes rescale the volatility thresholds "
+                              "correctly, but the edge itself is unproven there — see "
+                              "the badge below.")
+        _meta = af.TIMEFRAMES[_tf]
+        _top_n = _ac2.number_input("Show top", 10, 200, 40, step=10, key="apex_top")
+        _min_score = _ac3.slider("Min score", 0, 100, 80, step=5, key="apex_minscore",
+                                 help="80 is the tested gate. Lower it to see more names.")
+
+        # ── validation badge — the honest label for this timeframe ──
+        if _meta["validated"]:
+            st.markdown(f"""<div style="background:#0d2215;border:1px solid #1e6b35;
+                border-left:4px solid {GREEN};border-radius:10px;padding:11px 16px;margin:8px 0 6px;">
+                <span style="font-weight:800;color:#4dd880;">✅ VALIDATED TIMEFRAME</span>
+                <span style="color:#d7e0ec;font-size:13px;margin-left:8px;">
+                Daily bars, 984 held-out tickers: the score ≥ 80 + CALM + RS gate produced a
+                <b>60.2% win rate</b> and a <b>4.28%</b> chance of a &gt;10% loss over 20 sessions,
+                against a 50.7% baseline.</span></div>""", unsafe_allow_html=True)
+        else:
+            _sc = af.tf_scale(_meta["bars_per_day"])
+            st.markdown(f"""<div style="background:#1a1500;border:1px solid #907020;
+                border-left:4px solid #d0b040;border-radius:10px;padding:11px 16px;margin:8px 0 6px;">
+                <span style="font-weight:800;color:#d0b040;">⚠️ UNVALIDATED TIMEFRAME</span>
+                <span style="color:#d7e0ec;font-size:13px;margin-left:8px;">
+                The volatility thresholds are rescaled correctly for {_tf} bars
+                (CALM ≤ <b>{af.VOL_CALM_D*_sc:.2f}%</b>, HIGH &gt; <b>{af.VOL_HIGH_D*_sc:.2f}%</b>
+                instead of the daily 2.50% / 4.00%), so the gate still filters. But the
+                60% win rate was measured on <b>daily</b> bars only. On {_tf} bars the
+                20-bar range and 50-bar profile cover a few hours of microstructure, not a
+                swing — treat these as candidates to chart, not a proven edge.</span></div>""",
                 unsafe_allow_html=True)
 
-            _tf_names = list(af.TIMEFRAMES)
-            _tf = st.radio("Timeframe", _tf_names, key="apex_tf",
-                           help="1 Day is the only timeframe the score was validated on. "
-                                "Lower timeframes rescale the volatility thresholds "
-                                "correctly, but the edge itself is unproven there.")
-            _meta = af.TIMEFRAMES[_tf]
-            if _meta["validated"]:
-                st.markdown(
-                    f"<div style='background:#0d2215;border:1px solid #1e6b35;border-radius:8px;"
-                    f"padding:7px 10px;font-size:12px;color:#4dd880;margin:4px 0 8px'>"
-                    f"<b>Validated daily</b> · 60.2% wins · 4.28% &gt;10% loss</div>",
-                    unsafe_allow_html=True)
-            else:
-                _sc = af.tf_scale(_meta["bars_per_day"])
-                st.markdown(
-                    f"<div style='background:#1a1500;border:1px solid #907020;border-radius:8px;"
-                    f"padding:7px 10px;font-size:12px;color:#d0b040;margin:4px 0 8px'>"
-                    f"<b>Unvalidated</b> · {_esc(_tf)} thresholds rescaled "
-                    f"(CALM ≤ {af.VOL_CALM_D*_sc:.2f}%). Daily 60% win rate does not apply.</div>",
-                    unsafe_allow_html=True)
-
-            _top_n = st.number_input("Show top", 10, 200, 40, step=10, key="apex_top")
-            _min_score = st.slider("Min score", 0, 100, 80, step=5, key="apex_minscore",
-                                   help="80 is the tested gate. Lower it to see more names.")
-
-            _ap_pending = st.session_state.pop("_apex_sectors_pending", None)
-            if _ap_pending:
-                st.session_state["apex_sectors"] = _ap_pending
-            try:
-                _all_secs = _apex_sector_list(asof)
-            except Exception:
-                _all_secs = []
-            _AX_OFF = "🚫 Off — no macro tilt"
-            _AX_AUTO = "📡 Auto — detect the live regime"
-            _ax_opts = {_AX_OFF: "off", _AX_AUTO: None}
-            _ax_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
-            _ax_lens_label = st.selectbox(
-                "Macro lens", list(_ax_opts), key="apex_lens",
-                help=HELP["macro_lens"] + " The lens NEVER changes the APEX score or "
-                     "the CALM/RS gates — it only re-orders the names that already "
-                     "passed them.")
-            _ax_lens = _ax_opts.get(_ax_lens_label)
-            if _ax_lens == "off":
-                _ax_tilts = None
-                _ax_regkey = None
-            else:
-                _ax_regkey = _ax_lens
-                if _ax_regkey is None:
-                    try:
-                        _ax_regkey = ce.macro_regime(
-                            closes, pressure_gauge=GAUGE)["regime"]
-                    except Exception:
-                        _ax_regkey = "base"
-                _ax_tilts = ce.SECTOR_TILTS.get(_ax_regkey) or None
-            if _ax_regkey:
-                _axc = ce.REGIME_CARDS.get(_ax_regkey)
-                if _axc:
-                    st.markdown(
-                        f"<div style='background:#081325;border-left:3px solid {ACCENT};"
-                        f"padding:6px 10px;margin:4px 0 8px;font-size:12px'>"
-                        f"<b>{_esc(_axc['name'])}</b>"
-                        f"<span style='color:{DIM}'> — {_esc(_axc.get('thesis') or '')}</span>"
-                        f"<br><span style='color:{GREEN}'>▲ {_esc(_axc['leads'])}</span>"
-                        f"<br><span style='color:{RED}'>▼ {_esc(_axc['lags'])}</span></div>",
-                        unsafe_allow_html=True)
-                    with st.expander(f"{_axc['name']} playbook"):
-                        render_lens_playbook(_axc, _ax_regkey, full=False)
-                        st.caption("Full playbooks are in Advanced Guide → Lenses.")
-                else:
-                    st.caption("No tilt card for this regime.")
-            else:
-                st.caption("No tilt — pure APEX ranking.")
-
-            _a_lb, _a_off, _a_lbl = flow_window_picker("apex")
-            if st.button("Use today's hot sectors", key="apex_hot",
-                         width="stretch",
-                         help="Replace the sector selection with the sectors that "
-                              "received the most money in the last session."):
+        _ap_pending = st.session_state.pop("_apex_sectors_pending", None)
+        if _ap_pending:
+            st.session_state["apex_sectors"] = _ap_pending
+        try:
+            _all_secs = _apex_sector_list(asof)
+        except Exception:
+            _all_secs = []
+        _ax_l1, _ax_l2 = st.columns([1, 1])
+        _AX_OFF = "🚫 Off — no macro tilt"
+        _AX_AUTO = "📡 Auto — detect the live regime"
+        _ax_opts = {_AX_OFF: "off", _AX_AUTO: None}
+        _ax_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
+        _ax_lens_label = _ax_l1.selectbox(
+            "Macro lens", list(_ax_opts), key="apex_lens",
+            help=HELP["macro_lens"] + " The lens NEVER changes the APEX score or "
+                 "the CALM/RS gates — it only re-orders the names that already "
+                 "passed them.")
+        _ax_lens = _ax_opts.get(_ax_lens_label)
+        if _ax_lens == "off":
+            _ax_tilts = None
+            _ax_regkey = None
+        else:
+            _ax_regkey = _ax_lens
+            if _ax_regkey is None:
                 try:
-                    _hot = _hot_sectors(asof, 5, _a_lb, _a_off)
-                    if _hot:
-                        st.session_state["_apex_sectors_pending"] = _hot
-                        st.rerun()
-                except Exception as _he:
-                    st.caption(f"Hot sectors unavailable: {_he}")
+                    _ax_regkey = ce.macro_regime(
+                        closes, pressure_gauge=GAUGE)["regime"]
+                except Exception:
+                    _ax_regkey = "base"
+            _ax_tilts = ce.SECTOR_TILTS.get(_ax_regkey) or None
+        if _ax_regkey:
+            _axc = ce.REGIME_CARDS.get(_ax_regkey)
+            if _axc:
+                _ax_l2.markdown(
+                    f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
+                    padding:7px 12px;margin-top:26px;font-size:12.5px;">
+                    <b>{_axc['emoji']} {_axc['name']}</b>
+                    <span style="color:{DIM};"> — {_esc(_axc.get('thesis') or '')}</span>
+                    <br><span style="color:{GREEN};"> ▲ {_esc(_axc['leads'])}</span>
+                    <br><span style="color:{RED};"> ▼ {_esc(_axc['lags'])}</span></div>""",
+                    unsafe_allow_html=True)
+                with st.expander(f"📖 {_axc['name']} playbook — who wins, who loses"):
+                    render_lens_playbook(_axc, _ax_regkey, full=False)
+                    st.caption("Full playbooks are in the 🔭 Lenses tab.")
+            else:
+                _ax_l2.caption("No tilt card for this regime.")
+        else:
+            _ax_l2.caption("No tilt — pure APEX ranking.")
+
+        _a_lb, _a_off, _a_lbl = flow_window_picker("apex")
+        _hs1, _hs2 = st.columns([1, 3])
+        if _hs1.button("🔥 Use today's hot sectors", key="apex_hot",
+                       width="stretch",
+                       help="Replace the sector selection with the sectors that "
+                            "received the most money in the last session."):
             try:
-                _hs_now = _hot_sectors(asof, 5, _a_lb, _a_off)
-                if _hs_now:
-                    st.caption(f"Hottest ({_a_lbl}): " + " · ".join(_hs_now))
-            except Exception:
-                pass
+                _hot = _hot_sectors(asof, 5, _a_lb, _a_off)
+                if _hot:
+                    st.session_state["_apex_sectors_pending"] = _hot
+                    st.rerun()
+            except Exception as _he:
+                st.caption(f"Hot sectors unavailable: {_he}")
+        try:
+            _hs_now = _hot_sectors(asof, 5, _a_lb, _a_off)
+            if _hs_now:
+                _hs2.caption(f"🔥 Hottest ({_a_lbl}): " + " · ".join(_hs_now))
+        except Exception:
+            pass
 
-            _ms_kw = ({} if "apex_sectors" in st.session_state
-                      else {"default": _all_secs})
-            _picked_secs = st.multiselect(
-                "Sectors", _all_secs, key="apex_sectors", **_ms_kw,
-                help="Defaults to every sector. Narrow it to focus the scan — the "
-                     "top-N cut is applied WITHIN your selection, so you always get a "
-                     "full list from the sectors you picked, not leftovers from a "
-                     "whole-market ranking.")
-            _sec_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
-                           else _picked_secs)
-            if _sec_filter:
-                st.caption(f"Scanning {len(_sec_filter)} of {len(_all_secs)} sectors.")
+        _ms_kw = ({} if "apex_sectors" in st.session_state
+                  else {"default": _all_secs})
+        _picked_secs = st.multiselect(
+            "Sectors", _all_secs, key="apex_sectors", **_ms_kw,
+            help="Defaults to every sector. Narrow it to focus the scan — the "
+                 "top-N cut is applied WITHIN your selection, so you always get a "
+                 "full list from the sectors you picked, not leftovers from a "
+                 "whole-market ranking.")
+        # all (or none) selected == no filtering, which preserves the exact
+        # whole-market behaviour including names with an odd/blank sector
+        _sec_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
+                       else _picked_secs)
+        if _sec_filter:
+            st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_all_secs)} sectors.")
 
-            _require_calm = st.checkbox("CALM volatility only", True, key="apex_calm",
+        with st.expander("⚙️ Filters"):
+            _f1, _f2, _f3, _f4 = st.columns(4)
+            _require_calm = _f1.checkbox("CALM volatility only", True, key="apex_calm",
                 help="The validated configuration. Off = also allow NORMAL-volatility names.")
-            _apply_rs = st.checkbox("Relative-strength filter", True, key="apex_rs",
+            _apply_rs = _f2.checkbox("Relative-strength filter", True, key="apex_rs",
                 help="Keep only names tracking within ±3% of SPY over 20 bars. Lifted the "
                      "win rate from 54.9% to 60.2% in testing.")
-            _min_price = st.number_input("Min price $", 1.0, 500.0, 5.0, step=1.0, key="apex_px")
-            _min_dv = st.number_input("Min $ volume (M)", 0.0, 500.0, 5.0, step=1.0,
+            _min_price = _f3.number_input("Min price $", 1.0, 500.0, 5.0, step=1.0, key="apex_px")
+            _min_dv = _f4.number_input("Min $ volume (M)", 0.0, 500.0, 5.0, step=1.0,
                 key="apex_dv", help="Median daily dollar volume. The CALM gate rewards low "
                      "volatility, and a stock that barely trades satisfies that trivially — "
                      "this keeps dead microcaps out of the results.")
@@ -2798,159 +2810,150 @@ with tab_apex:
             else:
                 _uni_n = None
 
-            _go = st.button("Run scan", key="apex_go", type="primary", width="stretch")
-            if _go:
-                st.session_state["apex_run"] = True
-                st.session_state["apex_run_tf"] = _tf
-            if st.session_state.get("apex_run") and st.session_state.get("apex_run_tf") != _tf:
-                st.session_state["apex_run"] = False
-            _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
-            if _go:
-                st.session_state["apex_run_secs"] = _sec_key
-            elif (st.session_state.get("apex_run")
-                  and st.session_state.get("apex_run_secs") not in (None, _sec_key)):
-                st.session_state["apex_run"] = False
+        _go = st.button("⚡ Run APEX scan", key="apex_go", type="primary", width="stretch")
+        if _go:
+            st.session_state["apex_run"] = True
+            st.session_state["apex_run_tf"] = _tf
+        # invalidate a stale result when the timeframe changes
+        if st.session_state.get("apex_run") and st.session_state.get("apex_run_tf") != _tf:
+            st.session_state["apex_run"] = False
+        _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
+        if _go:
+            st.session_state["apex_run_secs"] = _sec_key
+        elif (st.session_state.get("apex_run")
+              and st.session_state.get("apex_run_secs") not in (None, _sec_key)):
+            st.session_state["apex_run"] = False
 
-        with _board:
-            if st.session_state.get("apex_run"):
-                try:
-                    with st.spinner(f"Scoring on {_tf} bars…"):
-                        if _meta["validated"]:
-                            _res = af.scan_daily(
-                                min_price=float(_min_price), min_dollar_vol=float(_min_dv) * 1e6,
-                                require_calm=_require_calm, min_score=float(_min_score),
-                                top=int(_top_n), apply_rs=_apply_rs,
-                                only_sectors=_sec_filter, macro_tilts=_ax_tilts)
-                            _src = ("nightly dump · whole market" if not _sec_filter
-                                    else f"nightly dump · {len(_sec_filter)} sector"
-                                         f"{'s' if len(_sec_filter) != 1 else ''}")
-                        else:
-                            _uni, _secmap = af.liquid_universe(
-                                int(_uni_n), float(_min_price), only_sectors=_sec_filter)
-                            _res = af.scan_intraday(
-                                _tf, _uni, require_calm=_require_calm,
-                                min_score=float(_min_score), top=int(_top_n),
-                                sectors=_secmap, apply_rs=_apply_rs,
-                                macro_tilts=_ax_tilts)
-                            _src = (f"Alpaca {_meta['alpaca']} bars · top {_uni_n} by liquidity"
-                                    + (f" · {len(_sec_filter)} sectors" if _sec_filter else ""))
-                except Exception as e:
-                    _res, _src = pd.DataFrame(), ""
-                    st.error(f"Scan failed: {e}")
-
-                if _res is None or _res.empty:
+        if st.session_state.get("apex_run"):
+            try:
+                with st.spinner(f"Scoring on {_tf} bars…"):
                     if _meta["validated"]:
-                        st.warning("No names passed. Loosen the filters — drop the min score, "
-                                   "or turn off the RS filter.")
+                        _res = af.scan_daily(
+                            min_price=float(_min_price), min_dollar_vol=float(_min_dv) * 1e6,
+                            require_calm=_require_calm, min_score=float(_min_score),
+                            top=int(_top_n), apply_rs=_apply_rs,
+                            only_sectors=_sec_filter, macro_tilts=_ax_tilts)
+                        _src = ("nightly dump · whole market" if not _sec_filter
+                                else f"nightly dump · {len(_sec_filter)} sector"
+                                     f"{'s' if len(_sec_filter) != 1 else ''}")
                     else:
-                        st.warning("No intraday results. This needs **Alpaca API keys** in "
-                                   "`.streamlit/secrets.toml` (`ALPACA_API_KEY` / "
-                                   "`ALPACA_SECRET_KEY`) — the nightly dump is daily-only, so "
-                                   "intraday bars come from Alpaca. If keys are set, try a "
-                                   "larger universe or a looser min score.")
+                        _uni, _secmap = af.liquid_universe(
+                            int(_uni_n), float(_min_price), only_sectors=_sec_filter)
+                        _res = af.scan_intraday(
+                            _tf, _uni, require_calm=_require_calm,
+                            min_score=float(_min_score), top=int(_top_n),
+                            sectors=_secmap, apply_rs=_apply_rs,
+                            macro_tilts=_ax_tilts)
+                        _src = (f"Alpaca {_meta['alpaca']} bars · top {_uni_n} by liquidity"
+                                + (f" · {len(_sec_filter)} sectors" if _sec_filter else ""))
+            except Exception as e:
+                _res, _src = pd.DataFrame(), ""
+                st.error(f"Scan failed: {e}")
+
+            if _res is None or _res.empty:
+                if _meta["validated"]:
+                    st.warning("No names passed. Loosen the filters — drop the min score, "
+                               "or turn off the RS filter.")
                 else:
-                    _g = int(_res["Gate"].sum())
-                    _m1, _m2, _m3, _m4 = st.columns(4)
-                    _m1.metric("Names found", len(_res))
-                    _m2.metric("Full gate", _g,
-                               help="Score ≥ 80 AND CALM AND relative strength in band — "
-                                    "the exact configuration that was tested.")
-                    _m3.metric("Top score", f"{_res['Score'].max():.1f}")
-                    _m4.metric("Median vol", f"{_res['Vol%'].median():.2f}%")
-                    st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
-
-                    _show = _res.copy()
-                    _show["✅"] = np.where(_show["Gate"], "✅", "")
-                    _sel_ax = st.dataframe(
-                        _show.style.format({
-                            "Score": "{:.1f}", "Adj": "{:.1f}", "Macro": "{:.2f}",
-                            "Price": "${:,.2f}", "Vol%": "{:.2f}%",
-                            "RangePos": "{:.0f}%", "RS": "{:+.2f}%",
-                            "POC": "${:,.2f}", "VAL": "${:,.2f}", "VAH": "${:,.2f}"}, na_rep="—")
-                        .map(lambda v: f"color:{ACCENT};font-weight:700"
-                             if isinstance(v, (int, float)) and v >= 85 else "", subset=["Score"])
-                        .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "CALM"
-                                        else (f"color:{RED};font-weight:600" if v == "HIGH"
-                                              else "color:#d0b040")), subset=["Risk"])
-                        .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "BELOW VALUE"
-                                        else (f"color:{DIM}" if v == "IN VALUE"
-                                              else "color:#b565f3")), subset=["ValueArea"])
-                        .map(lambda v: _css_sign(-abs(v) + 3, dead=0) if isinstance(v, (int, float))
-                             else "", subset=["RS"]),
-                        width="stretch", hide_index=True, height=620,
-                        on_select="rerun", selection_mode="single-row", key="apex_table",
-                        column_order=["#", "✅", "Ticker", "Sector", "Score"]
-                                     + (["Macro", "Adj"] if "Adj" in _show.columns else [])
-                                     + ["Risk", "Vol%",
-                                      "RangePos", "ValueArea", "Regime", "RS", "Price",
-                                      "VAL", "POC", "VAH"],
-                        column_config={
-                            "✅": st.column_config.Column(width="small", help="Passes the full tested gate."),
-                            "Score": st.column_config.Column(help="APEX conviction 0-100. Same number the indicator shows."),
-                            "Risk": st.column_config.Column(help="Volatility state. CALM is the only one that passes the tested gate."),
-                            "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
-                            "RangePos": st.column_config.Column(help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
-                            "ValueArea": st.column_config.Column(help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
-                            "Regime": st.column_config.Column(help="5-factor trend tally. Context — trend direction showed no forward edge in testing."),
-                            "RS": st.column_config.Column(help="20-bar return minus SPY's. The filter keeps ±3% — the middle of the pack."),
-                            "VAL": st.column_config.Column(help="Value area low."),
-                            "POC": st.column_config.Column(help="Point of control — the heaviest-volume price level."),
-                            "VAH": st.column_config.Column(help="Value area high."),
-                        })
-                    _rax = (_sel_ax.selection.rows if _sel_ax and getattr(_sel_ax, "selection", None) else [])
-                    if _rax:
-                        _tkax = _show.iloc[_rax[0]].Ticker
-                        if st.session_state.get("_apex_handled") != _tkax:
-                            st.session_state["_apex_handled"] = _tkax
-                            st.session_state["lk_tk"] = _tkax
-                            st.rerun()
-                    if st.session_state.get("lk_tk"):
-                        st.info(f"**{st.session_state['lk_tk']}** loaded — open "
-                                "Stock Lookup for the full analysis.")
-                    st.caption("Tap any row to load it into Stock Lookup.")
-                    st.download_button("Download CSV", _res.to_csv(index=False),
-                                       f"apex_flow_{_tf.replace(' ','')}_{asof}.csv",
-                                       "text/csv", key="apex_csv")
+                    st.warning("No intraday results. This needs **Alpaca API keys** in "
+                               "`.streamlit/secrets.toml` (`ALPACA_API_KEY` / "
+                               "`ALPACA_SECRET_KEY`) — the nightly dump is daily-only, so "
+                               "intraday bars come from Alpaca. If keys are set, try a "
+                               "larger universe or a looser min score.")
             else:
-                st.markdown(
-                    f"<div style='background:#0c1829;border:1px solid #1d2b40;border-radius:12px;"
-                    f"padding:28px 24px;color:{DIM};line-height:1.55'>"
-                    f"<div style='font-size:16px;font-weight:700;color:#F6F4E9;margin-bottom:6px'>"
-                    f"Set the rail, then run</div>"
-                    f"Same 0–100 conviction score as the TradingView script — "
-                    f"risk 35 + range 25 + value-area 15 + regime 15 + trend 10. "
-                    f"Controls stay on the left so the board does not jump when you tweak a filter.</div>",
-                    unsafe_allow_html=True)
+                _g = int(_res["Gate"].sum())
+                _m1, _m2, _m3, _m4 = st.columns(4)
+                _m1.metric("Names found", len(_res))
+                _m2.metric("Full gate ✅", _g,
+                           help="Score ≥ 80 AND CALM AND relative strength in band — "
+                                "the exact configuration that was tested.")
+                _m3.metric("Top score", f"{_res['Score'].max():.1f}")
+                _m4.metric("Median vol", f"{_res['Vol%'].median():.2f}%")
+                st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
 
-            with st.expander("How APEX FLOW scores a stock"):
-                st.markdown(
-                    "**The score, 0-100** — identical to the TradingView indicator:\n\n"
-                    "| Component | Max | What earns it |\n|---|---|---|\n"
-                    "| Risk gate | 35 | 20-bar realized volatility. CALM = full 35. |\n"
-                    "| Range position | 25 | Scaled by position in the 20-bar range — at the lows earns most. |\n"
-                    "| Value-area structure | 15 | Below the 50-bar volume profile's value area = 15, inside = 10, above = 3. |\n"
-                    "| Regime | 15 | 5-factor trend tally (price vs 20/50/200 MA, MA stack). |\n"
-                    "| Trend quality | 10 | Price above the structural MA. |\n\n"
-                    "**Then two filters:** CALM volatility only, and relative strength within "
-                    "±3% of SPY over 20 bars.\n\n"
-                    "**What the evidence actually supports.** On daily bars, across 984 "
-                    "held-out tickers, win rate rose monotonically with the score (43% in the "
-                    "lowest band to 67% in the highest) and the chance of a >10% loss fell "
-                    "from ~23% to ~4%. The gate configuration scored 60.2% wins vs a 50.7% "
-                    "baseline.\n\n"
-                    "**What it does NOT do** — reliably raise your *average* return. Ex-crash "
-                    "the gate averaged +0.274% versus a +0.249% baseline, which is noise. "
-                    "This ranks setups by how unlikely they are to blow up on you, not by how "
-                    "far they'll run.\n\n"
-                    "**Liquidity guard.** The CALM gate rewards low volatility, which a stock "
-                    "that barely trades satisfies trivially — early testing filled the top of "
-                    "the list with dead microcaps printing 0.2% daily vol. Names below a "
-                    "volatility floor, or with gappy history, are dropped before ranking.\n\n"
-                    "**Sector skew, worth knowing.** Because the gate selects the quietest "
-                    "names, roughly a third of qualifiers are Financial Services. That's the "
-                    "filter working as designed, but it means the list is less diversified "
-                    "than it looks — size accordingly.\n\n"
-                    "Research tool. Probability tilts, not prophecy. Not investment advice.")
+                _show = _res.copy()
+                _show["✅"] = np.where(_show["Gate"], "✅", "")
+                _sel_ax = st.dataframe(
+                    _show.style.format({
+                        "Score": "{:.1f}", "Adj": "{:.1f}", "Macro": "{:.2f}",
+                        "Price": "${:,.2f}", "Vol%": "{:.2f}%",
+                        "RangePos": "{:.0f}%", "RS": "{:+.2f}%",
+                        "POC": "${:,.2f}", "VAL": "${:,.2f}", "VAH": "${:,.2f}"}, na_rep="—")
+                    .map(lambda v: f"color:{ACCENT};font-weight:700"
+                         if isinstance(v, (int, float)) and v >= 85 else "", subset=["Score"])
+                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "CALM"
+                                    else (f"color:{RED};font-weight:600" if v == "HIGH"
+                                          else "color:#d0b040")), subset=["Risk"])
+                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "BELOW VALUE"
+                                    else (f"color:{DIM}" if v == "IN VALUE"
+                                          else "color:#b565f3")), subset=["ValueArea"])
+                    .map(lambda v: _css_sign(-abs(v) + 3, dead=0) if isinstance(v, (int, float))
+                         else "", subset=["RS"]),
+                    width="stretch", hide_index=True, height=620,
+                    on_select="rerun", selection_mode="single-row", key="apex_table",
+                    column_order=["#", "✅", "Ticker", "Sector", "Score"]
+                                 + (["Macro", "Adj"] if "Adj" in _show.columns else [])
+                                 + ["Risk", "Vol%",
+                                  "RangePos", "ValueArea", "Regime", "RS", "Price",
+                                  "VAL", "POC", "VAH"],
+                    column_config={
+                        "✅": st.column_config.Column(width="small", help="Passes the full tested gate."),
+                        "Score": st.column_config.Column(help="APEX conviction 0-100. Same number the indicator shows."),
+                        "Risk": st.column_config.Column(help="Volatility state. CALM is the only one that passes the tested gate."),
+                        "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
+                        "RangePos": st.column_config.Column(help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
+                        "ValueArea": st.column_config.Column(help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
+                        "Regime": st.column_config.Column(help="5-factor trend tally. Context — trend direction showed no forward edge in testing."),
+                        "RS": st.column_config.Column(help="20-bar return minus SPY's. The filter keeps ±3% — the middle of the pack."),
+                        "VAL": st.column_config.Column(help="Value area low."),
+                        "POC": st.column_config.Column(help="Point of control — the heaviest-volume price level."),
+                        "VAH": st.column_config.Column(help="Value area high."),
+                    })
+                _rax = (_sel_ax.selection.rows if _sel_ax and getattr(_sel_ax, "selection", None) else [])
+                if _rax:
+                    _tkax = _show.iloc[_rax[0]].Ticker
+                    if st.session_state.get("_apex_handled") != _tkax:
+                        st.session_state["_apex_handled"] = _tkax
+                        st.session_state["lk_tk"] = _tkax
+                        st.rerun()
+                if st.session_state.get("lk_tk"):
+                    st.info(f"🔎 **{st.session_state['lk_tk']}** loaded — open the "
+                            "**Stock Lookup** tab for the full analysis.")
+                st.caption("👆 Tap any row to load it into Stock Lookup.")
+
+                st.download_button("⬇ Download CSV", _res.to_csv(index=False),
+                                   f"apex_flow_{_tf.replace(' ','')}_{asof}.csv",
+                                   "text/csv", key="apex_csv")
+
+        with st.expander("❓ How APEX FLOW scores a stock"):
+            st.markdown(
+                "**The score, 0-100** — identical to the TradingView indicator:\n\n"
+                "| Component | Max | What earns it |\n|---|---|---|\n"
+                "| Risk gate | 35 | 20-bar realized volatility. CALM = full 35. |\n"
+                "| Range position | 25 | Scaled by position in the 20-bar range — at the lows earns most. |\n"
+                "| Value-area structure | 15 | Below the 50-bar volume profile's value area = 15, inside = 10, above = 3. |\n"
+                "| Regime | 15 | 5-factor trend tally (price vs 20/50/200 MA, MA stack). |\n"
+                "| Trend quality | 10 | Price above the structural MA. |\n\n"
+                "**Then two filters:** CALM volatility only, and relative strength within "
+                "±3% of SPY over 20 bars.\n\n"
+                "**What the evidence actually supports.** On daily bars, across 984 "
+                "held-out tickers, win rate rose monotonically with the score (43% in the "
+                "lowest band to 67% in the highest) and the chance of a >10% loss fell "
+                "from ~23% to ~4%. The gate configuration scored 60.2% wins vs a 50.7% "
+                "baseline.\n\n"
+                "**What it does NOT do** — reliably raise your *average* return. Ex-crash "
+                "the gate averaged +0.274% versus a +0.249% baseline, which is noise. "
+                "This ranks setups by how unlikely they are to blow up on you, not by how "
+                "far they'll run.\n\n"
+                "**Liquidity guard.** The CALM gate rewards low volatility, which a stock "
+                "that barely trades satisfies trivially — early testing filled the top of "
+                "the list with dead microcaps printing 0.2% daily vol. Names below a "
+                "volatility floor, or with gappy history, are dropped before ranking.\n\n"
+                "**Sector skew, worth knowing.** Because the gate selects the quietest "
+                "names, roughly a third of qualifiers are Financial Services. That's the "
+                "filter working as designed, but it means the list is less diversified "
+                "than it looks — size accordingly.\n\n"
+                "Research tool. Probability tilts, not prophecy. Not investment advice.")
 
     # ── 🧪 macro simulator (the original, embedded whole) ────────────────
 with tab_macro:
