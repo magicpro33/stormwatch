@@ -903,6 +903,66 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame):
             bb_u = float((bm + 2 * bs).iloc[-1])
             bb_l = float((bm - 2 * bs).iloc[-1])
 
+    try:
+        _dr = _drivers(tk, asof)
+        cpush = float(_dr.push.sum()) if not _dr.empty else None
+    except Exception:
+        cpush = None
+
+    pills = ""
+    if rsi_v is not None:
+        if rsi_v < 30: pills += az_pill("RSI Oversold", True)
+        elif rsi_v > 70: pills += az_pill("RSI Overbought", False)
+        elif 45 < rsi_v < 65: pills += az_pill("RSI Sweet Spot", True)
+        else: pills += az_pill("RSI Neutral", None)
+    if macd_v is not None and macd_s is not None:
+        pills += az_pill("MACD Bullish" if macd_v > macd_s else "MACD Bearish", macd_v > macd_s)
+    if ma50_v is not None and ma200_v is not None:
+        pills += az_pill("Golden Cross" if ma50_v > ma200_v else "Death Cross", ma50_v > ma200_v)
+    elif info.get("_scan_golden_cross") is not None:
+        pills += az_pill("Golden Cross" if info["_scan_golden_cross"] >= 1 else "No Golden Cross",
+                         info["_scan_golden_cross"] >= 1)
+    if vol_avg and vol_td:
+        if vol_td > vol_avg * 1.5: pills += az_pill("High Volume", True)
+        elif vol_td < vol_avg * 0.5: pills += az_pill("Low Volume", None)
+    if spf and spf > 0.15: pills += az_pill("High Short Interest", None)
+    if aus is not None and aus > 15: pills += az_pill(f"Analyst Upside {aus:.0f}%", True)
+    elif aus is not None and aus < -10: pills += az_pill(f"Above Target {aus:.0f}%", False)
+    if cpush is not None and cpush > 0.5: pills += az_pill("Cascade Tailwind", True)
+    elif cpush is not None and cpush < -0.5: pills += az_pill("Cascade Headwind", False)
+
+    st.markdown("<div style='font-size:20px;font-weight:700;letter-spacing:.6px;"
+                "margin:16px 0 4px'>🔥 Stock Analyzer</div>", unsafe_allow_html=True)
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Price", f"${px:,.2f}" if px else "--")
+    m2.metric("Target", f"${am:,.2f}" if am else "--",
+              delta=f"{aus:.1f}%" if aus is not None else None,
+              help="Analyst consensus mean target and implied upside.")
+    m3.metric("Ann. Vol", f"{(hist.Close.pct_change().tail(21).std() * (252 ** 0.5)):.0%}"
+              if not hist.empty and len(hist) > 22 else "--",
+              help="Annualised 21-day volatility.")
+    st.markdown(f"<div style='margin:6px 0 4px'><strong>{_esc(name)}</strong>  "
+                f"<span style='color:{DIM};font-size:13px'>{_esc(sec_display)}</span></div>",
+                unsafe_allow_html=True)
+    if pills:
+        st.markdown(f"<div style='margin:6px 0 12px'>{pills}</div>", unsafe_allow_html=True)
+    hs = info.get("_hist_source")
+    badge = lambda txt, col, bc: (f"<span style='font-family:monospace;font-size:10px;color:{col};"
+                                  f"border:1px solid {bc};border-radius:3px;padding:1px 7px'>{txt}</span>")
+    parts = []
+    if hs == "alpaca": parts.append(badge("Alpaca history (live)", "#4dd880", "#1e6b35"))
+    elif hs == "yahoo": parts.append(badge("Yahoo history", "#7a9ab8", "#1e3a5f"))
+    elif hs == "dump": parts.append(badge("nightly-dump history", "#d0b040", "#907020"))
+    if info.get("_from_scan_dump"):
+        parts.append(badge(f"dump filled {len(info.get('_dump_fields', []))} fields", "#d0b040", "#907020"))
+    if tk in live:
+        parts.append(badge("Alpaca live price", "#4dd880", "#1e6b35"))
+    st.markdown("<div style='display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px'>"
+                + "".join(parts) + "</div>", unsafe_allow_html=True)
+    for iss in info.get("_data_issues", []):
+        st.caption(f"⚠️ {iss}")
+    st.markdown("<hr style='border-color:#1e3a5f;margin:10px 0'>", unsafe_allow_html=True)
+
     colA, colB, colC = st.columns(3)
     with colA:
         az_section("Price Range Analysis")
@@ -1265,23 +1325,31 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
               _HY_DN if rp is not None and rp <= 0.2 else _HY_MUTED)
     av_col = _HY_DN if av is not None and av >= 0.60 else _HY_MUTED
 
-    def _chip(label, value, color="#c5dff0"):
+    def _chip(label, value, color="#c5dff0", tip=""):
+        tip_html = (f" <span title='{_esc(tip)}' style='cursor:help;color:{_HY_MUTED};"
+                    f"font-size:0.85em;'>ⓘ</span>") if tip else ""
         return (
             f"<div style='text-align:center;background:#0a1929;border-radius:10px;"
             f"padding:16px 10px;flex:1 1 0;min-width:0;'>"
             f"<div style='font-size:0.85em;color:{_HY_MUTED};text-transform:uppercase;"
-            f"letter-spacing:.06em;'>{label}</div>"
+            f"letter-spacing:.06em;'>{label}{tip_html}</div>"
             f"<div style='font-size:1.45em;font-weight:700;color:{color};margin-top:6px;"
             f"line-height:1.15;'>{value}</div></div>"
         )
 
     chips = (
-        _chip("5d", f"{r5:+.1%}" if r5 is not None else "—", _sgn(r5))
-        + _chip("21d", f"{r21:+.1%}" if r21 is not None else "—", _sgn(r21))
-        + _chip("RSI 14", rsi_txt, rsi_col)
-        + _chip("RVOL", f"{rvol:.2f}x" if rvol is not None else "—", rvol_col)
-        + _chip("Range pos", f"{rp:.0%}" if rp is not None else "—", rp_col)
-        + _chip("Ann. vol", f"{av:.0%}" if av is not None else "—", av_col)
+        _chip("5d", f"{r5:+.1%}" if r5 is not None else "—", _sgn(r5),
+              "Return over the last 5 sessions.")
+        + _chip("21d", f"{r21:+.1%}" if r21 is not None else "—", _sgn(r21),
+                "Return over the last month of sessions.")
+        + _chip("RSI 14", rsi_txt, rsi_col,
+                "Momentum oscillator: 70+ overbought (red), 30- washed out and bounce-prone (green), 40-65 neutral.")
+        + _chip("RVOL", f"{rvol:.2f}x" if rvol is not None else "—", rvol_col,
+                "5d avg volume vs 63d avg. 1.5x+ (green) = unusual attention; near 1x = normal.")
+        + _chip("Range pos", f"{rp:.0%}" if rp is not None else "—", rp_col,
+                "Where price sits in its 63-day range: 80%+ near highs = strength (green); 20%- near lows = weakness (red).")
+        + _chip("Ann. vol", f"{av:.0%}" if av is not None else "—", av_col,
+                "Annualised 21-day volatility. 60%+ (red) = wide swings, size smaller.")
     )
     st.markdown(
         f"""<div style='background:linear-gradient(135deg,#0d1b2a 0%,#1a2d45 100%);
