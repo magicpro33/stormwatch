@@ -18,6 +18,7 @@ os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")   # curl_cffi segfault guard
 import numpy as np
 import pandas as pd
 import streamlit as st
+from datetime import datetime, timedelta, timezone
 
 import html as _html
 import cascade_engine as ce
@@ -666,32 +667,48 @@ def price_range_window(hist: pd.DataFrame, spec, px: float | None = None):
 
 
 def render_eps_trend(eps_history, eps_forward=None, why=""):
+    """SVG bar chart of quarterly EPS (actual vs estimate) plus forward
+    analyst projections — same block the Ignition Scanner analyzer uses."""
+    eps_history = eps_history or []
     eps_forward = eps_forward or []
+    if not eps_history and not eps_forward:
+        st.caption(f"Quarterly EPS history unavailable — {why or 'no earnings records returned'}")
+        return
+
     timeline = []
     for q in eps_history:
-        if q["actual"] is not None:
-            beat = q["surprise"]
+        if q.get("actual") is not None:
+            beat = q.get("surprise")
             kind = "beat" if (beat is None or beat >= 0) else "miss"
-            timeline.append({"label": (q["quarter"].split()[0] if q["quarter"] else ""),
-                             "value": q["actual"], "kind": kind, "est": q["estimate"]})
-    for f in [f for f in eps_forward if "Qtr" in f["period"]]:
+            timeline.append({"label": (str(q.get("quarter") or "").split()[0]),
+                             "value": q["actual"], "kind": kind, "est": q.get("estimate")})
+    for f in [f for f in eps_forward if "Qtr" in str(f.get("period", ""))]:
         timeline.append({"label": "Next Q" if f["period"] == "Next Qtr" else "Q+2",
-                         "value": f["estimate"], "kind": "projected", "est": None})
+                         "value": f.get("estimate"), "kind": "projected", "est": None})
+
     if not timeline:
         st.caption(f"Quarterly EPS history unavailable — {why or 'no earnings records returned'}")
         return
-    n = len(timeline); W, H = 320, 110
+
+    n = len(timeline)
+    W, H = 320, 110
     pad_l, pad_r, pad_t, pad_b = 8, 8, 10, 22
     plot_w, plot_h = W - pad_l - pad_r, H - pad_t - pad_b
-    slot = plot_w / n; bar_w = min(slot * 0.55, 26)
-    vals = [t["value"] for t in timeline if t["value"] is not None] +            [t["est"] for t in timeline if t.get("est") is not None]
+    slot = plot_w / n
+    bar_w = min(slot * 0.55, 26)
+    vals = [t["value"] for t in timeline if t["value"] is not None]
+    vals += [t["est"] for t in timeline if t.get("est") is not None]
     if not vals:
         st.caption("Quarterly EPS history unavailable")
         return
     vmax, vmin = max(max(vals), 0.0), min(min(vals), 0.0)
     vr = (vmax - vmin) or 1.0
-    y_of = lambda v: pad_t + plot_h * (1 - (v - vmin) / vr)
-    zy = y_of(0.0); bars, labs = [], []
+
+    def y_of(v):
+        return pad_t + plot_h * (1 - (v - vmin) / vr)
+
+    zy = y_of(0.0)
+    bars, labs = [], []
     for i, t in enumerate(timeline):
         cx = pad_l + slot * i + slot / 2
         if t.get("est") is not None:
@@ -699,7 +716,8 @@ def render_eps_trend(eps_history, eps_forward=None, why=""):
             bars.append(f"<line x1='{cx-bar_w/2-2:.1f}' y1='{ey:.1f}' x2='{cx+bar_w/2+2:.1f}' "
                         f"y2='{ey:.1f}' stroke='#7a9ab8' stroke-width='1.5' stroke-dasharray='2,2'/>")
         if t["value"] is not None:
-            ay = y_of(t["value"]); top = min(ay, zy); hh = abs(ay - zy)
+            ay = y_of(t["value"])
+            top, hh = min(ay, zy), abs(ay - zy)
             fill = ("fill='#4dd880'" if t["kind"] == "beat" else
                     "fill='#ff4444'" if t["kind"] == "miss" else
                     "fill='#f5a623' fill-opacity='0.55' stroke='#f5a623' stroke-dasharray='3,2'")
@@ -707,12 +725,210 @@ def render_eps_trend(eps_history, eps_forward=None, why=""):
                         f"height='{max(hh,1):.1f}' rx='2' {fill}/>")
         lc = "#f5a623" if t["kind"] == "projected" else "#7a9ab8"
         labs.append(f"<text x='{cx:.1f}' y='{H-6}' text-anchor='middle' "
-                    f"font-family='monospace' font-size='7' fill='{lc}'>{t['label']}</text>")
-    st.markdown(f"<svg width='100%' height='{H}' viewBox='0 0 {W} {H}' style='max-width:360px'>"
-                f"<line x1='{pad_l}' y1='{zy:.1f}' x2='{W-pad_r}' y2='{zy:.1f}' stroke='#1e3a5f'/>"
-                + "".join(bars) + "".join(labs) + "</svg>", unsafe_allow_html=True)
-    st.caption("green = beat estimates · red = miss · amber dashed = analyst projection · "
-               "grey ticks = the estimate each quarter")
+                    f"font-family='monospace' font-size='7' fill='{lc}'>{_esc(t['label'])}</text>")
+    legend = (
+        "<div style='display:flex;gap:12px;flex-wrap:wrap;font-family:monospace;"
+        "font-size:10px;color:#7a9ab8;margin:2px 0 6px'>"
+        "<span><span style='color:#4dd880'>█</span> beat</span>"
+        "<span><span style='color:#ff4444'>█</span> miss</span>"
+        "<span><span style='color:#7a9ab8'>╌</span> estimate</span>"
+        "<span><span style='color:#f5a623'>▦</span> projected</span>"
+        "</div>"
+    )
+    st.markdown(
+        legend
+        + f"<svg width='100%' height='{H}' viewBox='0 0 {W} {H}' style='max-width:360px'>"
+        + f"<line x1='{pad_l}' y1='{zy:.1f}' x2='{W-pad_r}' y2='{zy:.1f}' stroke='#1e3a5f'/>"
+        + "".join(bars) + "".join(labs) + "</svg>",
+        unsafe_allow_html=True)
+
+    if eps_history:
+        rows = []
+        for q in reversed(eps_history):
+            a = f"${q['actual']:.2f}" if q.get("actual") is not None else "--"
+            e = f"${q['estimate']:.2f}" if q.get("estimate") is not None else "--"
+            if q.get("surprise") is not None:
+                sc = "#4dd880" if q["surprise"] >= 0 else "#ff4444"
+                s = f"<span style='color:{sc}'>{q['surprise']:+.1f}%</span>"
+            else:
+                s = "--"
+            rows.append(
+                f"<tr>"
+                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:#b0c8e8'>{_esc(q.get('quarter'))}</td>"
+                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:#ffffff;text-align:right'>{a}</td>"
+                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:#7a9ab8;text-align:right'>{e}</td>"
+                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;text-align:right'>{s}</td>"
+                f"</tr>"
+            )
+        _md_html(
+            "<table style='width:100%;border-collapse:collapse'>"
+            "<thead><tr>"
+            "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:left;text-transform:uppercase'>Quarter</th>"
+            "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Actual</th>"
+            "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Est</th>"
+            "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Surprise</th>"
+            "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+        )
+
+    if eps_forward:
+        st.markdown(
+            "<div style='font-family:monospace;font-size:10px;color:#f5a623;"
+            "letter-spacing:.5px;text-transform:uppercase;margin:10px 0 2px'>"
+            "Forward Projections (analyst consensus)</div>",
+            unsafe_allow_html=True)
+        frows = []
+        for f in eps_forward:
+            est = f"${f['estimate']:.2f}" if f.get("estimate") is not None else "--"
+            na = str(f["n_analysts"]) if f.get("n_analysts") else "--"
+            ecol = "#4dd880" if (f.get("estimate") or 0) >= 0 else "#ff4444"
+            frows.append(
+                f"<tr>"
+                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:#f5a623'>{_esc(f.get('period'))}</td>"
+                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:{ecol};text-align:right;font-weight:500'>{est}</td>"
+                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:#7a9ab8;text-align:right'>{na}</td>"
+                f"</tr>"
+            )
+        _md_html(
+            "<table style='width:100%;border-collapse:collapse'>"
+            "<thead><tr>"
+            "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:left;text-transform:uppercase'>Period</th>"
+            "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Est EPS</th>"
+            "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Analysts</th>"
+            "</tr></thead><tbody>" + "".join(frows) + "</tbody></table>"
+        )
+
+
+def render_dividend_info(info: dict | None) -> None:
+    """Ignition Scanner dividend block: payout, yield, dates, frequency, ratio."""
+    info = info or {}
+    rate = info.get("dividendRate")
+    yield_ = info.get("dividendYield")
+    if yield_ is None and info.get("_divYieldPct") is not None:
+        yield_ = info.get("_divYieldPct")
+    last_div = info.get("lastDividendValue")
+    ex_date = info.get("exDividendDate")
+    next_pay = info.get("dividendDate")
+    last_pay = info.get("lastDividendDate")
+    payout = info.get("payoutRatio")
+    freq_raw = info.get("dividendFrequency")
+
+    if not rate and not yield_ and not last_div:
+        if info.get("_data_issues"):
+            st.caption("Dividend data unavailable — " + "; ".join(
+                str(x) for x in info["_data_issues"]))
+        else:
+            st.caption("This stock does not currently pay a dividend.")
+        return
+
+    def _fmt_date(ts):
+        if ts is None:
+            return None
+        try:
+            if isinstance(ts, (int, float)):
+                return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%b %d, %Y")
+            d = pd.to_datetime(ts, errors="coerce")
+            return d.strftime("%b %d, %Y") if pd.notna(d) else None
+        except Exception:
+            return None
+
+    def _to_dt(ts):
+        if ts is None:
+            return None
+        try:
+            if isinstance(ts, (int, float)):
+                return datetime.fromtimestamp(ts, tz=timezone.utc)
+            d = pd.to_datetime(ts, errors="coerce")
+            return d.to_pydatetime() if pd.notna(d) else None
+        except Exception:
+            return None
+
+    yld_pct = None
+    if yield_ is not None:
+        try:
+            yld_pct = float(yield_) * 100 if float(yield_) < 1 else float(yield_)
+        except (TypeError, ValueError):
+            yld_pct = None
+
+    freq_label = "--"
+    per_payment = last_div
+    freq_months = None
+    if freq_raw:
+        freq_label = str(freq_raw).title()
+    elif rate and last_div and last_div > 0:
+        ratio = round(float(rate) / float(last_div))
+        freq_label = {1: "Annual", 2: "Semi-annual", 4: "Quarterly",
+                      12: "Monthly"}.get(ratio, f"{ratio}×/yr")
+        freq_months = {1: 12, 2: 6, 4: 3, 12: 1}.get(ratio)
+
+    now = datetime.now(timezone.utc)
+    next_pay_dt = _to_dt(next_pay)
+    next_pay_est = False
+    if next_pay_dt is None or next_pay_dt < now:
+        ex_dt = _to_dt(ex_date)
+        if ex_dt is not None and freq_months:
+            projected = ex_dt
+            while projected < now:
+                m = projected.month - 1 + freq_months
+                projected = projected.replace(
+                    year=projected.year + m // 12, month=m % 12 + 1)
+            next_pay_dt = projected + timedelta(days=21)
+            next_pay_est = True
+        elif last_pay is not None and freq_months:
+            lp = _to_dt(last_pay)
+            if lp is not None:
+                projected = lp
+                while projected < now:
+                    m = projected.month - 1 + freq_months
+                    projected = projected.replace(
+                        year=projected.year + m // 12, month=m % 12 + 1)
+                next_pay_dt = projected
+                next_pay_est = True
+
+    rows = []
+    if rate is not None:
+        rows.append(mrow("Annual Payout", "Total dollars paid per share per year.",
+                         f"<span style='font-family:monospace;color:#4dd880;font-weight:500'>${float(rate):.2f}</span>/share"))
+    if per_payment is not None:
+        rows.append(mrow("Per Payment", "Dollar amount of each individual dividend payment.",
+                         f"<span style='font-family:monospace;color:#b0c8e8'>${float(per_payment):.2f}</span>"))
+    if yld_pct is not None:
+        yc = "#4dd880" if yld_pct >= 4 else ("#d0b040" if yld_pct >= 2 else "#7a9ab8")
+        rows.append(mrow("Dividend Yield", "Annual payout as % of current price. 4%+ = high yield.",
+                         f"<span style='font-family:monospace;color:{yc};font-weight:500'>{yld_pct:.2f}%</span>"))
+    if freq_label != "--":
+        rows.append(mrow("Frequency", "How often the dividend is paid.",
+                         f"<span style='font-family:monospace;color:#b0c8e8'>{_esc(freq_label)}</span>"))
+    _ex = _fmt_date(ex_date)
+    if _ex:
+        rows.append(mrow("Ex-Dividend Date", "Buy BEFORE this date to receive the next dividend.",
+                         f"<span style='font-family:monospace;color:#f5a623'>{_ex}</span>"))
+    if next_pay_dt is not None:
+        _np = next_pay_dt.strftime("%b %d, %Y")
+        est_tag = " <span style='font-size:9px;color:#7a9ab8'>(est.)</span>" if next_pay_est else ""
+        tip = ("Projected next payment date based on ex-dividend date and payment frequency."
+               if next_pay_est else
+               "Next scheduled dividend payment date from the company.")
+        rows.append(mrow("Next Payout Date", tip,
+                         f"<span style='font-family:monospace;color:#4dd880;font-weight:500'>{_np}</span>{est_tag}"))
+    _lp = _fmt_date(last_pay)
+    if _lp:
+        rows.append(mrow("Last Pay Date", "When the most recent dividend was actually paid out.",
+                         f"<span style='font-family:monospace;color:#b0c8e8'>{_lp}</span>"))
+    if payout is not None:
+        try:
+            pr_pct = float(payout) * 100 if float(payout) < 1 else float(payout)
+        except (TypeError, ValueError):
+            pr_pct = None
+        if pr_pct is not None:
+            pc = "#4dd880" if pr_pct < 60 else ("#d0b040" if pr_pct < 90 else "#ff4444")
+            rows.append(mrow("Payout Ratio", "% of earnings paid as dividends. Under 60% = sustainable. Over 90% = at risk.",
+                             f"<span style='font-family:monospace;color:{pc}'>{pr_pct:.1f}%</span>"))
+
+    if rows:
+        _md_html("<table style='width:100%;border-collapse:collapse'><tbody>"
+                 + "".join(rows) + "</tbody></table>")
+    else:
+        st.caption("Dividend data unavailable for this ticker.")
 
 
 def _profile_url(u) -> str:
@@ -868,7 +1084,6 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
     pm = info.get("profitMargins"); om = info.get("operatingMargins")
     roe = info.get("returnOnEquity"); roa = info.get("returnOnAssets")
     deq = info.get("debtToEquity"); cr = info.get("currentRatio")
-    dy = info.get("_divYieldPct"); drate = info.get("dividendRate")
     roce = info.get("_roce"); gm = info.get("_gross_margin")
     opm = info.get("_op_margin"); cfm = info.get("_cf_margin")
     fcfm = info.get("_fcf_margin")
@@ -1105,13 +1320,7 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
         render_eps_trend(eps_history, eps_forward,
                          why=next((i for i in info.get("_data_issues", []) if "EPS" in i), ""))
         az_section("Dividend")
-        if dy or drate:
-            mtable([mrow("Dividend Yield", "Annual dividend as % of price (nightly dump).",
-                         az_tag(dy, 3, 1, "{:.2f}", "%") if dy is not None else "--"),
-                    mrow("Dividend Rate", "Annual dividend per share in dollars.",
-                         f"<span style='font-family:monospace;color:#b0c8e8'>${drate:,.2f}</span>" if drate else "--")])
-        else:
-            st.caption("No dividend.")
+        render_dividend_info(info)
 
     with colC:
         az_section("Valuation")
