@@ -1532,6 +1532,54 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                "Research view, not investment advice.")
 
 
+def _render_scan_hub_detail(tk: str, state_key: str, az_prefix: str,
+                            closable: bool = True) -> None:
+    """Same inline stack Hybrid Screener uses: identity cards, chart,
+    IGNITION analyzer, company overview. Unique keys per tab so Streamlit
+    can draw more than one Scan Hub screener in a single run."""
+    if not tk:
+        return
+    st.divider()
+    render_ticker_analysis(tk, closes, state_key=state_key, closable=closable)
+    try:
+        render_ignition_analyzer(tk, closes, key_prefix=az_prefix)
+    except Exception as _ae:
+        st.caption(f"Analyzer unavailable: {_ae}")
+    try:
+        _hinfo = _analyzer(tk, asof)[0]
+        _biz = dict(_hinfo or {})
+        try:
+            _live = _yf_info(tk) or {}
+        except Exception:
+            _live = {}
+        if _live.get("longBusinessSummary") or _live.get("description"):
+            _biz.update({k: _live[k] for k in _live
+                         if _live.get(k) not in (None, "")})
+        else:
+            for k, v in _live.items():
+                if v not in (None, "") and not _biz.get(k):
+                    _biz[k] = v
+        render_business_summary(_biz, tk)
+    except Exception as _bse:
+        st.caption(f"Business summary unavailable: {_bse}")
+
+
+def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
+                            ticker_col: str = "Ticker") -> None:
+    """On a table row click, open the Hybrid-style stock cards under it."""
+    rows = sel.selection.rows if sel and getattr(sel, "selection", None) else []
+    if not rows:
+        return
+    try:
+        tk = str(df.iloc[int(rows[0])][ticker_col])
+    except Exception:
+        return
+    if not tk or tk.lower() in ("nan", "none", ""):
+        return
+    st.session_state["lk_tk"] = tk
+    _render_scan_hub_detail(tk, state_key, az_prefix, closable=False)
+
+
 try:
     closes = _history()
 except Exception as e:
@@ -2159,29 +2207,7 @@ with tab_hybrid:
         hs.render_hybrid_screener()
         _htk = st.session_state.get("hs_inline")
         if _htk:
-            st.divider()
-            render_ticker_analysis(_htk, closes, state_key="hs_inline")
-            try:
-                render_ignition_analyzer(_htk, closes, key_prefix="hsaz")
-            except Exception as _hae:
-                st.caption(f"Analyzer unavailable: {_hae}")
-            try:
-                _hinfo = _analyzer(_htk, asof)[0]
-                _biz = dict(_hinfo or {})
-                try:
-                    _live = _yf_info(_htk) or {}
-                except Exception:
-                    _live = {}
-                if _live.get("longBusinessSummary") or _live.get("description"):
-                    _biz.update({k: _live[k] for k in _live
-                                 if _live.get(k) not in (None, "")})
-                else:
-                    for k, v in _live.items():
-                        if v not in (None, "") and not _biz.get(k):
-                            _biz[k] = v
-                render_business_summary(_biz, _htk)
-            except Exception as _hbse:
-                st.caption(f"Business summary unavailable: {_hbse}")
+            _render_scan_hub_detail(_htk, "hs_inline", "hsaz")
 
 
 # ── 🌩 shakeout coils (pre-move scan, backtested on the nightly dump) ──
@@ -2190,7 +2216,10 @@ with tab_shakeout:
         st.error(f"Shakeout tab failed to load: {_SW_ERR}")
         st.caption("Put storm_watch_tab.py and storm_watch_engine.py next to app.py, then reboot.")
     else:
-        render_storm_watch_tab(asof=asof, closes=closes, gauge=GAUGE)
+        render_storm_watch_tab(
+            asof=asof, closes=closes, gauge=GAUGE,
+            render_detail=lambda tk: _render_scan_hub_detail(
+                tk, "sw_inline", "swaz", closable=False))
 
 
 # ── 🏆 top 20 mega screener ──────────────────────────────────────────
@@ -2565,16 +2594,10 @@ with tab_top20:
                     "Best10": st.column_config.Column(help="90th-percentile analog outcome — the rough best case."),
                     "Cases": st.column_config.Column(help="How many historical look-alikes this forecast is built on. 300+ enforced."),
                 })
-            _fcr = (_fcsel.selection.rows if _fcsel and getattr(_fcsel,"selection",None) else [])
-            if _fcr:
-                _fctk = _fc.iloc[_fcr[0]].Ticker
-                if st.session_state.get("_fc_handled") != _fctk:
-                    st.session_state["_fc_handled"] = _fctk
-                    st.session_state["lk_tk"] = _fctk
-                    st.rerun()
-            st.caption("👆 Tap any row to open the full forecast in Stock Lookup. "
+            st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                        "Highest odds ≠ biggest gain — check the Typical and Worst-10 "
                        "columns before sizing.")
+            _scan_hub_pick_and_show(_fcsel, _fc, "t20_inline", "t20az")
 
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "macro":
         try:
@@ -2622,16 +2645,10 @@ with tab_top20:
                     "Quality": st.column_config.Column(help="Composite of ROIC, owner-earnings yield, Piotroski, ROIC trend and growth. Missing inputs rank at the bottom."),
                     "Data": st.column_config.Column(help="How many of the 6 fundamental inputs are known."),
                 })
-            _mr = (_msel.selection.rows if _msel and getattr(_msel, "selection", None) else [])
-            if _mr:
-                _mtk = _m20.iloc[_mr[0]].Ticker
-                if st.session_state.get("_macro_handled") != _mtk:
-                    st.session_state["_macro_handled"] = _mtk
-                    st.session_state["lk_tk"] = _mtk
-                    st.rerun()
-            st.caption("👆 Tap any row for the full analysis. This list answers "
-                       "\"if this scenario is right, who's positioned?\" — it says "
-                       "nothing about whether the scenario is actually arriving.")
+            st.caption("👆 Tap a row for the chart, cards, and company profile below. "
+                       "This list answers \"if this scenario is right, who's positioned?\" "
+                       "— it says nothing about whether the scenario is actually arriving.")
+            _scan_hub_pick_and_show(_msel, _m20, "t20_inline", "t20az")
 
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "felix":
         try:
@@ -2678,15 +2695,8 @@ with tab_top20:
                     "OE Yield": st.column_config.Column(help="Owner-earnings yield — real cash generated relative to price. Revenue is vanity, cash is sanity."),
                     "ROIC Trend": st.column_config.Column(help="Direction of return on capital — a real moat keeps returns from eroding."),
                 })
-            _fr = (_fsel.selection.rows if _fsel and getattr(_fsel, "selection", None) else [])
-            if _fr:
-                _ftk = _f.iloc[_fr[0]].Ticker
-                if st.session_state.get("_flx_handled") != _ftk:
-                    st.session_state["_flx_handled"] = _ftk
-                    st.session_state["lk_tk"] = _ftk
-                    st.rerun()
-            st.caption("👆 Tap any row to load it into Stock Lookup for the full "
-                       "analysis and analog forecast.")
+            st.caption("👆 Tap a row for the chart, cards, and company profile below.")
+            _scan_hub_pick_and_show(_fsel, _f, "t20_inline", "t20az")
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode", "cascade") == "cascade":
         try:
             t20, reg = _mega_scan(asof, _gauge, _override, int(_top_n),
@@ -2762,18 +2772,10 @@ with tab_top20:
                              "(📊💊⚖️🤝🔗🌍🏦) fetched for these finalists. The data layer is "
                              "scored (backtested); squeeze setup and news tags are informational."),
                 })
-            _r20 = (_sel20.selection.rows if _sel20 and getattr(_sel20, "selection", None) else [])
-            if _r20:
-                _tk20 = _t.iloc[_r20[0]].Ticker
-                if st.session_state.get("_t20_handled") != _tk20:
-                    st.session_state["_t20_handled"] = _tk20
-                    st.session_state["lk_tk"] = _tk20
-                    st.rerun()
-            if st.session_state.get("lk_tk"):
-                st.info(f"🔎 **{st.session_state['lk_tk']}** loaded — open the "
-                        "**Stock Lookup** tab for the full analysis, forecast, and analyzer.")
-            st.caption("👆 Tap any row to load it into Stock Lookup. Scores refresh "
-                       "with the nightly dump; the tailwind and regime refresh live.")
+            st.caption("👆 Tap a row for the chart, cards, and company profile below. "
+                       "Scores refresh with the nightly dump; the tailwind and regime "
+                       "refresh live.")
+            _scan_hub_pick_and_show(_sel20, _t, "t20_inline", "t20az")
 
             # ── catalyst key ──────────────────────────────────────────
             def _krow(tag, desc):
@@ -3101,21 +3103,11 @@ with tab_apex:
                         "POC": st.column_config.Column(help="Point of control — the heaviest-volume price level."),
                         "VAH": st.column_config.Column(help="Value area high."),
                     })
-                _rax = (_sel_ax.selection.rows if _sel_ax and getattr(_sel_ax, "selection", None) else [])
-                if _rax:
-                    _tkax = _show.iloc[_rax[0]].Ticker
-                    if st.session_state.get("_apex_handled") != _tkax:
-                        st.session_state["_apex_handled"] = _tkax
-                        st.session_state["lk_tk"] = _tkax
-                        st.rerun()
-                if st.session_state.get("lk_tk"):
-                    st.info(f"🔎 **{st.session_state['lk_tk']}** loaded — open the "
-                            "**Stock Lookup** tab for the full analysis.")
-                st.caption("👆 Tap any row to load it into Stock Lookup.")
-
+                st.caption("👆 Tap a row for the chart, cards, and company profile below.")
                 st.download_button("⬇ Download CSV", _res.to_csv(index=False),
                                    f"apex_flow_{_tf.replace(' ','')}_{asof}.csv",
                                    "text/csv", key="apex_csv")
+                _scan_hub_pick_and_show(_sel_ax, _show, "apex_inline", "apexaz")
 
         if _advanced:
             with st.expander("❓ How APEX FLOW scores a stock"):
@@ -3473,20 +3465,14 @@ with tab_poc:
                         "Win%": st.column_config.Column(help="How often setups with this reward-to-risk actually reached target before stop — measured by replaying 1,639 real triggers on the nightly dump (81.8% overall, matching the Pine script's 77.8%). It is an estimate from the bucket, not a promise about this stock."),
                         "ExpR": st.column_config.Column(help="Expected return per trade in R, using that measured win rate. THE CATCH: win% falls as reward-to-risk rises, but expectancy RISES. An 89% setup pays +0.16R; a 61% setup pays +0.76R. Chasing the highest Win% column walks you into the lowest-payoff trades — read the two together."),
                     })
-                _pr = (_psel.selection.rows if _psel and getattr(_psel, "selection", None) else [])
-                if _pr:
-                    _ptk = _pdf.iloc[_pr[0]].Ticker
-                    if st.session_state.get("_poc_handled") != _ptk:
-                        st.session_state["_poc_handled"] = _ptk
-                        st.session_state["lk_tk"] = _ptk
-                        st.rerun()
-                st.caption(f"👆 Tap a row to open the full analysis in Stock Lookup. "
+                st.caption(f"👆 Tap a row for the chart, cards, and company profile below. "
                            f"**Win%** comes from replaying {pfut.WIN_SAMPLE:,} real "
                            f"triggers on this dump — but read it next to **ExpR**: "
                            f"the highest win rates come from the nearest targets, "
                            f"which pay the least. Best expectancy usually sits "
                            f"around a 1.0-2.0 reward-to-risk, not at the top of "
                            f"the Win% column.")
+                _scan_hub_pick_and_show(_psel, _pdf, "poc_inline", "pocaz")
 
         if not _poc_basic:
             with st.expander("🩺 Diagnostics — why am I seeing this many setups?"):

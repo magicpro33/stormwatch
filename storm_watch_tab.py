@@ -466,7 +466,8 @@ def _draw_chart(tk: str):
         st.caption(f"Last 180 sessions · {src}. Research view, not investment advice.")
 
 
-def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None):
+def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
+                           render_detail=None):
     st.subheader("🌩 Shakeout coils")
     st.caption(
         "Names coiling at range lows after a short-term shakeout — the setup that "
@@ -675,7 +676,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None):
 
     st.subheader(f"Shakeout coils · {len(show)} of {len(ranked)}")
     st.caption("Green = in the zone this setup wants · red = against it · dim = noise. "
-               "Tap a row for the chart and watchlist.")
+               "Tap a row for the chart, cards, and company profile.")
     sel = st.dataframe(
         styler, width="stretch", hide_index=True, height=min(740, 80 + 34 * len(show)),
         on_select="rerun", selection_mode="single-row", key="sw_table",
@@ -691,6 +692,14 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None):
             "Piotroski": st.column_config.Column(help="9-point fundamental health from the dump. Overlay only — not in the backtest."),
             "SuggestedStop": st.column_config.Column(help=f"Entry {STOP_PCT:.0%} — the stop that improved expectancy in the dump backtest."),
         })
+    st.download_button(
+        "⬇️ Download Shakeout CSV",
+        view.to_csv(index=False).encode(),
+        file_name=f"shakeout_{info.get('as_of', 'scan')}.csv",
+        mime="text/csv",
+        key="sw_download",
+        width="stretch",
+    )
     rows = sel.selection.rows if sel and getattr(sel, "selection", None) else []
     if rows:
         st.session_state["sw_sel_tk"] = str(show.iloc[rows[0]].Ticker)
@@ -731,16 +740,12 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None):
                     st.rerun()
                 except Exception as we:
                     st.error(f"Watchlist add failed: {we}")
-        w2.caption("Row also loads **Stock Lookup** — open that tab for the full analyzer.")
+        w2.caption("Row also loads **Stock Lookup**. Cards, analyzer, and "
+                   "company profile open under the chart.")
         st.markdown(f"**{tk}** · ${float(row.Price):,.2f} · shakeout {int(row.Shakeout)}/5")
-        _draw_chart(tk)
+        if callable(render_detail):
+            render_detail(tk)
+        else:
+            _draw_chart(tk)
 
-    st.download_button(
-        "⬇️ Download Shakeout CSV",
-        view.to_csv(index=False).encode(),
-        file_name=f"shakeout_{info.get('as_of', 'scan')}.csv",
-        mime="text/csv",
-        key="sw_download",
-        width="stretch",
-    )
     _render_backtest(bt)
