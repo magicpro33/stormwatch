@@ -13,6 +13,7 @@ datas = [
     (os.path.join(ROOT, "hybrid_screener.py"), "."),
     (os.path.join(ROOT, "storm_watch_tab.py"), "."),
     (os.path.join(ROOT, "storm_watch_engine.py"), "."),
+    (os.path.join(ROOT, "ignition_scanner.py"), "."),
     (os.path.join(ROOT, "mw_paths.py"), "."),
     (os.path.join(ROOT, "macro_simulator.html"), "."),
     (os.path.join(ROOT, ".streamlit", "config.toml"), ".streamlit"),
@@ -26,7 +27,7 @@ if os.path.isfile(_bt):
 
 hiddenimports = [
     "mw_paths", "cascade_engine", "apex_flow", "poc_future", "hybrid_screener",
-    "storm_watch_tab", "storm_watch_engine",
+    "storm_watch_tab", "storm_watch_engine", "ignition_scanner",
     "streamlit", "streamlit.web.cli", "streamlit.runtime.scriptrunner",
     "yfinance", "plotly", "plotly.graph_objects", "plotly.subplots",
     "pandas", "numpy", "pyarrow", "requests", "tzdata",

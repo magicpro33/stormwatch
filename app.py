@@ -69,6 +69,12 @@ try:
 except Exception as _swe:
     render_storm_watch_tab, _SW_ERR = None, _swe
 
+try:
+    from ignition_scanner import render_ignition_scanner_tab
+    _IG_ERR = None
+except Exception as _ige:
+    render_ignition_scanner_tab, _IG_ERR = None, _ige
+
 REQUIRED_ENGINE = "2.38"
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -1622,8 +1628,9 @@ with tab_advanced:
         ["🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab",
          "🔭 Lenses", "📖 Guide"])
 with tab_scanhub:
-    (tab_top20, tab_apex, tab_poc, tab_shakeout, tab_hybrid) = st.tabs(
-        ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener"])
+    (tab_top20, tab_apex, tab_poc, tab_shakeout, tab_hybrid, tab_ignition) = st.tabs(
+        ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
+         "Ignition Scanner"])
 
 
 # Pressure gauge, resolved once for every tab. It used to be computed inside
@@ -2208,6 +2215,15 @@ with tab_hybrid:
         _htk = st.session_state.get("hs_inline")
         if _htk:
             _render_scan_hub_detail(_htk, "hs_inline", "hsaz")
+
+
+# ── 🔥 ignition scanner ─────────────────────────────────────────────
+with tab_ignition:
+    if _IG_ERR is not None or render_ignition_scanner_tab is None:
+        st.error(f"Ignition Scanner failed to load: {_IG_ERR}")
+        st.caption("Put ignition_scanner.py next to app.py, then reboot.")
+    else:
+        render_ignition_scanner_tab()
 
 
 # ── 🌩 shakeout coils (pre-move scan, backtested on the nightly dump) ──
