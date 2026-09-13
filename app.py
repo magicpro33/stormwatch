@@ -2188,7 +2188,7 @@ with tab_shakeout:
         st.error(f"Shakeout tab failed to load: {_SW_ERR}")
         st.caption("Put storm_watch_tab.py and storm_watch_engine.py next to app.py, then reboot.")
     else:
-        render_storm_watch_tab()
+        render_storm_watch_tab(asof=asof, closes=closes, gauge=GAUGE)
 
 
 # ── 🏆 top 20 mega screener ──────────────────────────────────────────
