@@ -1562,11 +1562,10 @@ if closes is None or closes.empty or closes.dropna(how="all").empty:
     st.stop()
 
 asof = str(closes.index[-1].date())
-(tab_map, tab_lookup, tab_hybrid, tab_top20, tab_apex, tab_poc, tab_macro,
- tab_shakeout, tab_advanced) = st.tabs(
-    ["🌊 Cascade Map", "🔎 Stock Lookup", "📊 Hybrid Screener", "🏆 Top 20",
-     "⚡ APEX FLOW", "🎯 POC Future", "🧪 Macro Sim", "🌩 Shakeout",
-     "📖 Advanced Guide"])
+(tab_map, tab_lookup, tab_hybrid, tab_scanhub, tab_macro,
+ tab_advanced) = st.tabs(
+    ["🌊 Cascade Map", "🔎 Stock Lookup", "📊 Hybrid Screener", "📡 Scan Hub",
+     "🧪 Macro Sim", "📖 Advanced Guide"])
 # Nested tabs must be created here — Lenses / Guide render earlier in the
 # file than Pressure, so defining them later raises NameError.
 with tab_advanced:
@@ -1574,6 +1573,9 @@ with tab_advanced:
      tab_lenses, tab_guide) = st.tabs(
         ["🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab",
          "🔭 Lenses", "📖 Guide"])
+with tab_scanhub:
+    (tab_top20, tab_apex, tab_poc, tab_shakeout) = st.tabs(
+        ["TOP20", "Apex Flow", "POC Future", "ShakeOut"])
 
 
 # Pressure gauge, resolved once for every tab. It used to be computed inside
