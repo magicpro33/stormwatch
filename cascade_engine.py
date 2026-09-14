@@ -21,6 +21,14 @@ import io
 import json
 from datetime import date, timedelta
 
+try:
+    from mw_paths import data_dir as _mw_data_dir
+except ImportError:
+    def _mw_data_dir() -> str:
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        os.makedirs(d, exist_ok=True)
+        return d
+
 import numpy as np
 import pandas as pd
 import requests
@@ -134,7 +142,7 @@ def ratio_sentinel_impulses(closes: pd.DataFrame) -> pd.DataFrame:
                          trend63=round(t63, 4) if np.isfinite(t63) else np.nan))
     return pd.DataFrame(rows)
 
-LOCAL_HISTORY = os.path.join(os.path.dirname(__file__), "data", "history.parquet")
+LOCAL_HISTORY = os.path.join(_mw_data_dir(), "history.parquet")
 HISTORY_YEARS = 3
 
 
@@ -901,8 +909,8 @@ def investment_plan(b, closes: pd.DataFrame) -> dict:
 # Stock-level layer: nightly dump + Alpaca + earnings dates
 # ═════════════════════════════════════════════════════════════════════
 DUMP_URL = "https://raw.githubusercontent.com/magicpro33/stock/main/data/stock_data.json.gz"
-LOCAL_DUMP = os.path.join(os.path.dirname(__file__), "data", "dump_panel_v5.npz")
-LOCAL_DUMP_GZ = os.path.join(os.path.dirname(__file__), "data", "stock_data.json.gz")
+LOCAL_DUMP = os.path.join(_mw_data_dir(), "dump_panel_v5.npz")
+LOCAL_DUMP_GZ = os.path.join(_mw_data_dir(), "stock_data.json.gz")
 
 FUND_FIELDS = ["ShortPctFloat", "DaysToCover", "P/E", "RevenueGrowth",
                "EarningsGrowth", "MarketCap", "Piotroski", "GoldenCross",
@@ -1360,7 +1368,7 @@ def alpaca_history(symbols: list, years: int = HISTORY_YEARS) -> pd.DataFrame:
 # ═════════════════════════════════════════════════════════════════════
 # Stock Lookup: analog-outcome forecast, upstream drivers, watchlist
 # ═════════════════════════════════════════════════════════════════════
-WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "data", "watchlist.json")
+WATCHLIST_PATH = os.path.join(_mw_data_dir(), "watchlist.json")
 
 
 def _feature_panels():
@@ -1562,11 +1570,38 @@ def watchlist_save(items: list):
         pass
 
 
-def watchlist_add(ticker: str, price: float, note: str = ""):
-    items = [w for w in watchlist_load() if w["ticker"] != ticker]
+def watchlist_add(ticker: str, price: float, note: str = "", source: str = "") -> bool:
+    """Add a ticker, or update its scanner tag if it's already saved.
+
+    `source` is the Scan Hub scanner (or Stock Lookup) that found it.
+    A later Stock Lookup will not wipe an existing scanner tag.
+    Returns True if this ticker was newly added.
+    """
+    ticker = str(ticker or "").strip().upper()
+    if not ticker:
+        return False
+    src = str(source or "").strip()
+    note = str(note or "").strip()
+    items = watchlist_load()
+    existing = next((w for w in items
+                     if str(w.get("ticker", "")).upper() == ticker), None)
+    if existing:
+        old_src = str(existing.get("source") or "").strip()
+        # Keep the first scanner that found it; fill in a tag if none yet.
+        if src and not old_src:
+            existing["source"] = src
+        if note and not str(existing.get("note") or "").strip():
+            existing["note"] = note
+        watchlist_save(items)
+        return False
+    try:
+        px = round(float(price), 2)
+    except Exception:
+        px = float("nan")
     items.append(dict(ticker=ticker, added=str(date.today()),
-                      price_at_add=round(float(price), 2), note=note))
+                      price_at_add=px, note=note, source=src))
     watchlist_save(items)
+    return True
 
 
 def watchlist_remove(ticker: str):
@@ -1825,21 +1860,6 @@ def fetch_analyzer(ticker: str):
     if filled:
         info["_from_scan_dump"] = True
         info["_dump_fields"] = filled
-
-    # Profile prose is not in the numeric dump. If the cached pack omitted it
-    # (older dumps), pull just the company description from Yahoo so Lookup
-    # can show a Business Summary without a second analyzer pass.
-    if tk is not None and not (info.get("longBusinessSummary") or info.get("description")):
-        try:
-            extra = tk.info or {}
-            for k in ("longBusinessSummary", "description", "longName",
-                      "website", "fullTimeEmployees", "city", "state",
-                      "country", "quoteType", "fundFamily", "category",
-                      "sector", "industry"):
-                if extra.get(k) not in (None, "") and not info.get(k):
-                    info[k] = extra[k]
-        except Exception:
-            pass
 
     # ── Step 4: EPS history — earnings_history → income stmt fallback ─
     # (NEVER tk.quarterly_earnings: deprecated + crash-prone upstream)

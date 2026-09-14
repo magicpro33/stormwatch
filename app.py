@@ -15,15 +15,42 @@ from __future__ import annotations
 import os
 os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")   # curl_cffi segfault guard
 
+import importlib.util
+import sys
+
+
+def _load_local_mod(name: str):
+    """Load a sibling .py from disk, even inside the frozen desktop EXE.
+
+    PyInstaller bakes hiddenimports into the EXE. Copying a newer
+    cascade_engine.py next to app.py does nothing unless we bind the
+    file ourselves — otherwise the EXE keeps the old ENGINE_VERSION.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, f"{name}.py")
+    if os.path.isfile(path):
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+    return importlib.import_module(name)
+
+
 import numpy as np
 import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta, timezone
 
 import html as _html
-import cascade_engine as ce
+_load_local_mod("mw_paths")
 try:
-    import poc_future as pfut
+    _load_local_mod("storm_watch_engine")
+except Exception:
+    pass
+ce = _load_local_mod("cascade_engine")
+try:
+    pfut = _load_local_mod("poc_future")
     _POC_ERR = None
 except Exception as _pe:            # scoped to its own tab, never st.stop()
     pfut, _POC_ERR = None, _pe
@@ -53,25 +80,27 @@ def _md_html(html: str) -> None:
         st.markdown(html.replace("$", "&#36;"), unsafe_allow_html=True)
 
 try:
-    import apex_flow as af
+    af = _load_local_mod("apex_flow")
     _APEX_ERR = ""
 except Exception as _e:                       # tab shows the fix, app still runs
     af, _APEX_ERR = None, str(_e)
 
 try:
-    import hybrid_screener as hs
+    hs = _load_local_mod("hybrid_screener")
     _HS_ERR = None
 except Exception as _he:
     hs, _HS_ERR = None, _he
 
 try:
-    from storm_watch_tab import render_storm_watch_tab
+    _sw = _load_local_mod("storm_watch_tab")
+    render_storm_watch_tab = _sw.render_storm_watch_tab
     _SW_ERR = None
 except Exception as _swe:
     render_storm_watch_tab, _SW_ERR = None, _swe
 
 try:
-    from ignition_scanner import render_ignition_scanner_tab
+    _ig = _load_local_mod("ignition_scanner")
+    render_ignition_scanner_tab = _ig.render_ignition_scanner_tab
     _IG_ERR = None
 except Exception as _ige:
     render_ignition_scanner_tab, _IG_ERR = None, _ige
@@ -1779,19 +1808,53 @@ def _render_scan_hub_detail(tk: str, state_key: str, az_prefix: str,
         st.caption(f"Business summary unavailable: {_bse}")
 
 
+def _row_price(row) -> float:
+    for col in ("Price", "Live", "price", "Close"):
+        try:
+            v = float(row[col])
+            if np.isfinite(v):
+                return v
+        except Exception:
+            continue
+    return float("nan")
+
+
+def _watchlist_tag(tk: str, price, source: str) -> bool:
+    """Save `tk` to the watchlist tagged with the scanner that found it."""
+    if not tk or not source:
+        return False
+    st.session_state["wl_source"] = source
+    try:
+        added = ce.watchlist_add(tk, float(price) if price is not None else float("nan"),
+                                 source=source)
+    except Exception:
+        return False
+    if added:
+        try:
+            px = float(price)
+            px_s = f" at ${px:,.2f}" if np.isfinite(px) else ""
+            st.toast(f"⭐ {tk} saved from {source}{px_s}")
+        except Exception:
+            pass
+    return added
+
+
 def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
-                            ticker_col: str = "Ticker") -> None:
+                            ticker_col: str = "Ticker", source: str = "") -> None:
     """On a table row click, open the Hybrid-style stock cards under it."""
     rows = sel.selection.rows if sel and getattr(sel, "selection", None) else []
     if not rows:
         return
     try:
-        tk = str(df.iloc[int(rows[0])][ticker_col])
+        row = df.iloc[int(rows[0])]
+        tk = str(row[ticker_col])
     except Exception:
         return
     if not tk or tk.lower() in ("nan", "none", ""):
         return
     st.session_state["lk_tk"] = tk
+    if source:
+        _watchlist_tag(tk, _row_price(row), source)
     _render_scan_hub_detail(tk, state_key, az_prefix, closable=False)
 
 
@@ -2228,11 +2291,13 @@ with tab_lookup:
         q = str(st.session_state.get("lk_query") or "").strip().upper()
         if q:
             st.session_state["lk_tk"] = q
+            st.session_state["wl_source"] = "Stock Lookup"
     _q = lc1.text_input("Ticker", key="lk_query", placeholder="e.g. NVDA",
                         label_visibility="collapsed",
                         on_change=_lk_submit).strip().upper()
     if lc2.button("🔎 Look up", type="primary", width="stretch") and _q:
         st.session_state["lk_tk"] = _q
+        st.session_state["wl_source"] = "Stock Lookup"
 
     tk = st.session_state.get("lk_tk")
     if tk:
@@ -2255,11 +2320,13 @@ with tab_lookup:
                      "(e.g. BRK-B not BRK.B, BTC-USD for crypto).")
         else:
             px_now = float(df_tk.Close.dropna().iloc[-1])
-            # every searched stock is auto-saved for later
+            # every searched stock is auto-saved for later, tagged with
+            # the Scan Hub scanner that found it (or Stock Lookup)
             if not any(w["ticker"] == tk for w in ce.watchlist_load()):
-                ce.watchlist_add(tk, px_now)
+                _src = st.session_state.get("wl_source") or "Stock Lookup"
+                ce.watchlist_add(tk, px_now, source=_src)
                 try:
-                    st.toast(f"⭐ {tk} auto-saved to your watchlist at ${px_now:,.2f}")
+                    st.toast(f"⭐ {tk} auto-saved from {_src} at ${px_now:,.2f}")
                 except Exception:
                     pass
             st.caption(f"⭐ {tk} is on your watchlist — every search is saved "
@@ -2356,15 +2423,31 @@ with tab_lookup:
             meta = ce.NODES.get(t)
             return meta[0] if meta else "—"
         wdf["sector"] = wdf.ticker.map(_wl_sector)
-        show = wdf[["ticker", "sector", "added", "price_at_add", "price_now", "since_add"]]
-        show.columns = ["Ticker", "Sector", "Saved", "Price then", "Price now", "Since saved"]
+        if "source" not in wdf.columns:
+            wdf["source"] = ""
+        if "note" not in wdf.columns:
+            wdf["note"] = ""
+        def _wl_scanner(r):
+            s = str(r.get("source") or "").strip()
+            if s:
+                return s
+            n = str(r.get("note") or "").strip()
+            if n == "shakeout coil":
+                return "ShakeOut"
+            return n or "—"
+        wdf["scanner"] = [_wl_scanner(r) for r in wdf.to_dict("records")]
+        show = wdf[["ticker", "sector", "scanner", "added", "price_at_add", "price_now", "since_add"]]
+        show.columns = ["Ticker", "Sector", "Scanner", "Saved", "Price then", "Price now", "Since saved"]
         _wsel = st.dataframe(
             show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
                                "Since saved": "{:+.1%}"}, na_rep="—")
             .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"]),
             width="stretch", hide_index=True,
             on_select="rerun", selection_mode="single-row", key="wl_table",
-            column_config={"Since saved": st.column_config.Column(
+            column_config={
+                "Scanner": st.column_config.Column(
+                    help="Which Scan Hub scanner (or Stock Lookup) added this ticker."),
+                "Since saved": st.column_config.Column(
                 help="Your scorecard: return since the day you saved it. Live Alpaca price when keyed.")})
         _wr = (_wsel.selection.rows if _wsel and getattr(_wsel, "selection", None) else [])
         if _wr:
@@ -2405,8 +2488,12 @@ with tab_lookup:
                     for _it in _items:
                         _t = str(_it.get("ticker", "")).strip().upper()
                         if _t and _t not in _have:
+                            _note = str(_it.get("note", "") or "")
+                            _src = str(_it.get("source", "") or "")
+                            if not _src and _note == "shakeout coil":
+                                _src = "ShakeOut"
                             ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
-                                             _it.get("note", ""))
+                                             note=_note, source=_src)
                             _n += 1
                     st.session_state["_wl_uploaded"] = True
                     st.success(f"Restored {_n} ticker(s) from backup.")
@@ -2822,7 +2909,7 @@ with tab_top20:
             st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                        "Highest odds ≠ biggest gain — check the Typical and Worst-10 "
                        "columns before sizing.")
-            _scan_hub_pick_and_show(_fcsel, _fc, "t20_inline", "t20az")
+            _scan_hub_pick_and_show(_fcsel, _fc, "t20_inline", "t20az", source="TOP20")
 
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "macro":
         try:
@@ -2873,7 +2960,7 @@ with tab_top20:
             st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                        "This list answers \"if this scenario is right, who's positioned?\" "
                        "— it says nothing about whether the scenario is actually arriving.")
-            _scan_hub_pick_and_show(_msel, _m20, "t20_inline", "t20az")
+            _scan_hub_pick_and_show(_msel, _m20, "t20_inline", "t20az", source="TOP20")
 
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "felix":
         try:
@@ -2921,7 +3008,7 @@ with tab_top20:
                     "ROIC Trend": st.column_config.Column(help="Direction of return on capital — a real moat keeps returns from eroding."),
                 })
             st.caption("👆 Tap a row for the chart, cards, and company profile below.")
-            _scan_hub_pick_and_show(_fsel, _f, "t20_inline", "t20az")
+            _scan_hub_pick_and_show(_fsel, _f, "t20_inline", "t20az", source="TOP20")
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode", "cascade") == "cascade":
         try:
             t20, reg = _mega_scan(asof, _gauge, _override, int(_top_n),
@@ -3000,7 +3087,7 @@ with tab_top20:
             st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                        "Scores refresh with the nightly dump; the tailwind and regime "
                        "refresh live.")
-            _scan_hub_pick_and_show(_sel20, _t, "t20_inline", "t20az")
+            _scan_hub_pick_and_show(_sel20, _t, "t20_inline", "t20az", source="TOP20")
 
             # ── catalyst key ──────────────────────────────────────────
             def _krow(tag, desc):
@@ -3332,7 +3419,8 @@ with tab_apex:
                 st.download_button("⬇ Download CSV", _res.to_csv(index=False),
                                    f"apex_flow_{_tf.replace(' ','')}_{asof}.csv",
                                    "text/csv", key="apex_csv")
-                _scan_hub_pick_and_show(_sel_ax, _show, "apex_inline", "apexaz")
+                _scan_hub_pick_and_show(_sel_ax, _show, "apex_inline", "apexaz",
+                                       source="Apex Flow")
 
         if _advanced:
             with st.expander("❓ How APEX FLOW scores a stock"):
@@ -3697,7 +3785,8 @@ with tab_poc:
                            f"which pay the least. Best expectancy usually sits "
                            f"around a 1.0-2.0 reward-to-risk, not at the top of "
                            f"the Win% column.")
-                _scan_hub_pick_and_show(_psel, _pdf, "poc_inline", "pocaz")
+                _scan_hub_pick_and_show(_psel, _pdf, "poc_inline", "pocaz",
+                                       source="POC Future")
 
         if not _poc_basic:
             with st.expander("🩺 Diagnostics — why am I seeing this many setups?"):

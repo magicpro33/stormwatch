@@ -704,6 +704,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     if rows:
         st.session_state["sw_sel_tk"] = str(show.iloc[rows[0]].Ticker)
         st.session_state["lk_tk"] = st.session_state["sw_sel_tk"]
+        st.session_state["wl_source"] = "ShakeOut"
 
     tk = st.session_state.get("sw_sel_tk")
     if tk and tk in set(show.Ticker.astype(str)):
@@ -735,8 +736,8 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             elif w1.button(f"⭐ Add {tk} to watchlist", key=f"sw_wl_{tk}",
                            width="stretch", help=HELP["watchlist"]):
                 try:
-                    ce.watchlist_add(tk, float(row.Price), note="shakeout coil")
-                    st.toast(f"⭐ {tk} saved to your watchlist at ${float(row.Price):,.2f}")
+                    ce.watchlist_add(tk, float(row.Price), source="ShakeOut")
+                    st.toast(f"⭐ {tk} saved from ShakeOut at ${float(row.Price):,.2f}")
                     st.rerun()
                 except Exception as we:
                     st.error(f"Watchlist add failed: {we}")

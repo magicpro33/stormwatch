@@ -920,6 +920,16 @@ def render_hybrid_screener() -> None:
                              type="primary" if sel else "secondary"):
                     st.session_state[_k("inline")] = tk
                     st.session_state["lk_tk"] = tk
+                    st.session_state["wl_source"] = "Hybrid Screener"
+                    try:
+                        px = float(display.loc[display["Ticker"] == tk, "Price"].iloc[0])
+                    except Exception:
+                        px = float("nan")
+                    if ce.watchlist_add(tk, px, source="Hybrid Screener"):
+                        try:
+                            st.toast(f"⭐ {tk} saved from Hybrid Screener")
+                        except Exception:
+                            pass
 
     order = [c for c in [
         "Ticker", "Sector", "Price", "First print", "Days listed",

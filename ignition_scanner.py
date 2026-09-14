@@ -358,8 +358,19 @@ h1, h2, h3 { font-family: 'Rajdhani', sans-serif !important;
 }
 /* ── Streamlit caption color override ───────────────────────────── */
 .stCaption, [data-testid="stCaptionContainer"] { color: #4a6a8a !important; }
-/* ── Progress bar brand color ────────────────────────────────────── */
-.stProgress > div > div { background-color: #f5a623 !important; }
+/* ── Progress bar: lime fill on dark track (not amber-on-navy) ──── */
+[data-testid="stProgress"] [data-baseweb="progress-bar"] > div > div,
+[data-testid="stProgress"] [role="progressbar"] > div > div {
+    background-color: #07111f !important;
+    height: 12px !important;
+    border: 1px solid #1e3a5f !important;
+    border-radius: 6px !important;
+}
+[data-testid="stProgress"] [data-baseweb="progress-bar"] > div > div > div,
+[data-testid="stProgress"] [role="progressbar"] > div > div > div {
+    background-color: #3ddc84 !important;
+    background-image: none !important;
+}
 /* ── Button brand style ──────────────────────────────────────────── */
 .stButton button {
     background: #0d1e33; border: 1px solid #1e3a5f; color: #b0c8e8;
@@ -2936,7 +2947,7 @@ def render_ignition_scanner_tab():
     if not ok:
         st.info("Run a scan first — then select a stock to analyze.")
     else:
-        az_col1, az_col2 = st.columns([2, 3])
+        az_col1, az_col2 = st.columns([3, 1], vertical_alignment="bottom")
         with az_col1:
             az_ticker = st.selectbox(
                 "Select stock",
@@ -2946,6 +2957,29 @@ def render_ignition_scanner_tab():
                 help="Choose any stock from the current scan results to drill into full analysis.",
                 label_visibility="collapsed",
             )
+        with az_col2:
+            _ig_ce = None
+            _ig_on = False
+            try:
+                import cascade_engine as _ig_ce
+                _ig_on = any(w.get("ticker") == az_ticker for w in _ig_ce.watchlist_load())
+            except Exception:
+                _ig_ce = None
+            if _ig_on:
+                st.caption(f"⭐ {az_ticker} on watchlist")
+            elif st.button("⭐ Watchlist", key="ig_wl_add", width="stretch",
+                           help="Save this Ignition Scanner result to your watchlist."):
+                _r = next((r for r in ok if r["ticker"] == az_ticker), None)
+                _px = float(_r["price"]) if _r and _r.get("price") else float("nan")
+                if _ig_ce is not None:
+                    _ig_ce.watchlist_add(az_ticker, _px, source="Ignition Scanner")
+                    st.session_state["wl_source"] = "Ignition Scanner"
+                    st.session_state["lk_tk"] = az_ticker
+                    try:
+                        st.toast(f"⭐ {az_ticker} saved from Ignition Scanner")
+                    except Exception:
+                        pass
+                    st.rerun()
 
         # ── helper renderers ────────────────────────────────────────────
         # helpers and fetch_analyzer defined at module level
