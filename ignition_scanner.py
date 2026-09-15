@@ -159,10 +159,11 @@ h1, h2, h3 { font-family: 'Rajdhani', sans-serif !important;
     border: 1px solid #f5a623 !important;
     box-shadow: 0 0 10px rgba(245,166,35,0.2); }
 .stTabs [data-baseweb="tab"]:focus,
-.stTabs [data-baseweb="tab"]:focus-visible,
+.stTabs [data-baseweb="tab"]:focus-visible {
+    outline: none !important; }
 .stTabs [data-baseweb="tab-highlight"],
 .stTabs [data-baseweb="tab-border"] {
-    outline: none !important; box-shadow: none !important; }
+    display: none !important; }
 .stTabs [data-baseweb="tab-panel"] { background: transparent; }
 
 /* ── IGNITING banner ─────────────────────────────────────────────── */

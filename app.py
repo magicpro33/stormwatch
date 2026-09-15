@@ -118,6 +118,30 @@ if _engine_v != REQUIRED_ENGINE:
 
 st.set_page_config(page_title="Money Weather", page_icon="🌩", layout="wide")
 
+# ── Global tab focus-outline fix ────────────────────────────────────
+# Applies once, at the top level, so it covers every tab in every sub-app
+# (Cascade Map, Stock Lookup, Top 20, Hybrid Screener, Ignition Scanner,
+# etc.) rather than relying on each module's own CSS block, which only
+# lands in the DOM while that module happens to be rendering. Browsers
+# draw a default focus ring on the clicked tab button; this removes it
+# while leaving each app's own "active tab" highlight styling untouched.
+st.markdown("""<style>
+.stTabs button[data-baseweb="tab"]:focus,
+.stTabs button[data-baseweb="tab"]:focus-visible,
+.stTabs [data-baseweb="tab"]:focus,
+.stTabs [data-baseweb="tab"]:focus-visible,
+.stTabs [role="tab"]:focus,
+.stTabs [role="tab"]:focus-visible,
+.stTabs button:focus,
+.stTabs button:focus-visible {
+    outline: none !important;
+}
+.stTabs [data-baseweb="tab-highlight"],
+.stTabs [data-baseweb="tab-border"] {
+    display: none !important;
+}
+</style>""", unsafe_allow_html=True)
+
 
 # ── help texts (every ❓ icon in the app reads from here) ─────────────
 HELP = {

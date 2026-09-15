@@ -908,7 +908,8 @@ def render_hybrid_screener() -> None:
 
     label = st.session_state.get("_hs_sector", "All Sectors")
     st.subheader(f"Top {len(display)} — {label}")
-    st.caption("Click a ticker to open the Money Weather analysis under the table.")
+    st.caption("Click a ticker to open the Money Weather analysis under the table "
+               "— that also saves it to your watchlist, same as the other scanners.")
 
     tickers = list(display["Ticker"]) if "Ticker" in display.columns else []
     if tickers:
@@ -930,6 +931,29 @@ def render_hybrid_screener() -> None:
                             st.toast(f"⭐ {tk} saved from Hybrid Screener")
                         except Exception:
                             pass
+
+        # ── explicit / bulk add-to-watchlist ─────────────────────────
+        _wl_pick = st.multiselect(
+            "⭐ Add stocks to watchlist",
+            options=tickers,
+            key=_k("wl_pick"),
+            placeholder="Pick one or more tickers to save without opening them…",
+        )
+        if st.button(f"⭐ Add selected to watchlist ({len(_wl_pick)})",
+                     width="stretch", disabled=not _wl_pick, key=_k("wl_bulk_add")):
+            _added = []
+            for _tk in _wl_pick:
+                try:
+                    _px = float(display.loc[display["Ticker"] == _tk, "Price"].iloc[0])
+                except Exception:
+                    _px = float("nan")
+                if ce.watchlist_add(_tk, _px, source="Hybrid Screener"):
+                    _added.append(_tk)
+            if _added:
+                st.success(f"⭐ Added {len(_added)} ticker(s) to your watchlist: "
+                           + ", ".join(_added))
+            else:
+                st.info("Those tickers are already on your watchlist.")
 
     order = [c for c in [
         "Ticker", "Sector", "Price", "First print", "Days listed",
