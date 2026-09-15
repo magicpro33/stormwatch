@@ -957,22 +957,35 @@ def load_dump_panel():
             # stale: drop it and fall through to the re-download below
             _PANEL_CACHE.pop("panel", None)
             _PANEL_CACHE.pop("tick_ix", None)
-        z = np.load(LOCAL_DUMP_R, allow_pickle=True)
-        dts = pd.to_datetime(z["dates"])
-        last = pd.Timestamp(dts[-1]).normalize()
-        if last >= target or _PANEL_CACHE.get("fetched_for") == target:
-            panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
-            out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
-            _PANEL_CACHE["panel"] = (mt, out)
-            _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
-            _PANEL_CACHE["last_date"] = last
-            return out
+        try:
+            z = np.load(LOCAL_DUMP_R, allow_pickle=True)
+            dts = pd.to_datetime(z["dates"])
+            last = pd.Timestamp(dts[-1]).normalize()
+            if last >= target or _PANEL_CACHE.get("fetched_for") == target:
+                panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
+                out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
+                _PANEL_CACHE["panel"] = (mt, out)
+                _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
+                _PANEL_CACHE["last_date"] = last
+                return out
+        except Exception:
+            # Corrupted/truncated local npz — a bad download, an interrupted
+            # write, or a Streamlit Cloud disk hiccup (zipfile.BadZipFile and
+            # friends). Don't let a bad cache file crash the whole app: drop
+            # it and fall through to a fresh download below.
+            try:
+                os.remove(LOCAL_DUMP_R)
+            except Exception:
+                pass
+            _PANEL_CACHE.pop("panel", None)
+            _PANEL_CACHE.pop("tick_ix", None)
     try:
         r = requests.get(DUMP_URL, timeout=120)
         r.raise_for_status()
     except Exception as _de:
-        # GitHub unreachable and the cache is >4 days old. A stale dump beats
-        # a dead Top 20 / Lookup / APEX — fetch_history already works this way.
+        # GitHub unreachable and the cache is >4 days old (or was just
+        # dropped above as corrupt). A stale dump beats a dead Top 20 /
+        # Lookup / APEX — fetch_history already works this way.
         if os.path.exists(_data_read_path(LOCAL_DUMP)):
             z = _np_load_dump()
             if z is not None:

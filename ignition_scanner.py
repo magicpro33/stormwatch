@@ -158,6 +158,11 @@ h1, h2, h3 { font-family: 'Rajdhani', sans-serif !important;
     color: #f5a623 !important; background: #0d1e33 !important;
     border: 1px solid #f5a623 !important;
     box-shadow: 0 0 10px rgba(245,166,35,0.2); }
+.stTabs [data-baseweb="tab"]:focus,
+.stTabs [data-baseweb="tab"]:focus-visible,
+.stTabs [data-baseweb="tab-highlight"],
+.stTabs [data-baseweb="tab-border"] {
+    outline: none !important; box-shadow: none !important; }
 .stTabs [data-baseweb="tab-panel"] { background: transparent; }
 
 /* ── IGNITING banner ─────────────────────────────────────────────── */
@@ -358,7 +363,7 @@ h1, h2, h3 { font-family: 'Rajdhani', sans-serif !important;
 }
 /* ── Streamlit caption color override ───────────────────────────── */
 .stCaption, [data-testid="stCaptionContainer"] { color: #4a6a8a !important; }
-/* ── Progress bar: lime fill on dark track (not amber-on-navy) ──── */
+/* ── Progress bar: amber fill on dark track, matches slider accent ── */
 [data-testid="stProgress"] [data-baseweb="progress-bar"] > div > div,
 [data-testid="stProgress"] [role="progressbar"] > div > div {
     background-color: #122540 !important;
@@ -368,7 +373,7 @@ h1, h2, h3 { font-family: 'Rajdhani', sans-serif !important;
 }
 [data-testid="stProgress"] [data-baseweb="progress-bar"] > div > div > div,
 [data-testid="stProgress"] [role="progressbar"] > div > div > div {
-    background-color: #3ddc84 !important;
+    background-color: #f5a623 !important;
     background-image: none !important;
 }
 /* ── Button brand style ──────────────────────────────────────────── */
