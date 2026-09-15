@@ -2397,6 +2397,14 @@ with tab_lookup:
                 del st.query_params["wl"]
     except Exception:
         pass
+    if wl:
+        _rfc1, _rfc2 = st.columns([4, 1], vertical_alignment="bottom")
+        _rfc1.caption(f"{len(wl)} ticker(s) saved — prices refresh automatically, "
+                      "or force a fresh pull now.")
+        if _rfc2.button("🔄 Refresh Prices", width="stretch", key="wl_refresh_prices"):
+            st.session_state.pop("_wl_handled", None)
+            st.toast(f"🔄 Pulling live prices for {len(wl)} ticker(s)…")
+            st.rerun()
     if not wl:
         st.caption("Nothing saved yet — every stock you look up is saved here "
                    "automatically, with its price snapshotted so you can score "
@@ -2458,11 +2466,33 @@ with tab_lookup:
                 st.rerun()
         st.caption("👆 Tap a row to reload its full analysis and a fresh forecast.")
         with st.expander("Manage watchlist", expanded=False):
-            rc1, rc2 = st.columns([3, 1], vertical_alignment="bottom")
-            _rm = rc1.selectbox("Remove from watchlist", ["—"] + list(wdf.ticker), key="wl_rm")
-            if rc2.button("🗑 Remove", width="stretch") and _rm != "—":
-                ce.watchlist_remove(_rm)
+            st.caption("✅ Check the box next to any ticker(s), then use a button below.")
+            _mgmt = wdf[["ticker", "sector", "scanner", "price_now"]].copy()
+            _mgmt.columns = ["Ticker", "Sector", "Scanner", "Price now"]
+            _mgmt.insert(0, "Select", False)
+            _edited = st.data_editor(
+                _mgmt, width="stretch", hide_index=True, key="wl_mgmt_editor",
+                disabled=["Ticker", "Sector", "Scanner", "Price now"],
+                column_config={
+                    "Select": st.column_config.CheckboxColumn(
+                        help="Check to delete or load into Stock Lookup"),
+                    "Price now": st.column_config.NumberColumn(format="$%.2f"),
+                })
+            _checked = list(_edited.loc[_edited["Select"], "Ticker"])
+            rc1, rc2 = st.columns(2)
+            if rc1.button(f"🗑 Delete selected ({len(_checked)})", width="stretch",
+                          disabled=not _checked, key="wl_delete_selected"):
+                for _t in _checked:
+                    ce.watchlist_remove(_t)
+                st.success(f"Removed {len(_checked)} ticker(s): " + ", ".join(_checked))
                 st.rerun()
+            if rc2.button("📈 Load selected to Lookup", width="stretch",
+                          disabled=len(_checked) != 1, key="wl_load_selected"):
+                st.session_state["lk_tk"] = _checked[0]
+                st.rerun()
+            if len(_checked) > 1:
+                st.caption("Load to Lookup takes one ticker at a time — "
+                           "check just one to load it.")
             st.caption("🔗 Your list is saved on the server AND encoded in this page's "
                        "URL — bookmark the page and it comes back even after a "
                        "redeploy or on another device. Use the backup below for a "

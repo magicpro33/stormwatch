@@ -361,7 +361,7 @@ h1, h2, h3 { font-family: 'Rajdhani', sans-serif !important;
 /* ── Progress bar: lime fill on dark track (not amber-on-navy) ──── */
 [data-testid="stProgress"] [data-baseweb="progress-bar"] > div > div,
 [data-testid="stProgress"] [role="progressbar"] > div > div {
-    background-color: #07111f !important;
+    background-color: #122540 !important;
     height: 12px !important;
     border: 1px solid #1e3a5f !important;
     border-radius: 6px !important;
