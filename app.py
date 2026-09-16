@@ -2433,7 +2433,9 @@ with tab_lookup:
         st.caption("Nothing saved yet — every stock you look up is saved here "
                    "automatically, with its price snapshotted so you can score "
                    "your calls later. The list is stored on the server and in "
-                   "this page's URL, so bookmarking keeps it.")
+                   "this page's URL, so bookmarking keeps it. Have a backup "
+                   "JSON? Open **Manage watchlist** below to load it.")
+        wdf = None
     else:
         wdf = pd.DataFrame(wl)
         live = ce.alpaca_prices(list(wdf.ticker))
@@ -2489,7 +2491,11 @@ with tab_lookup:
                 st.session_state["lk_tk"] = _wtk
                 st.rerun()
         st.caption("👆 Tap a row to reload its full analysis and a fresh forecast.")
-        with st.expander("Manage watchlist", expanded=False):
+
+    # ── Manage watchlist — always visible, even with an empty list, so a
+    #    saved backup can be loaded before anything's on the watchlist ───
+    with st.expander("Manage watchlist", expanded=False):
+        if wdf is not None:
             st.caption("✅ Check the box next to any ticker(s), then use a button below.")
             _mgmt = wdf[["ticker", "sector", "scanner", "price_now"]].copy()
             _mgmt.columns = ["Ticker", "Sector", "Scanner", "Price now"]
@@ -2517,43 +2523,46 @@ with tab_lookup:
             if len(_checked) > 1:
                 st.caption("Load to Lookup takes one ticker at a time — "
                            "check just one to load it.")
-            st.caption("🔗 Your list is saved on the server AND encoded in this page's "
-                       "URL — bookmark the page and it comes back even after a "
-                       "redeploy or on another device. Use the backup below for a "
-                       "permanent copy.")
-            bc1, bc2 = st.columns(2)
+        else:
+            st.caption("Nothing on the watchlist yet to select or delete — "
+                       "but you can still restore a saved list below.")
+        st.caption("🔗 Your list is saved on the server AND encoded in this page's "
+                   "URL — bookmark the page and it comes back even after a "
+                   "redeploy or on another device. Use the backup below for a "
+                   "permanent copy.")
+        bc1, bc2 = st.columns(2)
+        try:
+            import json as _json
+            bc1.download_button("⬇️ Backup watchlist (JSON)",
+                                _json.dumps(wl, indent=2).encode("utf-8"),
+                                file_name=f"watchlist_{asof}.json",
+                                mime="application/json", width="stretch",
+                                key="wl_backup", disabled=not wl)
+        except Exception:
+            pass
+        _up = bc2.file_uploader("⬆️ Restore from backup", type=["json"],
+                                key="wl_restore", label_visibility="collapsed")
+        if _up is not None and not st.session_state.get("_wl_uploaded"):
             try:
                 import json as _json
-                bc1.download_button("⬇️ Backup watchlist (JSON)",
-                                    _json.dumps(wl, indent=2).encode("utf-8"),
-                                    file_name=f"watchlist_{asof}.json",
-                                    mime="application/json", width="stretch",
-                                    key="wl_backup")
-            except Exception:
-                pass
-            _up = bc2.file_uploader("⬆️ Restore from backup", type=["json"],
-                                    key="wl_restore", label_visibility="collapsed")
-            if _up is not None and not st.session_state.get("_wl_uploaded"):
-                try:
-                    import json as _json
-                    _items = _json.loads(_up.read().decode("utf-8"))
-                    _have = {w["ticker"] for w in ce.watchlist_load()}
-                    _n = 0
-                    for _it in _items:
-                        _t = str(_it.get("ticker", "")).strip().upper()
-                        if _t and _t not in _have:
-                            _note = str(_it.get("note", "") or "")
-                            _src = str(_it.get("source", "") or "")
-                            if not _src and _note == "shakeout coil":
-                                _src = "ShakeOut"
-                            ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
-                                             note=_note, source=_src)
-                            _n += 1
-                    st.session_state["_wl_uploaded"] = True
-                    st.success(f"Restored {_n} ticker(s) from backup.")
-                    st.rerun()
-                except Exception as _ue:
-                    st.error(f"Could not read that backup: {_ue}")
+                _items = _json.loads(_up.read().decode("utf-8"))
+                _have = {w["ticker"] for w in ce.watchlist_load()}
+                _n = 0
+                for _it in _items:
+                    _t = str(_it.get("ticker", "")).strip().upper()
+                    if _t and _t not in _have:
+                        _note = str(_it.get("note", "") or "")
+                        _src = str(_it.get("source", "") or "")
+                        if not _src and _note == "shakeout coil":
+                            _src = "ShakeOut"
+                        ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
+                                         note=_note, source=_src)
+                        _n += 1
+                st.session_state["_wl_uploaded"] = True
+                st.success(f"Restored {_n} ticker(s) from backup.")
+                st.rerun()
+            except Exception as _ue:
+                st.error(f"Could not read that backup: {_ue}")
 
 
 # ── 📊 hybrid screener (nightly-dump filters from magicpro33/stock) ──

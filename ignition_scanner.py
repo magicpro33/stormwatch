@@ -1544,12 +1544,40 @@ def render_ignition_scanner_tab():
     Controls render immediately. The live scan (Alpaca/Yahoo per ticker)
     runs only after you hit **Scan**. Results stay until the next Scan.
     """
-    # Card/banner CSS only — skip page/tab chrome that would restyle Money Weather.
+    # Card/banner CSS only — skip page/tab chrome that would restyle Money
+    # Weather. The .stTabs rules below are vestigial here: this module never
+    # calls st.tabs() itself, so — unscoped — they were leaking onto every
+    # tab bar in the host app (Cascade Map, Stock Lookup, Hybrid Screener,
+    # etc.), which is the amber "box" that kept reappearing around whichever
+    # tab was selected anywhere in Money Weather. Strip them entirely here.
     _css = CUSTOM_CSS
     for _drop in (
         "html, body, [class*=\"css\"]  { font-family: 'Plus Jakarta Sans', sans-serif; }\n.stApp                       { background: #07111f; }\n\n"
         "h1, h2, h3 { font-family: 'Rajdhani', sans-serif !important;\n"
         "             letter-spacing: 0.8px; color: #ffffff; }\n",
+        "/* ── Streamlit widget overrides ───────────────────────────────────── */\n"
+        ".stTabs [data-baseweb=\"tab-list\"] {\n"
+        "    background: #07111f; border-radius: 10px; gap: 4px;\n"
+        "    padding: 4px; border: 1px solid #1e3a5f; }\n"
+        ".stTabs [data-baseweb=\"tab\"] {\n"
+        "    color: #7a9ab8; font-family: 'Rajdhani', sans-serif;\n"
+        "    font-weight: 700; font-size: 15px; letter-spacing: 1px;\n"
+        "    text-transform: uppercase; border-radius: 8px;\n"
+        "    padding: 8px 20px; border: 1px solid transparent;\n"
+        "    transition: all 0.15s; }\n"
+        ".stTabs [data-baseweb=\"tab\"]:hover {\n"
+        "    color: #f5a623; background: #0d1e33; border-color: #1e3a5f; }\n"
+        ".stTabs [aria-selected=\"true\"] {\n"
+        "    color: #f5a623 !important; background: #0d1e33 !important;\n"
+        "    border: 1px solid #f5a623 !important;\n"
+        "    box-shadow: 0 0 10px rgba(245,166,35,0.2); }\n"
+        ".stTabs [data-baseweb=\"tab\"]:focus,\n"
+        ".stTabs [data-baseweb=\"tab\"]:focus-visible {\n"
+        "    outline: none !important; }\n"
+        ".stTabs [data-baseweb=\"tab-highlight\"],\n"
+        ".stTabs [data-baseweb=\"tab-border\"] {\n"
+        "    display: none !important; }\n"
+        ".stTabs [data-baseweb=\"tab-panel\"] { background: transparent; }\n\n",
     ):
         _css = _css.replace(_drop, "")
     st.markdown(_css, unsafe_allow_html=True)
