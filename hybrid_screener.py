@@ -908,8 +908,9 @@ def render_hybrid_screener() -> None:
 
     label = st.session_state.get("_hs_sector", "All Sectors")
     st.subheader(f"Top {len(display)} — {label}")
-    st.caption("Click a ticker to open the Money Weather analysis under the table "
-               "— that also saves it to your watchlist, same as the other scanners.")
+    st.caption("Click a ticker above, or a row in the table below, to open it "
+               "in Stock Lookup — that also saves it to your watchlist, same "
+               "as the other scanners.")
 
     tickers = list(display["Ticker"]) if "Ticker" in display.columns else []
     if tickers:
@@ -932,29 +933,6 @@ def render_hybrid_screener() -> None:
                         except Exception:
                             pass
 
-        # ── explicit / bulk add-to-watchlist ─────────────────────────
-        _wl_pick = st.multiselect(
-            "⭐ Add stocks to watchlist",
-            options=tickers,
-            key=_k("wl_pick"),
-            placeholder="Pick one or more tickers to save without opening them…",
-        )
-        if st.button(f"⭐ Add selected to watchlist ({len(_wl_pick)})",
-                     width="stretch", disabled=not _wl_pick, key=_k("wl_bulk_add")):
-            _added = []
-            for _tk in _wl_pick:
-                try:
-                    _px = float(display.loc[display["Ticker"] == _tk, "Price"].iloc[0])
-                except Exception:
-                    _px = float("nan")
-                if ce.watchlist_add(_tk, _px, source="Hybrid Screener"):
-                    _added.append(_tk)
-            if _added:
-                st.success(f"⭐ Added {len(_added)} ticker(s) to your watchlist: "
-                           + ", ".join(_added))
-            else:
-                st.info("Those tickers are already on your watchlist.")
-
     order = [c for c in [
         "Ticker", "Sector", "Price", "First print", "Days listed",
         "MarketCap", "P/E",
@@ -964,9 +942,37 @@ def render_hybrid_screener() -> None:
     ] if c in display.columns]
     try:
         styled = display.style.map(_color_score, subset=["Score"]) if "Score" in display.columns else display
-        st.dataframe(styled, width="stretch", height=560, column_order=order or None)
+        _tsel = st.dataframe(
+            styled, width="stretch", height=560, column_order=order or None,
+            hide_index=True, on_select="rerun", selection_mode="single-row",
+            key=_k("chart_table"))
     except Exception:
-        st.dataframe(display, width="stretch", height=560, column_order=order or None)
+        _tsel = st.dataframe(
+            display, width="stretch", height=560, column_order=order or None,
+            hide_index=True, on_select="rerun", selection_mode="single-row",
+            key=_k("chart_table"))
+
+    # Clicking a row in the table above is the same "select to add" gesture
+    # the other scanner tabs use — tag it to the watchlist and hand it to
+    # Stock Lookup, same as clicking one of the ticker buttons does.
+    _trows = (_tsel.selection.rows if _tsel and getattr(_tsel, "selection", None) else [])
+    if _trows and "Ticker" in display.columns:
+        _ttk = str(display.iloc[_trows[0]]["Ticker"])
+        if st.session_state.get(_k("chart_handled")) != _ttk:
+            st.session_state[_k("chart_handled")] = _ttk
+            st.session_state[_k("inline")] = _ttk
+            st.session_state["lk_tk"] = _ttk
+            st.session_state["wl_source"] = "Hybrid Screener"
+            try:
+                _tpx = float(display.loc[display["Ticker"] == _ttk, "Price"].iloc[0])
+            except Exception:
+                _tpx = float("nan")
+            if ce.watchlist_add(_ttk, _tpx, source="Hybrid Screener"):
+                try:
+                    st.toast(f"⭐ {_ttk} saved from Hybrid Screener")
+                except Exception:
+                    pass
+            st.rerun()
 
     st.download_button(
         "⬇️ Download CSV",
