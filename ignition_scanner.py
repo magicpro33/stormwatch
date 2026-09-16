@@ -364,16 +364,32 @@ h1, h2, h3 { font-family: 'Rajdhani', sans-serif !important;
 }
 /* ── Streamlit caption color override ───────────────────────────── */
 .stCaption, [data-testid="stCaptionContainer"] { color: #4a6a8a !important; }
-/* ── Progress bar: amber fill on dark track, matches slider accent ── */
-[data-testid="stProgress"] [data-baseweb="progress-bar"] > div > div,
-[data-testid="stProgress"] [role="progressbar"] > div > div {
+/* ── Progress bar: amber fill on dark track, matches slider accent ──
+   Targets [role="progressbar"] directly as the track (this is the outer
+   bar Streamlit renders regardless of its internal wrapper structure,
+   which has changed across versions) and forces every element nested
+   inside it to amber — the single child Streamlit uses for the animated
+   fill, whatever depth it sits at. The old [data-baseweb] selectors are
+   kept alongside as a fallback for older Streamlit builds. */
+[data-testid="stProgress"] [role="progressbar"] {
+    background-color: #122540 !important;
+    background-image: none !important;
+    border: 1px solid #1e3a5f !important;
+    border-radius: 6px !important;
+    height: 12px !important;
+    overflow: hidden !important;
+}
+[data-testid="stProgress"] [role="progressbar"] * {
+    background-color: #f5a623 !important;
+    background-image: none !important;
+}
+[data-testid="stProgress"] [data-baseweb="progress-bar"] > div > div {
     background-color: #122540 !important;
     height: 12px !important;
     border: 1px solid #1e3a5f !important;
     border-radius: 6px !important;
 }
-[data-testid="stProgress"] [data-baseweb="progress-bar"] > div > div > div,
-[data-testid="stProgress"] [role="progressbar"] > div > div > div {
+[data-testid="stProgress"] [data-baseweb="progress-bar"] > div > div > div {
     background-color: #f5a623 !important;
     background-image: none !important;
 }
