@@ -489,27 +489,45 @@ def _load_universe() -> tuple[pd.DataFrame, str]:
     except Exception as exc:
         return pd.DataFrame(), f"Nightly dump unavailable: {exc}"
     raw = ce._dump_records_cache()
-    if not raw:
+    panel, tickers, _sectors, _mdv, dts = None, None, None, None, None
+    try:
+        panel, tickers, _sectors, _mdv, dts = ce.load_dump_panel()
+    except Exception:
+        panel = None
+    if not raw and panel is None:
         return pd.DataFrame(), "Nightly dump is empty — try Refresh on Cascade Map."
     drop = {"_hist", "_analyzer"}
+    tix = {str(t).upper(): i for i, t in enumerate(tickers)} if tickers is not None else {}
+    C = panel["c"] if panel is not None else None
     rows = []
-    for rec in raw.values():
+    src = raw.values() if raw else []
+    if not src and tickers is not None:
+        src = [{"Ticker": str(t)} for t in tickers]
+    for rec in src:
         if not rec.get("Ticker"):
             continue
         row = {k: v for k, v in rec.items() if k not in drop}
-        dts = (rec.get("_hist") or {}).get("dates") or []
-        n = len(dts)
+        n = 0
+        first = row.get("FirstTradeDate") or ""
+        tk = str(row.get("Ticker") or "").upper()
+        j = tix.get(tk)
+        if C is not None and j is not None:
+            finite = np.isfinite(C[:, j])
+            n = int(finite.sum())
+            if n and dts is not None:
+                first = first or str(pd.Timestamp(dts[int(np.argmax(finite))]).date())
         row["Sessions"] = n
-        row["FirstTrade"] = row.get("FirstTradeDate") or (dts[0] if dts else "")
+        row["FirstTrade"] = first
         age = np.nan
-        if n >= 2:
+        if n >= 2 and dts is not None and j is not None:
             try:
-                age = float((pd.Timestamp(dts[-1]) - pd.Timestamp(dts[0])).days)
+                idx = np.where(np.isfinite(C[:, j]))[0]
+                age = float((pd.Timestamp(dts[idx[-1]]) - pd.Timestamp(dts[idx[0]])).days)
             except Exception:
                 age = np.nan
         elif row.get("FirstTradeDate"):
             try:
-                age = float((pd.Timestamp(dts[-1] if dts else datetime.utcnow())
+                age = float((pd.Timestamp.utcnow()
                              - pd.Timestamp(row["FirstTradeDate"])).days)
             except Exception:
                 age = np.nan

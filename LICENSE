@@ -1,0 +1,16 @@
+Copyright (c) AI Upscale
+
+All rights reserved.
+
+Money Weather is a research tool. It is not investment advice, a broker,
+or a solicitation to buy or sell any security. Probability tilts, not prophecy.
+
+You may run the application for personal research. Redistribution of the
+source or the packaged Windows folder requires permission from the author.
+
+THIRD-PARTY SOFTWARE
+--------------------
+The Windows build bundles third-party Python packages (Streamlit, pandas,
+numpy, pyarrow, yfinance, plotly, and others). Their licenses are included
+under `_internal/*.dist-info/` in the shipped folder and are summarized in
+THIRD_PARTY_NOTICES.txt when that file is generated at build time.

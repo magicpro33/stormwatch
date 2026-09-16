@@ -29,6 +29,18 @@ except ImportError:
         os.makedirs(d, exist_ok=True)
         return d
 
+try:
+    from mw_log import log_exc as _log_exc
+except ImportError:
+    def _log_exc(where, exc):
+        pass
+
+try:
+    from mw_secrets import alpaca_key_pair as _alpaca_key_pair
+except ImportError:
+    def _alpaca_key_pair():
+        return "", ""
+
 import numpy as np
 import pandas as pd
 import requests
@@ -104,7 +116,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.38"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.39"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -247,8 +259,8 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
             yfc = yfc.dropna(how="all")
             yfc.index = pd.to_datetime(yfc.index).tz_localize(None)
             closes = yfc if closes.empty else closes.join(yfc, how="outer")
-        except Exception:
-            pass
+        except Exception as _ye:
+            _log_exc("fetch_history.yfinance", _ye)
     if len(missing) < len(NODES):
         LAST_HISTORY_SOURCE = ("Alpaca (primary)"
                                + (f" + yfinance ({len(missing)} symbols)" if missing else ""))
@@ -276,8 +288,8 @@ def fetch_history(years: int = HISTORY_YEARS) -> pd.DataFrame:
         return closes
     try:
         closes.to_parquet(_data_write_path(LOCAL_HISTORY))
-    except Exception:
-        pass
+    except Exception as _pe:
+        _log_exc("fetch_history.parquet", _pe)
     return closes
 
 
@@ -558,9 +570,29 @@ def backtest(closes: pd.DataFrame, step: int = 5, top_k: int = 5,
 FRED = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}"
 
 def _fred(sid: str) -> pd.Series:
+    """FRED CSV with a 6-hour disk cache so pressure does not hit the
+    network on every Streamlit rerun / process restart."""
+    import time as _time
+    cache = os.path.join(_mw_data_dir(), f"fred_{sid}.csv")
+    ttl = 6 * 3600
+    if os.path.isfile(cache):
+        try:
+            if _time.time() - os.path.getmtime(cache) < ttl:
+                df = pd.read_csv(cache)
+                df.columns = ["date", "v"]
+                s = pd.to_numeric(df.v, errors="coerce")
+                s.index = pd.to_datetime(df.date)
+                return s.dropna()
+        except Exception as e:
+            _log_exc(f"fred.cache.{sid}", e)
     r = requests.get(FRED.format(sid=sid), timeout=15)
     r.raise_for_status()
-    df = pd.read_csv(io.StringIO(r.text))
+    try:
+        with open(cache, "wb") as f:
+            f.write(r.content)
+    except OSError as e:
+        _log_exc(f"fred.write.{sid}", e)
+    df = pd.read_csv(io.StringIO(r.content.decode("utf-8", "replace")))
     df.columns = ["date", "v"]
     s = pd.to_numeric(df.v, errors="coerce")
     s.index = pd.to_datetime(df.date)
@@ -591,10 +623,25 @@ def pressure_system() -> dict:
     except Exception as e:
         out["errors"].append(f"FRED HY OAS: {e}")
     try:
-        r = requests.get("https://stablecoins.llama.fi/stablecoincharts/all",
-                         timeout=20).json()
+        import time as _time
+        _llama = os.path.join(_mw_data_dir(), "llama_stables.json")
+        payload = None
+        if os.path.isfile(_llama) and _time.time() - os.path.getmtime(_llama) < 6 * 3600:
+            try:
+                with open(_llama, encoding="utf-8") as f:
+                    payload = json.load(f)
+            except Exception as e:
+                _log_exc("llama.cache", e)
+        if payload is None:
+            payload = requests.get("https://stablecoins.llama.fi/stablecoincharts/all",
+                                   timeout=20).json()
+            try:
+                with open(_llama, "w", encoding="utf-8") as f:
+                    json.dump(payload, f)
+            except OSError as e:
+                _log_exc("llama.write", e)
         s = pd.Series({pd.to_datetime(int(x["date"]), unit="s"):
-                       x["totalCirculatingUSD"]["peggedUSD"] for x in r}) / 1e9
+                       x["totalCirculatingUSD"]["peggedUSD"] for x in payload}) / 1e9
         out["stables"] = s
         out["components"]["Stablecoin Supply ($bn)"] = float(s.iloc[-1])
         out["components"]["Stables Δ 21d ($bn)"] = float(s.iloc[-1] - s.iloc[-22])
@@ -912,6 +959,57 @@ DUMP_URL = "https://raw.githubusercontent.com/magicpro33/stock/main/data/stock_d
 LOCAL_DUMP = os.path.join(_mw_data_dir(), "dump_panel_v5.npz")
 LOCAL_DUMP_GZ = os.path.join(_mw_data_dir(), "stock_data.json.gz")
 
+
+def _file_sha256(path: str) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _sha_path(npz: str) -> str:
+    return npz + ".sha256"
+
+
+def _write_dump_sha(npz: str) -> None:
+    try:
+        with open(_sha_path(npz), "w", encoding="ascii") as f:
+            f.write(_file_sha256(npz))
+    except OSError as e:
+        _log_exc("dump.sha256.write", e)
+
+
+def _npz_sha_ok(npz: str) -> bool:
+    sp = _sha_path(npz)
+    if not os.path.isfile(sp):
+        try:
+            _write_dump_sha(npz)
+            return True
+        except Exception:
+            return True
+    try:
+        want = open(sp, encoding="ascii").read().strip()
+        return want == _file_sha256(npz)
+    except Exception as e:
+        _log_exc("dump.sha256.read", e)
+        return False
+
+
+def _np_load_arrays(path: str):
+    """Load dump npz without pickle. Old object-array files fall back once."""
+    try:
+        return np.load(path, allow_pickle=False)
+    except ValueError:
+        z = np.load(path, allow_pickle=True)
+        return z
+
+
+def dump_is_loaded() -> bool:
+    """True if this process already has the nightly panel in RAM."""
+    return bool(_PANEL_CACHE.get("panel"))
+
 FUND_FIELDS = ["ShortPctFloat", "DaysToCover", "P/E", "RevenueGrowth",
                "EarningsGrowth", "MarketCap", "Piotroski", "GoldenCross",
                "ROIC", "DividendYieldPct", "DividendRate", "ShortSqueeze",
@@ -957,28 +1055,38 @@ def load_dump_panel():
             # stale: drop it and fall through to the re-download below
             _PANEL_CACHE.pop("panel", None)
             _PANEL_CACHE.pop("tick_ix", None)
-        try:
-            z = np.load(LOCAL_DUMP_R, allow_pickle=True)
-            dts = pd.to_datetime(z["dates"])
-            last = pd.Timestamp(dts[-1]).normalize()
-            if last >= target or _PANEL_CACHE.get("fetched_for") == target:
-                panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
-                out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
-                _PANEL_CACHE["panel"] = (mt, out)
-                _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
-                _PANEL_CACHE["last_date"] = last
-                return out
-        except Exception:
-            # Corrupted/truncated local npz — a bad download, an interrupted
-            # write, or a Streamlit Cloud disk hiccup (zipfile.BadZipFile and
-            # friends). Don't let a bad cache file crash the whole app: drop
-            # it and fall through to a fresh download below.
+        if not _npz_sha_ok(LOCAL_DUMP_R):
             try:
                 os.remove(LOCAL_DUMP_R)
             except Exception:
                 pass
             _PANEL_CACHE.pop("panel", None)
-            _PANEL_CACHE.pop("tick_ix", None)
+        else:
+            try:
+                z = _np_load_arrays(LOCAL_DUMP_R)
+                dts = pd.to_datetime(z["dates"])
+                last = pd.Timestamp(dts[-1]).normalize()
+                if last >= target or _PANEL_CACHE.get("fetched_for") == target:
+                    panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
+                    out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
+                    _PANEL_CACHE["panel"] = (mt, out)
+                    _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
+                    _PANEL_CACHE["last_date"] = last
+                    if "recent_ok" in z.files:
+                        _PANEL_CACHE["recent_ok"] = (mt, z["recent_ok"].astype(bool))
+                    return out
+            except Exception as _le:
+                _log_exc("load_dump_panel.npz", _le)
+                # Corrupted/truncated local npz — a bad download, an interrupted
+                # write, or a Streamlit Cloud disk hiccup (zipfile.BadZipFile and
+                # friends). Don't let a bad cache file crash the whole app: drop
+                # it and fall through to a fresh download below.
+                try:
+                    os.remove(LOCAL_DUMP_R)
+                except Exception:
+                    pass
+                _PANEL_CACHE.pop("panel", None)
+                _PANEL_CACHE.pop("tick_ix", None)
     try:
         r = requests.get(DUMP_URL, timeout=120)
         r.raise_for_status()
@@ -1038,20 +1146,26 @@ def load_dump_panel():
     recent_ok = np.isfinite(panel["c"][-3:]).any(axis=0)
     panel["c"] = pd.DataFrame(panel["c"]).ffill(limit=5).values.astype(np.float32)
     mdv = np.nanmedian((panel["c"] * np.nan_to_num(panel["v"]))[-21:], axis=0)
-    tickers, sectors = np.array(tickers), np.array(sectors)
+    tickers, sectors = np.array(tickers, dtype="U24"), np.array(sectors, dtype="U48")
     _dump_w = _data_write_path(LOCAL_DUMP)
     try:
-        np.savez_compressed(_dump_w, tickers=tickers, sectors=sectors,
-                            mdv=mdv, dates=np.array(all_d), recent_ok=recent_ok, **panel,
-                            **{f"fund_{i}": funds[f] for i, f in enumerate(FUND_FIELDS)})
+        np.savez_compressed(
+            _dump_w, tickers=tickers, sectors=sectors,
+            mdv=mdv, dates=np.array(all_d, dtype="U10"),
+            recent_ok=np.asarray(recent_ok, dtype=np.bool_),
+            **panel,
+            **{f"fund_{i}": funds[f] for i, f in enumerate(FUND_FIELDS)})
         mt = os.path.getmtime(_dump_w)
-    except Exception:
+        _write_dump_sha(_dump_w)
+    except Exception as _se:
+        _log_exc("load_dump_panel.savez", _se)
         mt = 0.0
     out = (panel, tickers, sectors, mdv, pd.to_datetime(all_d))
     _PANEL_CACHE.clear()
     _PANEL_CACHE["panel"] = (mt, out)
     _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(tickers)})
     _PANEL_CACHE["funds"] = (mt, funds)
+    _PANEL_CACHE["recent_ok"] = (mt, np.asarray(recent_ok, dtype=bool))
     _PANEL_CACHE["last_date"] = pd.Timestamp(all_d[-1]).normalize()
     _PANEL_CACHE["fetched_for"] = target
     return out
@@ -1062,15 +1176,18 @@ def _np_load_dump():
     stale fallback when the GitHub download fails."""
     try:
         _p = _data_read_path(LOCAL_DUMP)
-        z = np.load(_p, allow_pickle=True)
+        z = _np_load_arrays(_p)
         dts = pd.to_datetime(z["dates"])
         panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
         out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
         mt = os.path.getmtime(_p)
         _PANEL_CACHE["panel"] = (mt, out)
         _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
+        if "recent_ok" in z.files:
+            _PANEL_CACHE["recent_ok"] = (mt, z["recent_ok"].astype(bool))
         return out
-    except Exception:
+    except Exception as e:
+        _log_exc("_np_load_dump", e)
         return None
 
 
@@ -1083,11 +1200,17 @@ def _recent_ok_mask(panel) -> np.ndarray:
     next nightly rebuild writes the real mask.
     """
     try:
-        z = np.load(_data_read_path(LOCAL_DUMP), allow_pickle=True)
+        mt = _dump_mtime()
+        hit = _PANEL_CACHE.get("recent_ok")
+        if hit and hit[0] == mt:
+            return hit[1]
+        z = _np_load_arrays(_data_read_path(LOCAL_DUMP))
         if "recent_ok" in z.files:
-            return z["recent_ok"].astype(bool)
-    except Exception:
-        pass
+            rok = z["recent_ok"].astype(bool)
+            _PANEL_CACHE["recent_ok"] = (mt, rok)
+            return rok
+    except Exception as e:
+        _log_exc("_recent_ok_mask", e)
     return np.isfinite(panel["c"][-3:]).any(axis=0)
 
 
@@ -1135,7 +1258,7 @@ def dump_fundamentals_all():
         return hit[1]
     _p = _data_read_path(LOCAL_DUMP)
     if os.path.exists(_p):
-        z = np.load(_p, allow_pickle=True)
+        z = _np_load_arrays(_p)
         out = {f: z[f"fund_{i}"] for i, f in enumerate(FUND_FIELDS)}
         _PANEL_CACHE["funds"] = (mt, out)
         return out
@@ -1242,26 +1365,7 @@ def alpaca_prices(tickers: list, chunk: int = 80) -> dict:
             except Exception:
                 continue
         return out
-    pairs = [("ALPACA_API_KEY", "ALPACA_SECRET_KEY"),
-             ("ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY"),
-             ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY")]
-    kid = sec = None
-    getters = [lambda k: os.environ.get(k, "")]
-    try:
-        import streamlit as st
-        getters.insert(0, lambda k: st.secrets.get(k, ""))
-    except Exception:
-        pass
-    for a, b in pairs:
-        for g in getters:
-            try:
-                if g(a) and g(b):
-                    kid, sec = g(a), g(b)
-                    break
-            except Exception:
-                continue
-        if kid:
-            break
+    kid, sec = _alpaca_key_pair()
     if not kid:
         return {}
     try:
@@ -1308,22 +1412,9 @@ LAST_HISTORY_SOURCE = "unknown"
 
 
 def _alpaca_keys_simple():
-    pairs = [("ALPACA_API_KEY", "ALPACA_SECRET_KEY"),
-             ("ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY"),
-             ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY")]
-    getters = [lambda k: os.environ.get(k, "")]
-    try:
-        import streamlit as st
-        getters.insert(0, lambda k: st.secrets.get(k, ""))
-    except Exception:
-        pass
-    for a, b in pairs:
-        for g in getters:
-            try:
-                if g(a) and g(b):
-                    return g(a), g(b)
-            except Exception:
-                continue
+    k, s = _alpaca_key_pair()
+    if k and s:
+        return k, s
     return None, None
 
 
@@ -1713,9 +1804,16 @@ def _dump_records_cache() -> dict:
     try:
         with _gz.open(path, "rt", encoding="utf-8") as f:
             rows = json.load(f)
-    except Exception:
+    except Exception as e:
+        _log_exc("_dump_records_cache", e)
         return {}
-    by = {str(r.get("Ticker", "")).upper(): r for r in rows}
+    by = {}
+    for r in rows:
+        tk = str(r.get("Ticker", "")).upper()
+        if not tk:
+            continue
+        rec = {k: v for k, v in r.items() if k != "_hist"}
+        by[tk] = rec
     _RECORDS_CACHE.clear()
     _RECORDS_CACHE["mt"] = mt
     _RECORDS_CACHE["by_ticker"] = by
@@ -2692,15 +2790,30 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
     rvol = V[-5:].mean(0) / np.where(V[-63:].mean(0) == 0, np.nan, V[-63:].mean(0))
     ma50 = np.nanmean(C[-50:], 0)
     above50 = (px > ma50).astype(float)
-    cl = pd.DataFrame(C)
-    d = cl.diff()
-    up = d.clip(lower=0).rolling(14).mean(); dn = (-d.clip(upper=0)).rolling(14).mean()
-    rsi = (100 - 100 / (1 + up / dn.replace(0, np.nan))).iloc[-1].values
+    d = np.diff(C, axis=0)
+    up = np.clip(d[-14:], 0, None)
+    dn = np.clip(-d[-14:], 0, None)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rsi = 100.0 - 100.0 / (1.0 + np.nanmean(up, 0) / np.nanmean(dn, 0))
     rsi_sweet = ((rsi > 45) & (rsi < 65)).astype(float)
-    e12 = cl.ewm(span=12, adjust=False).mean(); e26 = cl.ewm(span=26, adjust=False).mean()
-    macd = (e12 - e26)
-    sig = macd.ewm(span=9, adjust=False).mean()
-    mb = macd.values > sig.values
+
+    def _ewm_axis0(a, span):
+        alpha = 2.0 / (span + 1.0)
+        out = np.empty(a.shape, dtype=np.float64)
+        x0 = np.asarray(a[0], dtype=np.float64)
+        out[0] = np.where(np.isfinite(x0), x0, 0.0)
+        om = 1.0 - alpha
+        for i in range(1, a.shape[0]):
+            xi = np.asarray(a[i], dtype=np.float64)
+            xi = np.where(np.isfinite(xi), xi, out[i - 1])
+            out[i] = alpha * xi + om * out[i - 1]
+        return out
+
+    e12 = _ewm_axis0(C, 12)
+    e26 = _ewm_axis0(C, 26)
+    macd = e12 - e26
+    sig = _ewm_axis0(macd, 9)
+    mb = macd > sig
     macd_bull = mb[-1].astype(float)
     tech = (0.30 * _pct(mom63) + 0.22 * _pct(rangepos) + 0.18 * _pct(np.minimum(rvol, 5))
             + 0.10 * above50 + 0.10 * rsi_sweet + 0.10 * macd_bull)

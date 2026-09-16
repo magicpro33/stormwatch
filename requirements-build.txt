@@ -1,0 +1,3 @@
+# Build-machine only. Runtime deps are in requirements.txt.
+pyinstaller==6.15.0
+pyinstaller-hooks-contrib==2025.8

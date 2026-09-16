@@ -45,6 +45,21 @@ from datetime import datetime, timedelta, timezone
 import html as _html
 _load_local_mod("mw_paths")
 try:
+    _load_local_mod("mw_log")
+    from mw_log import setup_logging, log_exc
+    setup_logging()
+except Exception:
+    def log_exc(where, exc):
+        pass
+try:
+    _load_local_mod("mw_secrets")
+except Exception:
+    pass
+try:
+    _load_local_mod("mw_yf")
+except Exception:
+    pass
+try:
     _load_local_mod("storm_watch_engine")
 except Exception:
     pass
@@ -105,7 +120,8 @@ try:
 except Exception as _ige:
     render_ignition_scanner_tab, _IG_ERR = None, _ige
 
-REQUIRED_ENGINE = "2.38"
+REQUIRED_ENGINE = "2.39"
+st.set_page_config(page_title="Money Weather", page_icon="🌩", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -115,8 +131,6 @@ if _engine_v != REQUIRED_ENGINE:
              "cascade_engine.py from the same moneyweather.zip to the repo, "
              "then reboot the app.")
     st.stop()
-
-st.set_page_config(page_title="Money Weather", page_icon="🌩", layout="wide")
 
 # ── Global tab focus-outline fix ────────────────────────────────────
 # Applies once, at the top level, so it covers every tab in every sub-app
@@ -248,7 +262,8 @@ def _logo_b64() -> str:
     if not os.path.isfile(LOGO_PATH):
         return ""
     import base64
-    return base64.b64encode(open(LOGO_PATH, "rb").read()).decode()
+    with open(LOGO_PATH, "rb") as _lf:
+        return base64.b64encode(_lf.read()).decode()
 
 
 def _clickable_logo(width: int = 150) -> None:
@@ -382,22 +397,23 @@ def _yf_info(tk: str) -> dict:
     import time
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     try:
+        from mw_yf import yf_call
         import yfinance as yf
-        stock = yf.Ticker(str(tk).strip().upper())
+        stock = yf_call(lambda: yf.Ticker(str(tk).strip().upper()))
     except Exception:
         return {}
     info = {}
     for attempt in range(3):
         try:
-            fetched = stock.info or {}
+            fetched = yf_call(lambda: stock.info or {})
             if (fetched.get("quoteType") or fetched.get("symbol")
                     or len(fetched) >= 5):
                 return fetched
             if attempt < 2:
-                time.sleep(3 + attempt * 3)
+                time.sleep(2)
         except Exception:
             if attempt < 2:
-                time.sleep(3)
+                time.sleep(2)
     return info
 
 
@@ -1882,61 +1898,80 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
     _render_scan_hub_detail(tk, state_key, az_prefix, closable=False)
 
 
-try:
-    closes = _history()
-except Exception as e:
-    st.error(f"Could not load market history: {e}")
-    st.stop()
-if closes is None or closes.empty or closes.dropna(how="all").empty:
-    # Cold start with the feeds rate-limited. This is usually transient and the
-    # app self-heals once one download succeeds (the result is cached). Rather
-    # than serve a dead page, keep the one thing that needs no server feed at
-    # all — the Macro Simulator runs entirely in the browser.
-    st.error("📡 Market data feed returned nothing — Yahoo is likely rate-limiting "
-             "this deployment right now. This is normally temporary: hit retry in a "
-             "minute or two and the download is cached once it succeeds.")
-    if st.button("🔄 Retry download", type="primary"):
-        st.cache_data.clear()
-        st.rerun()
-    st.caption("The cascade map, screeners and stock lookup all need market "
-               "history, so they're unavailable until the feed responds. The "
-               "Macro Simulator below runs in your browser and works regardless.")
+closes = None
+asof = ""
+GAUGE = None
+
+
+def _section_bar(options, key):
+    """Only the selected section's body runs — Streamlit tabs execute every tab."""
+    if hasattr(st, "segmented_control"):
+        sel = st.segmented_control("Section", options, key=key,
+                                   label_visibility="collapsed")
+        return sel if sel in options else options[0]
+    return st.radio("Section", options, horizontal=True, key=key,
+                    label_visibility="collapsed")
+
+
+def _gauge():
+    """Pressure gauge on demand — not on every first paint."""
     try:
-        _sim_p = os.path.join(_bundle_dir(), "macro_simulator.html")
-        if os.path.exists(_sim_p):
-            import streamlit.components.v1 as _c
-            with open(_sim_p, encoding="utf-8") as _f:
-                _c.html(_f.read(), height=1400, scrolling=True)
-    except Exception:
-        pass
-    st.stop()
-
-asof = str(closes.index[-1].date())
-(tab_map, tab_lookup, tab_scanhub, tab_macro,
- tab_advanced) = st.tabs(
-    ["🌊 Cascade Map", "🔎 Stock Lookup", "📡 Scan Hub",
-     "🧪 Macro Sim", "📖 Advanced Guide"])
-# Nested tabs must be created here — Lenses / Guide render earlier in the
-# file than Pressure, so defining them later raises NameError.
-with tab_advanced:
-    (tab_pressure, tab_sentinels, tab_forced, tab_lab,
-     tab_lenses, tab_guide) = st.tabs(
-        ["🌡 Pressure", "🛰 Sentinels", "📅 Forced Flows", "🔬 Validation Lab",
-         "🔭 Lenses", "📖 Guide"])
-with tab_scanhub:
-    (tab_top20, tab_apex, tab_poc, tab_shakeout, tab_hybrid, tab_ignition) = st.tabs(
-        ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
-         "Ignition Scanner"])
+        g = _pressure().get("gauge")
+    except Exception as e:
+        log_exc("pressure_system", e)
+        g = None
+    st.session_state["_gauge_cache"] = g
+    return g
 
 
-# Pressure gauge, resolved once for every tab. It used to be computed inside
-# tab_top20 and stashed in session_state, so visiting APEX or Macro Sim first
-# gave gauge=None — and a different auto-regime than Top 20 on the same reload.
-try:
-    GAUGE = _pressure().get("gauge")
-except Exception:
-    GAUGE = None
-st.session_state["_gauge_cache"] = GAUGE
+def _require_closes():
+    """Load node history or stop with a retry control."""
+    global closes, asof
+    try:
+        c = _history()
+    except Exception as e:
+        log_exc("fetch_history", e)
+        st.error(f"Could not load market history: {e}")
+        if st.button("🔄 Retry download", type="primary", key="hist_retry_err"):
+            st.cache_data.clear()
+            st.rerun()
+        st.stop()
+    if c is None or c.empty or c.dropna(how="all").empty:
+        st.error("📡 Market data feed returned nothing — Yahoo is likely rate-limiting "
+                 "this deployment right now. This is normally temporary: hit retry in a "
+                 "minute or two and the download is cached once it succeeds.")
+        if st.button("🔄 Retry download", type="primary", key="hist_retry_empty"):
+            st.cache_data.clear()
+            st.rerun()
+        st.caption("The cascade map, screeners and stock lookup all need market "
+                   "history. Use **Macro Sim** in the bar above — it runs in the browser.")
+        st.stop()
+    closes, asof = c, str(c.index[-1].date())
+    return closes, asof
+
+
+def _try_closes():
+    """Best-effort history for sections that can run without it."""
+    global closes, asof
+    try:
+        c = _history()
+        if c is not None and not c.empty and not c.dropna(how="all").empty:
+            closes, asof = c, str(c.index[-1].date())
+    except Exception as e:
+        log_exc("try_closes", e)
+    return closes, asof
+
+
+_MAIN = ["Cascade Map", "Stock Lookup", "Scan Hub", "Macro Sim", "Advanced Guide"]
+_HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
+        "Ignition Scanner"]
+_ADV = ["Pressure", "Sentinels", "Forced Flows", "Validation Lab", "Lenses", "Guide"]
+_main = _section_bar(_MAIN, "mw_main")
+_hub = _adv = None
+if _main == "Scan Hub":
+    _hub = _section_bar(_HUB, "mw_hub")
+elif _main == "Advanced Guide":
+    _adv = _section_bar(_ADV, "mw_adv")
 
 
 def flow_window_picker(prefix: str, compact: bool = False):
@@ -1965,7 +2000,8 @@ def flow_window_picker(prefix: str, compact: bool = False):
 
 
 # ── 🌊 cascade map ───────────────────────────────────────────────────
-with tab_map:
+if _main == "Cascade Map":
+    closes, asof = _require_closes()
     if st.session_state.get("mw_analyze"):
         render_ticker_analysis(st.session_state["mw_analyze"], closes)
         st.divider()
@@ -1979,8 +2015,8 @@ with tab_map:
         with st.spinner("Getting the latest prices and recomputing…"):
             try:
                 ce.refresh_history()
-            except Exception:
-                pass
+            except Exception as _re:
+                log_exc("refresh_history", _re)
             # The nightly dump has its own in-process cache that
             # st.cache_data.clear() cannot reach, so refresh it explicitly —
             # otherwise "Refresh" only updated the node history and the dump
@@ -1988,8 +2024,8 @@ with tab_map:
             _new_dump = None
             try:
                 _new_dump = ce.refresh_dump()
-            except Exception:
-                pass
+            except Exception as _rd:
+                log_exc("refresh_dump", _rd)
             st.cache_data.clear()
         if _new_dump is not None:
             _lcs = ce._last_completed_session()
@@ -2305,7 +2341,8 @@ with tab_map:
 
 
 # ── 🔎 stock lookup ──────────────────────────────────────────────────
-with tab_lookup:
+if _main == "Stock Lookup":
+    closes, asof = _require_closes()
     st.caption("Search any stock in the 5,700-name nightly universe. The "
                "outlook is an ANALOG forecast: what actually happened next to "
                "every (stock, day) in the data that looked like this one does "
@@ -2344,17 +2381,12 @@ with tab_lookup:
                      "(e.g. BRK-B not BRK.B, BTC-USD for crypto).")
         else:
             px_now = float(df_tk.Close.dropna().iloc[-1])
-            # every searched stock is auto-saved for later, tagged with
-            # the Scan Hub scanner that found it (or Stock Lookup)
-            if not any(w["ticker"] == tk for w in ce.watchlist_load()):
-                _src = st.session_state.get("wl_source") or "Stock Lookup"
+            _src = st.session_state.get("wl_source") or "Stock Lookup"
+            if any(w["ticker"] == tk for w in ce.watchlist_load()):
+                st.caption(f"⭐ {tk} is on your watchlist.")
+            elif st.button(f"⭐ Save {tk} to watchlist", key="lk_save_wl"):
                 ce.watchlist_add(tk, px_now, source=_src)
-                try:
-                    st.toast(f"⭐ {tk} auto-saved from {_src} at ${px_now:,.2f}")
-                except Exception:
-                    pass
-            st.caption(f"⭐ {tk} is on your watchlist — every search is saved "
-                       "automatically so you can score it later.")
+                st.rerun()
 
         # ── IGNITION Stock Analyzer (ported) — full fundamental deep dive ──
         st.divider()
@@ -2442,13 +2474,18 @@ with tab_lookup:
         def _nowpx(t):
             if t in live:
                 return live[t]
+            if not ce.dump_is_loaded():
+                return np.nan
             d = ce.dump_ohlcv(t)
             return float(d.Close.iloc[-1]) if not d.empty else np.nan
         wdf["price_now"] = wdf.ticker.map(_nowpx)
         wdf["since_add"] = wdf.price_now / wdf.price_at_add - 1
         try:
-            _p, _tks, _secs, _mdv, _dts = ce.load_dump_panel()
-            _sec_map = {str(t): str(s) for t, s in zip(_tks, _secs)}
+            if ce.dump_is_loaded():
+                _p, _tks, _secs, _mdv, _dts = ce.load_dump_panel()
+                _sec_map = {str(t): str(s) for t, s in zip(_tks, _secs)}
+            else:
+                _sec_map = {}
         except Exception:
             _sec_map = {}
         def _wl_sector(t):
@@ -2566,7 +2603,8 @@ with tab_lookup:
 
 
 # ── 📊 hybrid screener (nightly-dump filters from magicpro33/stock) ──
-with tab_hybrid:
+if _main == "Scan Hub" and _hub == "Hybrid Screener":
+    _try_closes()
     if _HS_ERR is not None or hs is None:
         st.error(f"Hybrid Screener failed to load: {_HS_ERR}")
     else:
@@ -2577,7 +2615,7 @@ with tab_hybrid:
 
 
 # ── 🔥 ignition scanner ─────────────────────────────────────────────
-with tab_ignition:
+if _main == "Scan Hub" and _hub == "Ignition Scanner":
     if _IG_ERR is not None or render_ignition_scanner_tab is None:
         st.error(f"Ignition Scanner failed to load: {_IG_ERR}")
         st.caption("Put ignition_scanner.py next to app.py, then reboot.")
@@ -2586,7 +2624,9 @@ with tab_ignition:
 
 
 # ── 🌩 shakeout coils (pre-move scan, backtested on the nightly dump) ──
-with tab_shakeout:
+if _main == "Scan Hub" and _hub == "ShakeOut":
+    closes, asof = _require_closes()
+    GAUGE = _gauge()
     if _SW_ERR is not None or render_storm_watch_tab is None:
         st.error(f"Shakeout tab failed to load: {_SW_ERR}")
         st.caption("Put storm_watch_tab.py and storm_watch_engine.py next to app.py, then reboot.")
@@ -2598,7 +2638,9 @@ with tab_shakeout:
 
 
 # ── 🏆 top 20 mega screener ──────────────────────────────────────────
-with tab_top20:
+if _main == "Scan Hub" and _hub == "TOP20":
+    closes, asof = _require_closes()
+    GAUGE = _gauge()
     st.caption("One screener, four brains: IGNITION technicals + the macro "
                "simulator's quality DNA + the cascade engine's wave tailwind "
                "+ the live macro regime — scored across the ENTIRE nightly "
@@ -3214,7 +3256,9 @@ with tab_top20:
 
 
 # ── ⚡ APEX FLOW screener ────────────────────────────────────────────
-with tab_apex:
+if _main == "Scan Hub" and _hub == "Apex Flow":
+    closes, asof = _require_closes()
+    GAUGE = _gauge()
     if _APEX_ERR:
         # NOTE: never st.stop() inside a tab — Streamlit halts the WHOLE script,
         # so Pressure / Sentinels / Forced Flows / Validation Lab / Guide would
@@ -3517,7 +3561,10 @@ with tab_apex:
                     "Research tool. Probability tilts, not prophecy. Not investment advice.")
 
     # ── 🧪 macro simulator (the original, embedded whole) ────────────────
-with tab_macro:
+if _main == "Macro Sim":
+    _try_closes()
+    if GAUGE is None:
+        GAUGE = _gauge()
     st.caption("Your full Macro Market Simulator, embedded as-is — every "
                "slider, scenario, and stock in its DB works exactly like the "
                "standalone version (it runs in your browser, including its "
@@ -3565,7 +3612,9 @@ with tab_macro:
 
 
 # ── 🔭 Lenses — full playbooks for every macro regime ─────────────────
-with tab_lenses:
+if _main == "Advanced Guide" and _adv == "Lenses":
+    closes, asof = _require_closes()
+    GAUGE = _gauge()
     st.markdown("### 🔭 Macro lenses — who wins, who loses")
     st.markdown(
         "A **macro lens** is a playbook you overlay on a ranking. It does **not** "
@@ -3662,7 +3711,8 @@ with tab_lenses:
 
 
 # ── 🎯 POC Future — AMD accumulation / manipulation / distribution ────
-with tab_poc:
+if _main == "Scan Hub" and _hub == "POC Future":
+    _try_closes()
     st.markdown("### 🎯 POC Future — coil, sweep, reclaim")
     if _POC_ERR:
         st.error(f"⚠️ **poc_future.py missing** — {_POC_ERR}. Push it alongside "
@@ -3911,7 +3961,7 @@ with tab_poc:
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
-with tab_pressure:
+if _main == "Advanced Guide" and _adv == "Pressure":
     st.caption("The upstream source of every wave: global net liquidity. "
                "Rising pressure = waves travel far. Draining = fade the rallies.")
     try:
@@ -3952,7 +4002,8 @@ with tab_pressure:
 
 
 # ── 🛰 sentinels ─────────────────────────────────────────────────────
-with tab_sentinels:
+if _main == "Advanced Guide" and _adv == "Sentinels":
+    closes, asof = _require_closes()
     st.caption("The 24/7 early-warning line — fast, frictionless assets that "
                "react to pressure changes first. Crypto trades all weekend; "
                "Saturday knows things about Monday.")
@@ -3987,7 +4038,7 @@ with tab_sentinels:
 
 
 # ── 📅 forced flows ──────────────────────────────────────────────────
-with tab_sentinels:
+if _main == "Advanced Guide" and _adv == "Sentinels":
     st.markdown("#### 🏛 Bond master switch — the risk-free rate & credit spreads")
     try:
         _bond = ce.bond_master_switch(closes)
@@ -4098,7 +4149,7 @@ with tab_sentinels:
                 <span style="color:{DIM};font-size:12px;flex:1;">{r['meaning']}</span>
                 </div>""", unsafe_allow_html=True)
 
-with tab_forced:
+if _main == "Advanced Guide" and _adv == "Forced Flows":
     st.caption("The closest thing to prophecy that legally exists: flows that "
                "are scheduled and price-insensitive. They don't care what the "
                "chart looks like — they have to trade.")
@@ -4134,7 +4185,8 @@ with tab_forced:
 
 
 # ── 🔬 validation lab ────────────────────────────────────────────────
-with tab_lab:
+if _main == "Advanced Guide" and _adv == "Validation Lab":
+    closes, asof = _require_closes()
     st.caption("Trust nothing you haven't walk-forward tested. This re-runs "
                "the honest experiment: weekly, re-estimate the graph on "
                "trailing data only, follow the top-5 wave forecasts, compare "
@@ -4185,7 +4237,7 @@ with tab_lab:
 
 
 # ── 📖 guide: every wave, every term, every key ──────────────────────
-with tab_guide:
+if _main == "Advanced Guide" and _adv == "Guide":
     _cats = {"core": "🏛 Core Indices", "sector": "🏭 Sectors",
              "theme": "🎯 Themes & Industries", "factor": "🧬 Factors",
              "breadth": "📊 Breadth", "country": "🌍 Countries",

@@ -1,0 +1,19 @@
+# Third-party notices
+
+Money Weather bundles open-source Python packages in the Windows onedir
+build (`_internal/`). Each package's license text ships next to it as
+`_internal/<package>-<version>.dist-info/licenses/` (or `LICENSE*`).
+
+Notable components:
+
+- Streamlit — Apache-2.0
+- pandas — BSD-3-Clause
+- numpy — BSD-3-Clause
+- pyarrow — Apache-2.0
+- yfinance — Apache-2.0
+- plotly — MIT
+- requests — Apache-2.0
+- Python — PSF License
+
+This file is a pointer, not a substitute for those license texts.
+A build-time copy of this file is placed next to MoneyWeather.exe.

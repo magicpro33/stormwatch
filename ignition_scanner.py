@@ -68,32 +68,13 @@ _sys.modules["curl_cffi"] = None
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ── yfinance thread-affinity guard ────────────────────────────────────
-# yfinance's HTTP layer (curl_cffi) has caused interpreter segfaults in
-# production even when access was serialized with a plain Lock. A Lock
-# only guarantees one thread touches yfinance AT A TIME — it does not
-# guarantee the SAME thread does it every time. With a multi-worker pool,
-# a different OS thread acquires the lock on each call. If curl_cffi (or
-# the SSL/curl session it caches) has thread-affinity — a known category
-# of bug in C extensions wrapping libcurl, where a handle created on one
-# thread corrupts state when reused from another — that alone can crash
-# the interpreter with zero contention and zero warning.
-#
-# The fix: route EVERY yfinance call, for the entire server process
-# lifetime, through a single-worker executor. max_workers=1 guarantees
-# the exact same OS thread executes every submitted call, eliminating
-# thread-affinity crashes structurally rather than just reducing their
-# odds. Alpaca calls (plain `requests`, thread-safe, no known affinity
-# issues) are NOT routed through this and keep full 12-way parallelism.
-_YF_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yfinance-io")
+try:
+    from mw_yf import yf_call as _yf
+except ImportError:
+    _YF_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="yfinance-io")
 
-
-def _yf(fn, *args, **kwargs):
-    """Run any yfinance-touching call on the single dedicated yfinance
-    thread and block for its result. Use for every yf.Ticker/.info/
-    .history/.calendar/.news/.insider_transactions/.earnings_* access
-    and yf.Search — never call these directly from a worker thread."""
-    return _YF_EXECUTOR.submit(fn, *args, **kwargs).result()
+    def _yf(fn, *args, **kwargs):
+        return _YF_EXECUTOR.submit(fn, *args, **kwargs).result()
 
 import numpy as np
 import pandas as pd
@@ -636,18 +617,37 @@ def vwap(df: pd.DataFrame) -> pd.Series:
 def alpaca_keys():
     """Read Alpaca keys once per server session (cache_resource)."""
     try:
+        from mw_secrets import alpaca_key_pair
+        k, s = alpaca_key_pair()
+        if k and s:
+            return k, s
+    except Exception:
+        pass
+    try:
         k = st.secrets.get("ALPACA_API_KEY", "")
         s = st.secrets.get("ALPACA_SECRET_KEY", "")
         if k and s:
             return k, s
     except Exception:
         pass
+    k = os.environ.get("ALPACA_API_KEY", "")
+    s = os.environ.get("ALPACA_SECRET_KEY", "")
+    if k and s:
+        return k, s
     return None
 
 
 @st.cache_resource
 def ntfy_config():
     """Read ntfy settings once per server session (cache_resource)."""
+    try:
+        from mw_secrets import get_secret
+        topic = get_secret("NTFY_TOPIC")
+        server = get_secret("NTFY_SERVER") or "https://ntfy.sh"
+        if topic:
+            return server.rstrip("/"), topic
+    except Exception:
+        pass
     try:
         topic = st.secrets.get("NTFY_TOPIC", "")
         server = st.secrets.get("NTFY_SERVER", "https://ntfy.sh")
@@ -797,6 +797,46 @@ SCREENER_URL_DEFAULT = (
 )
 
 
+def _dump_df_from_engine() -> pd.DataFrame | None:
+    """Build Ignition's slim dump frame from cascade_engine (no second gzip)."""
+    try:
+        import cascade_engine as ce
+        panel, tickers, sectors, mdv, dts = ce.load_dump_panel()
+        fa = ce.dump_fundamentals_all()
+        recs = {}
+        try:
+            recs = ce._dump_records_cache() or {}
+        except Exception:
+            recs = {}
+        rows = []
+        last = panel["c"][-1]
+        for i, tk in enumerate(tickers):
+            sym = str(tk).upper()
+            rec = recs.get(sym) or {}
+            row = {k: v for k, v in rec.items()
+                   if k not in ("_hist", "_analyzer", "Ticker")
+                   and not isinstance(v, (dict, list))}
+            row["ticker"] = sym
+            row.setdefault("sector", str(sectors[i]) if sectors is not None else "")
+            if np.isfinite(last[i]):
+                row.setdefault("price", float(last[i]))
+            for fname, arr in (fa or {}).items():
+                if arr is None or i >= len(arr):
+                    continue
+                v = arr[i]
+                if v is not None and np.isfinite(v):
+                    row.setdefault(str(fname).lower().replace("/", "_").replace("%", "pct"),
+                                   float(v))
+            rows.append(row)
+        if not rows:
+            return None
+        df = pd.DataFrame(rows)
+        df["ticker"] = df["ticker"].astype(str).str.upper()
+        return df.set_index("ticker")
+    except Exception:
+        return None
+
+
 def _strip_heavy(d: dict) -> dict:
     """object_hook: drop numeric/scalar arrays (OHLC history blobs) as each
     object is parsed, so the 100MB+ dump doesn't blow Streamlit Cloud memory.
@@ -812,13 +852,15 @@ def _strip_heavy(d: dict) -> dict:
 
 @st.cache_data(ttl=21600, show_spinner="Loading nightly screener dump...")
 def load_screener_dump(url: str) -> pd.DataFrame:
-    """Download and parse the nightly stock_data.json.gz into a slim,
-    scalar-only DataFrame indexed by ticker.
+    """Slim scalar DataFrame indexed by ticker.
 
-    Memory-safe path: the response is streamed, decompressed on the fly, and
-    parsed record-by-record with ijson, so the multi-hundred-MB decompressed
-    JSON never exists in RAM at once. This matters on Streamlit Cloud, which
-    kills the container (-> 'no response from server') around ~1 GB."""
+    Prefer the cascade_engine panel already in this process (desktop / Money
+    Weather tab) so we do not download stock_data.json.gz a second time.
+    """
+    if not url or url.rstrip("/") == SCREENER_URL_DEFAULT.rstrip("/"):
+        df = _dump_df_from_engine()
+        if df is not None and not df.empty:
+            return df
     records = []
     try:
         import ijson
