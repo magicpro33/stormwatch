@@ -365,31 +365,22 @@ h1, h2, h3 { font-family: 'Rajdhani', sans-serif !important;
 /* ── Streamlit caption color override ───────────────────────────── */
 .stCaption, [data-testid="stCaptionContainer"] { color: #4a6a8a !important; }
 /* ── Progress bar: amber fill on dark track, matches slider accent ──
-   Targets [role="progressbar"] directly as the track (this is the outer
-   bar Streamlit renders regardless of its internal wrapper structure,
-   which has changed across versions) and forces every element nested
-   inside it to amber — the single child Streamlit uses for the animated
-   fill, whatever depth it sits at. The old [data-baseweb] selectors are
-   kept alongside as a fallback for older Streamlit builds. */
-[data-testid="stProgress"] [role="progressbar"] {
+   Confirmed against Streamlit's own source (frontend/lib/src/components/
+   shared/ProgressBar): the track is data-testid="stProgressBarTrack" and
+   the fill is its one plain child div (no data-baseweb attribute exists
+   on this Streamlit version at all — that was a stale selector from an
+   older BaseWeb-based build and never matched anything here). A previous
+   wildcard attempt painted the track AND the fill the same amber, which
+   looked like one solid block with no visible motion — this targets each
+   piece by its real testid instead. */
+[data-testid="stProgress"] [data-testid="stProgressBarTrack"] {
     background-color: #122540 !important;
-    background-image: none !important;
     border: 1px solid #1e3a5f !important;
     border-radius: 6px !important;
     height: 12px !important;
     overflow: hidden !important;
 }
-[data-testid="stProgress"] [role="progressbar"] * {
-    background-color: #f5a623 !important;
-    background-image: none !important;
-}
-[data-testid="stProgress"] [data-baseweb="progress-bar"] > div > div {
-    background-color: #122540 !important;
-    height: 12px !important;
-    border: 1px solid #1e3a5f !important;
-    border-radius: 6px !important;
-}
-[data-testid="stProgress"] [data-baseweb="progress-bar"] > div > div > div {
+[data-testid="stProgress"] [data-testid="stProgressBarTrack"] > div {
     background-color: #f5a623 !important;
     background-image: none !important;
 }
