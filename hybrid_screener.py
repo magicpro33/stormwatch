@@ -194,6 +194,69 @@ def _k(name: str) -> str:
     return f"hs_{name}"
 
 
+# ── Sector section — same data/widgets Top 20 uses, so hot sectors and the
+#    money-flow read stay one consistent picture across the app. ──────────
+@st.cache_data(ttl=900, show_spinner="🔥 Measuring where money went in the last session…")
+def _hs_sector_flow(day_key: str, lookback: int = 1, offset: int = 0):
+    return ce.sector_flow(lookback=lookback, offset=offset)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _hs_hot_sectors(day_key: str, k: int = 5, lookback: int = 1, offset: int = 0):
+    return ce.hot_sectors(int(k), lookback=int(lookback), offset=int(offset))
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _hs_flow_sessions(day_key: str):
+    return ce.flow_sessions()
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _hs_sector_list(day_key: str):
+    import apex_flow as _af
+    return _af.available_sectors()
+
+
+def _hs_flow_window_picker(prefix: str):
+    """'Which session(s)?' control — same one Top 20 uses. Returns
+    (lookback, offset, label)."""
+    day_key = datetime.today().strftime("%Y-%m-%d")
+    try:
+        _sess = _hs_flow_sessions(day_key)
+    except Exception:
+        _sess = []
+    c1, c2 = st.columns([1, 2])
+    mode = c1.radio("Window", ["Single day", "Range"], horizontal=True,
+                    key=f"{prefix}_flowmode", label_visibility="collapsed",
+                    help="Single day = one session's rotation. Range = the "
+                         "combined move over the last N sessions.")
+    if mode == "Single day":
+        if not _sess:
+            return 1, 0, "last session"
+        pick = c2.selectbox("Session", _sess, index=0,
+                            key=f"{prefix}_flowday", label_visibility="collapsed",
+                            help="Any of the last 15 trading days.")
+        off = _sess.index(pick)
+        return 1, off, ("last session" if off == 0 else f"session of {pick}")
+    n = c2.slider("Sessions", 2, ce.SECTOR_FLOW_MAX_BACK, 5,
+                  key=f"{prefix}_flowrange", label_visibility="collapsed",
+                  help="Combined money flow over this many recent sessions.")
+    return int(n), 0, f"last {int(n)} sessions"
+
+
+def _hs_css_sign(v, pos_good=True, dead=0.0):
+    """Green when the number is good, red when bad, dim when ~neutral —
+    same palette Top 20's sector-flow table uses."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if not np.isfinite(v) or abs(v) <= dead:
+        return "color:#9aa8bd"
+    good = (v > 0) if pos_good else (v < 0)
+    return "color:#3fbf7f;font-weight:600" if good else "color:#e05252;font-weight:600"
+
+
 def _normalise_sector(raw) -> str:
     if raw is None or (isinstance(raw, float) and np.isnan(raw)):
         return "Unknown"
@@ -219,7 +282,6 @@ def _ensure_defaults() -> None:
         "ipo": False,
         "ipo_days": 90,
         "exchange": "All Stocks",
-        "sector": "All Sectors",
     }
     for name, val in defaults.items():
         defaults_key = _k(name)
@@ -664,9 +726,10 @@ def _run_screen(settings: dict) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     if exch != "all" and "_exchanges" in df.columns:
         df = df[df["_exchanges"].apply(lambda x: _in_exchange(x, exch))].copy()
 
-    sector = settings["sector"]
-    if sector != "All Sectors":
-        df = df[df["Sector"].apply(_normalise_sector).str.lower() == sector.strip().lower()]
+    sectors = settings.get("sectors")
+    if sectors:
+        _norm_pick = {str(s).strip().lower() for s in sectors}
+        df = df[df["Sector"].apply(_normalise_sector).str.lower().isin(_norm_pick)]
 
     df = _overlay_panel(df, settings["range_days"])
 
@@ -765,15 +828,87 @@ def render_hybrid_screener() -> None:
             _apply_preset(key)
 
     with st.expander("⚙️ Filters", expanded=True):
-        r1 = st.columns([1.2, 1.2, 1, 1, 1])
+        r1 = st.columns([1.2, 1, 1, 1])
         exchange = r1[0].selectbox(
             "Universe", list(EXCHANGES), key=_k("exchange"),
             help="All Stocks = the full nightly dump. S&P / NYSE / NASDAQ use "
                  "the exchange tags written by the scan.")
-        sector = r1[1].selectbox("Sector", ALL_SECTORS, key=_k("sector"))
-        max_price = r1[2].slider("Max price ($)", 10, 1000, step=10, key=_k("max_price"))
-        min_score = r1[3].slider("Min hybrid score", 0.0, 20.0, step=0.5, key=_k("min_score"))
-        top_n = r1[4].slider("Max results", 5, 100, step=5, key=_k("top_n"))
+        max_price = r1[1].slider("Max price ($)", 10, 1000, step=10, key=_k("max_price"))
+        min_score = r1[2].slider("Min hybrid score", 0.0, 20.0, step=0.5, key=_k("min_score"))
+        top_n = r1[3].slider("Max results", 5, 100, step=5, key=_k("top_n"))
+
+        st.markdown("**Sectors**")
+        _hs_lb, _hs_off, _hs_lbl = _hs_flow_window_picker("hs")
+        try:
+            _all_secs = _hs_sector_list(datetime.today().strftime("%Y-%m-%d"))
+        except Exception:
+            _all_secs = ALL_SECTORS[1:]
+        _hh1, _hh2 = st.columns([1, 3])
+        if _hh1.button("🔥 Use today's hot sectors", key=_k("hot_btn"), width="stretch",
+                       help="Replace the sector selection with the sectors that "
+                            "received the most money in the last session."):
+            try:
+                _hot = _hs_hot_sectors(datetime.today().strftime("%Y-%m-%d"),
+                                       5, _hs_lb, _hs_off)
+                if _hot:
+                    st.session_state[_k("sectors_pending")] = _hot
+                    st.rerun()
+            except Exception as _he:
+                st.caption(f"Hot sectors unavailable: {_he}")
+        _hs_pending = st.session_state.pop(_k("sectors_pending"), None)
+        if _hs_pending:
+            st.session_state[_k("sectors")] = _hs_pending
+        _hs_now = []
+        try:
+            _hs_now = _hs_hot_sectors(datetime.today().strftime("%Y-%m-%d"),
+                                      5, _hs_lb, _hs_off)
+            if _hs_now:
+                _hh2.caption(f"🔥 Hottest ({_hs_lbl}): " + " · ".join(_hs_now))
+        except Exception:
+            pass
+        with st.expander("🔥 Where the money went in the last session"):
+            try:
+                _fl = _hs_sector_flow(datetime.today().strftime("%Y-%m-%d"),
+                                      _hs_lb, _hs_off)
+            except Exception as _fe:
+                _fl = pd.DataFrame(); st.caption(f"Sector flow unavailable: {_fe}")
+            if _fl is None or _fl.empty:
+                st.caption("No sector-flow reading available yet.")
+            else:
+                st.caption(f"{_hs_lbl} ({_fl.attrs.get('window_start','—')} → "
+                           f"{_fl.attrs.get('window_end','—')}) · market "
+                           f"{_fl.attrs.get('market_return',0):+.2%} · a sector is "
+                           "'hot' when money-weighted return, breadth and turnover "
+                           "all lean the same way — not just because one big name ran.")
+                _fs = _fl.copy()
+                _hot_mark = set(_hs_now) if _hs_now else set(
+                    str(s) for s in _fs.Sector.head(5))
+                _fs["Hot"] = ["🔥" if str(s) in _hot_mark else "" for s in _fs.Sector]
+                st.dataframe(
+                    _fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
+                    .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
+                                   "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
+                    .map(lambda v: _hs_css_sign(v) if isinstance(v, float) else "",
+                         subset=["Ret", "RS"]),
+                    width="stretch", hide_index=True,
+                    column_config={
+                        "Ret": st.column_config.Column(help="Dollar-weighted sector return — weighted by where the money actually traded, not an equal average."),
+                        "RS": st.column_config.Column(help="Sector return minus the market's. Positive = outperforming."),
+                        "Breadth": st.column_config.Column(help="Share of names in the sector that rose. Low breadth with a positive return = one stock carrying it."),
+                        "VolSurge": st.column_config.Column(help="Median dollar-volume vs its own 63-day average. Above 1 = unusual turnover."),
+                        "Names": st.column_config.Column(help="Liquid names in the sector. Sectors under 15 are excluded as too thin to read."),
+                    })
+        _ms_kw = ({} if _k("sectors") in st.session_state
+                  else {"default": _all_secs})
+        _picked_secs = st.multiselect(
+            "Sectors", _all_secs, key=_k("sectors"), **_ms_kw,
+            help="Defaults to every sector. Narrow it to focus the screen — "
+                 "use today's hot sectors to start from the names that "
+                 "received the most money, then add or remove.")
+        sectors_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
+                          else list(_picked_secs))
+        if sectors_filter:
+            st.caption(f"🎯 Screening {len(sectors_filter)} of {len(_all_secs)} sectors.")
 
         r2 = st.columns([1.4, 1, 1, 1.2])
         ma50_mode = r2[0].radio(
@@ -832,9 +967,12 @@ def render_hybrid_screener() -> None:
     run = st.button("🚀 Run Screener", type="primary", width="stretch", key=_k("run"))
 
     if run:
+        _sector_label = ("All Sectors" if not sectors_filter else
+                         " · ".join(sectors_filter) if len(sectors_filter) <= 3 else
+                         f"{len(sectors_filter)} sectors")
         settings = {
             "exchange_key": EXCHANGES[exchange],
-            "sector": sector,
+            "sectors": sectors_filter,
             "max_price": max_price,
             "min_score": min_score,
             "top_n": top_n,
@@ -861,7 +999,7 @@ def render_hybrid_screener() -> None:
         st.session_state["_hs_display"] = display
         st.session_state["_hs_raw"] = screened
         st.session_state["_hs_diag"] = diag
-        st.session_state["_hs_sector"] = sector
+        st.session_state["_hs_sector"] = _sector_label
         st.session_state.pop(_k("inline"), None)
 
     display = st.session_state.get("_hs_display")
