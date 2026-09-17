@@ -294,7 +294,7 @@ footer a:hover{color:var(--ac)}
     <button class="api-clear" onclick="clearAlpaca()">CLEAR</button>
     <span class="api-status" id="api-status"></span>
   </div>
-  <div class="api-note">Keys are stored only in this browser (localStorage) and sent <strong style="color:var(--tx)">only to data.alpaca.markets over HTTPS</strong> &mdash; never through the CORS proxies. Free keys from <span style="color:var(--ac)">alpaca.markets</span> (paper trading account works). Macro series fetch <strong style="color:var(--tx)">Yahoo real symbols first</strong> (CL=F, ^TNX, 2YY=F, DX-Y.NYB, JPY=X, ^IRX) with FRED (DGS10/DGS2/DFF/CPIAUCSL) as the official fallback. Stooq and Alpaca ETF proxies (USO, UUP, GLD) are last resorts &mdash; the status bar marks any ETF approximation. Without a key, stocks also go through Yahoo (then Stooq).</div>
+  <div class="api-note">Keys are stored only in this browser (localStorage) and sent <strong style="color:var(--tx)">only to data.alpaca.markets over HTTPS</strong> &mdash; never through the CORS proxies. Free keys from <span style="color:var(--ac)">alpaca.markets</span> (paper trading account works). Inside Stormwatch, WTI / Fed funds / 10Y / DXY seed from the server (Yahoo CL=F + FRED DFF/DGS10 + DX=F) so Live Market is not blocked by iframe CORS. Standalone fallback: Yahoo CL=F, ^TNX, DX=F, JPY=X with FRED DFF (not the T-bill), DGS10/DGS2, DCOILWTICO, CPIAUCSL. Stooq and Alpaca ETF proxies (USO, UUP) are last resorts.</div>
 </div>
 <div class="pulsebar" id="pulse"></div>
 
@@ -312,7 +312,7 @@ footer a:hover{color:var(--ac)}
 <div class="narr" id="narr"></div>
 <div class="oil-alert" id="oil-alert"><strong>&#9889; HIGH OIL ALERT (WTI $90+):</strong> Alternative Energy section below is now in play. Solar, nuclear, wind &amp; storage names gain strategic tailwind as energy independence becomes a national priority. High short interest in solar = potential squeeze.</div>
 <div class="sliders">
-  <div class="scard"><div class="slbl">WTI Oil Price <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>WTI Crude Oil Price ($/barrel)</strong>West Texas Intermediate — the US benchmark for crude oil. Live from CL=F (Yahoo) / CL.F (Stooq). Directly drives CPI (gas prices), energy sector earnings, tanker rates, and the Iran deal narrative. Above $90 activates the Alt Energy section.<div class="tip-why">Why it matters: Oil is the single biggest swing variable. A $30 move in oil changes CPI by ~1.5%, alters Fed policy, and flips sector leadership from tech to energy.</div></div></span><button class="rbtn" onclick="rv('sl-oil',68)">RST</button></div><div id="v-oil" class="sval editable" onclick="editVal('oil')" title="Click to type exact value">$68</div><input type="range" min="40" max="200" value="68" id="sl-oil" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$40</span><span>$200</span></div></div>
+  <div class="scard"><div class="slbl">WTI Oil Price <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>WTI Crude Oil Price ($/barrel)</strong>West Texas Intermediate — the US benchmark for crude oil. Live from CL=F (Yahoo) / FRED DCOILWTICO. Directly drives CPI (gas prices), energy sector earnings, tanker rates, and the Iran deal narrative. Above $90 activates the Alt Energy section.<div class="tip-why">Why it matters: Oil is the single biggest swing variable. A $30 move in oil changes CPI by ~1.5%, alters Fed policy, and flips sector leadership from tech to energy.</div></div></span><button class="rbtn" onclick="rv('sl-oil',68)">RST</button></div><div id="v-oil" class="sval editable" onclick="editVal('oil')" title="Click to type exact value">$68</div><input type="range" min="20" max="200" value="68" id="sl-oil" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$20</span><span>$200</span></div></div>
   <div class="scard"><div class="slbl">Fed Funds Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Fed Funds Rate (%)</strong>Effective federal funds when FRED DFF is available; otherwise the 13-week T-bill (^IRX) as a live proxy. Set by the FOMC. Under Warsh, cuts still require inflation to fall first.<div class="tip-why">Why it matters: The single most powerful lever in all of finance. Every 25bps cut adds ~2-3% to S&P forward P/E multiples and unlocks bank carry trades via SLR deregulation.</div></div></span><button class="rbtn" onclick="rv('sl-fed',363)">RST</button></div><div id="v-fed" class="sval editable" onclick="editVal('fed')" title="Click to type exact value">3.63%</div><input type="range" min="100" max="700" value="363" id="sl-fed" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>7.0%</span></div></div>
   <div class="scard"><div class="slbl">Iran Deal % <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Iran Deal Status (%)</strong>Probability the Iran nuclear deal holds and the Strait of Hormuz stays open. 0% = full closure, supply shock. 100% = deal signed, Iranian oil floods market, WTI crashes to $55-60.<div class="tip-why">Why it matters: ~20% of global oil supply transits Hormuz. A closure would spike oil $30-40/barrel within weeks, re-accelerating inflation and trapping the Fed.</div></div></span><button class="rbtn" onclick="rv('sl-iran',62)">RST</button></div><div id="v-iran" class="sval editable" onclick="editVal('iran')" title="Click to type exact value">62%</div><input type="range" min="0" max="100" value="62" id="sl-iran" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>Collapsed</span><span>Signed</span></div></div>
   <div class="scard"><div class="slbl">CPI Inflation <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>CPI Inflation (% YoY)</strong>Consumer Price Index year-over-year, pulled live from FRED CPIAUCSL when the feed is available. The Fed's stated target is 2.0%. Warsh uses a trimmed-mean PCE variant; this slider is headline CPI.<div class="tip-why">Why it matters: Inflation above 3.5% keeps the Fed on hold. Below 2.5% unlocks cuts. It's the gatekeeper between the current environment and the QE machine scenario.</div></div></span><button class="rbtn" onclick="rv('sl-cpi',42)">RST</button></div><div id="v-cpi" class="sval editable" onclick="editVal('cpi')" title="Click to type exact value">4.2%</div><input type="range" min="10" max="120" value="42" id="sl-cpi" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>12%</span></div></div>
@@ -1148,6 +1148,25 @@ const CARD_STORE={};
 // Stores the most recently fetched live macro values
 // doRefresh() populates this; rv() restores from it
 const LIVE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638};
+const MANUAL_SET = new Set();  // macro keys the user typed by hand — refresh won't overwrite these
+
+function seedLiveFromServer(){
+  const p = window.MW_MACRO && MW_MACRO.prints;
+  const src = {};
+  if (!p) return src;
+  const sl = p.slider || {};
+  Object.keys(sl).forEach(k => {
+    const v = +sl[k];
+    if (!isFinite(v)) return;
+    LIVE_MACRO[k] = v;
+    src[k] = (p.src && p.src[k]) || 'stormwatch';
+    if (MANUAL_SET.has(k) || WHATIF) return;
+    const id = k === 'y2' ? 'sl-y2' : 'sl-' + k;
+    const el = document.getElementById(id);
+    if (el) el.value = v;
+  });
+  return src;
+}
 
 function rv(id, hardcoded){
   // Map slider id → LIVE_MACRO key
@@ -1197,7 +1216,6 @@ function editVal(key){
   MANUAL_SET.add(key);                      // remember it was hand-set (survives refresh)
   upd();
 }
-const MANUAL_SET = new Set();  // macro keys the user typed by hand — refresh won't overwrite these
 
 function gv(){
  const y10    = +document.getElementById('sl-yield').value / 100;
@@ -1263,6 +1281,7 @@ function setScen(s,el){
  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
  if(el)el.classList.add('on');
  const p=SCENS[s];
+ if(!p) return;
  document.getElementById('sl-oil').value=p.oil;
  document.getElementById('sl-fed').value=p.fed;
  document.getElementById('sl-iran').value=p.iran;
@@ -1460,6 +1479,10 @@ function updSigs(v){
 }
 
 function initCharts(){
+ if (typeof Chart === 'undefined') return;
+ const canv = ['spxC','assetC','sectorC','yieldC'].every(id => document.getElementById(id));
+ if (!canv) return;
+ try {
  const mo=['Now','M+1','M+2','M+3','M+4','M+5','M+6','M+7','M+8','M+9','M+10','M+11'];
  const co={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#6b7fa3',font:{family:'JetBrains Mono',size:10}}}},scales:{x:{grid:{color:'rgba(30,45,69,.7)'},ticks:{color:'#6b7fa3',font:{family:'JetBrains Mono',size:9}}},y:{grid:{color:'rgba(30,45,69,.7)'},ticks:{color:'#6b7fa3',font:{family:'JetBrains Mono',size:9}}}}};
  CH.spx=new Chart(document.getElementById('spxC'),{type:'line',data:{labels:mo,datasets:[
@@ -1473,9 +1496,11 @@ function initCharts(){
   {label:'Current',data:[],borderColor:'#00e5ff',borderWidth:2,tension:.4,fill:false,pointRadius:3},
   {label:'12M Proj',data:[],borderColor:'#39ff14',borderWidth:2,tension:.4,fill:false,borderDash:[5,3],pointRadius:3},
  ]},options:co});
+ } catch (e) { console.warn('initCharts', e); }
 }
 
 function updCharts(v,k){
+ if (!CH.spx || !CH.asset || !CH.sector || !CH.yield) return;
  // Anchor projection at LIVE S&P 500 level (falls back to baseline when offline)
  const spx0 = LIVE_IDX.spx || BASE_IDX.spx;
  const bullPath=[1,1.0267,1.0644,1.1022,1.1422,1.1911,1.2356,1.2711,1.3067,1.3378,1.3756,1.4156];
@@ -1907,26 +1932,38 @@ function renderWatchlist(k){
  mkFitGrid(rows,'g-watch',k);
 }
 
+function setText(id, txt){
+ const el=document.getElementById(id);
+ if(el) el.textContent=txt;
+}
 function upd(){
  Object.keys(CARD_STORE).forEach(k=>delete CARD_STORE[k]);
  const v=gv();
  const k=gkey(v);
- document.getElementById('v-oil').textContent='$'+v.oil;
- document.getElementById('v-fed').textContent=v.fed.toFixed(2)+'%';
- document.getElementById('v-iran').textContent=v.iran+'%';
- document.getElementById('v-cpi').textContent=v.cpi.toFixed(1)+'%';
- document.getElementById('v-yield').textContent=v.y10.toFixed(2)+'%';
- if(document.getElementById('v-y2')) document.getElementById('v-y2').textContent=v.y2.toFixed(2)+'%';
- document.getElementById('v-dxy').textContent=v.dxy.toFixed(1);
- if(document.getElementById('v-boj'))    document.getElementById('v-boj').textContent=v.boj.toFixed(2)+'%';
- if(document.getElementById('v-usdjpy')) document.getElementById('v-usdjpy').textContent=v.usdjpy.toFixed(1);
- document.getElementById('v-qe').textContent=v.qe+'%';
- document.getElementById('v-slr').textContent=v.slr+'%';
- document.getElementById('live-scen').textContent=(WHATIF ? 'WHAT-IF: ' : 'LIVE: ')+k.toUpperCase();
- document.getElementById('narr').innerHTML=NARRS[k]||NARRS.base;
+ setText('v-oil','$'+v.oil);
+ setText('v-fed',v.fed.toFixed(2)+'%');
+ setText('v-iran',v.iran+'%');
+ setText('v-cpi',v.cpi.toFixed(1)+'%');
+ setText('v-yield',v.y10.toFixed(2)+'%');
+ setText('v-y2',v.y2.toFixed(2)+'%');
+ setText('v-dxy',v.dxy.toFixed(1));
+ setText('v-boj',v.boj.toFixed(2)+'%');
+ setText('v-usdjpy',v.usdjpy.toFixed(1));
+ setText('v-qe',v.qe+'%');
+ setText('v-slr',v.slr+'%');
+ setText('live-scen',(WHATIF ? 'WHAT-IF: ' : 'LIVE: ')+k.toUpperCase());
+ const narr=document.getElementById('narr');
+ if(narr) narr.innerHTML=NARRS[k]||NARRS.base;
  const al=document.getElementById('oil-alert');
- v.oil>=90?al.classList.add('show'):al.classList.remove('show');
- updSigs(v);updCharts(v,k);updBars(k);updMbar(v,k);updTL(k);updInflate(v,k);bldAngles(k);
+ if(al) v.oil>=90?al.classList.add('show'):al.classList.remove('show');
+ try{ updSigs(v); }catch(e){ console.warn('updSigs', e); }
+ try{ updCharts(v,k); }catch(e){ console.warn('updCharts', e); }
+ try{ updBars(k); }catch(e){ console.warn('updBars', e); }
+ try{ updMbar(v,k); }catch(e){ console.warn('updMbar', e); }
+ try{ updTL(k); }catch(e){ console.warn('updTL', e); }
+ try{ updInflate(v,k); }catch(e){ console.warn('updInflate', e); }
+ try{ bldAngles(k); }catch(e){ console.warn('bldAngles', e); }
+ try {
  mkGrid(favored(DB.gold,k),k,'g-gold');
  mkGrid(favored(DB.banks,k),k,'g-banks');
  mkGrid(favored(DB.tech,k),k,'g-tech');
@@ -1993,6 +2030,7 @@ function upd(){
    badge.textContent       = hioilActive ? 'ACTIVE NOW'          : 'WTI $90+ / DXY 100+';
  }
  applyScenarioChrome(k);
+ } catch(e){ console.warn('upd grids', e); try{ applyScenarioChrome(k); }catch(_){ } }
 }
 
 
@@ -2168,7 +2206,11 @@ function parseYahooJson(j){
   const put = (sym, v) => {
     if (!sym) return;
     const n = +v;
-    if (isFinite(n) && n > 0) out[sym] = n;
+    if (!(isFinite(n) && n > 0)) return;
+    const s = String(sym);
+    out[s] = n;
+    out[s.toUpperCase()] = n;
+    if (s.charAt(0) === '^') out[s.slice(1)] = n;
   };
   const quote = j.quoteResponse && j.quoteResponse.result;
   if (Array.isArray(quote)) quote.forEach(it => put(it.symbol, it.regularMarketPrice || it.regularMarketPreviousClose));
@@ -2194,6 +2236,37 @@ function parseYahooJson(j){
   }
   return out;
 }
+function yhPick(map, sym){
+  if (!map || !sym) return null;
+  if (map[sym] != null) return map[sym];
+  const u = String(sym).toUpperCase();
+  if (map[u] != null) return map[u];
+  const aliases = {
+    'CL=F': ['CL=F','CL.F','BZ=F'],
+    '^TNX': ['^TNX','TNX'],
+    '^IRX': ['^IRX','IRX'],
+    'DX=F': ['DX=F','DX-Y.NYB','DXY','DX'],
+    'DX-Y.NYB': ['DX-Y.NYB','DX=F','DXY'],
+    'JPY=X': ['JPY=X','USDJPY=X','USDJPY'],
+    '2YY=F': ['2YY=F','^UST2Y','UST2Y'],
+    '^GSPC': ['^GSPC','GSPC','^SPX'],
+    '^VIX': ['^VIX','VIX'],
+    'GC=F': ['GC=F','XAUUSD','GOLD'],
+    'BTC-USD': ['BTC-USD','BTCUSD'],
+    'HG=F': ['HG=F'],
+  };
+  for (const a of (aliases[sym] || aliases[u] || [])) {
+    if (map[a] != null) return map[a];
+    if (map[String(a).toUpperCase()] != null) return map[String(a).toUpperCase()];
+  }
+  const bare = u.replace(/^\^/,'');
+  if (map[bare] != null) return map[bare];
+  const hit = Object.keys(map).find(k => {
+    const ku = k.toUpperCase();
+    return ku === u || ku.replace(/^\^/,'') === bare;
+  });
+  return hit ? map[hit] : null;
+}
 async function yhTry(url){
   const res = await proxyFetchText(url, 6000, t => t.trim().charAt(0) === '{');
   if (!res) return {};
@@ -2207,18 +2280,35 @@ async function yhBatch(ySyms){
   const uniq = [...new Set(ySyms.filter(Boolean))];
   if (!uniq.length) return {};
   const bust = Date.now();
-  // Yahoo's v7 quote endpoint returns Unauthorized through every public CORS proxy.
-  // Spark (dict payload) and chart still work — try those only.
-  let out = await yhTry(`https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(uniq.join(','))}&range=1d&interval=1d&_=${bust}`);
-  let missing = uniq.filter(s => out[s] == null);
-  if (missing.length) {
-    const spark2 = await yhTry(`https://query2.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(missing.join(','))}&range=1d&interval=1d&_=${bust}`);
-    out = Object.assign({}, spark2, out);
-    missing = uniq.filter(s => out[s] == null);
-  }
-  if (missing.length && missing.length <= 10) {
-    const charts = await Promise.all(missing.slice(0, 8).map(s => yhTry(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s)}?interval=1d&range=5d&_=${bust}`)));
+  // Futures and ^indices are unreliable on spark (wrong/missing keys). Chart first.
+  const special = uniq.filter(s => /[=^.]/.test(s));
+  const rest = uniq.filter(s => special.indexOf(s) < 0);
+  let out = {};
+  if (special.length) {
+    const charts = await Promise.all(special.map(s => yhTry(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s)}?interval=1d&range=5d&_=${bust}`)));
     charts.forEach(part => Object.assign(out, part));
+    const missS = special.filter(s => yhPick(out, s) == null);
+    if (missS.length) {
+      const c2 = await Promise.all(missS.map(s => yhTry(
+        `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s)}?interval=1d&range=5d&_=${bust}`)));
+      c2.forEach(part => Object.assign(out, part));
+    }
+  }
+  if (rest.length) {
+    let spark = await yhTry(`https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(rest.join(','))}&range=1d&interval=1d&_=${bust}`);
+    out = Object.assign({}, spark, out);
+    let missing = rest.filter(s => yhPick(out, s) == null);
+    if (missing.length) {
+      const spark2 = await yhTry(`https://query2.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(missing.join(','))}&range=1d&interval=1d&_=${bust}`);
+      out = Object.assign({}, spark2, out);
+      missing = rest.filter(s => yhPick(out, s) == null);
+    }
+    if (missing.length && missing.length <= 10) {
+      const charts = await Promise.all(missing.slice(0, 8).map(s => yhTry(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s)}?interval=1d&range=5d&_=${bust}`)));
+      charts.forEach(part => Object.assign(out, part));
+    }
   }
   return out;
 }
@@ -2261,12 +2351,17 @@ const POLICY_CFG = {
   fed: {key:'fed', lo:0.25, hi:12, scale:100},
   cpi: {key:'cpi', lo:0,    hi:15, scale:10},
 };
-function ySym(t){ return t.replace('.', '-'); }  // BRK.B → BRK-B; plain tickers unchanged
+function ySym(t){
+  t = String(t || '').toUpperCase();
+  if (!t || t.charAt(0) === '^' || t.indexOf('=') >= 0) return t;
+  const m = t.match(/^([A-Z0-9-]+)\.([A-Z])$/);
+  return m ? (m[1] + '-' + m[2]) : t;  // BRK.B → BRK-B; leave DX-Y.NYB / CL=F alone
+}
 // ── Progress bar helper ──────────────────────────────────────
-function setProgress(pct){ document.getElementById('prog-bar').style.width = pct + '%'; }
-function setStat(txt){     document.getElementById('lb-stat').textContent   = txt; }
-function setTime(txt,cls){ const el=document.getElementById('lb-time'); el.textContent=txt; el.className='lb-time'+(cls?' '+cls:''); }
-function setDot(cls){      document.getElementById('ld').className = 'ld '+(cls||''); }
+function setProgress(pct){ const el=document.getElementById('prog-bar'); if(el) el.style.width = pct + '%'; }
+function setStat(txt){     const el=document.getElementById('lb-stat'); if(el) el.textContent = txt; }
+function setTime(txt,cls){ const el=document.getElementById('lb-time'); if(!el) return; el.textContent=txt; el.className='lb-time'+(cls?' '+cls:''); }
+function setDot(cls){      const el=document.getElementById('ld'); if(el) el.className = 'ld '+(cls||''); }
 
 // ── Update a single price badge on the page ──────────────────
 function updateBadge(ticker){
@@ -2412,27 +2507,36 @@ async function doRefresh(){
   if (busy) return;
   busy = true;
   const btn = document.getElementById('rfbtn');
-  btn.disabled = true;
+  if (btn) btn.disabled = true;
   setDot('spin');
   setProgress(0);
   liveCount = 0; macroLive = 0;
   NET_ERRS.length = 0;
   lastVia = '';
+  let alpacaHits = 0;
+  let macroMissing = ['oil','yield','y2','dxy','fed'];
+
+  try {
 
   // ── Phase 1: Macro + index series ──────────────────────────
-  // Yahoo first: Stooq's /q/l/ endpoint is bot-walled (404 / JS challenge) from
-  // many networks. Yahoo chart/quote/spark still return the real prints.
+  // Stormwatch injects MW_MACRO.prints (no CORS). Browser Yahoo/FRED fill gaps.
   setStat('Fetching macro data (oil · yields · dollar · gold · VIX · BTC)...');
   const macroCfgs = Object.values(MACRO_SQ).concat(Object.values(POLICY_CFG));
   const idxKeys   = Object.keys(IDX_SQ);
 
   const asYield = (key, raw) => {
     if (raw == null) return null;
-    // 2YY=F is a yield (~4.4). ZT=F is a PRICE (~103) — never treat that as a yield.
-    if (key === 'y2' && raw > 20) return null;
+    let x = +raw;
+    if (!isFinite(x)) return null;
+    if (key === 'oil' || key === 'dxy' || key === 'usdjpy') return x;
+    // 2YY=F / ZT=F sometimes print as a bond PRICE (~103) — never treat that as a yield.
+    if (key === 'y2' && x > 20) return null;
     // ^TNX / ^IRX sometimes arrive ×10 (48.37 instead of 4.837)
-    if ((key === 'yield' || key === 'fed') && raw > 20 && raw < 150) return raw / 10;
-    return raw;
+    if ((key === 'yield' || key === 'fed') && x > 20) {
+      if (x < 150) x = x / 10;
+      else if (x < 2000) x = x / 100;
+    }
+    return x;
   };
   // applyMacro takes a value ALREADY in display units (e.g. oil 72.1, yield 4.42)
   const applyMacro = (cfg, disp) => {
@@ -2462,22 +2566,38 @@ async function doRefresh(){
   };
 
   const doneM = new Set(), doneI = new Set();
-  const macroSrc = {}; // key → 'yahoo' | 'fred' | 'stooq' | 'etf-proxy'
+  const macroSrc = {}; // key → 'yahoo' | 'fred' | 'stooq' | 'etf-proxy' | 'stormwatch'
   const proxied  = new Set();
 
-  // 1a. Yahoo real market symbols — accurate and currently the reliable public feed
-  //     CPI YoY (FRED) starts in parallel so it doesn't add a second wait.
+  // 0. Server prints (Stormwatch) — authoritative; skips iframe CORS entirely
+  {
+    const src = seedLiveFromServer();
+    Object.keys(src).forEach(k => {
+      doneM.add(k);
+      macroSrc[k] = src[k];
+    });
+    if (doneM.size) {
+      lastVia = 'Stormwatch live prints';
+      updPulse();
+      upd();
+    }
+  }
+
+  // 1a. Yahoo real market symbols fill anything the server missed.
+  //     Never let ^IRX (T-bill) overwrite FRED DFF / server Fed funds.
   {
     const withTime = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]).catch(() => null);
     const yq = macroCfgs.map(c=>Y_MACRO[c.key]).concat(idxKeys.map(k=>Y_IDX[k])).filter(Boolean);
-    const cpiP = withTime(fredCpiYoy(), 8000);
+    const cpiP = doneM.has('cpi') ? Promise.resolve(null) : withTime(fredCpiYoy(), 8000);
     const yr = await yhBatch(yq);
     macroCfgs.forEach(cfg => {
-      const raw = yr[Y_MACRO[cfg.key]];
+      if (doneM.has(cfg.key)) return;
+      if (cfg.key === 'fed') return; // Fed funds comes from FRED DFF, not ^IRX
+      const raw = yhPick(yr, Y_MACRO[cfg.key]);
       if (raw != null && applyMacro(cfg, raw)){ doneM.add(cfg.key); macroSrc[cfg.key]='yahoo'; }
     });
     idxKeys.forEach(k => {
-      const raw = yr[Y_IDX[k]];
+      const raw = yhPick(yr, Y_IDX[k]);
       if (raw != null && applyIdx(k, raw)) doneI.add(k);
     });
     if (doneM.size || doneI.size) lastVia = lastVia || 'Yahoo (real)';
@@ -2486,13 +2606,17 @@ async function doRefresh(){
     const jobs = [];
     if (!doneM.has('yield')) jobs.push(withTime(fredLast('DGS10'), 8000).then(n => ['yield', n]));
     if (!doneM.has('y2'))    jobs.push(withTime(fredLast('DGS2'), 8000).then(n => ['y2', n]));
-    if (!doneM.has('fed'))    jobs.push(withTime(fredLast('DFF'), 8000).then(n => ['fed', n]));
+    // Always prefer official DFF over any T-bill proxy
+    jobs.push(withTime(fredLast('DFF'), 8000).then(n => ['fed', n, true]));
+    if (!doneM.has('oil'))   jobs.push(withTime(fredLast('DCOILWTICO'), 8000).then(n => ['oil', n]));
     if (jobs.length) {
       const got = await Promise.all(jobs);
       got.forEach(row => {
         if (!row || row[1] == null) return;
-        const cfg = macroCfgs.find(c => c.key === row[0]);
-        if (cfg && applyMacro(cfg, row[1])){ doneM.add(row[0]); macroSrc[row[0]]='fred'; lastVia = lastVia || 'FRED'; }
+        const key = row[0], force = !!row[2];
+        if (!force && doneM.has(key)) return;
+        const cfg = macroCfgs.find(c => c.key === key);
+        if (cfg && applyMacro(cfg, row[1])){ doneM.add(key); macroSrc[key]='fred'; lastVia = lastVia || 'FRED'; }
       });
     }
   }
@@ -2539,14 +2663,13 @@ async function doRefresh(){
     }
   }
   macroLive = doneM.size + doneI.size;
-  const macroMissing = ['oil','yield','y2','dxy'].filter(k=>!doneM.has(k));
+  macroMissing = ['oil','yield','y2','dxy','fed'].filter(k=>!doneM.has(k));
   setProgress(14);
   updPulse();
   upd(); // paint live sliders/pulse immediately — don't wait for every stock
 
   // ── Phase 2: Stock prices ──────────────────────────────────
   // Priority: Alpaca (direct) → Yahoo (now that spark/quote parse) → Stooq.
-  let alpacaHits = 0;
   const DEAD_TKS = new Set(['RIDE','NKLA']); // delisted; keep cards, skip fetch
   const remaining = new Set(allTickers().filter(t => !DEAD_TKS.has(t)));
 
@@ -2574,7 +2697,7 @@ async function doRefresh(){
     for (const tks of chunks) {
       const yr = await yhBatch(tks.map(ySym));
       tks.forEach(tk => {
-        const v = yr[ySym(tk)];
+        const v = yhPick(yr, ySym(tk));
         if (v > 0){ PX[tk] = v; PX_SRC[tk]='yahoo'; liveCount++; remaining.delete(tk); updateBadge(tk); }
       });
       const still = tks.filter(tk => remaining.has(tk));
@@ -2610,7 +2733,7 @@ async function doRefresh(){
   // Honest macro reporting: name series still on baseline (usdjpy is manual-friendly, exclude from alarm)
   const criticalMissing = macroMissing.filter(k => k !== 'usdjpy');
   const macroWarn = criticalMissing.length
-    ? ` ⚠ ${criticalMissing.map(k=>({oil:'WTI',yield:'10Y',y2:'2Y',dxy:'DXY'}[k]||k)).join('/')} on baseline (live fetch failed)`
+    ? ` ⚠ ${criticalMissing.map(k=>({oil:'WTI',yield:'10Y',y2:'2Y',dxy:'DXY',fed:'Fed'}[k]||k)).join('/')} on baseline (live fetch failed)`
     : '';
   // Note any macro series still coming from an approximate ETF proxy (not exact real-symbol data)
   const proxyKeys = [...proxied].filter(k => k !== 'usdjpy');
@@ -2635,11 +2758,17 @@ async function doRefresh(){
   }
 
   updPulse();
-  btn.disabled = false;
-  btn.textContent = '⟳ REFRESH';
-  busy = false;
-
   upd(); // re-render all stock cards + charts with fresh data
+
+  } catch (e) {
+    NET_ERRS.push('refresh: ' + (e && e.message ? e.message : e));
+    setDot('err');
+    setStat('Refresh failed — ' + (e && e.message ? e.message : e) + '. Hit REFRESH to retry.');
+    setTime('Error', 'stale');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⟳ REFRESH'; }
+    busy = false;
+  }
 }
 
 // ── NEW: Live Market Pulse strip (SPX · Gold · BTC · VIX · Copper · Credit) ─
@@ -2680,9 +2809,10 @@ document.addEventListener('click',function(e){
 
 window.addEventListener('load',()=>{
   syncApiUI();    // reflect stored Alpaca key on the API button
+  seedLiveFromServer();  // paint Stormwatch prints before the first render
   initCharts();
   bldAngles();
-  upd();          // render cards immediately with baseline data — never wait for network
+  upd();          // render cards immediately — never wait for network
   // Inflate-$ calculator inputs recompute the panel live (without touching sliders)
   ['ic-debt','ic-dgdp','ic-roll','ic-oldc','ic-grow','ic-def','ic-tgt','ic-yrs'].forEach(id=>{
     const el=document.getElementById(id);
@@ -2698,6 +2828,7 @@ window.upd         = upd;         // oninput="upd()" on every slider
 window.setScen     = setScen;
 window.setLive     = setLive;
 window.doRefresh   = doRefresh;
+window.seedLiveFromServer = seedLiveFromServer;
 window.collapseAll = collapseAll;
 window.updPulse    = updPulse;
 window.updInflate  = updInflate;

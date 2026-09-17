@@ -469,6 +469,11 @@ def _macro_sim_bundle(asof: str, wl_key: str, live_regime: str):
     return ce.macro_sim_bundle(watchlist=wl, live_regime=live_regime, top=20)
 
 
+@st.cache_data(ttl=300, show_spinner="📡 Reading live WTI, Fed funds, 10Y and DXY…")
+def _macro_live_prints():
+    return ce.macro_live_prints()
+
+
 @st.cache_data(ttl=900, show_spinner="🔥 Measuring where money went in the last session…")
 def _sector_flow(asof: str, lookback: int = 1, offset: int = 0,
                  live: bool = False):
@@ -3705,6 +3710,13 @@ if _main == "Macro Sim":
                 except Exception as _be:
                     log_exc("macro_sim_bundle", _be)
                     _mw = {}
+            if not isinstance(_mw, dict):
+                _mw = {}
+            if hasattr(ce, "macro_live_prints"):
+                try:
+                    _mw["prints"] = _macro_live_prints()
+                except Exception as _pe:
+                    log_exc("macro_live_prints", _pe)
             _payload = _json.dumps(_mw, default=str).replace("<", "\\u003c")
             _sim_html = _sim_html.replace(
                 "<script src=",

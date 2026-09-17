@@ -3622,9 +3622,16 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
 # ═════════ LIVE UPDATE — refresh a result list against the market now ═════════
 def _yahoo_symbol(t: str) -> str:
     t = str(t or "").strip().upper()
+    if not t:
+        return t
     if t.startswith("^"):
         return t
-    return t.replace(".", "-")
+    # Share-class dots only (BRK.B → BRK-B). Leave CL=F, DX=F, DX-Y.NYB, JPY=X.
+    if "." in t and "=" not in t:
+        left, _, right = t.partition(".")
+        if len(right) == 1 and right.isalpha() and left.replace("-", "").isalnum():
+            return f"{left}-{right}"
+    return t
 
 
 def _yf_call(fn, *args, **kwargs):
@@ -3645,11 +3652,22 @@ def _yahoo_from_frame(data, requested: list) -> dict:
         ys = _yahoo_symbol(t)
         try:
             if isinstance(data.columns, pd.MultiIndex):
-                levels = list(data.columns.get_level_values(0))
-                key = ys if ys in levels else (t if t in levels else None)
-                if key is None:
+                levels0 = list(data.columns.get_level_values(0))
+                if ys in levels0 or t in levels0:
+                    key = ys if ys in levels0 else t
+                    s = data[key]["Close"].dropna()
+                elif "Close" in levels0:
+                    close = data["Close"]
+                    if isinstance(close, pd.DataFrame):
+                        col = ys if ys in close.columns else (
+                            t if t in close.columns else None)
+                        if col is None:
+                            continue
+                        s = close[col].dropna()
+                    else:
+                        s = close.dropna()
+                else:
                     continue
-                s = data[key]["Close"].dropna()
             else:
                 s = data["Close"].dropna()
             if len(s):
@@ -3695,36 +3713,39 @@ def yahoo_prices(tickers: list) -> dict:
         except Exception as e:
             _log_exc("yahoo_prices.1d", e)
     missing = [t for t in tickers if t not in out]
-    # Per-ticker fast_info is the last resort for a chart/lookup (1–few names).
-    # Skip it on a long batch — dump last-close fills those in live_quotes.
-    if missing and len(missing) <= 4:
-        for t in missing:
-            ys = _yahoo_symbol(t)
-            try:
-                def _one(sym=ys):
-                    tk = yf.Ticker(sym)
+    # Per-ticker fast_info: always for futures/indices (batch download often
+    # drops CL=F, DX=F, ^TNX). Cap equity leftovers so a 200-name gap fill
+    # does not serialize hundreds of HTTP calls.
+    special = [t for t in missing if any(ch in str(t) for ch in "^=")]
+    rest = [t for t in missing if t not in special]
+    ones = special + (rest if len(rest) <= 4 else [])
+    for t in ones:
+        ys = _yahoo_symbol(t)
+        try:
+            def _one(sym=ys):
+                tk = yf.Ticker(sym)
+                p = None
+                try:
+                    fi = tk.fast_info
+                    if isinstance(fi, dict):
+                        p = (fi.get("lastPrice") or fi.get("last_price")
+                             or fi.get("regularMarketPrice") or fi.get("last_close"))
+                    else:
+                        p = (getattr(fi, "last_price", None)
+                             or getattr(fi, "lastPrice", None)
+                             or getattr(fi, "regular_market_price", None))
+                except Exception:
                     p = None
-                    try:
-                        fi = tk.fast_info
-                        if isinstance(fi, dict):
-                            p = (fi.get("lastPrice") or fi.get("last_price")
-                                 or fi.get("regularMarketPrice") or fi.get("last_close"))
-                        else:
-                            p = (getattr(fi, "last_price", None)
-                                 or getattr(fi, "lastPrice", None)
-                                 or getattr(fi, "regular_market_price", None))
-                    except Exception:
-                        p = None
-                    if not p:
-                        info = tk.info or {}
-                        p = (info.get("currentPrice") or info.get("regularMarketPrice")
-                             or info.get("regularMarketPreviousClose"))
-                    return p
-                p = _positive_px(_yf_call(_one))
-                if np.isfinite(p):
-                    out[t] = p
-            except Exception:
-                continue
+                if not p:
+                    info = tk.info or {}
+                    p = (info.get("currentPrice") or info.get("regularMarketPrice")
+                         or info.get("regularMarketPreviousClose"))
+                return p
+            p = _positive_px(_yf_call(_one))
+            if np.isfinite(p):
+                out[t] = p
+        except Exception:
+            continue
     return out
 
 
@@ -3767,6 +3788,145 @@ def live_quotes(tickers: list, use_dump: bool = True) -> tuple:
             except Exception as e:
                 _log_exc("live_quotes.dump", e)
     return live, source
+
+
+def _as_pct_quote(v):
+    """Normalize a yield-like print (4.12, 41.2, or 412 bp) to percent."""
+    try:
+        x = float(v)
+    except Exception:
+        return None
+    if not np.isfinite(x):
+        return None
+    if 20 < x < 150:
+        x /= 10.0
+    elif 150 < x < 2000:
+        x /= 100.0
+    return x if 0.15 <= x <= 15 else None
+
+
+def _as_oil_quote(v):
+    try:
+        x = float(v)
+    except Exception:
+        return None
+    return x if np.isfinite(x) and 15 <= x <= 250 else None
+
+
+def _as_dxy_quote(v):
+    try:
+        x = float(v)
+    except Exception:
+        return None
+    return x if np.isfinite(x) and 70 <= x <= 140 else None
+
+
+def _as_jpy_quote(v):
+    try:
+        x = float(v)
+    except Exception:
+        return None
+    return x if np.isfinite(x) and 80 <= x <= 220 else None
+
+
+def _fred_last_print(sid: str):
+    try:
+        s = _fred(sid)
+        if s is None or getattr(s, "empty", True):
+            return None
+        v = float(s.dropna().iloc[-1])
+        return v if np.isfinite(v) else None
+    except Exception as e:
+        _log_exc(f"macro_live_prints.fred.{sid}", e)
+        return None
+
+
+def _cpi_yoy_print():
+    try:
+        s = _fred("CPIAUCSL").dropna()
+        if len(s) < 13:
+            return None
+        last, ago = float(s.iloc[-1]), float(s.iloc[-13])
+        if ago <= 0:
+            return None
+        yoy = (last / ago - 1.0) * 100.0
+        return yoy if 0 <= yoy <= 20 else None
+    except Exception as e:
+        _log_exc("macro_live_prints.cpi", e)
+        return None
+
+
+def macro_live_prints() -> dict:
+    """Live WTI, Fed funds, 10Y, 2Y, DXY, USDJPY, CPI for the Macro Simulator.
+
+    Runs on the server (no browser CORS). Fed funds is FRED DFF, not the
+    T-bill. Oil is CL=F then FRED DCOILWTICO. DXY is DX=F (ICE futures).
+    """
+    src, disp = {}, {}
+    y = {}
+    try:
+        y = yahoo_prices(["CL=F", "^TNX", "DX-Y.NYB", "JPY=X", "^IRX"]) or {}
+    except Exception as e:
+        _log_exc("macro_live_prints.yahoo", e)
+
+    oil = _as_oil_quote(y.get("CL=F"))
+    if oil is not None:
+        src["oil"] = "Yahoo CL=F"
+    else:
+        oil = _as_oil_quote(_fred_last_print("DCOILWTICO"))
+        if oil is not None:
+            src["oil"] = "FRED DCOILWTICO"
+    if oil is not None:
+        disp["oil"] = oil
+
+    fed = _as_pct_quote(_fred_last_print("DFF"))
+    if fed is not None:
+        src["fed"] = "FRED DFF"
+    else:
+        fed = _as_pct_quote(y.get("^IRX"))
+        if fed is not None:
+            src["fed"] = "Yahoo ^IRX"
+    if fed is not None:
+        disp["fed"] = fed
+
+    ten = _as_pct_quote(y.get("^TNX"))
+    if ten is not None:
+        src["yield"] = "Yahoo ^TNX"
+    else:
+        ten = _as_pct_quote(_fred_last_print("DGS10"))
+        if ten is not None:
+            src["yield"] = "FRED DGS10"
+    if ten is not None:
+        disp["yield"] = ten
+
+    two = _as_pct_quote(_fred_last_print("DGS2"))
+    if two is not None:
+        src["y2"] = "FRED DGS2"
+        disp["y2"] = two
+
+    dxy = _as_dxy_quote(y.get("DX-Y.NYB")) or _as_dxy_quote(y.get("DX=F"))
+    if dxy is not None:
+        src["dxy"] = "Yahoo DX-Y.NYB" if y.get("DX-Y.NYB") is not None else "Yahoo DX=F"
+        disp["dxy"] = dxy
+
+    jpy = _as_jpy_quote(y.get("JPY=X"))
+    if jpy is not None:
+        src["usdjpy"] = "Yahoo JPY=X"
+        disp["usdjpy"] = jpy
+
+    cpi = _cpi_yoy_print()
+    if cpi is not None:
+        src["cpi"] = "FRED CPIAUCSL"
+        disp["cpi"] = cpi
+
+    scales = {"oil": 1, "fed": 100, "yield": 100, "y2": 100, "dxy": 10, "usdjpy": 10, "cpi": 10}
+    slider = {k: int(round(float(disp[k]) * sc))
+              for k, sc in scales.items() if k in disp}
+    return dict(
+        display={k: round(float(v), 4) for k, v in disp.items()},
+        slider=slider,
+        src=src,
+    )
 
 
 def live_prices(tickers: list, use_dump: bool = True) -> dict:
