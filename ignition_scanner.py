@@ -2955,12 +2955,39 @@ def render_ignition_scanner_tab():
         for col in df.columns:
             if col not in col_cfg:
                 col_cfg[col] = st.column_config.Column(col, help=HELP.get(col, ""))
-        st.dataframe(
+        _igsel = st.dataframe(
             df,
             use_container_width=True,
             hide_index=True,
             column_config=col_cfg,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="ig_results_table",
         )
+        _igsel_rows = (_igsel.selection.rows
+                       if _igsel and getattr(_igsel, "selection", None) else [])
+        if _igsel_rows and "Ticker" in df.columns:
+            _itk = str(df.iloc[int(_igsel_rows[0])]["Ticker"]).strip().upper()
+            if _itk:
+                st.session_state["ig_az_ticker"] = _itk
+                st.session_state["lk_tk"] = _itk
+                st.session_state["wl_source"] = "Ignition Scanner"
+                try:
+                    import cascade_engine as _ig_ce_row
+                    _r = next((r for r in ok
+                               if str(r.get("ticker", "")).strip().upper() == _itk), None)
+                    _px = float(_r["price"]) if _r and _r.get("price") else float("nan")
+                    _ig_new = _ig_ce_row.watchlist_add(_itk, _px, source="Ignition Scanner")
+                except Exception:
+                    _ig_new = False
+                if st.session_state.get("_ig_chart_handled") != _itk:
+                    st.session_state["_ig_chart_handled"] = _itk
+                    if _ig_new:
+                        try:
+                            st.toast(f"⭐ {_itk} saved from Ignition Scanner")
+                        except Exception:
+                            pass
+                    st.rerun()
     else:
         if never_scanned:
             st.info("Hit **Scan** to run. Nothing is fetched until then.")
@@ -3045,11 +3072,17 @@ def render_ignition_scanner_tab():
             _ig_on = False
             try:
                 import cascade_engine as _ig_ce
-                _ig_on = any(w.get("ticker") == az_ticker for w in _ig_ce.watchlist_load())
+                _ig_ent = next(
+                    (w for w in _ig_ce.watchlist_load()
+                     if str(w.get("ticker", "")).strip().upper()
+                     == str(az_ticker).strip().upper()),
+                    None)
+                _ig_on = _ig_ent is not None
+                _ig_src = str((_ig_ent or {}).get("source") or "").strip()
             except Exception:
                 _ig_ce = None
-            if _ig_on:
-                st.caption(f"⭐ {az_ticker} on watchlist")
+            if _ig_on and _ig_src:
+                st.caption(f"⭐ {az_ticker} on watchlist · {_ig_src}")
             elif st.button("⭐ Watchlist", key="ig_wl_add", width="stretch",
                            help="Save this Ignition Scanner result to your watchlist."):
                 _r = next((r for r in ok if r["ticker"] == az_ticker), None)
@@ -3093,6 +3126,15 @@ def render_ignition_scanner_tab():
         px    = float(info.get("currentPrice") or info.get("regularMarketPrice") or
                       info.get("previousClose") or
                       (scan_r["price"] if scan_r and scan_r.get("price") else 0) or 0)
+        try:
+            import cascade_engine as _ig_px_ce
+            _ig_live = _ig_px_ce.live_prices([az_ticker], use_dump=True)
+            if az_ticker in _ig_live:
+                px = float(_ig_live[az_ticker])
+            elif str(az_ticker).strip().upper() in _ig_live:
+                px = float(_ig_live[str(az_ticker).strip().upper()])
+        except Exception:
+            pass
         name  = info.get("shortName") or info.get("longName") or az_fuel.get("name") or az_ticker
         sec   = info.get("sector")   or az_fuel.get("sector") or ""
         ind   = info.get("industry") or ""

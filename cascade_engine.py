@@ -116,7 +116,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.39"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.40"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1289,6 +1289,29 @@ def dump_ohlcv(ticker: str) -> pd.DataFrame:
     return df.dropna(subset=["Close"]).astype(float)
 
 
+def dump_last_closes(tickers: list) -> dict:
+    """Last finite dump close for each ticker. {} if the panel isn't loaded."""
+    if not tickers:
+        return {}
+    try:
+        panel, tks, _secs, _mdv, _dts = load_dump_panel()
+    except Exception:
+        return {}
+    imap = {str(t).strip().upper(): i for i, t in enumerate(tks)}
+    C = panel["c"]
+    out = {}
+    for raw in tickers or []:
+        t = str(raw).strip().upper()
+        j = imap.get(t)
+        if j is None:
+            continue
+        col = C[:, j]
+        finite = np.isfinite(col)
+        if finite.any():
+            out[t] = float(col[np.where(finite)[0][-1]])
+    return out
+
+
 def ticker_stats(df: pd.DataFrame) -> dict:
     """IGNITION-style indicator pack from an OHLCV (or Close-only) frame."""
     c = df["Close"].dropna()
@@ -1311,6 +1334,75 @@ def ticker_stats(df: pd.DataFrame) -> dict:
     else:
         out["rvol"] = np.nan
     return out
+
+
+def apply_live_last(df: pd.DataFrame, px: float) -> pd.DataFrame:
+    """Patch today's candle (or append one) so the chart last print matches
+    the live quote. Does not rewrite yesterday's bar with today's price."""
+    if df is None or df.empty:
+        return df
+    try:
+        px = float(px)
+    except Exception:
+        return df
+    if not np.isfinite(px) or px <= 0:
+        return df
+    out = df.copy()
+    try:
+        today = pd.Timestamp.now(tz="US/Eastern").tz_localize(None).normalize()
+    except Exception:
+        today = pd.Timestamp.now().normalize()
+    last = pd.Timestamp(out.index[-1])
+    try:
+        last = last.tz_localize(None)
+    except TypeError:
+        try:
+            last = last.tz_convert("US/Eastern").tz_localize(None)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    last = last.normalize()
+    if "Close" not in out.columns:
+        return df
+    out = out.astype({c: float for c in out.columns if c in ("Open", "High", "Low", "Close", "Volume")
+                      and c in out.columns})
+
+    def _set_bar(i):
+        out.iat[i, out.columns.get_loc("Close")] = px
+        if "High" in out.columns:
+            try:
+                hi = float(out["High"].iloc[i])
+            except Exception:
+                hi = px
+            out.iat[i, out.columns.get_loc("High")] = max(hi if np.isfinite(hi) else px, px)
+        if "Low" in out.columns:
+            try:
+                lo = float(out["Low"].iloc[i])
+            except Exception:
+                lo = px
+            if not np.isfinite(lo):
+                lo = px
+            out.iat[i, out.columns.get_loc("Low")] = min(lo, px)
+
+    if last == today:
+        _set_bar(-1)
+        return out
+    if last > today:
+        return out
+    prev_c = float(out["Close"].iloc[-1])
+    row = {c: np.nan for c in out.columns}
+    row["Close"] = px
+    if "Open" in out.columns:
+        row["Open"] = prev_c if np.isfinite(prev_c) else px
+    if "High" in out.columns:
+        row["High"] = max(prev_c if np.isfinite(prev_c) else px, px)
+    if "Low" in out.columns:
+        row["Low"] = min(prev_c if np.isfinite(prev_c) else px, px)
+    if "Volume" in out.columns:
+        row["Volume"] = 0.0
+    extra = pd.DataFrame([row], index=[today])
+    return pd.concat([out, extra])
 
 
 def fastest_followers(node_symbol: str, node_closes: pd.DataFrame,
@@ -1349,40 +1441,120 @@ def fastest_followers(node_symbol: str, node_closes: pd.DataFrame,
     })
 
 
+def _positive_px(v) -> float:
+    try:
+        p = float(v)
+    except Exception:
+        return float("nan")
+    return p if np.isfinite(p) and p > 0 else float("nan")
+
+
+def _snap_px(snap) -> float:
+    """Best last print from an Alpaca stock/crypto snapshot payload."""
+    if not isinstance(snap, dict):
+        return float("nan")
+    trade = snap.get("latestTrade") or {}
+    p = _positive_px(trade.get("p") if isinstance(trade, dict) else None)
+    if np.isfinite(p):
+        return p
+    for bar_key in ("minuteBar", "dailyBar", "prevDailyBar"):
+        bar = snap.get(bar_key) or {}
+        p = _positive_px(bar.get("c") if isinstance(bar, dict) else None)
+        if np.isfinite(p):
+            return p
+    quote = snap.get("latestQuote") or {}
+    if isinstance(quote, dict):
+        bp, ap = _positive_px(quote.get("bp")), _positive_px(quote.get("ap"))
+        if np.isfinite(bp) and np.isfinite(ap):
+            return (bp + ap) / 2.0
+        p = ap if np.isfinite(ap) else bp
+        if np.isfinite(p):
+            return p
+    return float("nan")
+
+
+def _alpaca_snapshot_request(url: str, params: dict, headers: dict, timeout: int = 12):
+    """One snapshot GET with a single retry on timeout / 429."""
+    last = None
+    for attempt in range(2):
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=timeout)
+            last = r
+            if r.status_code == 200:
+                return r
+            if r.status_code == 429 and attempt == 0:
+                try:
+                    import time as _t
+                    _t.sleep(0.7)
+                except Exception:
+                    pass
+                continue
+            break
+        except Exception:
+            if attempt == 0:
+                try:
+                    import time as _t
+                    _t.sleep(0.4)
+                except Exception:
+                    pass
+                continue
+            return None
+    return last
+
+
 def alpaca_prices(tickers: list, chunk: int = 80) -> dict:
     """Fresh prices via Alpaca batch snapshots. {} without keys/network.
 
-    Requests are chunked: the whole list used to go into one query string, so a
-    long watchlist or a 50-row scan could exceed the URL/API limit and return
-    nothing — which surfaced as silently stale prices.
+    Stocks use the IEX snapshot (last trade → minute bar → daily bar → quote).
+    Crypto uses the crypto snapshot endpoint. Indices like ^VIX are skipped
+    (Yahoo fills those). Requests are chunked so a long watchlist cannot
+    blow the URL limit and come back empty.
     """
     tickers = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
-    if len(tickers) > chunk:
+    if not tickers:
+        return {}
+    cryptos = [t for t in tickers if t in CRYPTO_MAP]
+    stocks = [t for t in tickers if t not in CRYPTO_MAP and not t.startswith("^")]
+    if len(stocks) > chunk:
         out = {}
-        for i in range(0, len(tickers), chunk):
+        for i in range(0, len(stocks), chunk):
             try:
-                out.update(alpaca_prices(tickers[i:i + chunk], chunk=chunk))
+                extra = cryptos if i == 0 else []
+                out.update(alpaca_prices(stocks[i:i + chunk] + extra, chunk=chunk))
             except Exception:
                 continue
         return out
     kid, sec = _alpaca_key_pair()
     if not kid:
         return {}
-    try:
-        r = requests.get("https://data.alpaca.markets/v2/stocks/snapshots",
-                         params={"symbols": ",".join(tickers), "feed": "iex"},
-                         headers={"APCA-API-KEY-ID": kid,
-                                  "APCA-API-SECRET-KEY": sec}, timeout=8)
-        if r.status_code != 200:
-            return {}
-        out = {}
-        for tk, snap in r.json().items():
-            p = (snap.get("latestTrade") or {}).get("p") or                 (snap.get("dailyBar") or {}).get("c")
-            if p:
-                out[tk] = float(p)
-        return out
-    except Exception:
-        return {}
+    hdr = {"APCA-API-KEY-ID": kid, "APCA-API-SECRET-KEY": sec}
+    out = {}
+    if stocks:
+        try:
+            r = _alpaca_snapshot_request(
+                "https://data.alpaca.markets/v2/stocks/snapshots",
+                {"symbols": ",".join(stocks), "feed": "iex"}, hdr)
+            if r is not None and r.status_code == 200:
+                for tk, snap in (r.json() or {}).items():
+                    p = _snap_px(snap)
+                    if np.isfinite(p):
+                        out[str(tk).strip().upper()] = p
+        except Exception as e:
+            _log_exc("alpaca_prices.stocks", e)
+    if cryptos:
+        unmap = {v: k for k, v in CRYPTO_MAP.items()}
+        try:
+            r = _alpaca_snapshot_request(
+                "https://data.alpaca.markets/v1beta3/crypto/us/snapshots",
+                {"symbols": ",".join(CRYPTO_MAP[t] for t in cryptos)}, hdr)
+            if r is not None and r.status_code == 200:
+                for tk, snap in (r.json() or {}).items():
+                    p = _snap_px(snap)
+                    if np.isfinite(p):
+                        out[unmap.get(tk, str(tk).strip().upper())] = p
+        except Exception as e:
+            _log_exc("alpaca_prices.crypto", e)
+    return out
 
 
 def upcoming_earnings(tickers: list) -> dict:
@@ -1656,29 +1828,57 @@ def upstream_drivers(ticker: str, node_closes: pd.DataFrame, top: int = 5,
 
 
 # ── watchlist persistence ────────────────────────────────────────────
+_GENERIC_WL_SOURCES = {
+    "", "stock lookup", "lookup", "watchlist", "url", "manual", "restored",
+}
+
+
+def _is_generic_wl_source(s: str) -> bool:
+    return str(s or "").strip().lower() in _GENERIC_WL_SOURCES
+
+
+def _watchlist_ticker(item) -> str:
+    return str((item or {}).get("ticker") or "").strip().upper()
+
+
 def watchlist_load() -> list:
     try:
         with open(_data_read_path(WATCHLIST_PATH)) as f:
-            return json.load(f)
+            items = json.load(f)
+        return items if isinstance(items, list) else []
     except Exception:
         return []
 
 
-def watchlist_save(items: list):
+def watchlist_save(items: list) -> bool:
     try:
         path = _data_write_path(WATCHLIST_PATH)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
             json.dump(items, f, indent=1)
-    except Exception:
-        pass
+        os.replace(tmp, path)
+        return True
+    except Exception as e:
+        _log_exc("watchlist_save", e)
+        return False
+
+
+def watchlist_entry(ticker: str):
+    """Case-insensitive watchlist row, or None."""
+    t = str(ticker or "").strip().upper()
+    if not t:
+        return None
+    return next((w for w in watchlist_load() if _watchlist_ticker(w) == t), None)
 
 
 def watchlist_add(ticker: str, price: float, note: str = "", source: str = "") -> bool:
     """Add a ticker, or update its scanner tag if it's already saved.
 
     `source` is the Scan Hub scanner (or Stock Lookup) that found it.
-    A later Stock Lookup will not wipe an existing scanner tag.
+    A later Stock Lookup / watchlist open will not wipe an existing scanner
+    tag. A real scanner WILL fill a blank tag and will upgrade a generic
+    "Stock Lookup" tag — that's the "which scanner found it" column.
     Returns True if this ticker was newly added.
     """
     ticker = str(ticker or "").strip().upper()
@@ -1687,16 +1887,21 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "") -
     src = str(source or "").strip()
     note = str(note or "").strip()
     items = watchlist_load()
-    existing = next((w for w in items
-                     if str(w.get("ticker", "")).upper() == ticker), None)
+    existing = next((w for w in items if _watchlist_ticker(w) == ticker), None)
     if existing:
+        changed = False
         old_src = str(existing.get("source") or "").strip()
-        # Keep the first scanner that found it; fill in a tag if none yet.
-        if src and not old_src:
+        if src and _is_generic_wl_source(old_src) and not _is_generic_wl_source(src):
             existing["source"] = src
+            changed = True
+        elif src and not old_src:
+            existing["source"] = src
+            changed = True
         if note and not str(existing.get("note") or "").strip():
             existing["note"] = note
-        watchlist_save(items)
+            changed = True
+        if changed:
+            watchlist_save(items)
         return False
     try:
         px = round(float(price), 2)
@@ -1709,7 +1914,8 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "") -
 
 
 def watchlist_remove(ticker: str):
-    watchlist_save([w for w in watchlist_load() if w["ticker"] != ticker])
+    t = str(ticker or "").strip().upper()
+    watchlist_save([w for w in watchlist_load() if _watchlist_ticker(w) != t])
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -3406,36 +3612,159 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
 
 
 # ═════════ LIVE UPDATE — refresh a result list against the market now ═════════
+def _yahoo_symbol(t: str) -> str:
+    t = str(t or "").strip().upper()
+    if t.startswith("^"):
+        return t
+    return t.replace(".", "-")
+
+
+def _yf_call(fn, *args, **kwargs):
+    try:
+        from mw_yf import yf_call
+        return yf_call(fn, *args, **kwargs)
+    except Exception:
+        return fn(*args, **kwargs)
+
+
+def _yahoo_from_frame(data, requested: list) -> dict:
+    """Pull last Close from a yf.download frame, mapping Yahoo symbols back."""
+    out = {}
+    if data is None or getattr(data, "empty", True):
+        return out
+    rev = {_yahoo_symbol(t): t for t in requested}
+    for t in requested:
+        ys = _yahoo_symbol(t)
+        try:
+            if isinstance(data.columns, pd.MultiIndex):
+                levels = list(data.columns.get_level_values(0))
+                key = ys if ys in levels else (t if t in levels else None)
+                if key is None:
+                    continue
+                s = data[key]["Close"].dropna()
+            else:
+                s = data["Close"].dropna()
+            if len(s):
+                p = _positive_px(s.iloc[-1])
+                if np.isfinite(p):
+                    out[rev.get(ys, t)] = p
+        except Exception:
+            continue
+    return out
+
+
 def yahoo_prices(tickers: list) -> dict:
-    """Batch last-price fetch from Yahoo — the gap-filler for whatever
-    Alpaca doesn't cover (indices, ADRs, thin names, crypto)."""
+    """Last print from Yahoo: 1-minute bars first (session last), then daily
+    close, then per-ticker fast_info. Used as the Alpaca gap-filler."""
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     out = {}
+    tickers = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
     if not tickers:
         return out
     try:
         import yfinance as yf
     except Exception:
         return out
+
+    ysyms = list(dict.fromkeys(_yahoo_symbol(t) for t in tickers))
+
+    def _dl(period, interval):
+        return _yf_call(
+            lambda: yf.download(
+                ysyms if len(ysyms) > 1 else ysyms[0],
+                period=period, interval=interval, progress=False,
+                group_by="ticker", threads=False, auto_adjust=False))
+
     try:
-        data = yf.download(list(tickers), period="5d", interval="1d",
-                           progress=False, group_by="ticker", threads=True,
-                           auto_adjust=False)
-    except Exception:
-        return out
-    for t in tickers:
+        out.update(_yahoo_from_frame(_dl("1d", "1m"), tickers))
+    except Exception as e:
+        _log_exc("yahoo_prices.1m", e)
+    missing = [t for t in tickers if t not in out]
+    if missing:
         try:
-            if isinstance(data.columns, pd.MultiIndex):
-                if t not in data.columns.get_level_values(0):
-                    continue
-                s = data[t]["Close"].dropna()
-            else:
-                s = data["Close"].dropna()
-            if len(s):
-                out[t] = float(s.iloc[-1])
-        except Exception:
-            continue
+            ysyms = list(dict.fromkeys(_yahoo_symbol(t) for t in missing))
+            out.update(_yahoo_from_frame(_dl("5d", "1d"), missing))
+        except Exception as e:
+            _log_exc("yahoo_prices.1d", e)
+    missing = [t for t in tickers if t not in out]
+    # Per-ticker fast_info is the last resort for a chart/lookup (1–few names).
+    # Skip it on a long batch — dump last-close fills those in live_quotes.
+    if missing and len(missing) <= 4:
+        for t in missing:
+            ys = _yahoo_symbol(t)
+            try:
+                def _one(sym=ys):
+                    tk = yf.Ticker(sym)
+                    p = None
+                    try:
+                        fi = tk.fast_info
+                        if isinstance(fi, dict):
+                            p = (fi.get("lastPrice") or fi.get("last_price")
+                                 or fi.get("regularMarketPrice") or fi.get("last_close"))
+                        else:
+                            p = (getattr(fi, "last_price", None)
+                                 or getattr(fi, "lastPrice", None)
+                                 or getattr(fi, "regular_market_price", None))
+                    except Exception:
+                        p = None
+                    if not p:
+                        info = tk.info or {}
+                        p = (info.get("currentPrice") or info.get("regularMarketPrice")
+                             or info.get("regularMarketPreviousClose"))
+                    return p
+                p = _positive_px(_yf_call(_one))
+                if np.isfinite(p):
+                    out[t] = p
+            except Exception:
+                continue
     return out
+
+
+def live_quotes(tickers: list, use_dump: bool = True) -> tuple:
+    """Alpaca snapshot → Yahoo quote → nightly dump last close.
+
+    Returns (prices, sources) where sources[tk] is 'Alpaca', 'Yahoo', or 'Dump'.
+    """
+    tickers = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
+    live, source = {}, {}
+    if not tickers:
+        return live, source
+    try:
+        for k, v in alpaca_prices(tickers).items():
+            p = _positive_px(v)
+            if np.isfinite(p):
+                live[str(k).strip().upper()] = p
+                source[str(k).strip().upper()] = "Alpaca"
+    except Exception as e:
+        _log_exc("live_quotes.alpaca", e)
+    missing = [t for t in tickers if t not in live]
+    if missing:
+        try:
+            for k, v in yahoo_prices(missing).items():
+                p = _positive_px(v)
+                if np.isfinite(p):
+                    live[str(k).strip().upper()] = p
+                    source[str(k).strip().upper()] = "Yahoo"
+        except Exception as e:
+            _log_exc("live_quotes.yahoo", e)
+    if use_dump:
+        missing = [t for t in tickers if t not in live]
+        if missing:
+            try:
+                for k, v in dump_last_closes(missing).items():
+                    p = _positive_px(v)
+                    if np.isfinite(p):
+                        live[str(k).strip().upper()] = p
+                        source[str(k).strip().upper()] = "Dump"
+            except Exception as e:
+                _log_exc("live_quotes.dump", e)
+    return live, source
+
+
+def live_prices(tickers: list, use_dump: bool = True) -> dict:
+    """ticker → last price. Same chain as live_quotes, prices only."""
+    px, _src = live_quotes(tickers, use_dump=use_dump)
+    return px
 
 
 def live_update(df: pd.DataFrame, price_col: str = "Price") -> tuple:
@@ -3450,28 +3779,10 @@ def live_update(df: pd.DataFrame, price_col: str = "Price") -> tuple:
     """
     if df is None or df.empty or "Ticker" not in df.columns:
         return df, dict(alpaca=0, yahoo=0, missing=0, total=0)
-    tickers = [str(t) for t in df["Ticker"].tolist()]
-
-    # 1. Alpaca first (live snapshots), tracking the source explicitly
-    live, source = {}, {}
-    try:
-        for k, v in alpaca_prices(tickers).items():
-            if v and np.isfinite(v):
-                live[k] = float(v); source[k] = "Alpaca"
-    except Exception:
-        pass
-    n_alpaca = len(live)
-
-    # 2. Yahoo fills whatever Alpaca didn't return
-    missing = [t for t in tickers if t not in live]
-    if missing:
-        try:
-            for k, v in yahoo_prices(missing).items():
-                if v and np.isfinite(v):
-                    live[k] = float(v); source[k] = "Yahoo"
-        except Exception:
-            pass
-    n_yahoo = len(live) - n_alpaca
+    tickers = [str(t).strip().upper() for t in df["Ticker"].tolist()]
+    live, source = live_quotes(tickers, use_dump=False)
+    n_alpaca = sum(1 for t in tickers if source.get(t) == "Alpaca")
+    n_yahoo = sum(1 for t in tickers if source.get(t) == "Yahoo")
 
     out = df.copy()
     prev = pd.to_numeric(out[price_col], errors="coerce") if price_col in out else None

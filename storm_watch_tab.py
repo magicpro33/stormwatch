@@ -702,9 +702,25 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     )
     rows = sel.selection.rows if sel and getattr(sel, "selection", None) else []
     if rows:
-        st.session_state["sw_sel_tk"] = str(show.iloc[rows[0]].Ticker)
+        st.session_state["sw_sel_tk"] = str(show.iloc[rows[0]].Ticker).strip().upper()
         st.session_state["lk_tk"] = st.session_state["sw_sel_tk"]
         st.session_state["wl_source"] = "ShakeOut"
+        if mw:
+            try:
+                import cascade_engine as ce
+                _stk = st.session_state["sw_sel_tk"]
+                try:
+                    _spx = float(show[show.Ticker.astype(str).str.upper() == _stk].iloc[0].Price)
+                except Exception:
+                    _spx = float("nan")
+                added = ce.watchlist_add(_stk, _spx, source="ShakeOut")
+                if added:
+                    try:
+                        st.toast(f"⭐ {_stk} saved from ShakeOut")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
     tk = st.session_state.get("sw_sel_tk")
     if tk and tk in set(show.Ticker.astype(str)):
@@ -728,7 +744,8 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         if mw:
             import cascade_engine as ce
             try:
-                on_list = any(w.get("ticker") == tk for w in ce.watchlist_load())
+                on_list = any(str(w.get("ticker", "")).strip().upper() == str(tk).strip().upper()
+                              for w in ce.watchlist_load())
             except Exception:
                 on_list = False
             if on_list:

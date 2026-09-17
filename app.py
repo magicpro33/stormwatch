@@ -120,7 +120,7 @@ try:
 except Exception as _ige:
     render_ignition_scanner_tab, _IG_ERR = None, _ige
 
-REQUIRED_ENGINE = "2.39"
+REQUIRED_ENGINE = "2.40"
 st.set_page_config(page_title="Money Weather", page_icon="🌩", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -415,6 +415,23 @@ def _yf_info(tk: str) -> dict:
             if attempt < 2:
                 time.sleep(2)
     return info
+
+
+@st.cache_data(ttl=25, show_spinner="📡 Fetching live quotes…")
+def _live_quotes(tickers: tuple, nonce: int = 0):
+    """Short-lived batch quotes for the watchlist table. Refresh bumps nonce."""
+    px, src = ce.live_quotes(list(tickers), use_dump=True)
+    return px, src
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _live_one(tk: str, nonce: int = 0):
+    """Single-ticker live quote for chart load. Refresh / new ticker bumps nonce."""
+    return ce.live_quotes([str(tk).strip().upper()], use_dump=True)
+
+
+def _px_nonce() -> int:
+    return int(st.session_state.get("_wl_px_nonce", 0))
 
 
 @st.cache_data(ttl=1800, show_spinner="Scanning all 5,700 stocks across every pillar…")
@@ -1126,9 +1143,19 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
     px = float(info.get("currentPrice") or info.get("regularMarketPrice") or
                info.get("previousClose") or
                (hist.Close.iloc[-1] if not hist.empty else 0) or 0)
-    live = ce.alpaca_prices([tk])
-    if tk in live:
-        px = live[tk]
+    try:
+        _tk = str(tk).strip().upper()
+        _q, _ = _live_one(_tk, _px_nonce())
+        if _tk in _q:
+            px = _q[_tk]
+    except Exception:
+        try:
+            live = ce.live_prices([str(tk).strip().upper()])
+            _tk = str(tk).strip().upper()
+            if _tk in live:
+                px = live[_tk]
+        except Exception:
+            pass
     name = info.get("shortName") or info.get("longName") or tk
     sec = info.get("sector") or ""
     ind = info.get("industry") or ""
@@ -1600,6 +1627,7 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
                                 px: float, chg: float, stats: dict,
                                 *, live_on: bool = False,
                                 src_label: str | None = None,
+                                px_src: str | None = None,
                                 key_prefix: str = "lk") -> None:
     """Identity card + forecast card — the look above Price Range Analysis."""
     info = info or {}
@@ -1627,6 +1655,22 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
             f"Target <span style='color:#e8f4fd;font-weight:700;'>${target:,.2f}</span>"
             f"{(' · ' + up_txt) if up_txt else ''}</div>"
         )
+    _src_txt = (px_src or ("Alpaca" if live_on else "") or src_label or "").strip()
+    if _src_txt.lower() in ("alpaca", "alpaca history (live)"):
+        _badge_col, _badge = "#3ecf8e", "LIVE · Alpaca"
+    elif _src_txt.lower() in ("yahoo", "yahoo history"):
+        _badge_col, _badge = "#7fb3d3", "LIVE · Yahoo"
+    elif _src_txt.lower() in ("dump", "nightly dump"):
+        _badge_col, _badge = _HY_MUTED, "EOD · nightly dump"
+    elif _src_txt:
+        _badge_col, _badge = _HY_MUTED, _src_txt
+    else:
+        _badge_col, _badge = _HY_MUTED, ""
+    live_html = (
+        f"<div style='font-size:0.78em;color:{_badge_col};margin-top:6px;"
+        f"letter-spacing:.04em;font-weight:600;'>{_esc(_badge)}</div>"
+        if _badge else ""
+    )
 
     def _sgn(v, dead=0.002):
         v = _hy_finite(v)
@@ -1697,6 +1741,7 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
             <div style="font-size:1.2em;color:{chg_col};font-weight:600;margin-top:4px;">
               {chg_sym} {abs(chg_pct):.2f}% today
             </div>
+            {live_html}
             {tgt_html}
           </div>
         </div>
@@ -1745,9 +1790,11 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                            info: dict | None = None):
     """IGNITION-style deep dive: hybrid identity cards + candles + volume.
     Stocks come from the nightly dump (full OHLCV); nodes fall back to the
-    close-only history; Alpaca supplies the live print when keyed."""
+    close-only history; Alpaca/Yahoo supply the live print when available."""
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
+
+    tk = str(tk or "").strip().upper()
 
     if df is None or df.empty:
         df = ce.dump_ohlcv(tk)
@@ -1766,17 +1813,39 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
             info = {}
 
     stats = ce.ticker_stats(df)
-    live = ce.alpaca_prices([tk])
+    px_src = ""
+    live = {}
+    try:
+        live, srcs = _live_one(tk, _px_nonce())
+        px_src = srcs.get(tk, "")
+    except Exception:
+        try:
+            live, srcs = ce.live_quotes([tk], use_dump=True)
+            px_src = srcs.get(tk, "")
+        except Exception:
+            live, srcs = {}, {}
     px = live.get(tk, stats["price"])
-    chg = px / df["Close"].iloc[-2] - 1 if len(df) > 1 else 0.0
+    if tk in live:
+        try:
+            df = ce.apply_live_last(df, live[tk])
+            stats = ce.ticker_stats(df)
+            px = live[tk]
+        except Exception:
+            pass
+    chg = 0.0
+    try:
+        if len(df) > 1:
+            chg = px / float(df["Close"].iloc[-2]) - 1
+    except Exception:
+        chg = 0.0
 
     if closable and st.button("✕ Close", key=f"close_{state_key}"):
         st.session_state.pop(state_key, None)
         st.rerun()
     render_hybrid_lookup_header(
         tk, info, df, px, chg, stats,
-        live_on=tk in live, src_label=src_label,
-        key_prefix=state_key)
+        live_on=px_src in ("Alpaca", "Yahoo"), src_label=src_label,
+        px_src=px_src or src_label, key_prefix=state_key)
 
     d = df.tail(180)
     has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
@@ -1849,7 +1918,7 @@ def _render_scan_hub_detail(tk: str, state_key: str, az_prefix: str,
 
 
 def _row_price(row) -> float:
-    for col in ("Price", "Live", "price", "Close"):
+    for col in ("Live", "Price", "price", "Close", "Last", "last", "px"):
         try:
             v = float(row[col])
             if np.isfinite(v):
@@ -1863,11 +1932,13 @@ def _watchlist_tag(tk: str, price, source: str) -> bool:
     """Save `tk` to the watchlist tagged with the scanner that found it."""
     if not tk or not source:
         return False
+    tk = str(tk).strip().upper()
     st.session_state["wl_source"] = source
     try:
         added = ce.watchlist_add(tk, float(price) if price is not None else float("nan"),
                                  source=source)
-    except Exception:
+    except Exception as e:
+        log_exc("watchlist_tag", e)
         return False
     if added:
         try:
@@ -1887,7 +1958,7 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
         return
     try:
         row = df.iloc[int(rows[0])]
-        tk = str(row[ticker_col])
+        tk = str(row[ticker_col]).strip().upper()
     except Exception:
         return
     if not tk or tk.lower() in ("nan", "none", ""):
@@ -2027,6 +2098,8 @@ if _main == "Cascade Map":
             except Exception as _rd:
                 log_exc("refresh_dump", _rd)
             st.cache_data.clear()
+            st.session_state["_wl_px_nonce"] = int(
+                st.session_state.get("_wl_px_nonce", 0)) + 1
         if _new_dump is not None:
             _lcs = ce._last_completed_session()
             if pd.Timestamp(_new_dump) >= _lcs:
@@ -2353,12 +2426,14 @@ if _main == "Stock Lookup":
         if q:
             st.session_state["lk_tk"] = q
             st.session_state["wl_source"] = "Stock Lookup"
+            st.session_state["_wl_px_nonce"] = _px_nonce() + 1
     _q = lc1.text_input("Ticker", key="lk_query", placeholder="e.g. NVDA",
                         label_visibility="collapsed",
                         on_change=_lk_submit).strip().upper()
     if lc2.button("🔎 Look up", type="primary", width="stretch") and _q:
         st.session_state["lk_tk"] = _q
         st.session_state["wl_source"] = "Stock Lookup"
+        st.session_state["_wl_px_nonce"] = _px_nonce() + 1
 
     tk = st.session_state.get("lk_tk")
     if tk:
@@ -2380,13 +2455,22 @@ if _main == "Stock Lookup":
                      "or the nightly dump — double-check the symbol "
                      "(e.g. BRK-B not BRK.B, BTC-USD for crypto).")
         else:
-            px_now = float(df_tk.Close.dropna().iloc[-1])
+            try:
+                _qpx, _ = _live_one(tk, _px_nonce())
+                px_now = float(_qpx.get(tk) or df_tk.Close.dropna().iloc[-1])
+            except Exception:
+                px_now = float(df_tk.Close.dropna().iloc[-1])
             _src = st.session_state.get("wl_source") or "Stock Lookup"
-            if any(w["ticker"] == tk for w in ce.watchlist_load()):
-                st.caption(f"⭐ {tk} is on your watchlist.")
-            elif st.button(f"⭐ Save {tk} to watchlist", key="lk_save_wl"):
+            try:
                 ce.watchlist_add(tk, px_now, source=_src)
-                st.rerun()
+            except Exception as _we:
+                log_exc("lookup_watchlist_add", _we)
+            _ent = ce.watchlist_entry(tk) if hasattr(ce, "watchlist_entry") else None
+            _tag = str((_ent or {}).get("source") or _src or "").strip()
+            if _tag:
+                st.caption(f"⭐ {tk} is on your watchlist · {_tag}")
+            else:
+                st.caption(f"⭐ {tk} is on your watchlist.")
 
         # ── IGNITION Stock Analyzer (ported) — full fundamental deep dive ──
         st.divider()
@@ -2428,7 +2512,7 @@ if _main == "Stock Lookup":
         _wl_param = ""
     if _wl_param and not st.session_state.get("_wl_restored"):
         st.session_state["_wl_restored"] = True
-        _have = {w["ticker"] for w in ce.watchlist_load()}
+        _have = {str(w.get("ticker", "")).strip().upper() for w in ce.watchlist_load()}
         _restored = []
         for _t in [x.strip().upper() for x in _wl_param.split(",") if x.strip()]:
             if _t and _t not in _have:
@@ -2458,6 +2542,7 @@ if _main == "Stock Lookup":
         _rfc1.caption(f"{len(wl)} ticker(s) saved — prices refresh automatically, "
                       "or force a fresh pull now.")
         if _rfc2.button("🔄 Refresh Prices", width="stretch", key="wl_refresh_prices"):
+            st.session_state["_wl_px_nonce"] = _px_nonce() + 1
             st.session_state.pop("_wl_handled", None)
             st.toast(f"🔄 Pulling live prices for {len(wl)} ticker(s)…")
             st.rerun()
@@ -2470,14 +2555,17 @@ if _main == "Stock Lookup":
         wdf = None
     else:
         wdf = pd.DataFrame(wl)
-        live = ce.alpaca_prices(list(wdf.ticker))
+        _tks = tuple(str(t).strip().upper() for t in wdf.ticker)
+        try:
+            live, _psrc = _live_quotes(_tks, _px_nonce())
+        except Exception as _lqe:
+            log_exc("watchlist_live_quotes", _lqe)
+            live, _psrc = ce.live_quotes(list(_tks), use_dump=True)
         def _nowpx(t):
+            t = str(t).strip().upper()
             if t in live:
                 return live[t]
-            if not ce.dump_is_loaded():
-                return np.nan
-            d = ce.dump_ohlcv(t)
-            return float(d.Close.iloc[-1]) if not d.empty else np.nan
+            return np.nan
         wdf["price_now"] = wdf.ticker.map(_nowpx)
         wdf["since_add"] = wdf.price_now / wdf.price_at_add - 1
         try:
@@ -2519,15 +2607,18 @@ if _main == "Stock Lookup":
                 "Scanner": st.column_config.Column(
                     help="Which Scan Hub scanner (or Stock Lookup) added this ticker."),
                 "Since saved": st.column_config.Column(
-                help="Your scorecard: return since the day you saved it. Live Alpaca price when keyed.")})
+                help="Your scorecard: return since the day you saved it. Live Alpaca/Yahoo quote when available.")})
         _wr = (_wsel.selection.rows if _wsel and getattr(_wsel, "selection", None) else [])
         if _wr:
-            _wtk = show.iloc[_wr[0]].Ticker
+            _wtk = str(show.iloc[_wr[0]].Ticker).strip().upper()
             if st.session_state.get("_wl_handled") != _wtk:
                 st.session_state["_wl_handled"] = _wtk
                 st.session_state["lk_tk"] = _wtk
+                _ent = ce.watchlist_entry(_wtk) if hasattr(ce, "watchlist_entry") else None
+                st.session_state["wl_source"] = str((_ent or {}).get("source") or "")
+                st.session_state["_wl_px_nonce"] = _px_nonce() + 1
                 st.rerun()
-        st.caption("👆 Tap a row to reload its full analysis and a fresh forecast.")
+        st.caption("👆 Tap a row to reload its full analysis and a fresh live quote.")
 
     # ── Manage watchlist — always visible, even with an empty list, so a
     #    saved backup can be loaded before anything's on the watchlist ───
@@ -2583,7 +2674,7 @@ if _main == "Stock Lookup":
             try:
                 import json as _json
                 _items = _json.loads(_up.read().decode("utf-8"))
-                _have = {w["ticker"] for w in ce.watchlist_load()}
+                _have = {str(w.get("ticker", "")).strip().upper() for w in ce.watchlist_load()}
                 _n = 0
                 for _it in _items:
                     _t = str(_it.get("ticker", "")).strip().upper()

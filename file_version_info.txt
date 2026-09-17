@@ -17,12 +17,12 @@ VSVersionInfo(
         [
           StringStruct("CompanyName", "AI Upscale"),
           StringStruct("FileDescription", "Money Weather"),
-          StringStruct("FileVersion", "2.39.0"),
+          StringStruct("FileVersion", "2.40.0"),
           StringStruct("InternalName", "MoneyWeather"),
           StringStruct("LegalCopyright", "Copyright (c) AI Upscale. Research tool. Not investment advice."),
           StringStruct("OriginalFilename", "MoneyWeather.exe"),
           StringStruct("ProductName", "Money Weather"),
-          StringStruct("ProductVersion", "2.39.0"),
+          StringStruct("ProductVersion", "2.40.0"),
         ]
       )
     ]),

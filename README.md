@@ -6,7 +6,7 @@ slow heavy ones follow. Money Weather estimates that directed lead-lag graph
 empirically, detects flow waves entering upstream nodes, and forecasts the
 downstream nodes each wave historically reaches — with lag and hit rate.
 
-**Engine version: 2.39** — `app.py` and `cascade_engine.py` must ship together.
+**Engine version: 2.40** — `app.py` and `cascade_engine.py` must ship together.
 
 **Layers**
 - Forced Flows — scheduled, price-insensitive money movement (rebalances,
@@ -31,7 +31,7 @@ downstream nodes each wave historically reaches — with lag and hit rate.
    - `mw_paths.py`, `mw_log.py`, `mw_secrets.py`, `mw_yf.py`
    - `macro_simulator.html`, `assets/aiupscale_logo.png`
    - `requirements.txt`, `.streamlit/config.toml`
-   Engine and app versions must match (`2.39`).
+   Engine and app versions must match (`2.40`).
 
 **Windows desktop:** see `WINDOWS_DESKTOP.md`. Zip `dist\MoneyWeather\` after
 `build_windows.ps1` — not the small source `moneyweather.zip` (if present).
