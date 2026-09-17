@@ -1307,12 +1307,22 @@ function buildExpanded(t,n,d,k){
   <div style="margin-left:auto;font-size:9px;color:var(--mu);font-family:JetBrains Mono,monospace">via ${PX_SRC[t]||'baseline'}</div>
  </div>`:'';
  const scens=[{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'},{key:'strong',lbl:'STRONG$'},{key:'carry',lbl:'CARRY'},{key:'inflate',lbl:'INFLATE$'}];
+ const fitKind=d.kind==='fit' || d.src==='dump' || d.src==='watchlist';
  const allRet=scens.map(sc=>{
+  const active=sc.key===k?'border:1px solid var(--ac)':'';
+  if(fitKind){
+   const hit=scenarioScore(t, sc.key);
+   const v=hit && hit.fit!=null ? hit.fit : null;
+   const oc=hit && hit.outcome ? hit.outcome : '';
+   const mf=hit && hit.macrofit!=null ? hit.macrofit : null;
+   const c=oc==='Headwind'?'var(--red)':oc==='Favored'?'var(--ac3)':oc==='Supported'?'var(--ac)':v==null?'var(--mu)':'var(--gold)';
+   const sub=oc?(oc+(mf!=null?' ×'+mf:'')):'';
+   return `<div class="exp-ret" style="${active}"><div class="exp-ret-lbl">${sc.lbl}</div><div class="exp-ret-val" style="color:${c}">${v==null?'—':v}</div>${sub?`<div style="font-size:8px;color:var(--mu);margin-top:2px">${sub}</div>`:''}</div>`;
+  }
   const v=d[sc.key];
   if(v==null)return '';
   const c=v>0?'var(--ac3)':v<0?'var(--red)':'var(--mu)';
   const s=v>=0?'+':'';
-  const active=sc.key===k?'border:1px solid var(--ac)':'';
   return `<div class="exp-ret" style="${active}"><div class="exp-ret-lbl">${sc.lbl}</div><div class="exp-ret-val" style="color:${c}">${s}${v}%</div></div>`;
  }).join('');
  const stats=[
@@ -1334,7 +1344,7 @@ function buildExpanded(t,n,d,k){
  return `<div class="exp-inner">
   <button class="exp-close" onclick="event.stopPropagation();collapseAll()">&#10005;</button>
   ${liveRow}
-  <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mu);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">All Scenario Returns</div>
+  <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mu);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">${fitKind?'All Scenario Fit (quality × tilt)':'All Scenario Returns'}</div>
   <div class="exp-all-ret">${allRet}</div>
   <div class="exp-stats">${statsHTML}</div>
   <div class="exp-desc">${d.desc||d.r||d.why||''}</div>
@@ -1791,6 +1801,18 @@ function engineKey(k){
  if(k==='inflate') return 'repress';
  return k;
 }
+function scenarioScore(ticker, sc){
+ const MW=window.MW_MACRO;
+ if(!MW || !ticker) return null;
+ const ek=engineKey(sc);
+ const tk=String(ticker).toUpperCase();
+ const x=MW.cross && MW.cross[tk] && MW.cross[tk][ek];
+ if(x && x.fit!=null) return x;
+ const w=(MW.watch && MW.watch[ek] || []).find(r=>r.t===tk);
+ if(w && w.fit!=null) return w;
+ const d=((MW.scans && MW.scans[ek] || {}).rows || []).find(r=>r.t===tk);
+ return d || x || null;
+}
 function ocClass(oc){
  if(oc==='Favored') return 'fav';
  if(oc==='Supported') return 'sup';
@@ -1813,7 +1835,7 @@ function applyScenarioChrome(k){
  renderDumpTop20(k);
  renderWatchlist(k);
 }
-function mkFitGrid(rows,cid){
+function mkFitGrid(rows,cid,scenKey){
  const el=document.getElementById(cid);
  if(!el) return;
  if(!rows||!rows.length){
@@ -1828,10 +1850,9 @@ function mkFitGrid(rows,cid){
    t:s.t,n:s.n||s.t,sec:s.sec,r:s.why||'',why:s.why,
    roic:s.roic,piotr:s.piotr,pe:s.pe,revy:s.revy,price:s.price,
    desc:s.why||'',score:s.quality||0,
-   base:s.fit,bull:s.fit,bear:s.fit,qe:s.fit,stag:s.fit,
-   strong:s.fit,carry:s.fit,inflate:s.fit
+   kind:'fit', src:s.src||'dump'
   };
-  CARD_STORE[cardId]={t:s.t,n:s.n||s.t,d,k:'base'};
+  CARD_STORE[cardId]={t:s.t,n:s.n||s.t,d,k:scenKey||'base'};
   if(s.price && !BASE_PX[s.t]) BASE_PX[s.t]=s.price;
   return '<div class="sc" data-card="'+cardId+'">'
    +'<div class="st">'+s.t+livePriceBadge(s.t)+'</div>'
@@ -1860,7 +1881,7 @@ function renderDumpTop20(k){
  const pack=MW.scans[ek]||MW.scans.base||{rows:[]};
  const asof=MW.dump_asof?('Dump as of '+MW.dump_asof+' · '):'';
  if(cap) cap.textContent=asof+(pack.label||ek)+' — '+((pack.rows||[]).length)+' names from '+(pack.eligible||'—')+' eligible. Same quality × sector-tilt math as Scan Hub Macro-only.';
- mkFitGrid(pack.rows||[],'g-dump');
+ mkFitGrid(pack.rows||[],'g-dump',k);
 }
 function renderWatchlist(k){
  const cap=document.getElementById('watch-cap');
@@ -1883,7 +1904,7 @@ function renderWatchlist(k){
    ? (n+' watchlist name'+(n===1?'':'s')+' scored for this scenario — '+fav+' favored/supported, '+head+' headwind.')
    : 'Your Stormwatch watchlist is empty. Add names from Scan Hub or Stock Lookup.';
  }
- mkFitGrid(rows,'g-watch');
+ mkFitGrid(rows,'g-watch',k);
 }
 
 function upd(){

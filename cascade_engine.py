@@ -4301,10 +4301,11 @@ def macro_sim_bundle(watchlist=None, live_regime: str | None = None,
                 wl_tickers.append(t)
     wl_tickers = list(dict.fromkeys(wl_tickers))
 
-    scans, watch = {}, {}
+    scans, watch, cross = {}, {}, {}
     regimes = ["base", "bull", "bear", "qe", "stag", "strong", "carry", "repress"]
     if live_regime not in regimes:
         regimes.append(live_regime)
+    dump_tickers = []
     for reg in regimes:
         try:
             df, meta = macro_only_scan(reg, top=int(top), strict=True)
@@ -4316,20 +4317,34 @@ def macro_sim_bundle(watchlist=None, live_regime: str | None = None,
             lab, why = _macro_outcome(r.get("macrofit"), r.get("fit"))
             r["outcome"] = lab
             r["why"] = why
+            dump_tickers.append(r["t"])
         scans[reg] = dict(rows=rows,
                           label=(meta or {}).get("label") or REGIME_LABELS.get(reg, reg),
                           eligible=int((meta or {}).get("eligible") or 0))
+
+    all_tks = list(dict.fromkeys(list(wl_tickers) + dump_tickers))
+    for reg in regimes:
         try:
-            scored = macro_score_tickers(reg, wl_tickers)
+            scored = macro_score_tickers(reg, all_tks)
         except Exception as e:
-            _log_exc(f"macro_sim_bundle.wl.{reg}", e)
+            _log_exc(f"macro_sim_bundle.score.{reg}", e)
             scored = []
-        for r in scored:
-            extra = wl_meta.get(r["t"]) or {}
+        by_t = {r["t"]: r for r in scored}
+        for t, r in by_t.items():
+            cross.setdefault(t, {})[reg] = dict(
+                fit=r.get("fit"), macrofit=r.get("macrofit"),
+                outcome=r.get("outcome"))
+        wl_rows = []
+        for t in wl_tickers:
+            r = dict(by_t.get(t) or dict(t=t, n=t, sec="—",
+                                         outcome="Unknown",
+                                         why="Not scored."))
+            extra = wl_meta.get(t) or {}
             r["source"] = extra.get("source") or ""
             r["added"] = extra.get("added") or ""
             r["price_at_add"] = extra.get("price_at_add")
-        watch[reg] = scored
+            wl_rows.append(r)
+        watch[reg] = wl_rows
 
     dump_asof = None
     try:
@@ -4344,6 +4359,7 @@ def macro_sim_bundle(watchlist=None, live_regime: str | None = None,
         scans=scans,
         watch=watch,
         watch_tickers=wl_tickers,
+        cross=cross,
     )
 
 
