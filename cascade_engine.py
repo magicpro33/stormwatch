@@ -2291,6 +2291,7 @@ REGIME_LABELS = {
     "repress": "💸 Debasement — money printed to cap yields; cash & bonds bleed, hard assets hold",
     "reset":   "🌍 Reserve Reset — foreign creditors step back; gold, miners & hard security lead",
     "base":   "⛅ No Clear Driver — no dominant force, quality quietly wins",
+    "carry":  "💴 Yen Carry Unwind — BOJ hike + yen surge; gold & defensives catch the bid",
 }
 
 # short names for the dropdown (emoji + plain name only)
@@ -2298,7 +2299,7 @@ REGIME_NAMES = {
     "qe": "💧 Easy Money", "stag": "🔥 Hot Inflation", "bull": "☀️ Risk-On Calm",
     "bear": "⛈️ Fear / Risk-Off", "strong": "💵 Rising Dollar",
     "repress": "💸 Debasement", "reset": "🌍 Reserve Reset",
-    "base": "⛅ No Clear Driver",
+    "base": "⛅ No Clear Driver", "carry": "💴 Yen Carry Unwind",
 }
 
 # display order for the Lenses tab and comparison tables
@@ -2860,6 +2861,13 @@ SECTOR_TILTS = {
                "Financial Services": 0.97, "Real Estate": 0.93,
                "Energy": 0.83, "Healthcare": 0.74},
     "base":   {},
+    # Yen carry unwind — Aug 2024 playbook: gold/defensives catch the bid,
+    # leveraged growth and high-beta financials are the funding source.
+    "carry":  {"Basic Materials": 1.20, "Consumer Defensive": 1.12, "Utilities": 1.10,
+               "Healthcare": 1.06, "Real Estate": 1.04, "Energy": 1.02,
+               "Industrials": 0.95, "Financial Services": 0.88,
+               "Communication Services": 0.82, "Consumer Cyclical": 0.80,
+               "Technology": 0.72},
 }
 
 # Where this regime ACTUALLY paid — measured excess vs SPY over 21 sessions,
@@ -4148,6 +4156,195 @@ def macro_only_scan(regime: str, top: int = 20, strict: bool = True,
                 eligible=int(eligible.sum()), n_sectors=int(df.Sector.nunique())
                 if not df.empty else 0)
     return df, meta
+
+
+SIM_TO_REGIME = {
+    "base": "base", "bull": "bull", "bear": "bear", "qe": "qe",
+    "stag": "stag", "strong": "strong", "carry": "carry",
+    "inflate": "repress", "live": None,
+}
+
+
+def _pyf(v, nd=2):
+    try:
+        x = float(v)
+        if not np.isfinite(x):
+            return None
+        return round(x, nd)
+    except Exception:
+        return None
+
+
+def _macro_scan_rows(df) -> list:
+    rows = []
+    if df is None or getattr(df, "empty", True):
+        return rows
+    for r in df.to_dict("records"):
+        roic, rg = r.get("ROIC"), r.get("RevGrowth")
+        rows.append({
+            "t": str(r.get("Ticker", "")).strip().upper(),
+            "n": str(r.get("Ticker", "")).strip().upper(),
+            "sec": str(r.get("Sector") or "—"),
+            "price": _pyf(r.get("Price")),
+            "fit": _pyf(r.get("Fit"), 1),
+            "macrofit": _pyf(r.get("MacroFit"), 2),
+            "quality": _pyf(r.get("Quality"), 0),
+            "roic": (f"{float(roic) * 100:.1f}%"
+                     if roic is not None and np.isfinite(float(roic)) else None),
+            "piotr": _pyf(r.get("Piotroski"), 0),
+            "pe": _pyf(r.get("P/E"), 1),
+            "revy": (f"{float(rg) * 100:+.0f}%"
+                     if rg is not None and np.isfinite(float(rg)) else None),
+            "src": "dump",
+        })
+    return rows
+
+
+def _macro_outcome(macrofit, fit) -> tuple:
+    mf = float(macrofit) if macrofit is not None else 1.0
+    ft = float(fit) if fit is not None else 0.0
+    if mf >= 1.12 and ft >= 50:
+        return ("Favored",
+                "This sector historically leads here — quality plus a scenario tailwind.")
+    if mf >= 1.04:
+        return ("Supported",
+                "Mild scenario tailwind. Quality still matters more than the tilt.")
+    if mf <= 0.90:
+        return ("Headwind",
+                "This sector typically lags in this regime — size smaller or hedge.")
+    return ("Neutral",
+            "No strong scenario edge. Outcome depends on the name, not the weather.")
+
+
+def macro_score_tickers(regime: str, tickers: list) -> list:
+    """Score specific tickers with the same quality × sector-tilt math as
+    macro_only_scan. Includes names that miss the quality gate so a watchlist
+    always gets an outcome, not a silent drop."""
+    want = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
+    if not want:
+        return []
+    regime = SIM_TO_REGIME.get(regime, regime) or "base"
+    if regime == "inflate":
+        regime = "repress"
+    try:
+        panel, tks, sectors, mdv, dts = load_dump_panel()
+        funds = dump_fundamentals_all()
+    except Exception as e:
+        _log_exc("macro_score_tickers.dump", e)
+        return [{"t": t, "sec": "—", "outcome": "Unknown",
+                 "why": "Nightly dump not loaded."} for t in want]
+
+    C = panel["c"]
+    px = C[-1]
+    imap = {str(t).strip().upper(): i for i, t in enumerate(tks)}
+    sec_arr = np.array(sectors)
+    roic = funds["ROIC"]; pio = funds["Piotroski"]; oe = funds["OE_Yield"]
+    pe = funds["P/E"]; rg = funds["RevenueGrowth"]; eg = funds["EarningsGrowth"]
+    rt = funds["ROIC_Trend"]
+    tradeable = np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6)
+    eligible = tradeable & np.isfinite(pio)
+
+    def _pct(a):
+        s = pd.Series(np.where(eligible & np.isfinite(a), a, np.nan))
+        return np.nan_to_num(s.rank(pct=True).values, nan=0.0)
+
+    quality = (0.35 * _pct(roic) + 0.25 * _pct(oe)
+               + 0.20 * np.nan_to_num(np.clip(pio / 9.0, 0, 1), nan=0.0)
+               + 0.10 * _pct(rt) + 0.05 * _pct(rg) + 0.05 * _pct(eg))
+    tilts = SECTOR_TILTS.get(regime, {}) or {}
+    rows = []
+    for t in want:
+        j = imap.get(t)
+        if j is None:
+            rows.append(dict(t=t, n=t, sec="—", price=None, fit=None,
+                             macrofit=None, quality=None, outcome="Not in dump",
+                             why="This ticker is not in the nightly 5,700-name dump.",
+                             src="watchlist"))
+            continue
+        sec = str(sec_arr[j])
+        mult = float(tilts.get(sec, 1.0))
+        q = float(quality[j]) * 100.0
+        fit = q * mult
+        label, why = _macro_outcome(mult, fit)
+        ro = roic[j]; rgs = rg[j]
+        rows.append(dict(
+            t=t, n=t, sec=sec, price=_pyf(px[j]),
+            fit=_pyf(fit, 1), macrofit=_pyf(mult, 2), quality=_pyf(q, 0),
+            roic=(f"{float(ro) * 100:.1f}%" if np.isfinite(ro) else None),
+            piotr=_pyf(pio[j], 0), pe=_pyf(pe[j], 1),
+            revy=(f"{float(rgs) * 100:+.0f}%" if np.isfinite(rgs) else None),
+            outcome=label, why=why, src="watchlist",
+        ))
+    return rows
+
+
+def macro_sim_bundle(watchlist=None, live_regime: str | None = None,
+                     top: int = 20) -> dict:
+    """JSON payload the Macro Simulator HTML consumes: dump Top 20 per
+    scenario plus the user's watchlist scored the same way."""
+    live_regime = (live_regime or "base").strip().lower()
+    if live_regime not in SECTOR_TILTS:
+        live_regime = "base"
+    wl_tickers = []
+    wl_meta = {}
+    for w in (watchlist or []):
+        if isinstance(w, dict):
+            t = str(w.get("ticker") or "").strip().upper()
+            if t:
+                wl_tickers.append(t)
+                wl_meta[t] = dict(source=str(w.get("source") or ""),
+                                  added=str(w.get("added") or ""),
+                                  price_at_add=_pyf(w.get("price_at_add")))
+        else:
+            t = str(w).strip().upper()
+            if t:
+                wl_tickers.append(t)
+    wl_tickers = list(dict.fromkeys(wl_tickers))
+
+    scans, watch = {}, {}
+    regimes = ["base", "bull", "bear", "qe", "stag", "strong", "carry", "repress"]
+    if live_regime not in regimes:
+        regimes.append(live_regime)
+    for reg in regimes:
+        try:
+            df, meta = macro_only_scan(reg, top=int(top), strict=True)
+        except Exception as e:
+            _log_exc(f"macro_sim_bundle.scan.{reg}", e)
+            df, meta = pd.DataFrame(), {}
+        rows = _macro_scan_rows(df)
+        for r in rows:
+            lab, why = _macro_outcome(r.get("macrofit"), r.get("fit"))
+            r["outcome"] = lab
+            r["why"] = why
+        scans[reg] = dict(rows=rows,
+                          label=(meta or {}).get("label") or REGIME_LABELS.get(reg, reg),
+                          eligible=int((meta or {}).get("eligible") or 0))
+        try:
+            scored = macro_score_tickers(reg, wl_tickers)
+        except Exception as e:
+            _log_exc(f"macro_sim_bundle.wl.{reg}", e)
+            scored = []
+        for r in scored:
+            extra = wl_meta.get(r["t"]) or {}
+            r["source"] = extra.get("source") or ""
+            r["added"] = extra.get("added") or ""
+            r["price_at_add"] = extra.get("price_at_add")
+        watch[reg] = scored
+
+    dump_asof = None
+    try:
+        _, _, _, _, dts = load_dump_panel()
+        dump_asof = str(pd.Timestamp(dts[-1]).date())
+    except Exception:
+        pass
+    return dict(
+        live_regime=live_regime,
+        live_label=REGIME_LABELS.get(live_regime, live_regime),
+        dump_asof=dump_asof,
+        scans=scans,
+        watch=watch,
+        watch_tickers=wl_tickers,
+    )
 
 
 # ═════════ 🔥 SECTOR FLOW — where the money went in the last session ═════════

@@ -462,6 +462,13 @@ def _macro_only_scan(asof: str, regime: str, top: int = 20,
                                only_sectors=list(only_sectors) if only_sectors else None)
 
 
+@st.cache_data(ttl=1800, show_spinner="🎯 Scoring the dump Top 20 and your watchlist for every simulator scenario…")
+def _macro_sim_bundle(asof: str, wl_key: str, live_regime: str):
+    import json as _json
+    wl = _json.loads(wl_key) if wl_key else []
+    return ce.macro_sim_bundle(watchlist=wl, live_regime=live_regime, top=20)
+
+
 @st.cache_data(ttl=900, show_spinner="🔥 Measuring where money went in the last session…")
 def _sector_flow(asof: str, lookback: int = 1, offset: int = 0,
                  live: bool = False):
@@ -3656,19 +3663,18 @@ if _main == "Macro Sim":
     _try_closes()
     if GAUGE is None:
         GAUGE = _gauge()
-    st.caption("Your full Macro Market Simulator, embedded as-is — every "
-               "slider, scenario, and stock in its DB works exactly like the "
-               "standalone version (it runs in your browser, including its "
-               "live feeds). This is the playbook the Top 20's MacroFit "
-               "multipliers were distilled from.")
+    st.caption("Preset buttons scope the playbook, dump Top 20, and your "
+               "watchlist to that scenario. Live Market follows the sliders; "
+               "the dump ranking is the same quality × sector-tilt math as "
+               "Scan Hub's Macro-only scan.")
+    _reg_live = None
     try:
         _reg_live = ce.macro_regime(closes, pressure_gauge=GAUGE)
         st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
             border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin-bottom:8px;">
             <span style="font-weight:700;">📡 Live regime (app-detected): {_reg_live['label']}</span><br>
             <span style="color:{DIM};font-size:12px;">From: {' · '.join(_reg_live['drivers'])} —
-            set the simulator's sliders to match (or to your what-if), then run the
-            Top 20 tab under that same scenario with its Macro scenario picker.</span>
+            Live Market in the simulator uses this weather. Other tabs are what-ifs.</span>
             <br><span style="color:{DIM};font-size:12px;">🏛 <b>Bond check:</b>
             {_esc(ce.bond_master_switch(closes).get('warning','—'))} — the simulator's
             rate sliders move the same lever, so set them consistently with what
@@ -3683,13 +3689,31 @@ if _main == "Macro Sim":
         try:
             # embed the HTML CONTENT (not the path) — on Streamlit Cloud
             # st.iframe(path) renders the filename as text, so read + inject
+            import json as _json
             import streamlit.components.v1 as components
             with open(_sim_path, encoding="utf-8") as _f:
                 _sim_html = _f.read()
-            components.html(_sim_html, height=1700, scrolling=True)
+            _mw = {}
+            if hasattr(ce, "macro_sim_bundle"):
+                try:
+                    _wl = ce.watchlist_load()
+                    _live_reg = str((_reg_live or {}).get("regime") or "base")
+                    _mw = _macro_sim_bundle(
+                        asof or "live",
+                        _json.dumps(_wl, default=str, sort_keys=True),
+                        _live_reg)
+                except Exception as _be:
+                    log_exc("macro_sim_bundle", _be)
+                    _mw = {}
+            _payload = _json.dumps(_mw, default=str).replace("<", "\\u003c")
+            _sim_html = _sim_html.replace(
+                "<script src=",
+                f"<script>window.MW_MACRO={_payload};</script>\n<script src=",
+                1)
+            components.html(_sim_html, height=2600, scrolling=True)
         except Exception as _e1:
             try:
-                st.iframe(_sim_path, height=1700)
+                st.iframe(_sim_path, height=2600)
             except Exception as _e2:
                 st.error(f"Simulator embed failed: {_e1}")
         st.caption("Scroll inside the panel for the full simulator. Its live "
