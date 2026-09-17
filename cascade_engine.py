@@ -4493,6 +4493,7 @@ def macro_sim_bundle(watchlist=None, live_regime: str | None = None,
         for t, r in by_t.items():
             cross.setdefault(t, {})[reg] = dict(
                 fit=r.get("fit"), macrofit=r.get("macrofit"),
+                quality=r.get("quality"),
                 outcome=r.get("outcome"))
         wl_rows = []
         for t in wl_tickers:

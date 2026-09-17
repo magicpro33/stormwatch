@@ -1312,6 +1312,51 @@ function setLive(el){
  upd();
 }
 
+function liveRegimeKey(){
+  const m = LIVE_MACRO || {};
+  try {
+    return gkey({
+      oil:+m.oil, fed:+m.fed/100, iran:+m.iran, cpi:+m.cpi/10,
+      y10:+m.yield/100, y2:+m.y2/100, dxy:+m.dxy/10,
+      qe:+m.qe, slr:+m.slr, boj:+m.boj/100, usdjpy:+m.usdjpy/10
+    });
+  } catch(_){ return 'base'; }
+}
+let _PB = null;
+function playbookOf(t){
+  if (!_PB){
+    _PB = {};
+    Object.keys(DB).forEach(k => {
+      const arr = DB[k];
+      if (!Array.isArray(arr)) return;
+      arr.forEach(s => {
+        if (s && s.t && !_PB[s.t]) _PB[s.t] = s;
+      });
+    });
+  }
+  return _PB[String(t||'').toUpperCase()] || null;
+}
+function scenarioPct(ticker, scen, d){
+  const key = scen === 'live' ? liveRegimeKey() : scen;
+  if (d && d[key] != null && isFinite(+d[key])) return +d[key];
+  const pb = playbookOf(ticker);
+  if (pb && pb[key] != null && isFinite(+pb[key])) return +pb[key];
+  const hit = scenarioScore(ticker, key);
+  if (hit && hit.macrofit != null && isFinite(+hit.macrofit)){
+    const mf = +hit.macrofit;
+    let qual = 50;
+    if (hit.quality != null && isFinite(+hit.quality)) qual = +hit.quality;
+    else if (hit.fit != null && mf) qual = +hit.fit / mf;
+    return Math.round(6 + (mf - 1) * 80 + (qual - 50) * 0.24);
+  }
+  return null;
+}
+function fmtRet(v){
+  if (v==null || !isFinite(v)) return {txt:'—', c:'var(--mu)'};
+  const n = +v;
+  return {txt:(n>=0?'+':'')+n+'%', c:n>0?'var(--ac3)':n<0?'var(--red)':'var(--mu)'};
+}
+
 function buildExpanded(t,n,d,k){
  const lp=PX[t]||BASE_PX[t], bp=BASE_PX[t];
  const pct=(lp&&bp)?((lp-bp)/bp*100):null;
@@ -1325,24 +1370,13 @@ function buildExpanded(t,n,d,k){
   ${bp&&lp!==bp?`<div><div style="font-size:9px;font-family:JetBrains Mono,monospace;color:var(--mu)">Baseline</div><div style="font-family:JetBrains Mono,monospace;font-size:14px;color:var(--mu)">${fmt(bp)}</div></div>`:''}
   <div style="margin-left:auto;font-size:9px;color:var(--mu);font-family:JetBrains Mono,monospace">via ${PX_SRC[t]||'baseline'}</div>
  </div>`:'';
- const scens=[{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'},{key:'strong',lbl:'STRONG$'},{key:'carry',lbl:'CARRY'},{key:'inflate',lbl:'INFLATE$'}];
- const fitKind=d.kind==='fit' || d.src==='dump' || d.src==='watchlist';
+ const scens=[{key:'live',lbl:'LIVE'},{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'},{key:'strong',lbl:'STRONG$'},{key:'carry',lbl:'CARRY'},{key:'inflate',lbl:'INFLATE$'}];
+ const liveK=liveRegimeKey();
  const allRet=scens.map(sc=>{
-  const active=sc.key===k?'border:1px solid var(--ac)':'';
-  if(fitKind){
-   const hit=scenarioScore(t, sc.key);
-   const v=hit && hit.fit!=null ? hit.fit : null;
-   const oc=hit && hit.outcome ? hit.outcome : '';
-   const mf=hit && hit.macrofit!=null ? hit.macrofit : null;
-   const c=oc==='Headwind'?'var(--red)':oc==='Favored'?'var(--ac3)':oc==='Supported'?'var(--ac)':v==null?'var(--mu)':'var(--gold)';
-   const sub=oc?(oc+(mf!=null?' ×'+mf:'')):'';
-   return `<div class="exp-ret" style="${active}"><div class="exp-ret-lbl">${sc.lbl}</div><div class="exp-ret-val" style="color:${c}">${v==null?'—':v}</div>${sub?`<div style="font-size:8px;color:var(--mu);margin-top:2px">${sub}</div>`:''}</div>`;
-  }
-  const v=d[sc.key];
-  if(v==null)return '';
-  const c=v>0?'var(--ac3)':v<0?'var(--red)':'var(--mu)';
-  const s=v>=0?'+':'';
-  return `<div class="exp-ret" style="${active}"><div class="exp-ret-lbl">${sc.lbl}</div><div class="exp-ret-val" style="color:${c}">${s}${v}%</div></div>`;
+  const v=scenarioPct(t, sc.key, d);
+  const active=(!WHATIF && sc.key==='live') || sc.key===k || (sc.key==='live' && k===liveK);
+  const f=fmtRet(v);
+  return `<div class="exp-ret" style="${active?'border:1px solid var(--ac)':''}"><div class="exp-ret-lbl">${sc.lbl}</div><div class="exp-ret-val" style="color:${f.c}">${f.txt}</div></div>`;
  }).join('');
  const stats=[
   ['Ticker',t,'var(--ac)'],
@@ -1363,7 +1397,7 @@ function buildExpanded(t,n,d,k){
  return `<div class="exp-inner">
   <button class="exp-close" onclick="event.stopPropagation();collapseAll()">&#10005;</button>
   ${liveRow}
-  <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mu);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">${fitKind?'All Scenario Fit (quality × tilt)':'All Scenario Returns'}</div>
+  <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mu);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">All Scenario Returns</div>
   <div class="exp-all-ret">${allRet}</div>
   <div class="exp-stats">${statsHTML}</div>
   <div class="exp-desc">${d.desc||d.r||d.why||''}</div>
@@ -1869,20 +1903,26 @@ function mkFitGrid(rows,cid,scenKey){
  }
  el.innerHTML=rows.map((s,i)=>{
   const oc=s.outcome||'Neutral';
-  const fit=s.fit!=null?s.fit:'—';
-  const cardId=cid+'-'+i;
+  const pb=playbookOf(s.t)||{};
   const d={
    t:s.t,n:s.n||s.t,sec:s.sec,r:s.why||'',why:s.why,
    roic:s.roic,piotr:s.piotr,pe:s.pe,revy:s.revy,price:s.price,
    desc:s.why||'',score:s.quality||0,
-   kind:'fit', src:s.src||'dump'
+   quality:s.quality, macrofit:s.macrofit, fit:s.fit, outcome:oc,
+   src:s.src||'dump',
+   base:pb.base, bull:pb.bull, bear:pb.bear, qe:pb.qe, stag:pb.stag,
+   strong:pb.strong, carry:pb.carry, inflate:pb.inflate
   };
+  const ret=scenarioPct(s.t, scenKey, d);
+  const f=fmtRet(ret);
+  const pcls=ret>0?'u':ret<0?'d':'nt';
+  const cardId=cid+'-'+i;
   CARD_STORE[cardId]={t:s.t,n:s.n||s.t,d,k:scenKey||'base'};
   if(s.price && !BASE_PX[s.t]) BASE_PX[s.t]=s.price;
   return '<div class="sc" data-card="'+cardId+'">'
-   +'<div class="st">'+s.t+livePriceBadge(s.t)+'</div>'
-   +'<div class="snam">'+(s.sec||'')+(s.source?' · '+s.source:'')+'</div>'
-   +'<div class="sp u">Fit '+fit+'</div>'
+   +'<div class="st" style="color:'+f.c+'">'+s.t+livePriceBadge(s.t)+'</div>'
+   +'<div class="snam">'+(s.n&&s.n!==s.t?s.n+' · ':'')+(s.sec||'')+(s.source?' · '+s.source:'')+'</div>'
+   +'<div class="sp '+pcls+'">'+f.txt+'</div>'
    +'<div class="sm"><span class="oc '+ocClass(oc)+'">'+oc+'</span>'
    +(s.macrofit!=null?'<span class="mc">×'+s.macrofit+'</span>':'')
    +(s.quality!=null?'<span class="mc">Q:'+s.quality+'</span>':'')
