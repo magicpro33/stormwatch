@@ -116,7 +116,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.40"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.41"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1019,6 +1019,64 @@ BUYBACK_TITANS = ["AAPL", "GOOGL", "MSFT", "META", "NVDA", "JPM", "XOM"]
 
 
 _PANEL_CACHE = {}          # in-process: avoid re-reading the ~27MB npz per call
+DUMP_FETCH_RETRY_SEC = 15 * 60
+_FORCE_DUMP_FETCH = False
+
+
+def _dump_fetch_due(target) -> bool:
+    """True when the on-disk dump is behind `target` and we should hit GitHub.
+
+    fetched_for used to pin a behind-target dump for the life of the process,
+    so a 5pm load (session complete, nightly scan not published until ~10pm)
+    never picked up the new file. Retry on a cooldown instead.
+    """
+    if _FORCE_DUMP_FETCH:
+        return True
+    if _PANEL_CACHE.get("fetched_for") != target:
+        return True
+    import time as _time
+    at = float(_PANEL_CACHE.get("fetched_at") or 0.0)
+    return (_time.monotonic() - at) >= DUMP_FETCH_RETRY_SEC
+
+
+def _dump_remote_size() -> int:
+    """Content-Length of the GitHub dump, or 0 if HEAD fails."""
+    import time as _time
+    try:
+        r = requests.head(
+            DUMP_URL, timeout=20, allow_redirects=True,
+            headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            params={"t": int(_time.time())},
+        )
+        r.raise_for_status()
+        return int(r.headers.get("Content-Length") or 0)
+    except Exception as e:
+        _log_exc("_dump_remote_size", e)
+        return 0
+
+
+def _github_get_dump() -> bytes:
+    """Download stock_data.json.gz, bypassing the 5-minute CDN cache."""
+    import time as _time
+    r = requests.get(
+        DUMP_URL, timeout=120,
+        headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+        params={"t": int(_time.time())},
+    )
+    r.raise_for_status()
+    return r.content
+
+
+def dump_last_session():
+    """Last date currently in the nightly dump panel (may trigger a fetch)."""
+    try:
+        _dts = load_dump_panel()[4]
+        if _dts is None or len(_dts) == 0:
+            return None
+        return pd.Timestamp(_dts[-1]).normalize()
+    except Exception as e:
+        _log_exc("dump_last_session", e)
+        return None
 
 
 def load_dump_panel():
@@ -1048,9 +1106,9 @@ def load_dump_panel():
             cached_last = _PANEL_CACHE.get("last_date")
             if cached_last is not None and cached_last >= target:
                 return hit[1]
-            # GitHub was already pulled for this session and is still a day
-            # behind — do not re-download 20MB on every widget click.
-            if _PANEL_CACHE.get("fetched_for") == target:
+            # Behind target: retry GitHub on a cooldown, not once-per-process.
+            # The nightly scan publishes hours after the session is complete.
+            if not _dump_fetch_due(target):
                 return hit[1]
             # stale: drop it and fall through to the re-download below
             _PANEL_CACHE.pop("panel", None)
@@ -1066,7 +1124,7 @@ def load_dump_panel():
                 z = _np_load_arrays(LOCAL_DUMP_R)
                 dts = pd.to_datetime(z["dates"])
                 last = pd.Timestamp(dts[-1]).normalize()
-                if last >= target or _PANEL_CACHE.get("fetched_for") == target:
+                if last >= target or not _dump_fetch_due(target):
                     panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
                     out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
                     _PANEL_CACHE["panel"] = (mt, out)
@@ -1074,6 +1132,8 @@ def load_dump_panel():
                     _PANEL_CACHE["last_date"] = last
                     if "recent_ok" in z.files:
                         _PANEL_CACHE["recent_ok"] = (mt, z["recent_ok"].astype(bool))
+                    if "last_ok" in z.files:
+                        _PANEL_CACHE["last_ok"] = (mt, z["last_ok"].astype(bool))
                     return out
             except Exception as _le:
                 _log_exc("load_dump_panel.npz", _le)
@@ -1087,9 +1147,26 @@ def load_dump_panel():
                     pass
                 _PANEL_CACHE.pop("panel", None)
                 _PANEL_CACHE.pop("tick_ix", None)
+    import time as _time
+    gz_local = _data_read_path(LOCAL_DUMP_GZ)
+    remote_len = 0 if _FORCE_DUMP_FETCH else _dump_remote_size()
+    local_len = -1
     try:
-        r = requests.get(DUMP_URL, timeout=120)
-        r.raise_for_status()
+        if os.path.exists(gz_local):
+            local_len = os.path.getsize(gz_local)
+    except OSError:
+        pass
+    # Same bytes as last time and still a day behind — the scan has not
+    # published yet. Do not pull 20MB again until the cooldown fires.
+    if (remote_len > 0 and local_len == remote_len
+            and os.path.exists(_data_read_path(LOCAL_DUMP))):
+        _PANEL_CACHE["fetched_for"] = target
+        _PANEL_CACHE["fetched_at"] = _time.monotonic()
+        z = _np_load_dump()
+        if z is not None:
+            return z
+    try:
+        content = _github_get_dump()
     except Exception as _de:
         # GitHub unreachable and the cache is >4 days old (or was just
         # dropped above as corrupt). A stale dump beats a dead Top 20 /
@@ -1098,14 +1175,15 @@ def load_dump_panel():
             z = _np_load_dump()
             if z is not None:
                 _PANEL_CACHE["fetched_for"] = target
+                _PANEL_CACHE["fetched_at"] = _time.monotonic()
                 return z
         raise RuntimeError(f"nightly dump unavailable and no local copy: {_de}")
     try:
         with open(_data_write_path(LOCAL_DUMP_GZ), "wb") as _gf:
-            _gf.write(r.content)
+            _gf.write(content)
     except Exception:
         pass
-    data = json.loads(_gz.decompress(r.content).decode())
+    data = json.loads(_gz.decompress(content).decode())
     rows = [x for x in data if len(x.get("_hist", {}).get("dates", [])) >= 120]
     all_d = sorted({d for x in rows for d in x["_hist"]["dates"]})
     dix = {d: i for i, d in enumerate(all_d)}
@@ -1128,12 +1206,16 @@ def load_dump_panel():
                     funds[f][j] = float(v)
                 except (TypeError, ValueError):
                     pass
-    # Nightly dumps before 2026-09-12 kept yfinance's volume-only last bar
-    # (OHLC all NaN). That date becomes the panel's last session; ffill then
-    # copies yesterday's close and sector_flow prints 0% for every sector.
+    # Drop a trailing session only when it is a phantom / volume-only bar
+    # (almost no real closes). Requiring 15% of the universe used to strip a
+    # real but partial last session — the nightly scan often lands a few
+    # hundred names on the newest date while the rest still end a day
+    # earlier — so the date picker sat one session behind data already in
+    # the dump. 80 real closes is enough to reject a NaN OHLC stub and keep
+    # a genuine session.
     while T > 2:
         n_real = int(np.isfinite(panel["c"][-1]).sum())
-        if n_real >= max(80, int(0.15 * N)):
+        if n_real >= 80:
             break
         for f in panel:
             panel[f] = panel[f][:-1]
@@ -1143,6 +1225,7 @@ def load_dump_panel():
     # recently. Snapshot that from the raw closes BEFORE the ffill — reading
     # it afterwards is a no-op, because ffill(limit=5) makes a halted or
     # delisted name look like it has a fresh price for another five sessions.
+    last_ok = np.isfinite(panel["c"][-1])
     recent_ok = np.isfinite(panel["c"][-3:]).any(axis=0)
     panel["c"] = pd.DataFrame(panel["c"]).ffill(limit=5).values.astype(np.float32)
     mdv = np.nanmedian((panel["c"] * np.nan_to_num(panel["v"]))[-21:], axis=0)
@@ -1153,6 +1236,7 @@ def load_dump_panel():
             _dump_w, tickers=tickers, sectors=sectors,
             mdv=mdv, dates=np.array(all_d, dtype="U10"),
             recent_ok=np.asarray(recent_ok, dtype=np.bool_),
+            last_ok=np.asarray(last_ok, dtype=np.bool_),
             **panel,
             **{f"fund_{i}": funds[f] for i, f in enumerate(FUND_FIELDS)})
         mt = os.path.getmtime(_dump_w)
@@ -1166,8 +1250,11 @@ def load_dump_panel():
     _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(tickers)})
     _PANEL_CACHE["funds"] = (mt, funds)
     _PANEL_CACHE["recent_ok"] = (mt, np.asarray(recent_ok, dtype=bool))
+    _PANEL_CACHE["last_ok"] = (mt, np.asarray(last_ok, dtype=bool))
     _PANEL_CACHE["last_date"] = pd.Timestamp(all_d[-1]).normalize()
     _PANEL_CACHE["fetched_for"] = target
+    import time as _t_done
+    _PANEL_CACHE["fetched_at"] = _t_done.monotonic()
     return out
 
 
@@ -1185,6 +1272,9 @@ def _np_load_dump():
         _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
         if "recent_ok" in z.files:
             _PANEL_CACHE["recent_ok"] = (mt, z["recent_ok"].astype(bool))
+        if "last_ok" in z.files:
+            _PANEL_CACHE["last_ok"] = (mt, z["last_ok"].astype(bool))
+        _PANEL_CACHE["last_date"] = pd.Timestamp(dts[-1]).normalize()
         return out
     except Exception as e:
         _log_exc("_np_load_dump", e)
@@ -1221,6 +1311,7 @@ def refresh_dump(force: bool = False):
     if the file on disk still looks current. Returns the dump's last session
     date after reloading, so the caller can report what it actually got.
     """
+    global _FORCE_DUMP_FETCH
     _PANEL_CACHE.clear()
     _RECORDS_CACHE.clear()
     if force:
@@ -1231,11 +1322,14 @@ def refresh_dump(force: bool = False):
                 pass
             except Exception:
                 pass
+    _FORCE_DUMP_FETCH = True
     try:
         panel, tickers, sectors, mdv, dts = load_dump_panel()
         return pd.Timestamp(dts[-1]).normalize()
     except Exception:
         return None
+    finally:
+        _FORCE_DUMP_FETCH = False
 
 
 def _ticker_index(ticker: str):

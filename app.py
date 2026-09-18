@@ -120,7 +120,7 @@ try:
 except Exception as _ige:
     render_ignition_scanner_tab, _IG_ERR = None, _ige
 
-REQUIRED_ENGINE = "2.40"
+REQUIRED_ENGINE = "2.41"
 st.set_page_config(page_title="Money Weather", page_icon="🌩", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -476,17 +476,18 @@ def _macro_live_prints():
 
 @st.cache_data(ttl=900, show_spinner="🔥 Measuring where money went in the last session…")
 def _sector_flow(asof: str, lookback: int = 1, offset: int = 0,
-                 live: bool = False):
+                 live: bool = False, dump_asof: str = ""):
     return ce.sector_flow(lookback=lookback, offset=offset, use_live=live)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def _hot_sectors(asof: str, k: int = 5, lookback: int = 1, offset: int = 0):
+def _hot_sectors(asof: str, k: int = 5, lookback: int = 1, offset: int = 0,
+                 dump_asof: str = ""):
     return ce.hot_sectors(int(k), lookback=int(lookback), offset=int(offset))
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _flow_sessions(asof: str):
+def _flow_sessions(asof: str, dump_asof: str = ""):
     return ce.flow_sessions()
 
 
@@ -2057,10 +2058,19 @@ elif _main == "Advanced Guide":
     _adv = _section_bar(_ADV, "mw_adv")
 
 
+def _dump_asof_key() -> str:
+    """Cache-buster so Streamlit drops stale session lists when the dump moves."""
+    try:
+        d = ce.dump_last_session()
+        return "" if d is None else str(pd.Timestamp(d).date())
+    except Exception:
+        return ""
+
+
 def flow_window_picker(prefix: str, compact: bool = False):
     """Shared 'which session(s)?' control. Returns (lookback, offset, label)."""
     try:
-        _sess = _flow_sessions(asof)
+        _sess = _flow_sessions(asof, _dump_asof_key())
     except Exception:
         _sess = []
     c1, c2 = st.columns([1, 2])
@@ -2160,7 +2170,7 @@ if _main == "Cascade Map":
     # ── today's money rotation, in plain English ────────────────────
     _mlb, _moff, _mlbl = flow_window_picker("map")
     try:
-        _mflow = _sector_flow(asof, _mlb, _moff)
+        _mflow = _sector_flow(asof, _mlb, _moff, dump_asof=_dump_asof_key())
     except Exception:
         _mflow = pd.DataFrame()
     if _mflow is not None and not _mflow.empty:
@@ -2849,7 +2859,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                             "plus the flow tilt lifted top-20 excess from -0.02% "
                             "to +3.41% per 21 sessions."):
             try:
-                _hot = _hot_sectors(asof, 5, _t_lb, _t_off)
+                _hot = _hot_sectors(asof, 5, _t_lb, _t_off, dump_asof=_dump_asof_key())
                 if _hot:
                     st.session_state["_top20_sectors_pending"] = _hot
                     st.rerun()
@@ -2857,14 +2867,14 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 st.caption(f"Hot sectors unavailable: {_he}")
         _hs_now = []
         try:
-            _hs_now = _hot_sectors(asof, 5, _t_lb, _t_off)
+            _hs_now = _hot_sectors(asof, 5, _t_lb, _t_off, dump_asof=_dump_asof_key())
             if _hs_now:
                 _hs2.caption(f"🔥 Hottest ({_t_lbl}): " + " · ".join(_hs_now))
         except Exception:
             pass
         with st.expander("🔥 Where the money went in the last session"):
             try:
-                _fl = _sector_flow(asof, _t_lb, _t_off)
+                _fl = _sector_flow(asof, _t_lb, _t_off, dump_asof=_dump_asof_key())
             except Exception as _fe:
                 _fl = pd.DataFrame(); st.caption(f"Sector flow unavailable: {_fe}")
             if _fl is None or _fl.empty:
@@ -3472,14 +3482,14 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                            help="Replace the sector selection with the sectors that "
                                 "received the most money in the last session."):
                 try:
-                    _hot = _hot_sectors(asof, 5, _a_lb, _a_off)
+                    _hot = _hot_sectors(asof, 5, _a_lb, _a_off, dump_asof=_dump_asof_key())
                     if _hot:
                         st.session_state["_apex_sectors_pending"] = _hot
                         st.rerun()
                 except Exception as _he:
                     st.caption(f"Hot sectors unavailable: {_he}")
             try:
-                _hs_now = _hot_sectors(asof, 5, _a_lb, _a_off)
+                _hs_now = _hot_sectors(asof, 5, _a_lb, _a_off, dump_asof=_dump_asof_key())
                 if _hs_now:
                     _hs2.caption(f"🔥 Hottest ({_a_lbl}): " + " · ".join(_hs_now))
             except Exception:
@@ -3914,14 +3924,14 @@ if _main == "Scan Hub" and _hub == "POC Future":
                            help="Replace the sector selection with the sectors that "
                                 "received the most money in the chosen window."):
                 try:
-                    _hot = _hot_sectors(asof, 5, _p_lb, _p_off)
+                    _hot = _hot_sectors(asof, 5, _p_lb, _p_off, dump_asof=_dump_asof_key())
                     if _hot:
                         st.session_state["_poc_sectors_pending"] = _hot
                         st.rerun()
                 except Exception as _he:
                     st.caption(f"Hot sectors unavailable: {_he}")
             try:
-                _hs_now = _hot_sectors(asof, 5, _p_lb, _p_off)
+                _hs_now = _hot_sectors(asof, 5, _p_lb, _p_off, dump_asof=_dump_asof_key())
                 if _hs_now:
                     _hs2.caption(f"🔥 Hottest ({_p_lbl}): " + " · ".join(_hs_now))
             except Exception:

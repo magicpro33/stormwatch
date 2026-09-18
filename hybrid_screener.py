@@ -196,18 +196,28 @@ def _k(name: str) -> str:
 
 # ── Sector section — same data/widgets Top 20 uses, so hot sectors and the
 #    money-flow read stay one consistent picture across the app. ──────────
+def _hs_dump_key() -> str:
+    try:
+        d = ce.dump_last_session()
+        return "" if d is None else str(pd.Timestamp(d).date())
+    except Exception:
+        return ""
+
+
 @st.cache_data(ttl=900, show_spinner="🔥 Measuring where money went in the last session…")
-def _hs_sector_flow(day_key: str, lookback: int = 1, offset: int = 0):
+def _hs_sector_flow(day_key: str, lookback: int = 1, offset: int = 0,
+                    dump_asof: str = ""):
     return ce.sector_flow(lookback=lookback, offset=offset)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def _hs_hot_sectors(day_key: str, k: int = 5, lookback: int = 1, offset: int = 0):
+def _hs_hot_sectors(day_key: str, k: int = 5, lookback: int = 1, offset: int = 0,
+                    dump_asof: str = ""):
     return ce.hot_sectors(int(k), lookback=int(lookback), offset=int(offset))
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _hs_flow_sessions(day_key: str):
+def _hs_flow_sessions(day_key: str, dump_asof: str = ""):
     return ce.flow_sessions()
 
 
@@ -222,7 +232,7 @@ def _hs_flow_window_picker(prefix: str):
     (lookback, offset, label)."""
     day_key = datetime.today().strftime("%Y-%m-%d")
     try:
-        _sess = _hs_flow_sessions(day_key)
+        _sess = _hs_flow_sessions(day_key, _hs_dump_key())
     except Exception:
         _sess = []
     c1, c2 = st.columns([1, 2])
@@ -867,7 +877,7 @@ def render_hybrid_screener() -> None:
                             "received the most money in the last session."):
             try:
                 _hot = _hs_hot_sectors(datetime.today().strftime("%Y-%m-%d"),
-                                       5, _hs_lb, _hs_off)
+                                       5, _hs_lb, _hs_off, dump_asof=_hs_dump_key())
                 if _hot:
                     st.session_state[_k("sectors_pending")] = _hot
                     st.rerun()
@@ -879,7 +889,7 @@ def render_hybrid_screener() -> None:
         _hs_now = []
         try:
             _hs_now = _hs_hot_sectors(datetime.today().strftime("%Y-%m-%d"),
-                                      5, _hs_lb, _hs_off)
+                                      5, _hs_lb, _hs_off, dump_asof=_hs_dump_key())
             if _hs_now:
                 _hh2.caption(f"🔥 Hottest ({_hs_lbl}): " + " · ".join(_hs_now))
         except Exception:
@@ -887,7 +897,7 @@ def render_hybrid_screener() -> None:
         with st.expander("🔥 Where the money went in the last session"):
             try:
                 _fl = _hs_sector_flow(datetime.today().strftime("%Y-%m-%d"),
-                                      _hs_lb, _hs_off)
+                                      _hs_lb, _hs_off, dump_asof=_hs_dump_key())
             except Exception as _fe:
                 _fl = pd.DataFrame(); st.caption(f"Sector flow unavailable: {_fe}")
             if _fl is None or _fl.empty:
