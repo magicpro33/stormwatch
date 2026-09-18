@@ -116,7 +116,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.41"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.42"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -2126,9 +2126,12 @@ ANALYZER_INFO_MAP = {
     "website": "website", "fullTimeEmployees": "fullTimeEmployees",
     "city": "city", "state": "state", "country": "country",
     "quoteType": "quoteType", "fundFamily": "fundFamily", "category": "category",
-    "industry": "industry", "beta": "beta",
+    "industry": "industry", "sector": "sector", "beta": "beta",
+    "currentPrice": "currentPrice", "regularMarketPrice": "regularMarketPrice",
+    "previousClose": "previousClose", "trailingPE": "trailingPE",
     "forwardPE": "forwardPE", "priceToBook": "priceToBook",
     "priceToSales": "priceToSalesTrailing12Months",
+    "priceToSalesTrailing12Months": "priceToSalesTrailing12Months",
     "fiftyTwoWeekHigh": "fiftyTwoWeekHigh", "fiftyTwoWeekLow": "fiftyTwoWeekLow",
     "profitMargins": "profitMargins", "operatingMargins": "operatingMargins",
     "grossMargins": "grossMargins", "returnOnEquity": "returnOnEquity",
@@ -2136,6 +2139,11 @@ ANALYZER_INFO_MAP = {
     "currentRatio": "currentRatio", "targetMeanPrice": "targetMeanPrice",
     "targetLowPrice": "targetLowPrice", "targetHighPrice": "targetHighPrice",
     "numberOfAnalystOpinions": "numberOfAnalystOpinions",
+    "shortPercentOfFloat": "shortPercentOfFloat", "shortRatio": "shortRatio",
+    "revenueGrowth": "revenueGrowth", "earningsGrowth": "earningsGrowth",
+    "marketCap": "marketCap", "dividendRate": "dividendRate",
+    "dividendYield": "dividendYield", "floatShares": "floatShares",
+    "sharesOutstanding": "sharesOutstanding",
 }
 
 
@@ -2177,19 +2185,31 @@ def fetch_analyzer(ticker: str):
     # ── Step 2: fundamentals — cached pack first, live only if needed ─
     _pack = dump_analyzer_pack(ticker)
     if _pack:
-        for k, ik in ANALYZER_INFO_MAP.items():
-            v = _pack.get(k)
-            if v is not None:
+        for k, v in _pack.items():
+            if v is None or k in ("eps_history",):
+                continue
+            ik = ANALYZER_INFO_MAP.get(k, k)
+            if k.startswith("_") and k not in ANALYZER_INFO_MAP:
+                continue
+            if info.get(ik) in (None, "", []):
                 info[ik] = v
         info["_from_analyzer_cache"] = True
         if _pack.get("eps_history"):
             info["_cached_eps"] = _pack["eps_history"]
 
-    if tk is not None and not _pack:
+    _CORE = ("shortName", "industry", "targetMeanPrice", "profitMargins",
+             "fiftyTwoWeekHigh", "beta", "forwardPE")
+    if tk is not None and any(not info.get(k) for k in _CORE):
         try:
-            info = tk.info or {}
-            if not info or len(info) < 3:
-                info = {}
+            live_info = tk.info or {}
+            if live_info and len(live_info) >= 3:
+                for k, v in live_info.items():
+                    if v is None:
+                        continue
+                    ik = ANALYZER_INFO_MAP.get(k, k)
+                    if info.get(ik) in (None, "", []):
+                        info[ik] = v
+            elif not info:
                 _issues.append("fundamentals: yfinance returned empty (rate-limited or no profile)")
         except Exception as _ie:
             m = str(_ie)[:80]
@@ -2197,7 +2217,7 @@ def fetch_analyzer(ticker: str):
                 _issues.append("fundamentals: not published for this symbol (ETFs/funds have none)")
             elif "429" in m or "rate" in m.lower():
                 _issues.append("fundamentals: yfinance rate limit — retry shortly")
-            else:
+            elif not info:
                 _issues.append(f"fundamentals: {m}")
 
     # ── Step 2b: extended profitability from the statements ──────────
@@ -2364,6 +2384,11 @@ def fetch_analyzer(ticker: str):
         except Exception:
             pass
 
+    if info.get("currentPrice") in (None, "") and not hist.empty:
+        try:
+            info["currentPrice"] = float(hist["Close"].iloc[-1])
+        except Exception:
+            pass
     info["_hist_source"] = hist_src
     if _issues:
         info["_data_issues"] = _issues

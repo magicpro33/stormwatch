@@ -120,7 +120,7 @@ try:
 except Exception as _ige:
     render_ignition_scanner_tab, _IG_ERR = None, _ige
 
-REQUIRED_ENGINE = "2.41"
+REQUIRED_ENGINE = "2.42"
 st.set_page_config(page_title="Money Weather", page_icon="🌩", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -381,7 +381,7 @@ def _tk_earnings(tk: str):
 
 
 @st.cache_data(ttl=900, show_spinner="Running the full analyzer chain (Alpaca → Yahoo → dump)…")
-def _analyzer(tk: str, asof: str):
+def _analyzer(tk: str, asof: str, ver: str = ce.ENGINE_VERSION):
     return ce.fetch_analyzer(tk)
 
 
@@ -1151,24 +1151,29 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
     key_prefix keeps widget keys unique when this block is drawn from more
     than one tab in the same run (Streamlit renders every tab).
     """
-    info, hist, eps_history, eps_forward = _analyzer(tk, asof)
+    info, hist, eps_history, eps_forward = _analyzer(tk, asof, ver=ce.ENGINE_VERSION)
 
     px = float(info.get("currentPrice") or info.get("regularMarketPrice") or
                info.get("previousClose") or
                (hist.Close.iloc[-1] if not hist.empty else 0) or 0)
+    live = {}
+    live_src = ""
     try:
         _tk = str(tk).strip().upper()
-        _q, _ = _live_one(_tk, _px_nonce())
-        if _tk in _q:
-            px = _q[_tk]
+        live, _srcs = _live_one(_tk, _px_nonce())
+        live = live or {}
+        live_src = str((_srcs or {}).get(_tk) or "")
+        if _tk in live:
+            px = live[_tk]
     except Exception:
         try:
-            live = ce.live_prices([str(tk).strip().upper()])
+            live = ce.live_prices([str(tk).strip().upper()]) or {}
             _tk = str(tk).strip().upper()
             if _tk in live:
                 px = live[_tk]
+                live_src = "Alpaca"
         except Exception:
-            pass
+            live = {}
     name = info.get("shortName") or info.get("longName") or tk
     sec = info.get("sector") or ""
     ind = info.get("industry") or ""
@@ -1321,7 +1326,9 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
     elif hs == "dump": parts.append(badge("nightly-dump history", "#d0b040", "#907020"))
     if info.get("_from_scan_dump"):
         parts.append(badge(f"dump filled {len(info.get('_dump_fields', []))} fields", "#d0b040", "#907020"))
-    if tk in live:
+    if live_src == "Yahoo":
+        parts.append(badge("Yahoo live price", "#7a9ab8", "#1e3a5f"))
+    elif tk in live:
         parts.append(badge("Alpaca live price", "#4dd880", "#1e6b35"))
     st.markdown("<div style='display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px'>"
                 + "".join(parts) + "</div>", unsafe_allow_html=True)
