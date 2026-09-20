@@ -3078,7 +3078,10 @@ def render_ignition_scanner_tab():
                      == str(az_ticker).strip().upper()),
                     None)
                 _ig_on = _ig_ent is not None
-                _ig_src = str((_ig_ent or {}).get("source") or "").strip()
+                _ig_src = (_ig_ce.watchlist_source_label(
+                    (_ig_ent or {}).get("source"), (_ig_ent or {}).get("note"))
+                    if hasattr(_ig_ce, "watchlist_source_label")
+                    else (str((_ig_ent or {}).get("source") or "").strip() or "Stock Lookup"))
             except Exception:
                 _ig_ce = None
             if _ig_on and _ig_src:

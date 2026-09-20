@@ -1924,11 +1924,39 @@ def upstream_drivers(ticker: str, node_closes: pd.DataFrame, top: int = 5,
 # ── watchlist persistence ────────────────────────────────────────────
 _GENERIC_WL_SOURCES = {
     "", "stock lookup", "lookup", "watchlist", "url", "manual", "restored",
+    "nan", "none", "nat", "—", "-",
 }
 
 
+def watchlist_clean_source(raw, note: str = "") -> str:
+    """Strip missing/NaN scanner tags. Infer ShakeOut from the old note."""
+    if raw is None:
+        s = ""
+    elif isinstance(raw, float) and not np.isfinite(raw):
+        s = ""
+    else:
+        try:
+            if pd.isna(raw):
+                s = ""
+            else:
+                s = str(raw).strip()
+        except Exception:
+            s = str(raw).strip()
+    if s.lower() in ("", "nan", "none", "nat", "—", "-"):
+        s = ""
+    n = str(note or "").strip().lower()
+    if not s and n == "shakeout coil":
+        return "ShakeOut"
+    return s
+
+
+def watchlist_source_label(raw, note: str = "") -> str:
+    """Scanner column text. Never blank — untagged names are Stock Lookup."""
+    return watchlist_clean_source(raw, note) or "Stock Lookup"
+
+
 def _is_generic_wl_source(s: str) -> bool:
-    return str(s or "").strip().lower() in _GENERIC_WL_SOURCES
+    return watchlist_clean_source(s).lower() in _GENERIC_WL_SOURCES
 
 
 def _watchlist_ticker(item) -> str:
@@ -1939,7 +1967,22 @@ def watchlist_load() -> list:
     try:
         with open(_data_read_path(WATCHLIST_PATH)) as f:
             items = json.load(f)
-        return items if isinstance(items, list) else []
+        if not isinstance(items, list):
+            return []
+        dirty = False
+        for w in items:
+            if not isinstance(w, dict):
+                continue
+            label = watchlist_source_label(w.get("source"), w.get("note"))
+            if w.get("source") != label:
+                w["source"] = label
+                dirty = True
+        if dirty:
+            try:
+                watchlist_save(items)
+            except Exception as e:
+                _log_exc("watchlist_load.backfill", e)
+        return items
     except Exception:
         return []
 
@@ -2021,18 +2064,21 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
     ticker = str(ticker or "").strip().upper()
     if not ticker:
         return False
-    src = str(source or "").strip()
+    src = watchlist_clean_source(source, note)
     note = str(note or "").strip()
     items = watchlist_load()
     existing = next((w for w in items if _watchlist_ticker(w) == ticker), None)
     if existing:
         changed = False
-        old_src = str(existing.get("source") or "").strip()
+        old_src = watchlist_clean_source(existing.get("source"), existing.get("note"))
         if src and _is_generic_wl_source(old_src) and not _is_generic_wl_source(src):
             existing["source"] = src
             changed = True
         elif src and not old_src:
             existing["source"] = src
+            changed = True
+        elif not old_src:
+            existing["source"] = watchlist_source_label(src, note)
             changed = True
         if note and not str(existing.get("note") or "").strip():
             existing["note"] = note
@@ -2049,7 +2095,8 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
         px = float("nan")
     items.append(dict(ticker=ticker,
                       added=watchlist_normalize_added(added) or watchlist_stamp_date(),
-                      price_at_add=px, note=note, source=src))
+                      price_at_add=px, note=note,
+                      source=watchlist_source_label(src, note)))
     watchlist_save(items)
     return True
 
@@ -4618,7 +4665,7 @@ def macro_sim_bundle(watchlist=None, live_regime: str | None = None,
             t = str(w.get("ticker") or "").strip().upper()
             if t:
                 wl_tickers.append(t)
-                wl_meta[t] = dict(source=str(w.get("source") or ""),
+                wl_meta[t] = dict(source=watchlist_source_label(w.get("source"), w.get("note")),
                                   added=str(w.get("added") or ""),
                                   price_at_add=_pyf(w.get("price_at_add")))
         else:

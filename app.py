@@ -1950,9 +1950,11 @@ def _row_price(row) -> float:
 
 def _watchlist_tag(tk: str, price, source: str) -> bool:
     """Save `tk` to the watchlist tagged with the scanner that found it."""
-    if not tk or not source:
+    if not tk:
         return False
     tk = str(tk).strip().upper()
+    source = (ce.watchlist_source_label(source)
+              if hasattr(ce, "watchlist_source_label") else (str(source or "").strip() or "Stock Lookup"))
     st.session_state["wl_source"] = source
     try:
         added = ce.watchlist_add(tk, float(price) if price is not None else float("nan"),
@@ -2495,11 +2497,10 @@ if _main == "Stock Lookup":
             except Exception as _we:
                 log_exc("lookup_watchlist_add", _we)
             _ent = ce.watchlist_entry(tk) if hasattr(ce, "watchlist_entry") else None
-            _tag = str((_ent or {}).get("source") or _src or "").strip()
-            if _tag:
-                st.caption(f"⭐ {tk} is on your watchlist · {_tag}")
-            else:
-                st.caption(f"⭐ {tk} is on your watchlist.")
+            _tag = (ce.watchlist_source_label((_ent or {}).get("source"), (_ent or {}).get("note"))
+                    if hasattr(ce, "watchlist_source_label")
+                    else (str((_ent or {}).get("source") or _src or "").strip() or "Stock Lookup"))
+            st.caption(f"⭐ {tk} is on your watchlist · {_tag}")
 
         # ── IGNITION Stock Analyzer (ported) — full fundamental deep dive ──
         st.divider()
@@ -2547,7 +2548,8 @@ if _main == "Stock Lookup":
             if _t and _t not in _have:
                 try:
                     _d = ce.dump_ohlcv(_t)
-                    ce.watchlist_add(_t, float(_d.Close.iloc[-1]) if not _d.empty else float("nan"))
+                    ce.watchlist_add(_t, float(_d.Close.iloc[-1]) if not _d.empty else float("nan"),
+                                     source="Stock Lookup")
                     _restored.append(_t)
                 except Exception:
                     continue
@@ -2615,15 +2617,12 @@ if _main == "Stock Lookup":
             wdf["source"] = ""
         if "note" not in wdf.columns:
             wdf["note"] = ""
-        def _wl_scanner(r):
-            s = str(r.get("source") or "").strip()
-            if s:
-                return s
-            n = str(r.get("note") or "").strip()
-            if n == "shakeout coil":
-                return "ShakeOut"
-            return n or "—"
-        wdf["scanner"] = [_wl_scanner(r) for r in wdf.to_dict("records")]
+        _src_lbl = (ce.watchlist_source_label
+                    if hasattr(ce, "watchlist_source_label") else (lambda s, n="": str(s or n or "Stock Lookup")))
+        wdf["scanner"] = [
+            str(_src_lbl(r.get("source"), r.get("note")))
+            for r in wdf.to_dict("records")
+        ]
         _norm_added = (ce.watchlist_normalize_added
                        if hasattr(ce, "watchlist_normalize_added") else (lambda v: str(v or "")))
         wdf["added"] = wdf["added"].map(_norm_added) if "added" in wdf.columns else ""
@@ -2631,7 +2630,7 @@ if _main == "Stock Lookup":
         show.columns = ["Ticker", "Sector", "Scanner", "Saved", "Price then", "Price now", "Since saved"]
         _wsel = st.dataframe(
             show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
-                               "Since saved": "{:+.1%}"}, na_rep="—")
+                               "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—")
             .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"]),
             width="stretch", hide_index=True,
             on_select="rerun", selection_mode="single-row", key="wl_table",
@@ -2649,7 +2648,10 @@ if _main == "Stock Lookup":
                 st.session_state["_wl_handled"] = _wtk
                 st.session_state["lk_tk"] = _wtk
                 _ent = ce.watchlist_entry(_wtk) if hasattr(ce, "watchlist_entry") else None
-                st.session_state["wl_source"] = str((_ent or {}).get("source") or "")
+                _src_lbl = (ce.watchlist_source_label
+                            if hasattr(ce, "watchlist_source_label") else (lambda s, n="": str(s or n or "Stock Lookup")))
+                st.session_state["wl_source"] = _src_lbl(
+                    (_ent or {}).get("source"), (_ent or {}).get("note"))
                 st.session_state["_wl_px_nonce"] = _px_nonce() + 1
                 st.rerun()
         st.caption("👆 Tap a row to reload its full analysis and a fresh live quote.")
@@ -2714,9 +2716,10 @@ if _main == "Stock Lookup":
                     _t = str(_it.get("ticker", "")).strip().upper()
                     if _t and _t not in _have:
                         _note = str(_it.get("note", "") or "")
-                        _src = str(_it.get("source", "") or "")
-                        if not _src and _note == "shakeout coil":
-                            _src = "ShakeOut"
+                        _src = (ce.watchlist_source_label(_it.get("source"), _note)
+                                if hasattr(ce, "watchlist_source_label")
+                                else (str(_it.get("source") or "") or (
+                                    "ShakeOut" if _note == "shakeout coil" else "Stock Lookup")))
                         ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
                                          note=_note, source=_src,
                                          added=_it.get("added") or "")
