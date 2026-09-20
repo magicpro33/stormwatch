@@ -2633,7 +2633,7 @@ if _main == "Stock Lookup":
                                "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—")
             .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"]),
             width="stretch", hide_index=True,
-            on_select="rerun", selection_mode="single-row", key="wl_table",
+            on_select="rerun", selection_mode="multi-row", key="wl_table",
             column_config={
                 "Scanner": st.column_config.Column(
                     help="Which Scan Hub scanner (or Stock Lookup) added this ticker."),
@@ -2642,8 +2642,15 @@ if _main == "Stock Lookup":
                 "Since saved": st.column_config.Column(
                 help="Your scorecard: return since the day you saved it. Live Alpaca/Yahoo quote when available.")})
         _wr = (_wsel.selection.rows if _wsel and getattr(_wsel, "selection", None) else [])
-        if _wr:
-            _wtk = str(show.iloc[_wr[0]].Ticker).strip().upper()
+        _sel_tks = []
+        for _i in _wr or []:
+            try:
+                _sel_tks.append(str(show.iloc[int(_i)].Ticker).strip().upper())
+            except Exception:
+                continue
+        _sel_tks = [t for t in _sel_tks if t]
+        if len(_sel_tks) == 1:
+            _wtk = _sel_tks[0]
             if st.session_state.get("_wl_handled") != _wtk:
                 st.session_state["_wl_handled"] = _wtk
                 st.session_state["lk_tk"] = _wtk
@@ -2654,46 +2661,21 @@ if _main == "Stock Lookup":
                     (_ent or {}).get("source"), (_ent or {}).get("note"))
                 st.session_state["_wl_px_nonce"] = _px_nonce() + 1
                 st.rerun()
-        st.caption("👆 Tap a row to reload its full analysis and a fresh live quote.")
+        _cap, _rm = st.columns([4, 1], vertical_alignment="center")
+        _cap.caption("👆 Tap a row to open it. Select one or more rows, then remove them here.")
+        if _rm.button(f"🗑 Remove ({len(_sel_tks)})", width="stretch",
+                      disabled=not _sel_tks, key="wl_remove_selected"):
+            for _t in _sel_tks:
+                ce.watchlist_remove(_t)
+            st.session_state.pop("_wl_handled", None)
+            st.success("Removed " + ", ".join(_sel_tks))
+            st.rerun()
 
-    # ── Manage watchlist — always visible, even with an empty list, so a
-    #    saved backup can be loaded before anything's on the watchlist ───
+    # ── Backup / restore — always visible, even with an empty list ──
     with st.expander("Manage watchlist", expanded=False):
-        if wdf is not None:
-            st.caption("✅ Check the box next to any ticker(s), then use a button below.")
-            _mgmt = wdf[["ticker", "sector", "scanner", "price_now"]].copy()
-            _mgmt.columns = ["Ticker", "Sector", "Scanner", "Price now"]
-            _mgmt.insert(0, "Select", False)
-            _edited = st.data_editor(
-                _mgmt, width="stretch", hide_index=True, key="wl_mgmt_editor",
-                disabled=["Ticker", "Sector", "Scanner", "Price now"],
-                column_config={
-                    "Select": st.column_config.CheckboxColumn(
-                        help="Check to delete or load into Stock Lookup"),
-                    "Price now": st.column_config.NumberColumn(format="$%.2f"),
-                })
-            _checked = list(_edited.loc[_edited["Select"], "Ticker"])
-            rc1, rc2 = st.columns(2)
-            if rc1.button(f"🗑 Delete selected ({len(_checked)})", width="stretch",
-                          disabled=not _checked, key="wl_delete_selected"):
-                for _t in _checked:
-                    ce.watchlist_remove(_t)
-                st.success(f"Removed {len(_checked)} ticker(s): " + ", ".join(_checked))
-                st.rerun()
-            if rc2.button("📈 Load selected to Lookup", width="stretch",
-                          disabled=len(_checked) != 1, key="wl_load_selected"):
-                st.session_state["lk_tk"] = _checked[0]
-                st.rerun()
-            if len(_checked) > 1:
-                st.caption("Load to Lookup takes one ticker at a time — "
-                           "check just one to load it.")
-        else:
-            st.caption("Nothing on the watchlist yet to select or delete — "
-                       "but you can still restore a saved list below.")
-        st.caption("🔗 Your list is saved on the server AND encoded in this page's "
-                   "URL — bookmark the page and it comes back even after a "
-                   "redeploy or on another device. Use the backup below for a "
-                   "permanent copy.")
+        st.caption("Select rows on the list above to open or remove them. "
+                   "This section is only the backup file — the list is also "
+                   "saved on the server and in this page's URL.")
         bc1, bc2 = st.columns(2)
         try:
             import json as _json
