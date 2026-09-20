@@ -2628,12 +2628,14 @@ if _main == "Stock Lookup":
         wdf["added"] = wdf["added"].map(_norm_added) if "added" in wdf.columns else ""
         show = wdf[["ticker", "sector", "scanner", "added", "price_at_add", "price_now", "since_add"]]
         show.columns = ["Ticker", "Sector", "Scanner", "Saved", "Price then", "Price now", "Since saved"]
+        _wl_sel_epoch = int(st.session_state.get("_wl_sel_epoch", 0) or 0)
         _wsel = st.dataframe(
             show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
                                "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—")
             .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"]),
             width="stretch", hide_index=True,
-            on_select="rerun", selection_mode="multi-row", key="wl_table",
+            on_select="rerun", selection_mode="multi-row",
+            key=f"wl_table_{_wl_sel_epoch}",
             column_config={
                 "Scanner": st.column_config.Column(
                     help="Which Scan Hub scanner (or Stock Lookup) added this ticker."),
@@ -2668,6 +2670,9 @@ if _main == "Stock Lookup":
             for _t in _sel_tks:
                 ce.watchlist_remove(_t)
             st.session_state.pop("_wl_handled", None)
+            st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
+            for _k in (f"wl_table_{_wl_sel_epoch}", "wl_table", "wl_mgmt_editor"):
+                st.session_state.pop(_k, None)
             st.success("Removed " + ", ".join(_sel_tks))
             st.rerun()
 
