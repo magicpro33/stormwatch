@@ -1966,13 +1966,56 @@ def watchlist_entry(ticker: str):
     return next((w for w in watchlist_load() if _watchlist_ticker(w) == t), None)
 
 
-def watchlist_add(ticker: str, price: float, note: str = "", source: str = "") -> bool:
+def _ny_calendar_date():
+    """America/New_York calendar date. Avoids UTC-tomorrow on Cloud hosts."""
+    try:
+        now = pd.Timestamp.now(tz="America/New_York")
+        return date(int(now.year), int(now.month), int(now.day))
+    except Exception:
+        return date.today()
+
+
+def watchlist_stamp_date() -> str:
+    """YYYY-MM-DD stamped on a new watchlist row.
+
+    Weekdays use the New York calendar date (not the server's local/UTC
+    date). Weekends roll back to the last completed session so Saved
+    matches the close the snapshot price actually came from.
+    """
+    try:
+        d = _ny_calendar_date()
+        if d.weekday() >= 5:
+            return str(_last_completed_session().date())
+        return str(d)
+    except Exception:
+        return str(date.today())
+
+
+def watchlist_normalize_added(raw) -> str:
+    """Coerce stored added values to YYYY-MM-DD. Empty if unreadable."""
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if not s or s.lower() in ("nan", "nat", "none", "—"):
+        return ""
+    try:
+        ts = pd.to_datetime(s, errors="coerce")
+        if pd.notna(ts):
+            return str(pd.Timestamp(ts).date())
+    except Exception:
+        pass
+    return s[:10] if len(s) >= 10 and s[0].isdigit() else ""
+
+
+def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
+                  added: str = "") -> bool:
     """Add a ticker, or update its scanner tag if it's already saved.
 
     `source` is the Scan Hub scanner (or Stock Lookup) that found it.
     A later Stock Lookup / watchlist open will not wipe an existing scanner
     tag. A real scanner WILL fill a blank tag and will upgrade a generic
     "Stock Lookup" tag — that's the "which scanner found it" column.
+    `added` keeps a backup/restore date; new saves use the NY session stamp.
     Returns True if this ticker was newly added.
     """
     ticker = str(ticker or "").strip().upper()
@@ -1994,6 +2037,9 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "") -
         if note and not str(existing.get("note") or "").strip():
             existing["note"] = note
             changed = True
+        if not watchlist_normalize_added(existing.get("added")):
+            existing["added"] = watchlist_stamp_date()
+            changed = True
         if changed:
             watchlist_save(items)
         return False
@@ -2001,7 +2047,8 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "") -
         px = round(float(price), 2)
     except Exception:
         px = float("nan")
-    items.append(dict(ticker=ticker, added=str(date.today()),
+    items.append(dict(ticker=ticker,
+                      added=watchlist_normalize_added(added) or watchlist_stamp_date(),
                       price_at_add=px, note=note, source=src))
     watchlist_save(items)
     return True

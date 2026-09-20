@@ -2624,6 +2624,9 @@ if _main == "Stock Lookup":
                 return "ShakeOut"
             return n or "—"
         wdf["scanner"] = [_wl_scanner(r) for r in wdf.to_dict("records")]
+        _norm_added = (ce.watchlist_normalize_added
+                       if hasattr(ce, "watchlist_normalize_added") else (lambda v: str(v or "")))
+        wdf["added"] = wdf["added"].map(_norm_added) if "added" in wdf.columns else ""
         show = wdf[["ticker", "sector", "scanner", "added", "price_at_add", "price_now", "since_add"]]
         show.columns = ["Ticker", "Sector", "Scanner", "Saved", "Price then", "Price now", "Since saved"]
         _wsel = st.dataframe(
@@ -2635,6 +2638,8 @@ if _main == "Stock Lookup":
             column_config={
                 "Scanner": st.column_config.Column(
                     help="Which Scan Hub scanner (or Stock Lookup) added this ticker."),
+                "Saved": st.column_config.Column(
+                    help="New York session date you saved it. Weekends use the last completed session."),
                 "Since saved": st.column_config.Column(
                 help="Your scorecard: return since the day you saved it. Live Alpaca/Yahoo quote when available.")})
         _wr = (_wsel.selection.rows if _wsel and getattr(_wsel, "selection", None) else [])
@@ -2713,7 +2718,8 @@ if _main == "Stock Lookup":
                         if not _src and _note == "shakeout coil":
                             _src = "ShakeOut"
                         ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
-                                         note=_note, source=_src)
+                                         note=_note, source=_src,
+                                         added=_it.get("added") or "")
                         _n += 1
                 st.session_state["_wl_uploaded"] = True
                 st.success(f"Restored {_n} ticker(s) from backup.")
