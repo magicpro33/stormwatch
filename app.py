@@ -154,6 +154,73 @@ st.markdown("""<style>
 .stTabs [data-baseweb="tab-border"] {
     display: none !important;
 }
+
+/* Menus / inputs sit above the navy page so they read as controls */
+div[data-testid="stSelectbox"] > div > div,
+div[data-testid="stMultiSelect"] > div > div,
+div[data-baseweb="select"] > div,
+div[data-testid="stTextInput"] input,
+div[data-testid="stNumberInput"] input,
+div[data-testid="stDateInput"] input,
+div[data-testid="stTextArea"] textarea {
+    background-color: #1a4060 !important;
+    border: 1px solid #4a7aa0 !important;
+    color: #F6F4E9 !important;
+}
+div[data-testid="stSelectbox"] svg,
+div[data-testid="stMultiSelect"] svg {
+    fill: #F6F4E9 !important;
+}
+
+/* Secondary buttons: cream on steel, orange on hover */
+div[data-testid="stButton"] button,
+div[data-testid="stDownloadButton"] button {
+    background-color: #1a4060 !important;
+    border: 1.5px solid #5a8ab0 !important;
+    color: #F6F4E9 !important;
+    font-weight: 650 !important;
+}
+div[data-testid="stButton"] button:hover,
+div[data-testid="stDownloadButton"] button:hover {
+    background-color: #214c70 !important;
+    border-color: #E87722 !important;
+    color: #E87722 !important;
+}
+/* Primary (Run / Look up): orange fill, dark text */
+div[data-testid="stButton"] button[kind="primary"],
+div[data-testid="stButton"] button[data-testid="stBaseButton-primary"] {
+    background-color: #E87722 !important;
+    border: 1.5px solid #E87722 !important;
+    color: #081325 !important;
+    font-weight: 800 !important;
+}
+div[data-testid="stButton"] button[kind="primary"]:hover,
+div[data-testid="stButton"] button[data-testid="stBaseButton-primary"]:hover {
+    background-color: #f09245 !important;
+    border-color: #f09245 !important;
+    color: #081325 !important;
+}
+
+/* Section bar / radios / segmented: selected chip pops */
+div[data-testid="stSegmentedControl"] button[aria-checked="true"],
+div[data-testid="stRadio"] label:has(input:checked) {
+    background-color: #E87722 !important;
+    color: #081325 !important;
+    border-color: #E87722 !important;
+}
+div[data-testid="stSegmentedControl"] button {
+    border: 1px solid #4a7aa0 !important;
+    color: #F6F4E9 !important;
+}
+div[data-testid="stExpander"] {
+    background-color: #122a42 !important;
+    border: 1px solid #3d6a94 !important;
+}
+div[data-testid="stExpander"] summary,
+div[data-testid="stExpander"] details summary {
+    color: #F6F4E9 !important;
+    font-weight: 650 !important;
+}
 </style>""", unsafe_allow_html=True)
 
 
@@ -2788,8 +2855,6 @@ if _main == "Scan Hub" and _hub == "TOP20":
         _gauge = GAUGE
     except Exception:
         _gauge = None
-    # ── unified scan control: method + scenario + run, all one menu ──
-    # ══ Option A: two independent dials — ranking engine × macro lens ══
     _METHODS = {
         "🌊 Cascade Score": "cascade",
         "🔮 Best Odds": "forecast",
@@ -2802,9 +2867,11 @@ if _main == "Scan Hub" and _hub == "TOP20":
         "Balance sheet only",
         "Scenario fit only, no flow",
     ]
-    _d1, _d2 = st.columns(2)
+
+    st.markdown("##### 1 · How to rank")
+    _d1, _d2 = st.columns(2, gap="medium")
     with _d1:
-        st.markdown("**① Rank stocks by**")
+        st.markdown("**Engine**")
         _method_label = st.radio(
             "Rank stocks by", list(_METHODS), key="top20_method",
             captions=_METHOD_CAPTIONS, label_visibility="collapsed",
@@ -2813,9 +2880,6 @@ if _main == "Scan Hub" and _hub == "TOP20":
                  "quality company fits the scenario you choose.")
     _method = _METHODS[_method_label]
 
-    # the advisor's "use this" click lands here on the NEXT run — Streamlit
-    # forbids writing a widget's key after that widget has been created, so
-    # the choice is stashed and applied before the selectbox is instantiated
     _pending = st.session_state.pop("_scenario_pending", None)
     if _pending:
         st.session_state["top20_lens"] = _pending
@@ -2825,8 +2889,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
     _scn_opts = {_LENS_OFF: "off", _LENS_AUTO: None}
     _scn_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
     with _d2:
-        st.markdown("**② Macro lens**")
-        # Felix is quality-only by design; macro-only REQUIRES a scenario
+        st.markdown("**Macro lens**")
         _lens_choices = list(_scn_opts)
         if _method == "macro":
             _lens_choices = [o for o in _lens_choices if o != _LENS_OFF]
@@ -2836,17 +2899,15 @@ if _main == "Scan Hub" and _hub == "TOP20":
             help=HELP["macro_lens"])
         _lens = _scn_opts.get(_lens_label)
         if _method == "felix":
-            st.caption("Felix is quality-only — the lens doesn't apply.")
+            st.caption("Felix is quality-only — lens, sectors and session do not apply.")
         elif _lens == "off":
-            st.caption("No sector tilt. Pure ranking. Open 🔭 Lenses for the playbooks.")
+            st.caption("No sector tilt. Pure ranking. Playbooks are in 🔭 Lenses.")
         elif _lens is None:
-            st.caption("Uses whichever regime is detected now. 🔭 Lenses has the full playbooks.")
+            st.caption("Uses the regime detected now. Playbooks are in 🔭 Lenses.")
         else:
             _cd0 = ce.REGIME_CARDS.get(_lens, {})
-            _th = _cd0.get("thesis") or _cd0.get("leads", "")
-            st.caption(_th)
+            st.caption(_cd0.get("thesis") or _cd0.get("leads", ""))
 
-    # macro-only needs a concrete scenario — fall back to the detected one
     _apply_macro = not (_method == "felix" or _lens == "off")
     _override = _lens if (_apply_macro and _lens not in (None, "off")) else None
     if _method == "macro" and _override is None:
@@ -2855,19 +2916,17 @@ if _main == "Scan Hub" and _hub == "TOP20":
         except Exception:
             _override = "base"
 
-    # if the method changed since the last scan, clear the stale result
     if st.session_state.get("top20_go") and \
             st.session_state.get("top20_mode") not in (None, _method):
         st.session_state["top20_go"] = False
 
-    _flow_na = _method == "felix"      # Felix is quality-only, by design
+    _flow_na = _method == "felix"
     if _flow_na:
-        st.caption("🎩 Felix ranks on the balance sheet alone — the macro lens, "
-                   "sector filter and session window don't apply.")
         _t_lb, _t_off, _t_lbl = 1, 0, "last session"
         _all_secs, _picked_secs, _sec_filter = [], [], None
         _use_flow = False
     else:
+        st.markdown("##### 2 · Session and sectors")
         _t_lb, _t_off, _t_lbl = flow_window_picker("t20")
         _t20_pending = st.session_state.pop("_top20_sectors_pending", None)
         if _t20_pending:
@@ -2876,14 +2935,16 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _all_secs = _apex_sector_list(asof)
         except Exception:
             _all_secs = []
-        _hs1, _hs2 = st.columns([1, 3])
+        _hs_now = []
+        try:
+            _hs_now = _hot_sectors(asof, 5, _t_lb, _t_off, dump_asof=_dump_asof_key())
+        except Exception:
+            _hs_now = []
+        _hs1, _hs2 = st.columns([1, 2], gap="medium")
         if _hs1.button("🔥 Use today's hot sectors", key="top20_hot_btn",
                        width="stretch",
                        help="Replace the sector selection with the sectors that "
-                            "received the most money in the last session. "
-                            "Walk-forward validated: concentrating on hot sectors "
-                            "plus the flow tilt lifted top-20 excess from -0.02% "
-                            "to +3.41% per 21 sessions."):
+                            "received the most money in the last session."):
             try:
                 _hot = _hot_sectors(asof, 5, _t_lb, _t_off, dump_asof=_dump_asof_key())
                 if _hot:
@@ -2891,14 +2952,9 @@ if _main == "Scan Hub" and _hub == "TOP20":
                     st.rerun()
             except Exception as _he:
                 st.caption(f"Hot sectors unavailable: {_he}")
-        _hs_now = []
-        try:
-            _hs_now = _hot_sectors(asof, 5, _t_lb, _t_off, dump_asof=_dump_asof_key())
-            if _hs_now:
-                _hs2.caption(f"🔥 Hottest ({_t_lbl}): " + " · ".join(_hs_now))
-        except Exception:
-            pass
-        with st.expander("🔥 Where the money went in the last session"):
+        if _hs_now:
+            _hs2.caption(f"Hottest ({_t_lbl}): " + " · ".join(_hs_now))
+        with st.expander("Where the money went", expanded=False):
             try:
                 _fl = _sector_flow(asof, _t_lb, _t_off, dump_asof=_dump_asof_key())
             except Exception as _fe:
@@ -2908,9 +2964,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             else:
                 st.caption(f"{_t_lbl} ({_fl.attrs.get('window_start','—')} → "
                            f"{_fl.attrs.get('window_end','—')}) · market "
-                           f"{_fl.attrs.get('market_return',0):+.2%} · a sector is "
-                           "'hot' when money-weighted return, breadth and turnover "
-                           "all lean the same way — not just because one big name ran.")
+                           f"{_fl.attrs.get('market_return',0):+.2%}")
                 _fs = _fl.copy()
                 _hot_mark = set(_hs_now) if _hs_now else set(
                     str(s) for s in _fs.Sector.head(5))
@@ -2923,46 +2977,42 @@ if _main == "Scan Hub" and _hub == "TOP20":
                          subset=["Ret", "RS"]),
                     width="stretch", hide_index=True,
                     column_config={
-                        "Ret": st.column_config.Column(help="Dollar-weighted sector return — weighted by where the money actually traded, not an equal average."),
-                        "RS": st.column_config.Column(help="Sector return minus the market's. Positive = outperforming."),
-                        "Breadth": st.column_config.Column(help="Share of names in the sector that rose. Low breadth with a positive return = one stock carrying it."),
-                        "VolSurge": st.column_config.Column(help="Median dollar-volume vs its own 63-day average. Above 1 = unusual turnover."),
-                        "Names": st.column_config.Column(help="Liquid names in the sector. Sectors under 15 are excluded as too thin to read."),
+                        "Ret": st.column_config.Column(help="Dollar-weighted sector return."),
+                        "RS": st.column_config.Column(help="Sector return minus the market's."),
+                        "Breadth": st.column_config.Column(help="Share of names in the sector that rose."),
+                        "VolSurge": st.column_config.Column(help="Median dollar-volume vs its 63-day average."),
+                        "Names": st.column_config.Column(help="Liquid names in the sector."),
                     })
         _ms_kw = ({} if "top20_sectors" in st.session_state
                   else {"default": _all_secs})
         _picked_secs = st.multiselect(
             "Sectors", _all_secs, key="top20_sectors", **_ms_kw,
-            help="Defaults to every sector. Narrow it to focus the scan — the "
-                 "top-N cut is applied WITHIN your selection, so you always get a "
-                 "full list from the sectors you picked, not leftovers from a "
-                 "whole-market ranking. Use today's hot sectors to start from "
-                 "the names that received the most money, then add or remove.")
+            help="Defaults to every sector. Narrow it to focus the scan.")
         _sec_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
                        else list(_picked_secs))
+        _tf1, _tf2 = st.columns(2, gap="medium")
+        _use_flow = _tf1.toggle("Sector-flow tilt in the score", value=True,
+                               key="top20_flow",
+                               help="Adds the sector's money-flow percentile to the "
+                                    "cascade score. Turn off for a pure ranking.")
         if _sec_filter:
-            st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_all_secs)} sectors.")
-        _use_flow = st.toggle("Sector-flow tilt in the score", value=True,
-                             key="top20_flow",
-                             help="Adds the sector's money-flow percentile to the "
-                                  "cascade score (validated at +8 points). Turn off "
-                                  "for a pure technicals/quality/tailwind ranking.")
+            _tf2.caption(f"Scanning {len(_sec_filter)} of {len(_all_secs)} sectors.")
     _secs_key = tuple(sorted(_sec_filter)) if _sec_filter else ()
 
-    _n1, _n2 = st.columns([1, 2])
+    st.markdown("##### 3 · Size and run")
+    _n1, _n2 = st.columns([1, 2], gap="medium")
     _top_n = _n1.selectbox("How many stocks", list(range(20, 55, 5)),
                            index=0, key="top20_count",
                            help="Length of the results list.")
     if _method == "forecast":
         _scan_all = _n2.toggle(
-            "🌐 Scan the entire universe (~5,700 stocks)", value=True,
+            "Scan the entire universe (~5,700 stocks)", value=True,
             key="forecast_all_toggle",
-            help="ON: forecast every tradeable stock and rank the whole "
-                 "universe by odds of gain. OFF: a 120-name cascade shortlist.")
+            help="ON: forecast every tradeable stock. OFF: a 120-name cascade shortlist.")
     else:
         _scan_all = True
+        _n2.caption("Results list length. The scan covers the full nightly dump.")
 
-    # ── the recipe line: exactly what is about to run ────────────────
     _eng_txt = {"cascade": "cascade score", "forecast": "odds of gain",
                 "felix": "the Felix quality checklist",
                 "macro": "scenario fit alone"}[_method]
@@ -2975,14 +3025,14 @@ if _main == "Scan Hub" and _hub == "TOP20":
     else:
         _lens_txt = ce.REGIME_NAMES.get(_lens, _lens)
     st.markdown(
-        f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
-        padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
+        f"""<div style="background:#16344f;border:1px solid #3d6a94;border-left:4px solid {ACCENT};
+        padding:10px 14px;margin:4px 0 12px;font-size:13.5px;border-radius:8px;">
         Ranking the top <b>{_top_n}</b> by <b style="color:{ACCENT};">{_eng_txt}</b>,
         through <b style="color:{ACCENT};">{_lens_txt}</b>{
         f", limited to {len(_sec_filter)} sectors ({_t_lbl})" if (_sec_filter and _method != "felix") else ""}.</div>""",
         unsafe_allow_html=True)
 
-    _b1, _b2, _b3 = st.columns([2, 1, 1])
+    _b1, _b2, _b3 = st.columns([2, 1, 1], gap="medium")
     if _b1.button("🚀 Run scan", type="primary", key="top20_run", width="stretch"):
         st.session_state["top20_go"] = True
         st.session_state["top20_mode"] = _method
@@ -2991,12 +3041,12 @@ if _main == "Scan Hub" and _hub == "TOP20":
     elif (st.session_state.get("top20_go")
           and st.session_state.get("top20_run_secs") not in (None, _secs_key)):
         st.session_state["top20_go"] = False
-    if _b2.button("📡 LIVE UPDATE", key="top20_live", width="stretch",
+    if _b2.button("📡 Live prices", key="top20_live", width="stretch",
                   help="Pull live prices for the stocks currently listed — "
-                       "Alpaca first, then Yahoo for anything Alpaca doesn't "
-                       "cover. Works with any method and lens."):
+                       "Alpaca first, then Yahoo."):
         st.session_state["t20_live"] = True
-    if _b3.button("🧭 Recommend", key="macro_advise", width="stretch",
+    if _b3.button("🧭 Recommend lens", key="macro_advise", width="stretch",
+                  disabled=(_method == "felix"),
                   help="Weigh the market, the tape and the headlines, then "
                        "recommend which scenario fits."):
         st.session_state["macro_advice_on"] = True
