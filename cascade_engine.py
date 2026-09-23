@@ -1014,6 +1014,10 @@ FUND_FIELDS = ["ShortPctFloat", "DaysToCover", "P/E", "RevenueGrowth",
                "EarningsGrowth", "MarketCap", "Piotroski", "GoldenCross",
                "ROIC", "DividendYieldPct", "DividendRate", "ShortSqueeze",
                "CleanSetupScore", "MFI", "OE_Yield", "PCV", "ROIC_Trend"]
+# Completeness meter: only slots every name should have. P/E, dividend,
+# short interest, ROIC, growth are often legitimately blank.
+_COVERAGE_FUNDS = ["GoldenCross", "CleanSetupScore", "MFI", "PCV"]
+_COVERAGE_MIN_LAST = 0.60
 
 BUYBACK_TITANS = ["AAPL", "GOOGL", "MSFT", "META", "NVDA", "JPM", "XOM"]
 
@@ -1084,8 +1088,11 @@ def dump_coverage() -> dict:
 
     Reads the in-process cache or the on-disk npz only — never hits GitHub,
     so the header can show this on every page without a 20MB download.
-    Completeness is filled / expected slots per ticker: last-session print,
-    last-bar OHLCV, dollar volume, sector, and every FUND_FIELDS value.
+    Completeness is filled / expected *core* slots: a real print on the
+    dump's as-of session (or the last 3 sessions if the newest date is a
+    thin Yahoo partial), last-bar OHLCV, dollar volume, and the technicals
+    computed from history. Optional fundamentals (P/E, dividend, short,
+    ROIC) are not required — half the universe has no trailing P/E.
     """
     mt = 0.0
     try:
@@ -1093,13 +1100,15 @@ def dump_coverage() -> dict:
     except Exception:
         mt = 0.0
     hit = _PANEL_CACHE.get("coverage")
-    if hit and hit[0] == mt and isinstance(hit[1], dict):
+    if (hit and hit[0] == mt and isinstance(hit[1], dict)
+            and hit[1].get("_v") == 2):
         return hit[1]
     out = dict(n=0, pct=None, asof=None, loaded=False)
     try:
         out = _dump_coverage_compute()
     except Exception as e:
         _log_exc("dump_coverage", e)
+    out["_v"] = 2
     _PANEL_CACHE["coverage"] = (mt, out)
     return out
 
@@ -1109,6 +1118,7 @@ def _dump_coverage_compute() -> dict:
     panel = tickers = sectors = mdv = dts = None
     funds = None
     last_ok = None
+    recent_ok = None
     hit = _PANEL_CACHE.get("panel")
     if hit:
         panel, tickers, sectors, mdv, dts = hit[1]
@@ -1119,6 +1129,9 @@ def _dump_coverage_compute() -> dict:
         lh = _PANEL_CACHE.get("last_ok")
         if lh and lh[0] == mt:
             last_ok = lh[1]
+        rh = _PANEL_CACHE.get("recent_ok")
+        if rh and rh[0] == mt:
+            recent_ok = rh[1]
     if tickers is None:
         path = _data_read_path(LOCAL_DUMP)
         if not path or not os.path.isfile(path):
@@ -1139,13 +1152,27 @@ def _dump_coverage_compute() -> dict:
                 funds[f] = z[k]
         if "last_ok" in z.files:
             last_ok = np.asarray(z["last_ok"], dtype=bool)
+        if "recent_ok" in z.files:
+            recent_ok = np.asarray(z["recent_ok"], dtype=bool)
     n = int(len(tickers))
     if n <= 0 or panel is None:
         return empty
+    # A trailing date with only a few hundred prints (Yahoo partial) is
+    # not the dump's as-of session — using it as last_ok made the header
+    # read ~69% while almost every name had the prior close.
+    idx = -1
+    n_last = 0
+    if last_ok is not None and len(last_ok) == n:
+        n_last = int(np.count_nonzero(last_ok))
+    else:
+        n_last = int(np.isfinite(panel["c"][-1]).sum())
+    thin_last = n_last < max(80, int(_COVERAGE_MIN_LAST * n))
+    if thin_last and panel["c"].shape[0] >= 2:
+        idx = -2
     asof = None
     try:
         if dts is not None and len(dts):
-            asof = str(pd.Timestamp(dts[-1]).date())
+            asof = str(pd.Timestamp(dts[idx]).date())
     except Exception:
         asof = None
     ok = 0.0
@@ -1164,23 +1191,22 @@ def _dump_coverage_compute() -> dict:
         else:
             ok += float(np.isfinite(a.astype(np.float64, copy=False)).sum())
 
-    if last_ok is not None and len(last_ok) == n:
+    if thin_last and recent_ok is not None and len(recent_ok) == n:
+        _add(recent_ok, n)
+    elif (not thin_last) and last_ok is not None and len(last_ok) == n:
         _add(last_ok, n)
     else:
-        _add(panel["c"][-1], n)
+        _add(panel["c"][idx], n)
     for f in ("o", "h", "l", "c", "v"):
-        _add(panel[f][-1], n)
+        _add(panel[f][idx], n)
     _add(mdv, n)
-    sec = np.asarray(sectors, dtype=str)
-    sec_ok = np.array([
-        1.0 if (s and s not in ("nan", "None", "Unknown", "")) else 0.0
-        for s in sec
-    ], dtype=np.float64)
-    _add(sec_ok, n)
-    for f in FUND_FIELDS:
-        _add((funds or {}).get(f), n)
+    if funds:
+        for f in _COVERAGE_FUNDS:
+            _add(funds.get(f), n)
     pct = (100.0 * ok / slots) if slots else None
-    return dict(n=n, pct=pct, asof=asof, loaded=True)
+    if pct is not None:
+        pct = min(100.0, pct)
+    return dict(n=n, pct=pct, asof=asof, loaded=True, thin_last=thin_last)
 
 
 def load_dump_panel():
@@ -1319,7 +1345,10 @@ def load_dump_panel():
     # a genuine session.
     while T > 2:
         n_real = int(np.isfinite(panel["c"][-1]).sum())
-        if n_real >= 80:
+        # 80 closes used to keep a Yahoo-partial last day (~10% of names).
+        # Stormwatch then scored last_ok against that thin date and the
+        # header read ~69% complete. Require a real majority session.
+        if n_real >= max(80, int(_COVERAGE_MIN_LAST * N)):
             break
         for f in panel:
             panel[f] = panel[f][:-1]
