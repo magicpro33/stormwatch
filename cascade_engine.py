@@ -1101,14 +1101,14 @@ def dump_coverage() -> dict:
         mt = 0.0
     hit = _PANEL_CACHE.get("coverage")
     if (hit and hit[0] == mt and isinstance(hit[1], dict)
-            and hit[1].get("_v") == 2):
+            and hit[1].get("_v") == 3):
         return hit[1]
     out = dict(n=0, pct=None, asof=None, loaded=False)
     try:
         out = _dump_coverage_compute()
     except Exception as e:
         _log_exc("dump_coverage", e)
-    out["_v"] = 2
+    out["_v"] = 3
     _PANEL_CACHE["coverage"] = (mt, out)
     return out
 
@@ -1167,12 +1167,15 @@ def _dump_coverage_compute() -> dict:
     else:
         n_last = int(np.isfinite(panel["c"][-1]).sum())
     thin_last = n_last < max(80, int(_COVERAGE_MIN_LAST * n))
+    # Score a thin last day against the prior session so completeness
+    # does not collapse, but the as-of date stays dts[-1] — the same
+    # "last session" Stock Range / flow_sessions shows.
     if thin_last and panel["c"].shape[0] >= 2:
         idx = -2
     asof = None
     try:
         if dts is not None and len(dts):
-            asof = str(pd.Timestamp(dts[idx]).date())
+            asof = str(pd.Timestamp(dts[-1]).date())
     except Exception:
         asof = None
     ok = 0.0
