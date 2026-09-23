@@ -311,12 +311,34 @@ def _css_hit(v):
         return f"color:{DIM}"
     return f"color:{RED};font-weight:600"
 
+def _dump_header_line() -> str:
+    """One-line nightly dump count + completeness for the page header."""
+    try:
+        cov = ce.dump_coverage() if hasattr(ce, "dump_coverage") else None
+    except Exception:
+        return "Nightly dump · not loaded yet"
+    if not cov or not cov.get("loaded") or not cov.get("n"):
+        return "Nightly dump · not loaded yet"
+    bits = [f"{int(cov['n']):,} stocks"]
+    pct = cov.get("pct")
+    try:
+        if pct is not None and np.isfinite(float(pct)):
+            bits.append(f"{float(pct):.0f}% complete")
+    except (TypeError, ValueError):
+        pass
+    asof = str(cov.get("asof") or "").strip()
+    if asof:
+        bits.append(f"as of {asof}")
+    return "Nightly dump · " + " · ".join(bits)
+
+
 _hl, _ht = st.columns([1, 6], vertical_alignment="center")
 with _hl:
     _clickable_logo(140)
 with _ht:
+    _dump_line = _dump_header_line()
     st.markdown(
-        """
+        f"""
         <div style="padding:6px 0 2px;">
           <span style="font-size:30px;font-weight:700;">🌩 Money Weather</span>
           <span style="color:#E87722;font-size:15px;margin-left:10px;">
@@ -328,6 +350,7 @@ with _ht:
           <br><span style="color:#3fbf7f;">■ green = supportive / working</span> ·
           <span style="color:#e05252;">■ red = draining / against you</span> ·
           <span style="color:#9aa8bd;">■ dim = neutral noise</span>
+          <br><span style="font-size:12px;color:#9aa8bd;">{_dump_line}</span>
         </div>
         """, unsafe_allow_html=True)
 

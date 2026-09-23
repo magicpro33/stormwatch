@@ -1079,6 +1079,110 @@ def dump_last_session():
         return None
 
 
+def dump_coverage() -> dict:
+    """How many names are in the local nightly dump, and how full they are.
+
+    Reads the in-process cache or the on-disk npz only — never hits GitHub,
+    so the header can show this on every page without a 20MB download.
+    Completeness is filled / expected slots per ticker: last-session print,
+    last-bar OHLCV, dollar volume, sector, and every FUND_FIELDS value.
+    """
+    mt = 0.0
+    try:
+        mt = float(_dump_mtime() or 0.0)
+    except Exception:
+        mt = 0.0
+    hit = _PANEL_CACHE.get("coverage")
+    if hit and hit[0] == mt and isinstance(hit[1], dict):
+        return hit[1]
+    out = dict(n=0, pct=None, asof=None, loaded=False)
+    try:
+        out = _dump_coverage_compute()
+    except Exception as e:
+        _log_exc("dump_coverage", e)
+    _PANEL_CACHE["coverage"] = (mt, out)
+    return out
+
+
+def _dump_coverage_compute() -> dict:
+    empty = dict(n=0, pct=None, asof=None, loaded=False)
+    panel = tickers = sectors = mdv = dts = None
+    funds = None
+    last_ok = None
+    hit = _PANEL_CACHE.get("panel")
+    if hit:
+        panel, tickers, sectors, mdv, dts = hit[1]
+        mt = hit[0]
+        fh = _PANEL_CACHE.get("funds")
+        if fh and fh[0] == mt:
+            funds = fh[1]
+        lh = _PANEL_CACHE.get("last_ok")
+        if lh and lh[0] == mt:
+            last_ok = lh[1]
+    if tickers is None:
+        path = _data_read_path(LOCAL_DUMP)
+        if not path or not os.path.isfile(path):
+            return empty
+        try:
+            z = np.load(path, allow_pickle=False, mmap_mode="r")
+        except ValueError:
+            z = _np_load_arrays(path)
+        tickers = z["tickers"]
+        sectors = z["sectors"]
+        mdv = z["mdv"]
+        dts = pd.to_datetime(z["dates"])
+        panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
+        funds = {}
+        for i, f in enumerate(FUND_FIELDS):
+            k = f"fund_{i}"
+            if k in z.files:
+                funds[f] = z[k]
+        if "last_ok" in z.files:
+            last_ok = np.asarray(z["last_ok"], dtype=bool)
+    n = int(len(tickers))
+    if n <= 0 or panel is None:
+        return empty
+    asof = None
+    try:
+        if dts is not None and len(dts):
+            asof = str(pd.Timestamp(dts[-1]).date())
+    except Exception:
+        asof = None
+    ok = 0.0
+    slots = 0.0
+
+    def _add(arr, count):
+        nonlocal ok, slots
+        slots += float(count)
+        if arr is None:
+            return
+        a = np.asarray(arr)
+        if a.size == 0:
+            return
+        if a.dtype == bool or a.dtype == np.bool_:
+            ok += float(np.count_nonzero(a))
+        else:
+            ok += float(np.isfinite(a.astype(np.float64, copy=False)).sum())
+
+    if last_ok is not None and len(last_ok) == n:
+        _add(last_ok, n)
+    else:
+        _add(panel["c"][-1], n)
+    for f in ("o", "h", "l", "c", "v"):
+        _add(panel[f][-1], n)
+    _add(mdv, n)
+    sec = np.asarray(sectors, dtype=str)
+    sec_ok = np.array([
+        1.0 if (s and s not in ("nan", "None", "Unknown", "")) else 0.0
+        for s in sec
+    ], dtype=np.float64)
+    _add(sec_ok, n)
+    for f in FUND_FIELDS:
+        _add((funds or {}).get(f), n)
+    pct = (100.0 * ok / slots) if slots else None
+    return dict(n=n, pct=pct, asof=asof, loaded=True)
+
+
 def load_dump_panel():
     """Full OHLCV panel for ~5,700 stocks from the nightly magicpro33/stock
     dump. Cached to disk AND in-process (mtime-keyed).
