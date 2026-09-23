@@ -120,13 +120,6 @@ try:
 except Exception as _ige:
     render_ignition_scanner_tab, _IG_ERR = None, _ige
 
-try:
-    _ms = _load_local_mod("macro_sim_tab")
-    render_macro_sim_tab = _ms.render_macro_sim_tab
-    _MS_ERR = None
-except Exception as _mse:
-    render_macro_sim_tab, _MS_ERR = None, _mse
-
 REQUIRED_ENGINE = "2.42"
 st.set_page_config(page_title="Money Weather", page_icon="🌩", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
@@ -567,7 +560,7 @@ def _macro_sim_bundle(asof: str, wl_key: str, live_regime: str):
 
 
 @st.cache_data(ttl=300, show_spinner="📡 Reading live WTI, Fed funds, 10Y and DXY…")
-def _macro_live_prints(nonce: int = 0):
+def _macro_live_prints():
     return ce.macro_live_prints()
 
 
@@ -3756,26 +3749,79 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                     "than it looks — size accordingly.\n\n"
                     "Research tool. Probability tilts, not prophecy. Not investment advice.")
 
-    # ── 🧪 macro simulator (native Streamlit — no HTML portal) ──────────
+    # ── 🧪 macro simulator (the original, embedded whole) ────────────────
 if _main == "Macro Sim":
     _try_closes()
     if GAUGE is None:
         GAUGE = _gauge()
+    st.caption("Preset buttons scope the playbook, dump Top 20, and your "
+               "watchlist to that scenario. Live Market follows the sliders; "
+               "the dump ranking is the same quality × sector-tilt math as "
+               "Scan Hub's Macro-only scan.")
     _reg_live = None
     try:
-        if closes is not None:
-            _reg_live = ce.macro_regime(closes, pressure_gauge=GAUGE)
-    except Exception as _re:
-        log_exc("macro_regime", _re)
-    if _MS_ERR is not None or render_macro_sim_tab is None:
-        st.error(f"Macro simulator tab failed to load: {_MS_ERR}")
-    else:
-        render_macro_sim_tab(
-            ce=ce, asof=asof or "live", live_regime=_reg_live,
-            get_bundle=_macro_sim_bundle, get_prints=_macro_live_prints,
-            esc=_esc, html=_md_html, closes=closes,
-            colors=dict(accent=ACCENT, green=GREEN, red=RED, dim=DIM),
-        )
+        _reg_live = ce.macro_regime(closes, pressure_gauge=GAUGE)
+        st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+            border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin-bottom:8px;">
+            <span style="font-weight:700;">📡 Live regime (app-detected): {_reg_live['label']}</span><br>
+            <span style="color:{DIM};font-size:12px;">From: {' · '.join(_reg_live['drivers'])} —
+            Live Market in the simulator uses this weather. Other tabs are what-ifs.</span>
+            <br><span style="color:{DIM};font-size:12px;">🏛 <b>Bond check:</b>
+            {_esc(ce.bond_master_switch(closes).get('warning','—'))} — the simulator's
+            rate sliders move the same lever, so set them consistently with what
+            credit is actually doing.</span></div>""",
+            unsafe_allow_html=True)
+    except Exception:
+        pass
+    try:
+        _sim_path = os.path.join(_bundle_dir(), "macro_simulator.html")
+        if not os.path.exists(_sim_path):
+            raise FileNotFoundError(_sim_path)
+        try:
+            # embed the HTML CONTENT (not the path) — on Streamlit Cloud
+            # st.iframe(path) renders the filename as text, so read + inject
+            import json as _json
+            import streamlit.components.v1 as components
+            with open(_sim_path, encoding="utf-8") as _f:
+                _sim_html = _f.read()
+            _mw = {}
+            if hasattr(ce, "macro_sim_bundle"):
+                try:
+                    _wl = ce.watchlist_load()
+                    _live_reg = str((_reg_live or {}).get("regime") or "base")
+                    _mw = _macro_sim_bundle(
+                        asof or "live",
+                        _json.dumps(_wl, default=str, sort_keys=True),
+                        _live_reg)
+                except Exception as _be:
+                    log_exc("macro_sim_bundle", _be)
+                    _mw = {}
+            if not isinstance(_mw, dict):
+                _mw = {}
+            if hasattr(ce, "macro_live_prints"):
+                try:
+                    _mw["prints"] = _macro_live_prints()
+                except Exception as _pe:
+                    log_exc("macro_live_prints", _pe)
+            _payload = _json.dumps(_mw, default=str).replace("<", "\\u003c")
+            _sim_html = _sim_html.replace(
+                "<script src=",
+                f"<script>window.MW_MACRO={_payload};</script>\n<script src=",
+                1)
+            components.html(_sim_html, height=2600, scrolling=True)
+        except Exception as _e1:
+            try:
+                st.iframe(_sim_path, height=2600)
+            except Exception as _e2:
+                st.error(f"Simulator embed failed: {_e1}")
+        st.caption("Scroll inside the panel for the full simulator. Its live "
+                   "feeds load in YOUR browser, so they work even when the "
+                   "server's feeds are rate-limited.")
+    except FileNotFoundError:
+        st.error("macro_simulator.html not found next to app.py — include it "
+                 "in the repo to enable this tab.")
+    except Exception as _me:
+        st.error(f"Simulator embed failed: {_me}")
 
 
 # ── 🔭 Lenses — full playbooks for every macro regime ─────────────────
