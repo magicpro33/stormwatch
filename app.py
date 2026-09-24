@@ -1676,11 +1676,6 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
                         key=f"{key_prefix}_hist_{tk}")
 
 
-def _clean_tk(val) -> str:
-    tk = str(val or "").strip().upper()
-    return "" if (not tk or tk.lower() in ("nan", "none")) else tk
-
-
 def _open_analysis(tk: str):
     st.session_state["mw_analyze"] = tk
 
@@ -2002,23 +1997,15 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
 
 def _render_scan_hub_detail(tk: str, state_key: str, az_prefix: str,
                             closable: bool = True) -> None:
-    """Same stack every scanner uses: identity cards, chart, analyzer.
-
-    Keys are stable (`scan_keep`) so the chart is the same widget when you
-    leave the scanner — Streamlit does not remount a new plot on each tab.
-    One scan chart at a time; a later call for the same ticker is a no-op.
-    """
-    tk = _clean_tk(tk)
+    """Same inline stack Hybrid Screener uses: identity cards, chart,
+    IGNITION analyzer, company overview. Unique keys per tab so Streamlit
+    can draw more than one Scan Hub screener in a single run."""
     if not tk:
         return
-    if st.session_state.get("_scan_chart_drawn") == tk:
-        return
-    st.session_state["_scan_chart_drawn"] = tk
-    st.session_state["scan_chart_tk"] = tk
     st.divider()
-    render_ticker_analysis(tk, closes, state_key="scan_keep", closable=False)
+    render_ticker_analysis(tk, closes, state_key=state_key, closable=closable)
     try:
-        render_ignition_analyzer(tk, closes, key_prefix="scanaz")
+        render_ignition_analyzer(tk, closes, key_prefix=az_prefix)
     except Exception as _ae:
         st.caption(f"Analyzer unavailable: {_ae}")
     try:
@@ -2091,24 +2078,7 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
     st.session_state["lk_tk"] = tk
     if source:
         _watchlist_tag(tk, _row_price(row), source)
-    if st.session_state.get("scan_chart_tk") != tk:
-        st.session_state["scan_chart_tk"] = tk
-        st.rerun()
     _render_scan_hub_detail(tk, state_key, az_prefix, closable=False)
-
-
-def _keep_scan_chart() -> None:
-    """Replay the last Scan Hub chart on every section so it survives tab switches."""
-    st.session_state["_scan_chart_drawn"] = ""
-    tk = _clean_tk(st.session_state.get("scan_chart_tk"))
-    if not tk:
-        return
-    if _main == "Stock Lookup" and _clean_tk(st.session_state.get("lk_tk")) == tk:
-        return
-    if _main == "Cascade Map" and _clean_tk(st.session_state.get("mw_analyze")) == tk:
-        return
-    _try_closes()
-    _render_scan_hub_detail(tk, "scan_keep", "scanaz", closable=False)
 
 
 closes = None
@@ -2185,8 +2155,6 @@ if _main == "Scan Hub":
     _hub = _section_bar(_HUB, "mw_hub")
 elif _main == "Advanced Guide":
     _adv = _section_bar(_ADV, "mw_adv")
-
-_keep_scan_chart()
 
 
 def _dump_asof_key() -> str:
