@@ -603,10 +603,12 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                  width="stretch", help=HELP["scan"]):
         st.session_state["sw_go"] = True
         st.session_state.pop("sw_sel_tk", None)
+        st.session_state.pop("sw_snap", None)
     if b2.button("Clear results", key="sw_clear", width="stretch",
                  help="Drop the last scan so nothing is ranked until you scan again."):
         st.session_state["sw_go"] = False
         st.session_state.pop("sw_sel_tk", None)
+        st.session_state.pop("sw_snap", None)
         st.rerun()
 
     if not st.session_state.get("sw_go"):
@@ -614,22 +616,39 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         _render_backtest(_backtest())
         return
 
-    try:
-        picks, info = _live(SCAN_UNIVERSE, _dump_mtime())
-    except Exception as e:
-        st.error(f"Could not score Shakeout: {e}")
-        return
-    if picks is None or picks.empty:
-        st.warning("No tradeable names passed the liquidity filter.")
-        return
+    _ssnap = st.session_state.get("sw_snap") or {}
+    if _ssnap.get("show") is not None:
+        show = _ssnap["show"]
+        view = _ssnap.get("view", show)
+        ranked_n = int(_ssnap.get("ranked_n") or len(show))
+        info = _ssnap.get("info") or {}
+        bt = _ssnap.get("bt") or _backtest()
+    else:
+        try:
+            picks, info = _live(SCAN_UNIVERSE, _dump_mtime())
+        except Exception as e:
+            st.error(f"Could not score Shakeout: {e}")
+            return
+        if picks is None or picks.empty:
+            st.warning("No tradeable names passed the liquidity filter.")
+            return
 
-    ranked = _apply_macro(picks, regkey)
-    if sec_filter:
-        ranked = ranked[ranked.Sector.isin(sec_filter)]
-    ranked = ranked[ranked.Shakeout >= min_sh]
-    view = ranked.head(int(n_show)).copy()
-
-    bt = _backtest()
+        ranked = _apply_macro(picks, regkey)
+        if sec_filter:
+            ranked = ranked[ranked.Sector.isin(sec_filter)]
+        ranked = ranked[ranked.Shakeout >= min_sh]
+        view = ranked.head(int(n_show)).copy()
+        ranked_n = len(ranked)
+        bt = _backtest()
+        show = view[[
+            "Ticker", "Sector", "Price", "StormScore", "Shakeout", "Ret5", "RangePos",
+            "RSI", "Resid21", "VolRatio", "MacroFit", "Piotroski", "Quality",
+            "SuggestedStop",
+        ]].copy() if (not view.empty and "MacroFit" in view.columns) else view.copy()
+        st.session_state["sw_snap"] = {
+            "show": show, "view": view, "ranked_n": ranked_n,
+            "info": info, "bt": bt,
+        }
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("As of", info.get("as_of", "—"),
               help="Last session in the nightly dump used for this ranking.")
@@ -650,12 +669,6 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         _render_backtest(bt)
         return
 
-    show = view[[
-        "Ticker", "Sector", "Price", "StormScore", "Shakeout", "Ret5", "RangePos",
-        "RSI", "Resid21", "VolRatio", "MacroFit", "Piotroski", "Quality",
-        "SuggestedStop",
-    ]].copy() if "MacroFit" in view.columns else view.copy()
-
     styler = (
         show.style.format({
             "Price": "${:,.2f}", "StormScore": "{:.3f}", "Shakeout": "{:.0f}",
@@ -674,7 +687,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     if "MacroFit" in show.columns:
         styler = styler.map(lambda v: _band_fit(v), subset=["MacroFit"])
 
-    st.subheader(f"Shakeout coils · {len(show)} of {len(ranked)}")
+    st.subheader(f"Shakeout coils · {len(show)} of {ranked_n}")
     st.caption("Green = in the zone this setup wants · red = against it · dim = noise. "
                "Tap a row for the chart, cards, and company profile.")
     sel = st.dataframe(

@@ -2064,21 +2064,82 @@ def _watchlist_tag(tk: str, price, source: str) -> bool:
 
 def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
                             ticker_col: str = "Ticker", source: str = "") -> None:
-    """On a table row click, open the Hybrid-style stock cards under it."""
+    """On a table row click, open the Hybrid-style stock cards under it.
+    The last ticker for this scanner is kept so the chart returns after
+    switching Scan Hub tabs (the dataframe selection itself resets)."""
+    persist = f"{state_key}_tk"
     rows = sel.selection.rows if sel and getattr(sel, "selection", None) else []
-    if not rows:
-        return
-    try:
-        row = df.iloc[int(rows[0])]
-        tk = str(row[ticker_col]).strip().upper()
-    except Exception:
-        return
+    tk = None
+    row = None
+    from_click = False
+    if rows:
+        try:
+            row = df.iloc[int(rows[0])]
+            tk = str(row[ticker_col]).strip().upper()
+            from_click = True
+        except Exception:
+            tk = None
+    if not tk:
+        saved = str(st.session_state.get(persist) or "").strip().upper()
+        if saved and df is not None and not getattr(df, "empty", True) \
+                and ticker_col in df.columns:
+            try:
+                hit = df[df[ticker_col].astype(str).str.strip().str.upper() == saved]
+                if not hit.empty:
+                    row = hit.iloc[0]
+                    tk = saved
+            except Exception:
+                tk = None
     if not tk or tk.lower() in ("nan", "none", ""):
         return
+    st.session_state[persist] = tk
     st.session_state["lk_tk"] = tk
-    if source:
+    if from_click and source:
         _watchlist_tag(tk, _row_price(row), source)
     _render_scan_hub_detail(tk, state_key, az_prefix, closable=False)
+
+
+# Streamlit drops unused widget keys when a Scan Hub body unmounts. Mirror
+# each scanner's controls into a keep-bag so they come back with the tab.
+_HUB_KEEP_SKIP = {
+    "top20_go", "top20_snap", "top20_mode", "top20_run_secs", "t20_live",
+    "t20_inline", "t20_inline_tk", "top20_run", "top20_live", "top20_hot_btn",
+    "macro_advise", "top20_table", "forecast_table", "macro_table", "felix_table",
+    "apex_run", "apex_snap", "apex_run_tf", "apex_run_secs",
+    "apex_inline", "apex_inline_tk", "apex_go", "apex_hot", "apex_table", "apex_csv",
+    "poc_run", "poc_snap", "poc_run_sig", "poc_inline", "poc_inline_tk",
+    "poc_go", "poc_hot_btn", "poc_diag", "poc_table",
+    "sw_go", "sw_snap", "sw_sel_tk", "sw_run", "sw_clear", "sw_hot_btn",
+    "sw_table", "sw_download", "sw_inline", "sw_inline_tk",
+    "ig_last_results", "ig_alerts", "ig_alerted", "ig_screener_pre",
+    "ig_last_scan_time", "ig_last_watchlist_key", "ig_az_ticker",
+    "hs_inline", "hs_run", "hs_hot_btn", "hs_chart_table", "hs_chart_handled",
+}
+
+
+def _hub_keep_ok(k: str, prefixes: tuple) -> bool:
+    if k in _HUB_KEEP_SKIP or k.startswith("_keep_"):
+        return False
+    if k.endswith(("_btn", "_table", "_csv", "_go", "_run")):
+        return False
+    return any(k == p or k.startswith(p) for p in prefixes)
+
+
+def _hub_keep_restore(name: str, prefixes: tuple) -> None:
+    bag = st.session_state.get(f"_keep_{name}") or {}
+    for k, v in bag.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+
+def _hub_keep_save(name: str, prefixes: tuple) -> None:
+    bag = st.session_state.setdefault(f"_keep_{name}", {})
+    for k, v in list(st.session_state.items()):
+        if not _hub_keep_ok(k, prefixes):
+            continue
+        if hasattr(v, "iloc"):
+            continue
+        bag[k] = v
 
 
 closes = None
@@ -2810,6 +2871,7 @@ if _main == "Stock Lookup":
 
 # ── 📊 hybrid screener (nightly-dump filters from magicpro33/stock) ──
 if _main == "Scan Hub" and _hub == "Hybrid Screener":
+    _hub_keep_restore("hs", ("hs_",))
     _try_closes()
     if _HS_ERR is not None or hs is None:
         st.error(f"Hybrid Screener failed to load: {_HS_ERR}")
@@ -2818,19 +2880,23 @@ if _main == "Scan Hub" and _hub == "Hybrid Screener":
         _htk = st.session_state.get("hs_inline")
         if _htk:
             _render_scan_hub_detail(_htk, "hs_inline", "hsaz")
+    _hub_keep_save("hs", ("hs_",))
 
 
 # ── 🔥 ignition scanner ─────────────────────────────────────────────
 if _main == "Scan Hub" and _hub == "Ignition Scanner":
+    _hub_keep_restore("ig", ("ig_",))
     if _IG_ERR is not None or render_ignition_scanner_tab is None:
         st.error(f"Ignition Scanner failed to load: {_IG_ERR}")
         st.caption("Put ignition_scanner.py next to app.py, then reboot.")
     else:
         render_ignition_scanner_tab()
+    _hub_keep_save("ig", ("ig_",))
 
 
 # ── 🌩 shakeout coils (pre-move scan, backtested on the nightly dump) ──
 if _main == "Scan Hub" and _hub == "ShakeOut":
+    _hub_keep_restore("sw", ("sw_",))
     closes, asof = _require_closes()
     GAUGE = _gauge()
     if _SW_ERR is not None or render_storm_watch_tab is None:
@@ -2841,10 +2907,12 @@ if _main == "Scan Hub" and _hub == "ShakeOut":
             asof=asof, closes=closes, gauge=GAUGE,
             render_detail=lambda tk: _render_scan_hub_detail(
                 tk, "sw_inline", "swaz", closable=False))
+    _hub_keep_save("sw", ("sw_",))
 
 
 # ── 🏆 top 20 mega screener ──────────────────────────────────────────
 if _main == "Scan Hub" and _hub == "TOP20":
+    _hub_keep_restore("top20", ("top20_", "t20_", "forecast_all_toggle"))
     closes, asof = _require_closes()
     GAUGE = _gauge()
     st.caption("One screener, four brains: IGNITION technicals + the macro "
@@ -2915,10 +2983,6 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _override = ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
         except Exception:
             _override = "base"
-
-    if st.session_state.get("top20_go") and \
-            st.session_state.get("top20_mode") not in (None, _method):
-        st.session_state["top20_go"] = False
 
     _flow_na = _method == "felix"
     if _flow_na:
@@ -3038,9 +3102,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
         st.session_state["top20_mode"] = _method
         st.session_state["top20_run_secs"] = _secs_key
         st.session_state.pop("t20_live", None)
-    elif (st.session_state.get("top20_go")
-          and st.session_state.get("top20_run_secs") not in (None, _secs_key)):
-        st.session_state["top20_go"] = False
+        st.session_state.pop("top20_snap", None)
     if _b2.button("📡 Live prices", key="top20_live", width="stretch",
                   help="Pull live prices for the stocks currently listed — "
                        "Alpaca first, then Yahoo."):
@@ -3148,21 +3210,35 @@ if _main == "Scan Hub" and _hub == "TOP20":
             “Chg%” is the move since the scan's close.</span></div>""",
             unsafe_allow_html=True)
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "forecast":
-        try:
-            if _scan_all:
-                _rk = _override or ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
-                fc20 = _forecast_all(asof, _rk if _apply_macro else None,
-                                     0, _t_lb, _t_off, _secs_key)
-                reg = (dict(regime=_override, label=ce.REGIME_LABELS[_override])
-                       if _override else ce.macro_regime(closes, pressure_gauge=_gauge))
-                fc20 = fc20.head(int(_top_n))
-            else:
-                fc20, reg = _forecast_scan(asof, _gauge, _override, int(_top_n),
-                                           _apply_macro, 0, _use_flow,
-                                           _t_lb, _t_off, _secs_key)
-        except Exception as e:
-            st.error(f"Best-odds scan failed: {e}")
-            fc20, reg = pd.DataFrame(), {}
+        _snap = st.session_state.get("top20_snap") or {}
+        if _snap.get("mode") == "forecast":
+            fc20 = _snap.get("df")
+            reg = _snap.get("reg") or {}
+            _scan_all = _snap.get("scan_all", _scan_all)
+            if fc20 is None:
+                fc20 = pd.DataFrame()
+        else:
+            try:
+                if _scan_all:
+                    _rk = _override or ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
+                    fc20 = _forecast_all(asof, _rk if _apply_macro else None,
+                                         0, _t_lb, _t_off, _secs_key)
+                    reg = (dict(regime=_override, label=ce.REGIME_LABELS[_override])
+                           if _override else ce.macro_regime(closes, pressure_gauge=_gauge))
+                    fc20 = fc20.head(int(_top_n))
+                else:
+                    fc20, reg = _forecast_scan(asof, _gauge, _override, int(_top_n),
+                                               _apply_macro, 0, _use_flow,
+                                               _t_lb, _t_off, _secs_key)
+            except Exception as e:
+                st.error(f"Best-odds scan failed: {e}")
+                fc20, reg = pd.DataFrame(), {}
+            st.session_state["top20_snap"] = {
+                "mode": "forecast",
+                "df": fc20.copy() if isinstance(fc20, pd.DataFrame) else pd.DataFrame(),
+                "reg": reg,
+                "scan_all": bool(_scan_all),
+            }
         if fc20.empty:
             st.info("No candidates cleared the 300-case forecast minimum this "
                     "run — try again after a data refresh.")
@@ -3206,12 +3282,24 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _scan_hub_pick_and_show(_fcsel, _fc, "t20_inline", "t20az", source="TOP20")
 
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "macro":
-        try:
-            _m20, _mmeta = _macro_only_scan(asof, _override, int(_top_n),
-                                           _secs_key)
-        except Exception as _me:
-            st.error(f"Macro-only scan failed: {_me}")
-            _m20, _mmeta = pd.DataFrame(), {}
+        _snap = st.session_state.get("top20_snap") or {}
+        if _snap.get("mode") == "macro":
+            _m20 = _snap.get("df")
+            _mmeta = _snap.get("meta") or {}
+            if _m20 is None:
+                _m20 = pd.DataFrame()
+        else:
+            try:
+                _m20, _mmeta = _macro_only_scan(asof, _override, int(_top_n),
+                                               _secs_key)
+            except Exception as _me:
+                st.error(f"Macro-only scan failed: {_me}")
+                _m20, _mmeta = pd.DataFrame(), {}
+            st.session_state["top20_snap"] = {
+                "mode": "macro",
+                "df": _m20.copy() if isinstance(_m20, pd.DataFrame) else pd.DataFrame(),
+                "meta": _mmeta,
+            }
         if _m20 is None or _m20.empty:
             st.info("No names cleared the quality bar for this scenario.")
         else:
@@ -3257,11 +3345,21 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _scan_hub_pick_and_show(_msel, _m20, "t20_inline", "t20az", source="TOP20")
 
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "felix":
-        try:
-            f20 = _felix_scan(asof, int(_top_n))
-        except Exception as e:
-            st.error(f"Felix scan failed: {e}")
-            f20 = pd.DataFrame()
+        _snap = st.session_state.get("top20_snap") or {}
+        if _snap.get("mode") == "felix":
+            f20 = _snap.get("df")
+            if f20 is None:
+                f20 = pd.DataFrame()
+        else:
+            try:
+                f20 = _felix_scan(asof, int(_top_n))
+            except Exception as e:
+                st.error(f"Felix scan failed: {e}")
+                f20 = pd.DataFrame()
+            st.session_state["top20_snap"] = {
+                "mode": "felix",
+                "df": f20.copy() if isinstance(f20, pd.DataFrame) else pd.DataFrame(),
+            }
         if not f20.empty:
             st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
                 border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
@@ -3304,13 +3402,25 @@ if _main == "Scan Hub" and _hub == "TOP20":
             st.caption("👆 Tap a row for the chart, cards, and company profile below.")
             _scan_hub_pick_and_show(_fsel, _f, "t20_inline", "t20az", source="TOP20")
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode", "cascade") == "cascade":
-        try:
-            t20, reg = _mega_scan(asof, _gauge, _override, int(_top_n),
-                                  _apply_macro, 0, _use_flow,
-                                  _t_lb, _t_off, _secs_key)
-        except Exception as e:
-            st.error(f"Scan failed: {e}")
-            t20, reg = pd.DataFrame(), {}
+        _snap = st.session_state.get("top20_snap") or {}
+        if _snap.get("mode") == "cascade":
+            t20 = _snap.get("df")
+            reg = _snap.get("reg") or {}
+            if t20 is None:
+                t20 = pd.DataFrame()
+        else:
+            try:
+                t20, reg = _mega_scan(asof, _gauge, _override, int(_top_n),
+                                      _apply_macro, 0, _use_flow,
+                                      _t_lb, _t_off, _secs_key)
+            except Exception as e:
+                st.error(f"Scan failed: {e}")
+                t20, reg = pd.DataFrame(), {}
+            st.session_state["top20_snap"] = {
+                "mode": "cascade",
+                "df": t20.copy() if isinstance(t20, pd.DataFrame) else pd.DataFrame(),
+                "reg": reg,
+            }
         if not t20.empty:
             st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
                 border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
@@ -3441,11 +3551,12 @@ if _main == "Scan Hub" and _hub == "TOP20":
                     "It's a ranking, not a prophecy — validate ideas in Stock Lookup's "
                     "analog forecast before acting. Not investment advice.")
 
-
+    _hub_keep_save("top20", ("top20_", "t20_", "forecast_all_toggle"))
 
 
 # ── ⚡ APEX FLOW screener ────────────────────────────────────────────
 if _main == "Scan Hub" and _hub == "Apex Flow":
+    _hub_keep_restore("apex", ("apex_",))
     closes, asof = _require_closes()
     GAUGE = _gauge()
     if _APEX_ERR:
@@ -3618,45 +3729,51 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
             _min_dv = 5.0
             _uni_n = None
 
+        _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
         _go = st.button("⚡ Run APEX scan", key="apex_go", type="primary", width="stretch")
         if _go:
             st.session_state["apex_run"] = True
             st.session_state["apex_run_tf"] = _tf
-        # invalidate a stale result when the timeframe changes
-        if st.session_state.get("apex_run") and st.session_state.get("apex_run_tf") != _tf:
-            st.session_state["apex_run"] = False
-        _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
-        if _go:
             st.session_state["apex_run_secs"] = _sec_key
-        elif (st.session_state.get("apex_run")
-              and st.session_state.get("apex_run_secs") not in (None, _sec_key)):
-            st.session_state["apex_run"] = False
+            st.session_state.pop("apex_snap", None)
 
         if st.session_state.get("apex_run"):
-            try:
-                with st.spinner(f"Scoring on {_tf} bars…"):
-                    if _meta["validated"]:
-                        _res = af.scan_daily(
-                            min_price=float(_min_price), min_dollar_vol=float(_min_dv) * 1e6,
-                            require_calm=_require_calm, min_score=float(_min_score),
-                            top=int(_top_n), apply_rs=_apply_rs,
-                            only_sectors=_sec_filter, macro_tilts=_ax_tilts)
-                        _src = ("nightly dump · whole market" if not _sec_filter
-                                else f"nightly dump · {len(_sec_filter)} sector"
-                                     f"{'s' if len(_sec_filter) != 1 else ''}")
-                    else:
-                        _uni, _secmap = af.liquid_universe(
-                            int(_uni_n), float(_min_price), only_sectors=_sec_filter)
-                        _res = af.scan_intraday(
-                            _tf, _uni, require_calm=_require_calm,
-                            min_score=float(_min_score), top=int(_top_n),
-                            sectors=_secmap, apply_rs=_apply_rs,
-                            macro_tilts=_ax_tilts)
-                        _src = (f"Alpaca {_meta['alpaca']} bars · top {_uni_n} by liquidity"
-                                + (f" · {len(_sec_filter)} sectors" if _sec_filter else ""))
-            except Exception as e:
-                _res, _src = pd.DataFrame(), ""
-                st.error(f"Scan failed: {e}")
+            _asnap = st.session_state.get("apex_snap") or {}
+            if "df" in _asnap:
+                _res = _asnap.get("df")
+                _src = _asnap.get("src", "")
+                if _res is None:
+                    _res = pd.DataFrame()
+            else:
+                try:
+                    with st.spinner(f"Scoring on {_tf} bars…"):
+                        if _meta["validated"]:
+                            _res = af.scan_daily(
+                                min_price=float(_min_price), min_dollar_vol=float(_min_dv) * 1e6,
+                                require_calm=_require_calm, min_score=float(_min_score),
+                                top=int(_top_n), apply_rs=_apply_rs,
+                                only_sectors=_sec_filter, macro_tilts=_ax_tilts)
+                            _src = ("nightly dump · whole market" if not _sec_filter
+                                    else f"nightly dump · {len(_sec_filter)} sector"
+                                         f"{'s' if len(_sec_filter) != 1 else ''}")
+                        else:
+                            _uni, _secmap = af.liquid_universe(
+                                int(_uni_n), float(_min_price), only_sectors=_sec_filter)
+                            _res = af.scan_intraday(
+                                _tf, _uni, require_calm=_require_calm,
+                                min_score=float(_min_score), top=int(_top_n),
+                                sectors=_secmap, apply_rs=_apply_rs,
+                                macro_tilts=_ax_tilts)
+                            _src = (f"Alpaca {_meta['alpaca']} bars · top {_uni_n} by liquidity"
+                                    + (f" · {len(_sec_filter)} sectors" if _sec_filter else ""))
+                except Exception as e:
+                    _res, _src = pd.DataFrame(), ""
+                    st.error(f"Scan failed: {e}")
+                st.session_state["apex_snap"] = {
+                    "df": _res.copy() if isinstance(_res, pd.DataFrame) else pd.DataFrame(),
+                    "src": _src,
+                    "tf": _tf,
+                }
 
             if _res is None or _res.empty:
                 if _meta["validated"]:
@@ -3748,6 +3865,8 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                     "filter working as designed, but it means the list is less diversified "
                     "than it looks — size accordingly.\n\n"
                     "Research tool. Probability tilts, not prophecy. Not investment advice.")
+
+    _hub_keep_save("apex", ("apex_",))
 
     # ── 🧪 macro simulator (the original, embedded whole) ────────────────
 if _main == "Macro Sim":
@@ -3925,6 +4044,7 @@ if _main == "Advanced Guide" and _adv == "Lenses":
 
 # ── 🎯 POC Future — AMD accumulation / manipulation / distribution ────
 if _main == "Scan Hub" and _hub == "POC Future":
+    _hub_keep_restore("poc", ("poc_",))
     _try_closes()
     st.markdown("### 🎯 POC Future — coil, sweep, reclaim")
     if _POC_ERR:
@@ -4042,19 +4162,26 @@ if _main == "Scan Hub" and _hub == "POC Future":
                      width="stretch"):
             st.session_state["poc_run"] = True
             st.session_state["poc_run_sig"] = _poc_sig
-        elif (st.session_state.get("poc_run")
-              and st.session_state.get("poc_run_sig") not in (None, _poc_sig)):
-            st.session_state["poc_run"] = False
+            st.session_state.pop("poc_snap", None)
 
         if st.session_state.get("poc_run"):
-            import json as _pj
-            try:
-                _pdf = _poc_scan(asof, tuple(_stage_pick or ["TRIGGERED"]),
-                                 int(_poc_top), int(_accum), float(_rng),
-                                 int(_poc_fresh),
-                                 _pj.dumps(_sec_filter) if _sec_filter else "")
-            except Exception as _perr:
-                _pdf = pd.DataFrame(); st.error(f"Scan failed: {_perr}")
+            _psnap = st.session_state.get("poc_snap") or {}
+            if "df" in _psnap:
+                _pdf = _psnap.get("df")
+                if _pdf is None:
+                    _pdf = pd.DataFrame()
+            else:
+                import json as _pj
+                try:
+                    _pdf = _poc_scan(asof, tuple(_stage_pick or ["TRIGGERED"]),
+                                     int(_poc_top), int(_accum), float(_rng),
+                                     int(_poc_fresh),
+                                     _pj.dumps(_sec_filter) if _sec_filter else "")
+                except Exception as _perr:
+                    _pdf = pd.DataFrame(); st.error(f"Scan failed: {_perr}")
+                st.session_state["poc_snap"] = {
+                    "df": _pdf.copy() if isinstance(_pdf, pd.DataFrame) else pd.DataFrame(),
+                }
             if _pdf is None or _pdf.empty:
                 st.info("No setups match right now. Widen the stages, loosen the "
                         "range, or check back after the next dump.")
@@ -4171,6 +4298,8 @@ if _main == "Scan Hub" and _hub == "POC Future":
                     "a replication, not an out-of-sample test. Daily bars only; the "
                     "method is usually traded intraday and that is untested here. The "
                     "low R:R is by design: these win on hit rate, not payoff.")
+
+    _hub_keep_save("poc", ("poc_",))
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
