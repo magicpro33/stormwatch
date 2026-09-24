@@ -1681,18 +1681,8 @@ def _clean_tk(val) -> str:
     return "" if (not tk or tk.lower() in ("nan", "none")) else tk
 
 
-def _pin_stock(tk: str) -> None:
-    """Remember a ticker so its chart survives section switches."""
-    tk = _clean_tk(tk)
-    if not tk:
-        return
-    st.session_state["pin_tk"] = tk
-    st.session_state.pop("_pin_hold", None)
-
-
 def _open_analysis(tk: str):
     st.session_state["mw_analyze"] = tk
-    _pin_stock(tk)
 
 
 # ── Hybrid screener identity cards (Stock Lookup, above Price Range Analysis)
@@ -2012,15 +2002,23 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
 
 def _render_scan_hub_detail(tk: str, state_key: str, az_prefix: str,
                             closable: bool = True) -> None:
-    """Same inline stack Hybrid Screener uses: identity cards, chart,
-    IGNITION analyzer, company overview. Unique keys per tab so Streamlit
-    can draw more than one Scan Hub screener in a single run."""
+    """Same stack every scanner uses: identity cards, chart, analyzer.
+
+    Keys are stable (`scan_keep`) so the chart is the same widget when you
+    leave the scanner — Streamlit does not remount a new plot on each tab.
+    One scan chart at a time; a later call for the same ticker is a no-op.
+    """
+    tk = _clean_tk(tk)
     if not tk:
         return
+    if st.session_state.get("_scan_chart_drawn") == tk:
+        return
+    st.session_state["_scan_chart_drawn"] = tk
+    st.session_state["scan_chart_tk"] = tk
     st.divider()
-    render_ticker_analysis(tk, closes, state_key=state_key, closable=closable)
+    render_ticker_analysis(tk, closes, state_key="scan_keep", closable=False)
     try:
-        render_ignition_analyzer(tk, closes, key_prefix=az_prefix)
+        render_ignition_analyzer(tk, closes, key_prefix="scanaz")
     except Exception as _ae:
         st.caption(f"Analyzer unavailable: {_ae}")
     try:
@@ -2091,113 +2089,26 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
     if not tk or tk.lower() in ("nan", "none", ""):
         return
     st.session_state["lk_tk"] = tk
-    _pin_stock(tk)
     if source:
         _watchlist_tag(tk, _row_price(row), source)
+    if st.session_state.get("scan_chart_tk") != tk:
+        st.session_state["scan_chart_tk"] = tk
+        st.rerun()
     _render_scan_hub_detail(tk, state_key, az_prefix, closable=False)
 
 
-def _follow_open_tickers() -> None:
-    """Pin whatever Lookup / Cascade / other scanners just opened.
-
-    Hybrid, ShakeOut and Ignition write `lk_tk` themselves. A change there
-    (or in `mw_analyze`) becomes the pin. Unpin holds until a *new* ticker
-    is opened, so leftover session keys do not bring the strip back.
-    """
-    lk = _clean_tk(st.session_state.get("lk_tk"))
-    mw = _clean_tk(st.session_state.get("mw_analyze"))
-    prev_lk = st.session_state.get("_pin_seen_lk")
-    prev_mw = st.session_state.get("_pin_seen_mw")
-    if lk and lk != prev_lk:
-        _pin_stock(lk)
-    elif mw and mw != prev_mw and not st.session_state.get("_pin_hold"):
-        _pin_stock(mw)
-    st.session_state["_pin_seen_lk"] = lk
-    st.session_state["_pin_seen_mw"] = mw
-
-
-def _render_pin_strip() -> None:
-    """Compact last-opened chart, drawn on every section."""
-    tk = _clean_tk(st.session_state.get("pin_tk"))
+def _keep_scan_chart() -> None:
+    """Replay the last Scan Hub chart on every section so it survives tab switches."""
+    st.session_state["_scan_chart_drawn"] = ""
+    tk = _clean_tk(st.session_state.get("scan_chart_tk"))
     if not tk:
         return
     if _main == "Stock Lookup" and _clean_tk(st.session_state.get("lk_tk")) == tk:
         return
     if _main == "Cascade Map" and _clean_tk(st.session_state.get("mw_analyze")) == tk:
         return
-
     _try_closes()
-    df = ce.dump_ohlcv(tk) if hasattr(ce, "dump_ohlcv") else pd.DataFrame()
-    src = "nightly dump"
-    if (df is None or df.empty) and closes is not None and tk in closes.columns:
-        df = pd.DataFrame({"Close": closes[tk].dropna()})
-        src = "node history"
-    if df is None or df.empty:
-        return
-
-    stats = ce.ticker_stats(df)
-    px = stats.get("price")
-    px_src = src
-    try:
-        live, srcs = _live_one(tk, _px_nonce())
-        if tk in live:
-            px = live[tk]
-            px_src = srcs.get(tk) or src
-            df = ce.apply_live_last(df, px)
-            stats = ce.ticker_stats(df)
-    except Exception:
-        pass
-    chg = 0.0
-    try:
-        if len(df) > 1:
-            chg = float(px) / float(df["Close"].iloc[-2]) - 1
-    except Exception:
-        chg = 0.0
-    col = GREEN if chg > 0 else (RED if chg < 0 else DIM)
-    sign = "+" if chg >= 0 else ""
-    try:
-        px_s = f"${float(px):,.2f}"
-    except (TypeError, ValueError):
-        px_s = "—"
-
-    head, unpin, open_lk = st.columns([6, 1, 1.4], vertical_alignment="center")
-    with head:
-        _md_html(
-            f"<div style='padding:4px 0;'><b>📌 {tk}</b> stays while you change tabs"
-            f" &nbsp;·&nbsp; <span style='color:{col};font-weight:700;'>"
-            f"{px_s} {sign}{chg:.1%}</span>"
-            f" &nbsp;·&nbsp; <span style='color:{DIM};font-size:12px;'>{_esc(px_src)}</span>"
-            f"</div>")
-    if unpin.button("Unpin", key="pin_unpin", width="stretch"):
-        st.session_state.pop("pin_tk", None)
-        st.session_state["_pin_hold"] = True
-        st.rerun()
-    if open_lk.button("Lookup", key="pin_open_lk", width="stretch"):
-        st.session_state["lk_tk"] = tk
-        st.session_state["mw_main"] = "Stock Lookup"
-        st.rerun()
-
-    import plotly.graph_objects as go
-    d = df.tail(180)
-    has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
-    fig = go.Figure()
-    if has_ohlc:
-        fig.add_trace(go.Candlestick(
-            x=d.index, open=d.Open, high=d.High, low=d.Low, close=d.Close,
-            increasing_line_color=GREEN, decreasing_line_color=RED, name=tk))
-    else:
-        fig.add_trace(go.Scatter(x=d.index, y=d.Close, mode="lines",
-                                 line=dict(color=ACCENT, width=2), name=tk))
-    c_full = df["Close"]
-    fig.add_trace(go.Scatter(
-        x=d.index, y=c_full.rolling(50).mean().reindex(d.index),
-        name="SMA50", line=dict(color=ACCENT, width=1)))
-    fig.update_layout(height=240, template="plotly_dark",
-                      paper_bgcolor="#081325", plot_bgcolor="#122a42",
-                      font_color="#F6F4E9", showlegend=False,
-                      xaxis_rangeslider_visible=False,
-                      margin=dict(l=8, r=8, t=8, b=8))
-    st.plotly_chart(fig, width="stretch", key=f"chart_pin_{tk}")
+    _render_scan_hub_detail(tk, "scan_keep", "scanaz", closable=False)
 
 
 closes = None
@@ -2275,8 +2186,7 @@ if _main == "Scan Hub":
 elif _main == "Advanced Guide":
     _adv = _section_bar(_ADV, "mw_adv")
 
-_follow_open_tickers()
-_render_pin_strip()
+_keep_scan_chart()
 
 
 def _dump_asof_key() -> str:
