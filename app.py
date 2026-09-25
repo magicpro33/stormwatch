@@ -4663,17 +4663,92 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                     st.info("No dump names mention that word in the "
                             "business summary or company name.")
                 else:
+                    _tdf = _tdf.copy()
+                    _te_tks = [str(t).strip().upper() for t in _tdf.Ticker]
+                    _rfc1, _rfc2 = st.columns([4, 1],
+                                              vertical_alignment="bottom")
+                    _rfc1.caption(
+                        f"{len(_tdf)} name{'s' if len(_tdf) != 1 else ''} — "
+                        "Current is the live quote. Change is vs the price "
+                        "the first time this ticker hit a Trump Effect list.")
+                    if _rfc2.button("🔄 Refresh prices", width="stretch",
+                                    key="te_px_btn"):
+                        st.session_state["_te_px_nonce"] = int(
+                            st.session_state.get("_te_px_nonce", 0) or 0) + 1
+                        st.toast(
+                            f"🔄 Pulling live prices for {len(_te_tks)} "
+                            f"ticker(s)…")
+                        st.rerun()
+                    _te_nonce = int(st.session_state.get("_te_px_nonce", 0)
+                                    or 0)
+                    try:
+                        _te_live, _ = _live_quotes(tuple(_te_tks), _te_nonce)
+                    except Exception as _tlq:
+                        log_exc("trump_list_live_quotes", _tlq)
+                        _te_live, _ = ce.live_quotes(_te_tks, use_dump=True)
+                    _te_seed = {}
+                    for _r in _tdf.itertuples(index=False):
+                        _tk = str(_r.Ticker).strip().upper()
+                        _now = _te_live.get(_tk)
+                        if _now is None or not np.isfinite(float(_now or np.nan)):
+                            try:
+                                _now = float(_r.Price)
+                            except Exception:
+                                _now = np.nan
+                        _te_seed[_tk] = _now
+                    _te_seen = ce.trump_list_ensure(_te_seed)
+                    def _te_nowpx(t):
+                        t = str(t).strip().upper()
+                        v = _te_live.get(t)
+                        try:
+                            v = float(v)
+                        except Exception:
+                            return np.nan
+                        return v if np.isfinite(v) else np.nan
+                    def _te_chg(t):
+                        t = str(t).strip().upper()
+                        now = _te_nowpx(t)
+                        then = (_te_seen.get(t) or {}).get("price_at_add")
+                        try:
+                            then = float(then)
+                        except Exception:
+                            return np.nan
+                        if not (np.isfinite(now) and np.isfinite(then)
+                                and then > 0):
+                            return np.nan
+                        return now / then - 1.0
+                    _tdf["Current"] = _tdf.Ticker.map(_te_nowpx)
+                    _tdf["Change"] = _tdf.Ticker.map(_te_chg)
+                    _te_fmt = {k: v for k, v in {
+                        "Price": "${:,.2f}", "Current": "${:,.2f}",
+                        "Change": "{:+.1%}",
+                    }.items() if k in _tdf.columns}
+                    _te_styled = _tdf.style.format(_te_fmt, na_rep="—")
+                    if "Change" in _tdf.columns:
+                        _te_styled = _te_styled.map(
+                            lambda v: _css_sign(v, dead=0.002),
+                            subset=["Change"])
                     _tsel = st.dataframe(
-                        _tdf.style.format(
-                            {k: v for k, v in {"Price": "${:,.2f}"}.items()
-                             if k in _tdf.columns}, na_rep="—"),
+                        _te_styled,
                         width="stretch", hide_index=True,
                         height=_fit_list_height(len(_tdf)),
                         on_select="rerun", selection_mode="single-row",
                         key="te_table",
-                        column_order=[c for c in ["Ticker", "Name", "Sector",
-                                                  "Price", "Where", "Snippet"]
-                                      if c in _tdf.columns] or None)
+                        column_order=[c for c in [
+                            "Ticker", "Name", "Sector", "Price",
+                            "Current", "Change", "Where", "Snippet"]
+                                      if c in _tdf.columns] or None,
+                        column_config={
+                            "Price": st.column_config.Column(
+                                help="Last close in the nightly dump."),
+                            "Current": st.column_config.Column(
+                                help="Live Alpaca/Yahoo quote. Refresh to "
+                                     "pull a new print."),
+                            "Change": st.column_config.Column(
+                                help="Percent from the first time this "
+                                     "ticker appeared on a Trump Effect "
+                                     "list to the current live price."),
+                        })
                     _scan_hub_pick_and_show(
                         _tsel, _tdf, "te_inline", "teaz",
                         source="Trump Effect", full_lookup=True)

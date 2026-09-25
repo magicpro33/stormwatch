@@ -2534,6 +2534,7 @@ def alpaca_history(symbols: list, years: int = HISTORY_YEARS) -> pd.DataFrame:
 # Stock Lookup: analog-outcome forecast, upstream drivers, watchlist
 # ═════════════════════════════════════════════════════════════════════
 WATCHLIST_PATH = os.path.join(_mw_data_dir(), "watchlist.json")
+TRUMP_LIST_PATH = os.path.join(_mw_data_dir(), "trump_effect_list.json")
 
 
 def _feature_panels():
@@ -2899,6 +2900,52 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
 def watchlist_remove(ticker: str):
     t = str(ticker or "").strip().upper()
     watchlist_save([w for w in watchlist_load() if _watchlist_ticker(w) != t])
+
+
+def trump_list_load() -> dict:
+    """First-seen Trump Effect dump-list prices. Not the watchlist."""
+    try:
+        with open(_data_read_path(TRUMP_LIST_PATH)) as f:
+            items = json.load(f)
+        return items if isinstance(items, dict) else {}
+    except Exception:
+        return {}
+
+
+def trump_list_save(items: dict) -> bool:
+    try:
+        path = _data_write_path(TRUMP_LIST_PATH)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(items or {}, f, indent=1)
+        os.replace(tmp, path)
+        return True
+    except Exception as e:
+        _log_exc("trump_list_save", e)
+        return False
+
+
+def trump_list_ensure(prices: dict) -> dict:
+    """Stamp first-seen prices. Existing tickers keep their original add price."""
+    items = trump_list_load()
+    dirty = False
+    stamp = watchlist_stamp_date()
+    for raw_tk, raw_px in (prices or {}).items():
+        tk = str(raw_tk or "").strip().upper()
+        if not tk or tk in items:
+            continue
+        try:
+            px = round(float(raw_px), 2)
+        except Exception:
+            continue
+        if not np.isfinite(px) or px <= 0:
+            continue
+        items[tk] = dict(price_at_add=px, added=stamp)
+        dirty = True
+    if dirty:
+        trump_list_save(items)
+    return items
 
 
 # ═════════════════════════════════════════════════════════════════════
