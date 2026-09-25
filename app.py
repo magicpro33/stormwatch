@@ -4456,16 +4456,15 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
             _qshow = (_ksnap.get("query")
                       if isinstance(_ksnap, dict) and _ksnap.get("query")
                       else str(_kw_q or "").strip())
-            st.markdown(
-                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:4px solid {ACCENT};border-radius:10px;
-                padding:10px 14px;margin:8px 0;">
-                <b>{len(_kdf)} match{'es' if len(_kdf) != 1 else ''}</b> for
-                <b style="color:{ACCENT};">{_esc(_qshow)}</b>
-                <span style="color:{DIM};font-size:12px;"> · dump last close
-                ${float(_ksnap.get('lo', _kw_lo)):,.2f}–
-                ${float(_ksnap.get('hi', _kw_hi)):,.2f}</span></div>""",
-                unsafe_allow_html=True)
+            _md_html(
+                f"<div style='background:#0c1829;border:1px solid #1d2b40;"
+                f"border-left:4px solid {ACCENT};border-radius:10px;"
+                f"padding:10px 14px;margin:8px 0;'>"
+                f"<b>{len(_kdf)} match{'es' if len(_kdf) != 1 else ''}</b> for "
+                f"<b style='color:{ACCENT};'>{_esc(_qshow)}</b>"
+                f"<span style='color:{DIM};font-size:12px;'> · dump last close "
+                f"${float(_ksnap.get('lo', _kw_lo)):,.2f}–"
+                f"${float(_ksnap.get('hi', _kw_hi)):,.2f}</span></div>")
             _kdf = _drop_blank_cols(_kdf)
             _korder = [c for c in ["Ticker", "Name", "Sector", "Price",
                                    "Where", "Snippet"] if c in _kdf.columns]
@@ -4598,19 +4597,18 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
             _te_rng = f" · {_te_span}" if _te_span else ""
             _te_about = (f" pertaining to “{_esc(_te_qhit)}”"
                          if _te_qhit else "")
-            st.markdown(
-                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:4px solid {ACCENT};border-radius:10px;
-                padding:10px 14px;margin:8px 0;">
-                <b>{len(_wdf)} important word{'s' if len(_wdf) != 1 else ''}</b>
-                {_te_about}
-                from {int((_tmeta or {}).get('n_with_text') or 0)} readable
-                source{'s' if int((_tmeta or {}).get('n_with_text') or 0) != 1 else ''}
-                <span style="color:{DIM};font-size:12px;">{_te_when}{_te_rng}
-                 · market signals first, then repeated topics · tap a row
-                to hunt the dump</span>
-                </div>""",
-                unsafe_allow_html=True)
+            _md_html(
+                f"<div style='background:#0c1829;border:1px solid #1d2b40;"
+                f"border-left:4px solid {ACCENT};border-radius:10px;"
+                f"padding:10px 14px;margin:8px 0;'>"
+                f"<b>{len(_wdf)} important word"
+                f"{'s' if len(_wdf) != 1 else ''}</b>"
+                f"{_te_about} from "
+                f"{int((_tmeta or {}).get('n_with_text') or 0)} readable "
+                f"source{'s' if int((_tmeta or {}).get('n_with_text') or 0) != 1 else ''}"
+                f"<span style='color:{DIM};font-size:12px;'>"
+                f"{_te_when}{_te_rng} · market signals first, then "
+                f"repeated topics · tap a row to hunt the dump</span></div>")
             _wshow = _wdf.copy()
             _te_sel = st.dataframe(
                 _wshow, width="stretch", hide_index=True,
