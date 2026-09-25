@@ -2207,6 +2207,17 @@ def _drop_blank_cols(df):
         return df
 
 
+def _fit_list_height(n, max_h=520):
+    """Size a generated list to its row count — no empty grid below."""
+    try:
+        n = int(n)
+    except Exception:
+        n = 0
+    if n <= 20:
+        return "content"
+    return int(max_h)
+
+
 def _hub_keep_save(name: str, prefixes: tuple) -> None:
     bag = st.session_state.setdefault(f"_keep_{name}", {})
     for k, v in list(st.session_state.items()):
@@ -4462,7 +4473,8 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                 _kdf.style.format(
                     {k: v for k, v in {"Price": "${:,.2f}"}.items()
                      if k in _kdf.columns}, na_rep="—"),
-                width="stretch", hide_index=True, height=620,
+                width="stretch", hide_index=True,
+                height=_fit_list_height(len(_kdf)),
                 on_select="rerun", selection_mode="single-row",
                 key="kw_table",
                 column_order=_korder or None,
@@ -4601,7 +4613,8 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                 unsafe_allow_html=True)
             _wshow = _wdf.copy()
             _te_sel = st.dataframe(
-                _wshow, width="stretch", hide_index=True, height=420,
+                _wshow, width="stretch", hide_index=True,
+                height=_fit_list_height(len(_wshow)),
                 on_select="rerun", selection_mode="single-row",
                 key="te_words",
                 column_order=[c for c in ["Word", "Times said", "Speeches",
@@ -4656,7 +4669,8 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                         _tdf.style.format(
                             {k: v for k, v in {"Price": "${:,.2f}"}.items()
                              if k in _tdf.columns}, na_rep="—"),
-                        width="stretch", hide_index=True, height=420,
+                        width="stretch", hide_index=True,
+                        height=_fit_list_height(len(_tdf)),
                         on_select="rerun", selection_mode="single-row",
                         key="te_table",
                         column_order=[c for c in ["Ticker", "Name", "Sector",
