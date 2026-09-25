@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import io
 import json
+import re
 from datetime import date, timedelta
 
 try:
@@ -1658,6 +1659,332 @@ def keyword_scan(query: str, min_price: float = 0.0, max_price=None,
     if not df.empty:
         df = df.drop(columns=["_rank"])
     return df
+
+
+def drop_blank_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Hide columns that are entirely empty / placeholder so the list stays tight."""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    keep = []
+    blank = {"", "nan", "none", "nat", "—", "-", "n/a", "na"}
+    for c in df.columns:
+        s = df[c]
+        if s.isna().all():
+            continue
+        useful = False
+        for v in s:
+            if v is None or (isinstance(v, float) and not np.isfinite(v)):
+                continue
+            try:
+                if pd.isna(v):
+                    continue
+            except Exception:
+                pass
+            if str(v).strip().lower() in blank:
+                continue
+            useful = True
+            break
+        if useful:
+            keep.append(c)
+    return df[keep] if keep else df.iloc[:, 0:0]
+
+
+# Words Trump saying them has historically moved a tape, a sector, or a
+# bilateral. Used to flag speech terms as investment-relevant.
+_TRUMP_MARKET = {
+    "greenland": "Arctic territory / minerals / Denmark",
+    "tariff": "import costs and trade",
+    "tariffs": "import costs and trade",
+    "china": "trade, supply chains, rare earths",
+    "chinese": "trade and supply chains",
+    "taiwan": "semiconductors and China risk",
+    "iran": "oil and Middle East risk",
+    "oil": "energy prices",
+    "opec": "oil supply",
+    "lng": "US energy exports",
+    "natural gas": "energy prices",
+    "nuclear": "power and uranium",
+    "uranium": "nuclear fuel",
+    "rare earth": "critical minerals",
+    "rare earths": "critical minerals",
+    "lithium": "batteries and EVs",
+    "copper": "electrification / mining",
+    "gold": "safe-haven / debasement",
+    "bitcoin": "crypto / risk appetite",
+    "crypto": "digital assets",
+    "chip": "semiconductors",
+    "chips": "semiconductors",
+    "semiconductor": "semiconductors",
+    "steel": "tariffs and industrials",
+    "auto": "autos and tariffs",
+    "automobile": "autos and tariffs",
+    "ev": "electric vehicles",
+    "electric vehicle": "electric vehicles",
+    "pharma": "drug pricing / FDA",
+    "pharmaceutical": "drug pricing / FDA",
+    "fentanyl": "border / pharma precursors",
+    "vaccine": "healthcare / liability",
+    "fed": "rates and the dollar",
+    "federal reserve": "rates and the dollar",
+    "interest rate": "cost of capital",
+    "interest rates": "cost of capital",
+    "inflation": "rates and real assets",
+    "dollar": "FX and commodities",
+    "nato": "defense spending",
+    "ukraine": "defense and energy",
+    "russia": "energy, sanctions, defense",
+    "israel": "defense and Middle East",
+    "gaza": "Middle East risk",
+    "mexico": "nearshoring and trade",
+    "canada": "energy, autos, trade",
+    "denmark": "Greenland / Arctic",
+    "panama": "canal / shipping",
+    "canal": "shipping and trade",
+    "border": "labor, shipping, security names",
+    "immigration": "labor and construction",
+    "deport": "labor supply",
+    "sanction": "energy and banks",
+    "sanctions": "energy and banks",
+    "ai": "tech capex",
+    "artificial intelligence": "tech capex",
+    "space": "defense and launch",
+    "shipbuilding": "defense industrials",
+    "drone": "defense tech",
+    "drones": "defense tech",
+    "vaccine": "healthcare",
+    "drug": "pharma pricing",
+    "drugs": "pharma pricing",
+    "insulin": "drug pricing",
+    "crypto": "digital assets",
+    "bitcoin": "digital assets",
+    "tesla": "named company",
+    "apple": "named company",
+    "nvidia": "named company",
+    "exxon": "named energy name",
+    "boeing": "named company",
+    "lockheed": "named defense name",
+    "palantir": "named company",
+}
+
+_TRUMP_STOP = {
+    "the", "and", "that", "this", "with", "from", "have", "has", "had", "was",
+    "were", "are", "for", "not", "but", "they", "them", "you", "your", "our",
+    "his", "her", "she", "him", "who", "what", "when", "where", "which", "will",
+    "would", "could", "should", "about", "into", "than", "then", "them", "been",
+    "being", "their", "there", "these", "those", "just", "very", "much", "many",
+    "more", "most", "some", "any", "all", "also", "because", "over", "after",
+    "before", "through", "between", "under", "again", "still", "even", "only",
+    "other", "such", "own", "same", "new", "old", "good", "great", "big", "little",
+    "going", "want", "know", "think", "said", "say", "says", "get", "got", "make",
+    "made", "take", "took", "come", "came", "see", "look", "like", "back", "way",
+    "well", "right", "now", "here", "let", "lot", "lots", "thing", "things",
+    "people", "country", "america", "american", "americans", "united", "states",
+    "president", "trump", "donald", "thank", "thanks", "please", "applause",
+    "laughter", "inaudible", "audience", "reporter", "question", "mr", "mrs",
+    "vice", "first", "lady", "folks", "everybody", "everyone", "nobody",
+    "somebody", "something", "everything", "nothing", "today", "tonight",
+    "year", "years", "time", "times", "day", "days", "done", "doing", "did",
+    "don't", "didn't", "doesn't", "isn't", "wasn't", "we're", "they're",
+    "it's", "that's", "there's", "i'm", "i've", "we've", "you'll", "we're",
+    "gonna", "wanna", "gotta", "yeah", "yes", "okay", "ok", "oh", "ah",
+    "percent", "number", "one", "two", "three", "four", "five", "million",
+    "billion", "trillion", "administration", "white", "house", "remarks",
+}
+
+
+def _html_to_text(html: str) -> str:
+    import html as _html
+    t = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", html or "")
+    t = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", t)
+    t = re.sub(r"(?is)<[^>]+>", " ", t)
+    t = _html.unescape(t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _count_phrase(text: str, phrase: str) -> int:
+    if not text or not phrase:
+        return 0
+    return len(re.findall(r"\b" + re.escape(phrase) + r"\b", text, flags=re.I))
+
+
+def _trump_fetch_official(max_speeches: int = 8) -> list:
+    """Official Daily Compilation remarks from GovInfo (full transcripts)."""
+    hdr = {"User-Agent": "Mozilla/5.0 (Money Weather Trump Effect)"}
+    r = requests.post(
+        "https://www.govinfo.gov/wssearch/search",
+        json={"query": "collection:CPD publishdate:2026 remarks",
+              "offset": 0, "pageSize": 40},
+        timeout=25, headers=hdr)
+    r.raise_for_status()
+    rows = (r.json() or {}).get("resultSet") or []
+    scored = []
+    for row in rows:
+        fm = row.get("fieldMap") or {}
+        title = str(fm.get("title") or row.get("line1") or "").strip()
+        if not title.lower().startswith("remarks"):
+            continue
+        url = str(fm.get("url") or "").strip()
+        pkg = str(fm.get("packageid") or "")
+        m = re.search(r"(DCPD-20\d{2})(\d+)", pkg)
+        rank = int(m.group(2)) if m else 0
+        date = ""
+        line2 = str(row.get("line2") or "")
+        dm = re.search(r"(Monday|Tuesday|Wednesday|Thursday|Friday|"
+                       r"Saturday|Sunday),\s+([A-Za-z]+ \d{1,2}, \d{4})", line2)
+        if dm:
+            date = dm.group(2)
+        if url:
+            scored.append(dict(title=title, url=url, date=date, rank=rank,
+                               kind="Official transcript"))
+    scored.sort(key=lambda x: x["rank"], reverse=True)
+    out = []
+    for item in scored[:max(1, int(max_speeches))]:
+        try:
+            p = requests.get(item["url"], timeout=20, headers=hdr)
+            p.raise_for_status()
+            item["text"] = _html_to_text(p.text)
+        except Exception as e:
+            _log_exc("trump_effect_official", e)
+            item["text"] = ""
+        out.append(item)
+    return out
+
+
+def _trump_fetch_news(max_articles: int = 5) -> list:
+    """Recent web coverage via Google News RSS — catches speeches not yet in GovInfo."""
+    import xml.etree.ElementTree as ET
+    hdr = {"User-Agent": "Mozilla/5.0 (Money Weather Trump Effect)"}
+    url = ("https://news.google.com/rss/search?q="
+           "Trump+speech+OR+remarks+OR+address&hl=en-US&gl=US&ceid=US:en")
+    r = requests.get(url, timeout=20, headers=hdr)
+    r.raise_for_status()
+    root = ET.fromstring(r.content)
+    items = []
+    for it in root.findall(".//item"):
+        title = (it.findtext("title") or "").strip()
+        link = (it.findtext("link") or "").strip()
+        date = (it.findtext("pubDate") or "").strip()
+        if title and link:
+            items.append(dict(title=title, url=link, date=date,
+                              kind="News coverage", text=""))
+        if len(items) >= max_articles:
+            break
+    for item in items:
+        try:
+            p = requests.get(item["url"], timeout=15, headers=hdr,
+                             allow_redirects=True)
+            if p.status_code < 400 and len(p.text) > 400:
+                item["text"] = _html_to_text(p.text)[:20000]
+        except Exception as e:
+            _log_exc("trump_effect_news", e)
+    return items
+
+
+def _trump_score_words(speeches: list) -> pd.DataFrame:
+    """Flag market-signal phrases and unusually repeated topics."""
+    # longer phrases first so "rare earths" wins over "earth"
+    lexicon = sorted(_TRUMP_MARKET, key=len, reverse=True)
+    rows = []
+    for sp in speeches:
+        text = sp.get("text") or ""
+        if len(text) < 80:
+            continue
+        used_spans = []
+        low = text.lower()
+
+        def _overlap(start, end):
+            return any(not (end <= a or start >= b) for a, b in used_spans)
+
+        for phrase in lexicon:
+            for m in re.finditer(r"\b" + re.escape(phrase) + r"\b", low):
+                if _overlap(m.start(), m.end()):
+                    continue
+                used_spans.append((m.start(), m.end()))
+            n = _count_phrase(text, phrase)
+            if n <= 0:
+                continue
+            rows.append(dict(
+                Word=phrase, Count=n, Flag="Market signal",
+                Why=_TRUMP_MARKET[phrase],
+                Speech=sp.get("title") or "—",
+                Date=sp.get("date") or "",
+                Source=sp.get("url") or "",
+                Kind=sp.get("kind") or "",
+            ))
+
+        tokens = re.findall(r"[A-Za-z][A-Za-z\-]{3,}", text)
+        freq = {}
+        for tok in tokens:
+            key = tok.lower()
+            if key in _TRUMP_STOP or key in _TRUMP_MARKET:
+                continue
+            if any(key in p.split() or key == p for p in _TRUMP_MARKET):
+                continue
+            freq[key] = freq.get(key, 0) + 1
+        for word, n in freq.items():
+            if n < 8:
+                continue
+            rows.append(dict(
+                Word=word, Count=n, Flag="Repeated topic",
+                Why="Said often in this speech — a theme, not filler",
+                Speech=sp.get("title") or "—",
+                Date=sp.get("date") or "",
+                Source=sp.get("url") or "",
+                Kind=sp.get("kind") or "",
+            ))
+
+    if not rows:
+        return pd.DataFrame(columns=["Word", "Times said", "Speeches", "Flag",
+                                     "Why", "Speech", "Date", "Source"])
+    raw = pd.DataFrame(rows)
+    # keep the strongest flag per word, sum counts, keep the speech with most hits
+    raw["_pri"] = raw.Flag.map({"Market signal": 0, "Repeated topic": 1}).fillna(2)
+    raw = raw.sort_values(["Word", "_pri", "Count"], ascending=[True, True, False])
+    agg = (raw.groupby("Word", as_index=False)
+           .agg(**{
+               "Times said": ("Count", "sum"),
+               "Speeches": ("Speech", "nunique"),
+               "Flag": ("Flag", "first"),
+               "Why": ("Why", "first"),
+               "Speech": ("Speech", "first"),
+               "Date": ("Date", "first"),
+               "Source": ("Source", "first"),
+           }))
+    keep = (agg.Flag == "Market signal") | (agg["Times said"] >= 8)
+    agg = (agg[keep].sort_values(["Flag", "Times said"],
+                                 ascending=[True, False])
+           .head(80).reset_index(drop=True))
+    return agg
+
+
+def trump_effect_scan(max_speeches: int = 8) -> tuple:
+    """Pull recent Trump remarks (GovInfo transcripts + web coverage)
+    and rank words that look like a market or policy tell.
+
+    Returns (words_df, speeches_df, meta).
+    """
+    speeches, errors = [], []
+    try:
+        speeches.extend(_trump_fetch_official(max_speeches))
+    except Exception as e:
+        _log_exc("trump_effect_scan.official", e)
+        errors.append(f"Official transcripts: {e}")
+    try:
+        speeches.extend(_trump_fetch_news(5))
+    except Exception as e:
+        _log_exc("trump_effect_scan.news", e)
+        errors.append(f"Web coverage: {e}")
+    words = _trump_score_words(speeches)
+    sp_df = pd.DataFrame([
+        dict(Speech=s.get("title"), Date=s.get("date"),
+             Kind=s.get("kind"), Source=s.get("url"),
+             Chars=len(s.get("text") or ""))
+        for s in speeches
+    ])
+    meta = dict(n_speeches=len(speeches),
+                n_with_text=sum(1 for s in speeches if len(s.get("text") or "") > 80),
+                errors=errors)
+    return words, sp_df, meta
 
 
 def ticker_stats(df: pd.DataFrame) -> dict:

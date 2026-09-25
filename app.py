@@ -594,6 +594,11 @@ def _keyword_scan(asof: str, query: str, min_price: float, max_price: float,
                            top=int(top))
 
 
+@st.cache_data(ttl=1800, show_spinner="Reading recent Trump remarks and news…")
+def _trump_effect_scan(asof: str, max_speeches: int = 8):
+    return ce.trump_effect_scan(max_speeches=int(max_speeches))
+
+
 @st.cache_data(ttl=1800, show_spinner="🎯 Hunting coils, sweeps and POC reclaims…")
 def _poc_scan(asof: str, stages: tuple, top: int, accum_len: int,
               max_range_atr: float, max_bars_ago: int, sectors_key: str):
@@ -2171,6 +2176,8 @@ _HUB_KEEP_SKIP = {
     "ig_last_scan_time", "ig_last_watchlist_key", "ig_az_ticker",
     "hs_inline", "hs_run", "hs_hot_btn", "hs_chart_table", "hs_chart_handled",
     "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk",
+    "te_run", "te_snap", "te_words", "te_speeches", "te_inline", "te_inline_tk",
+    "te_table", "te_go",
 }
 
 
@@ -2187,6 +2194,14 @@ def _hub_keep_restore(name: str, prefixes: tuple) -> None:
     for k, v in bag.items():
         if k not in st.session_state:
             st.session_state[k] = v
+
+
+def _drop_blank_cols(df):
+    """Don't show a generated-list column when every cell is empty."""
+    try:
+        return ce.drop_blank_columns(df)
+    except Exception:
+        return df
 
 
 def _hub_keep_save(name: str, prefixes: tuple) -> None:
@@ -2265,7 +2280,7 @@ def _try_closes():
 
 _MAIN = ["Cascade Map", "Stock Lookup", "Scan Hub", "Macro Sim", "Advanced Guide"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
-        "Ignition Scanner", "Key Word Search"]
+        "Ignition Scanner", "Key Word Search", "Trump Effect"]
 _ADV = ["Pressure", "Sentinels", "Forced Flows", "Validation Lab", "Lenses", "Guide"]
 if st.session_state.get("mw_hub") == "Key Word":
     st.session_state["mw_hub"] = "Key Word Search"
@@ -4437,13 +4452,17 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                 ${float(_ksnap.get('lo', _kw_lo)):,.2f}–
                 ${float(_ksnap.get('hi', _kw_hi)):,.2f}</span></div>""",
                 unsafe_allow_html=True)
+            _kdf = _drop_blank_cols(_kdf)
+            _korder = [c for c in ["Ticker", "Name", "Sector", "Price",
+                                   "Where", "Snippet"] if c in _kdf.columns]
             _ksel = st.dataframe(
-                _kdf.style.format({"Price": "${:,.2f}"}, na_rep="—"),
+                _kdf.style.format(
+                    {k: v for k, v in {"Price": "${:,.2f}"}.items()
+                     if k in _kdf.columns}, na_rep="—"),
                 width="stretch", hide_index=True, height=620,
                 on_select="rerun", selection_mode="single-row",
                 key="kw_table",
-                column_order=["Ticker", "Name", "Sector", "Price",
-                              "Where", "Snippet"],
+                column_order=_korder or None,
                 column_config={
                     "Name": st.column_config.Column(help="Dump company name."),
                     "Where": st.column_config.Column(
@@ -4462,6 +4481,143 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                                    source="Key Word Search", full_lookup=True)
 
     _hub_keep_save("kw", ("kw_",))
+
+
+# ── 🇺🇸 Trump Effect — speech keywords → market tells ───────────────
+if _main == "Scan Hub" and _hub == "Trump Effect":
+    _hub_keep_restore("te", ("te_",))
+    closes, asof = _require_closes()
+    st.markdown("### 🇺🇸 Trump Effect — what he keeps saying")
+    st.caption(
+        "Scan recent official remarks (GovInfo transcripts) and web coverage. "
+        "Words are flagged two ways: **Market signal** is a place, commodity, "
+        "policy, or company that has moved a tape when he talks about it "
+        "(Greenland, tariffs, oil, chips…). **Repeated topic** is anything "
+        "he said often enough that it is a theme, not filler. Tap a word to "
+        "search the nightly dump for names that mention it."
+    )
+    _te_n = st.selectbox("How many official remarks to read", [4, 6, 8, 12],
+                         index=2, key="te_n")
+    if st.button("🔎 Scan speeches", type="primary", key="te_go",
+                 width="stretch"):
+        st.session_state["te_run"] = True
+        st.session_state.pop("te_snap", None)
+        st.session_state.pop("te_inline_tk", None)
+        st.session_state.pop("te_word", None)
+
+    if st.session_state.get("te_run"):
+        _tsnap = st.session_state.get("te_snap") or {}
+        if "words" in _tsnap:
+            _wdf = _tsnap.get("words")
+            _sdf = _tsnap.get("speeches")
+            _tmeta = _tsnap.get("meta") or {}
+        else:
+            try:
+                _wdf, _sdf, _tmeta = _trump_effect_scan(
+                    _dump_asof_key(), int(_te_n))
+            except Exception as _te:
+                _wdf, _sdf, _tmeta = pd.DataFrame(), pd.DataFrame(), {}
+                st.error(f"Scan failed: {_te}")
+            st.session_state["te_snap"] = {
+                "words": _wdf.copy() if isinstance(_wdf, pd.DataFrame)
+                else pd.DataFrame(),
+                "speeches": _sdf.copy() if isinstance(_sdf, pd.DataFrame)
+                else pd.DataFrame(),
+                "meta": _tmeta or {},
+            }
+        if isinstance(_wdf, pd.DataFrame):
+            _wdf = _drop_blank_cols(_wdf)
+        if isinstance(_sdf, pd.DataFrame):
+            _sdf = _drop_blank_cols(_sdf)
+        _errs = (_tmeta or {}).get("errors") or []
+        for _e in _errs:
+            st.caption(f"Partial source miss: {_e}")
+        if _wdf is None or _wdf.empty:
+            st.info("No flagged words yet — the sources may still be catching "
+                    "up, or the latest remarks were too short to score.")
+        else:
+            st.markdown(
+                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                border-left:4px solid {ACCENT};border-radius:10px;
+                padding:10px 14px;margin:8px 0;">
+                <b>{len(_wdf)} important word{'s' if len(_wdf) != 1 else ''}</b>
+                from {int((_tmeta or {}).get('n_with_text') or 0)} readable
+                source{'s' if int((_tmeta or {}).get('n_with_text') or 0) != 1 else ''}
+                <span style="color:{DIM};font-size:12px;"> · market signals
+                first, then repeated topics · tap a row to hunt the dump</span>
+                </div>""",
+                unsafe_allow_html=True)
+            _wshow = _wdf.copy()
+            _te_sel = st.dataframe(
+                _wshow, width="stretch", hide_index=True, height=420,
+                on_select="rerun", selection_mode="single-row",
+                key="te_words",
+                column_order=[c for c in ["Word", "Times said", "Speeches",
+                                          "Flag", "Why", "Speech", "Date",
+                                          "Source"] if c in _wshow.columns],
+                column_config={
+                    "Word": st.column_config.Column(help="The flagged term."),
+                    "Times said": st.column_config.Column(
+                        help="How many times this term appears across the "
+                             "scanned remarks and articles."),
+                    "Speeches": st.column_config.Column(
+                        help="How many of the scanned sources used the word."),
+                    "Flag": st.column_config.Column(
+                        help="Market signal = on the investment lexicon. "
+                             "Repeated topic = said often enough to be a theme."),
+                    "Why": st.column_config.Column(
+                        help="Why this word is treated as a tell."),
+                    "Source": st.column_config.LinkColumn(
+                        "Source", display_text="Open source",
+                        help="The speech or article this count came from."),
+                })
+            st.caption("👆 Tap a word to search company names and business "
+                       "summaries in the nightly dump.")
+            _trows = (_te_sel.selection.rows
+                      if _te_sel and getattr(_te_sel, "selection", None)
+                      else [])
+            if _trows:
+                try:
+                    st.session_state["te_word"] = str(
+                        _wshow.iloc[int(_trows[0])].Word).strip()
+                except Exception:
+                    pass
+            _pick = str(st.session_state.get("te_word") or "").strip()
+            if _pick:
+                st.markdown(f"#### Dump names mentioning **{_esc(_pick)}**")
+                try:
+                    _tdf = _keyword_scan(_dump_asof_key(), _pick, 1.0, 10000.0, 50)
+                    _tdf = _drop_blank_cols(_tdf)
+                except Exception as _tde:
+                    _tdf = pd.DataFrame()
+                    st.caption(f"Dump search unavailable: {_tde}")
+                if _tdf is None or _tdf.empty:
+                    st.info("No dump names mention that word in the "
+                            "business summary or company name.")
+                else:
+                    _tsel = st.dataframe(
+                        _tdf.style.format(
+                            {k: v for k, v in {"Price": "${:,.2f}"}.items()
+                             if k in _tdf.columns}, na_rep="—"),
+                        width="stretch", hide_index=True, height=420,
+                        on_select="rerun", selection_mode="single-row",
+                        key="te_table",
+                        column_order=[c for c in ["Ticker", "Name", "Sector",
+                                                  "Price", "Where", "Snippet"]
+                                      if c in _tdf.columns] or None)
+                    _scan_hub_pick_and_show(
+                        _tsel, _tdf, "te_inline", "teaz",
+                        source="Trump Effect", full_lookup=True)
+        if _sdf is not None and not _sdf.empty:
+            with st.expander("Sources scanned", expanded=False):
+                st.dataframe(
+                    _sdf, width="stretch", hide_index=True,
+                    column_config={
+                        "Source": st.column_config.LinkColumn(
+                            "Source", display_text="Open"),
+                    })
+
+    _hub_keep_save("te", ("te_",))
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
