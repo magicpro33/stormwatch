@@ -1542,6 +1542,124 @@ def dump_last_closes(tickers: list) -> dict:
     return out
 
 
+_KW_CORPUS = {}
+
+
+def _keyword_corpus() -> list:
+    """One row per dump ticker: name, summary, sector, last stored price."""
+    raw = _dump_records_cache()
+    mt = _RECORDS_CACHE.get("mt")
+    if _KW_CORPUS.get("mt") == mt and _KW_CORPUS.get("rows"):
+        return _KW_CORPUS["rows"]
+    rows = []
+    for tk, rec in (raw or {}).items():
+        an = rec.get("_analyzer") if isinstance(rec.get("_analyzer"), dict) else {}
+        name = str(an.get("longName") or an.get("shortName") or "").strip()
+        short = str(an.get("shortName") or "").strip()
+        summary = str(an.get("longBusinessSummary") or an.get("description")
+                      or rec.get("description") or "").strip()
+        sector = str(rec.get("Sector") or an.get("sector") or "Unknown").strip() or "Unknown"
+        try:
+            px = float(rec.get("Price"))
+            if not np.isfinite(px):
+                px = np.nan
+        except (TypeError, ValueError):
+            px = np.nan
+        hay_name = " ".join(x.lower() for x in (tk, name, short) if x)
+        hay_sum = " ".join(summary.lower().split())
+        rows.append(dict(
+            ticker=str(tk).upper(), name=name or str(tk).upper(),
+            sector=sector, price=px, summary=summary,
+            hay_name=hay_name, hay_sum=hay_sum))
+    _KW_CORPUS.clear()
+    _KW_CORPUS["mt"] = mt
+    _KW_CORPUS["rows"] = rows
+    return rows
+
+
+def _keyword_snippet(text: str, query: str, width: int = 160) -> str:
+    raw = " ".join(str(text or "").split())
+    if not raw:
+        return ""
+    q = str(query or "").lower()
+    low = raw.lower()
+    i = low.find(q) if q else -1
+    if i < 0:
+        return raw[:width] + ("…" if len(raw) > width else "")
+    start = max(0, i - 36)
+    end = min(len(raw), i + len(q) + 90)
+    frag = raw[start:end]
+    if start:
+        frag = "…" + frag
+    if end < len(raw):
+        frag = frag + "…"
+    return frag
+
+
+def keyword_scan(query: str, min_price: float = 0.0, max_price=None,
+                 top: int = 100) -> pd.DataFrame:
+    """Search nightly-dump names and business summaries for a keyword/phrase.
+
+    Price filter uses the dump's last close. Rank: name+summary, then name
+    (including ticker), then summary-only.
+    """
+    q = " ".join(str(query or "").lower().split())
+    if not q:
+        return pd.DataFrame(columns=["Ticker", "Name", "Sector", "Price",
+                                     "Where", "Snippet"])
+    try:
+        lo = float(min_price)
+    except (TypeError, ValueError):
+        lo = 0.0
+    try:
+        hi = float(max_price) if max_price is not None else None
+    except (TypeError, ValueError):
+        hi = None
+    if hi is not None and np.isfinite(hi) and np.isfinite(lo) and hi < lo:
+        lo, hi = hi, lo
+
+    last = {}
+    try:
+        panel, tks, _secs, _mdv, _dts = load_dump_panel()
+        C = panel["c"]
+        for i, t in enumerate(tks):
+            col = C[:, i]
+            finite = np.isfinite(col)
+            if finite.any():
+                last[str(t).strip().upper()] = float(col[np.where(finite)[0][-1]])
+    except Exception:
+        last = {}
+
+    hits = []
+    for r in _keyword_corpus():
+        px = last.get(r["ticker"], r["price"])
+        if np.isfinite(lo) and lo > 0 and (not np.isfinite(px) or px < lo):
+            continue
+        if hi is not None and np.isfinite(hi) and (not np.isfinite(px) or px > hi):
+            continue
+        in_name = q in r["hay_name"]
+        in_sum = bool(r["hay_sum"]) and q in r["hay_sum"]
+        if not (in_name or in_sum):
+            continue
+        if in_name and in_sum:
+            where, rank = "Name + summary", 0
+        elif in_name:
+            where, rank = "Name", 1
+        else:
+            where, rank = "Summary", 2
+        snippet = (_keyword_snippet(r["summary"], q) if in_sum
+                   else (r["name"] or r["ticker"]))
+        hits.append(dict(
+            Ticker=r["ticker"], Name=r["name"], Sector=r["sector"],
+            Price=round(float(px), 2) if np.isfinite(px) else np.nan,
+            Where=where, Snippet=snippet, _rank=rank))
+    hits.sort(key=lambda x: (x["_rank"], x["Ticker"]))
+    df = pd.DataFrame(hits[:max(1, int(top or 100))])
+    if not df.empty:
+        df = df.drop(columns=["_rank"])
+    return df
+
+
 def ticker_stats(df: pd.DataFrame) -> dict:
     """IGNITION-style indicator pack from an OHLCV (or Close-only) frame."""
     c = df["Close"].dropna()

@@ -587,6 +587,13 @@ def _apex_sector_list(asof: str):
     return _af.available_sectors()
 
 
+@st.cache_data(ttl=1800, show_spinner="🔎 Searching names and business summaries…")
+def _keyword_scan(asof: str, query: str, min_price: float, max_price: float,
+                  top: int):
+    return ce.keyword_scan(query, min_price=min_price, max_price=max_price,
+                           top=int(top))
+
+
 @st.cache_data(ttl=1800, show_spinner="🎯 Hunting coils, sweeps and POC reclaims…")
 def _poc_scan(asof: str, stages: tuple, top: int, accum_len: int,
               max_range_atr: float, max_bars_ago: int, sectors_key: str):
@@ -2114,6 +2121,7 @@ _HUB_KEEP_SKIP = {
     "ig_last_results", "ig_alerts", "ig_alerted", "ig_screener_pre",
     "ig_last_scan_time", "ig_last_watchlist_key", "ig_az_ticker",
     "hs_inline", "hs_run", "hs_hot_btn", "hs_chart_table", "hs_chart_handled",
+    "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk",
 }
 
 
@@ -2208,7 +2216,7 @@ def _try_closes():
 
 _MAIN = ["Cascade Map", "Stock Lookup", "Scan Hub", "Macro Sim", "Advanced Guide"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
-        "Ignition Scanner"]
+        "Ignition Scanner", "Key Word"]
 _ADV = ["Pressure", "Sentinels", "Forced Flows", "Validation Lab", "Lenses", "Guide"]
 _main = _section_bar(_MAIN, "mw_main")
 _hub = _adv = None
@@ -4300,6 +4308,110 @@ if _main == "Scan Hub" and _hub == "POC Future":
                     "low R:R is by design: these win on hit rate, not payoff.")
 
     _hub_keep_save("poc", ("poc_",))
+
+
+# ── 🔎 Key Word — dump name + business-summary search ────────────────
+if _main == "Scan Hub" and _hub == "Key Word":
+    _hub_keep_restore("kw", ("kw_",))
+    _try_closes()
+    st.markdown("### 🔎 Key Word — name and business summary")
+    st.caption("Search the nightly dump for a word or phrase in the company "
+               "name and the stored business summary. Set a price range, "
+               "then tap a row for the same chart and cards as the other "
+               "scanners.")
+
+    _kw_q = st.text_input(
+        "Keyword or phrase", key="kw_query",
+        placeholder="lithium · semiconductor · REIT · rare earth",
+        help="Case-insensitive. A phrase matches as written — "
+             "\"rare earth\" will not match \"rare\" alone.")
+    _k1, _k2, _k3 = st.columns([1, 1, 1])
+    _kw_lo = _k1.number_input("Min price $", 0.0, 100000.0, 1.0, step=1.0,
+                              key="kw_min",
+                              help="Last nightly-dump close. Stocks without "
+                                   "a price are dropped when a minimum is set.")
+    _kw_hi = _k2.number_input("Max price $", 0.0, 100000.0, 500.0, step=1.0,
+                              key="kw_max",
+                              help="Last nightly-dump close.")
+    _kw_top = _k3.selectbox("How many", [25, 50, 100, 200, 500],
+                            index=1, key="kw_top")
+
+    if st.button("🔎 Search the dump", type="primary", key="kw_go",
+                 width="stretch"):
+        st.session_state["kw_run"] = True
+        st.session_state.pop("kw_snap", None)
+        st.session_state.pop("kw_inline_tk", None)
+
+    if st.session_state.get("kw_run"):
+        _ksnap = st.session_state.get("kw_snap") or {}
+        if "df" in _ksnap:
+            _kdf = _ksnap.get("df")
+            if _kdf is None:
+                _kdf = pd.DataFrame()
+        else:
+            _q = str(_kw_q or "").strip()
+            if not _q:
+                _kdf = pd.DataFrame()
+                st.warning("Type a keyword or phrase first.")
+            else:
+                try:
+                    _kdf = _keyword_scan(_dump_asof_key(), _q,
+                                         float(_kw_lo), float(_kw_hi),
+                                         int(_kw_top))
+                except Exception as _ke:
+                    _kdf = pd.DataFrame()
+                    st.error(f"Search failed: {_ke}")
+            st.session_state["kw_snap"] = {
+                "df": _kdf.copy() if isinstance(_kdf, pd.DataFrame)
+                else pd.DataFrame(),
+                "query": str(_kw_q or "").strip(),
+                "lo": float(_kw_lo), "hi": float(_kw_hi),
+            }
+            _ksnap = st.session_state["kw_snap"]
+        if _kdf is None or _kdf.empty:
+            if str(_kw_q or "").strip():
+                st.info("No names matched that phrase in the current price "
+                        "range. Widen the prices or try a shorter word.")
+        else:
+            _qshow = (_ksnap.get("query")
+                      if isinstance(_ksnap, dict) and _ksnap.get("query")
+                      else str(_kw_q or "").strip())
+            st.markdown(
+                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                border-left:4px solid {ACCENT};border-radius:10px;
+                padding:10px 14px;margin:8px 0;">
+                <b>{len(_kdf)} match{'es' if len(_kdf) != 1 else ''}</b> for
+                <b style="color:{ACCENT};">{_esc(_qshow)}</b>
+                <span style="color:{DIM};font-size:12px;"> · dump last close
+                ${float(_ksnap.get('lo', _kw_lo)):,.2f}–
+                ${float(_ksnap.get('hi', _kw_hi)):,.2f}</span></div>""",
+                unsafe_allow_html=True)
+            _ksel = st.dataframe(
+                _kdf.style.format({"Price": "${:,.2f}"}, na_rep="—"),
+                width="stretch", hide_index=True, height=620,
+                on_select="rerun", selection_mode="single-row",
+                key="kw_table",
+                column_order=["Ticker", "Name", "Sector", "Price",
+                              "Where", "Snippet"],
+                column_config={
+                    "Name": st.column_config.Column(help="Dump company name."),
+                    "Where": st.column_config.Column(
+                        help="Name = ticker or company name. Summary = "
+                             "business description. Both when the phrase "
+                             "appears in each."),
+                    "Snippet": st.column_config.Column(
+                        width="large",
+                        help="The matching stretch of the business "
+                             "summary, or the name when only the name hit."),
+                    "Price": st.column_config.Column(
+                        help="Last close in the nightly dump."),
+                })
+            st.caption("👆 Tap a row for the chart, cards, and company "
+                       "profile below.")
+            _scan_hub_pick_and_show(_ksel, _kdf, "kw_inline", "kwaz",
+                                   source="Key Word")
+
+    _hub_keep_save("kw", ("kw_",))
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
