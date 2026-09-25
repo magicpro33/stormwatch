@@ -1807,36 +1807,142 @@ def _count_phrase(text: str, phrase: str) -> int:
     return len(re.findall(r"\b" + re.escape(phrase) + r"\b", text, flags=re.I))
 
 
-def _trump_fetch_official(max_speeches: int = 8) -> list:
-    """Official Daily Compilation remarks from GovInfo (full transcripts)."""
+def _parse_dt(s):
+    """Best-effort calendar day from RSS / GovInfo date strings."""
+    if s is None or (isinstance(s, float) and not np.isfinite(s)):
+        return None
+    try:
+        ts = pd.to_datetime(s, utc=True, errors="coerce")
+    except Exception:
+        ts = pd.NaT
+    if pd.isna(ts):
+        return None
+    try:
+        ts = ts.tz_convert(None)
+    except Exception:
+        try:
+            ts = ts.tz_localize(None)
+        except Exception:
+            pass
+    return ts.date()
+
+
+def _in_date_range(day, start, end) -> bool:
+    if day is None:
+        return False
+    if start and day < start:
+        return False
+    if end and day > end:
+        return False
+    return True
+
+
+def _is_speechy(title: str, body: str = "") -> bool:
+    """Keep remarks / addresses / Trump-quoted releases; drop proclamations."""
+    t = (title or "").lower()
+    skip = ("signed into law", "presidential message",
+            "gold star", "fact sheet:", "congressional bill",
+            "beatification", "birthday of the", "what they are saying")
+    if t.startswith("first lady"):
+        return False
+    if any(s in t for s in skip):
+        return False
+    hints = ("remark", "speech", "address", "delivers", "delivered",
+             "united nations", "press conference", "exchange with",
+             "president trump at", "president trump delivers")
+    if any(s in t for s in hints):
+        return True
+    if "president trump" in t or "president donald" in t:
+        return True
+    blob = (body or "")[:2500].lower()
+    return "the president." in blob or "president trump said" in blob
+
+
+def _trump_fetch_whitehouse(start=None, end=None, limit: int = 40) -> list:
+    """Live White House RSS — remarks + news, often hours old, not weeks."""
+    import xml.etree.ElementTree as ET
     hdr = {"User-Agent": "Mozilla/5.0 (Money Weather Trump Effect)"}
-    r = requests.post(
-        "https://www.govinfo.gov/wssearch/search",
-        json={"query": "collection:CPD publishdate:2026 remarks",
-              "offset": 0, "pageSize": 40},
-        timeout=25, headers=hdr)
-    r.raise_for_status()
-    rows = (r.json() or {}).get("resultSet") or []
-    scored = []
-    for row in rows:
-        fm = row.get("fieldMap") or {}
-        title = str(fm.get("title") or row.get("line1") or "").strip()
-        if not title.lower().startswith("remarks"):
+    ns = {"content": "http://purl.org/rss/1.0/modules/content/"}
+    feeds = (
+        ("Live remarks", "https://www.whitehouse.gov/remarks/feed/"),
+        ("White House news", "https://www.whitehouse.gov/news/feed/"),
+        ("White House news", "https://www.whitehouse.gov/news/feed/?paged=2"),
+        ("Briefings", "https://www.whitehouse.gov/briefings-statements/feed/"),
+    )
+    seen, out = set(), []
+    for kind, url in feeds:
+        try:
+            r = requests.get(url, timeout=20, headers=hdr)
+            r.raise_for_status()
+            root = ET.fromstring(r.content)
+        except Exception as e:
+            _log_exc("trump_effect_whitehouse", e)
             continue
-        url = str(fm.get("url") or "").strip()
-        pkg = str(fm.get("packageid") or "")
-        m = re.search(r"(DCPD-20\d{2})(\d+)", pkg)
-        rank = int(m.group(2)) if m else 0
-        date = ""
-        line2 = str(row.get("line2") or "")
-        dm = re.search(r"(Monday|Tuesday|Wednesday|Thursday|Friday|"
-                       r"Saturday|Sunday),\s+([A-Za-z]+ \d{1,2}, \d{4})", line2)
-        if dm:
-            date = dm.group(2)
-        if url:
-            scored.append(dict(title=title, url=url, date=date, rank=rank,
-                               kind="Official transcript"))
-    scored.sort(key=lambda x: x["rank"], reverse=True)
+        for it in root.findall(".//item"):
+            title = (it.findtext("title") or "").strip()
+            link = (it.findtext("link") or "").strip()
+            raw_date = (it.findtext("pubDate") or "").strip()
+            enc = it.find("content:encoded", ns)
+            raw = (enc.text if enc is not None and enc.text
+                   else (it.findtext("description") or "")) or ""
+            text = _html_to_text(raw)
+            if not title or not link or link in seen:
+                continue
+            if not _is_speechy(title, text):
+                continue
+            day = _parse_dt(raw_date)
+            if not _in_date_range(day, start, end):
+                continue
+            seen.add(link)
+            out.append(dict(
+                title=title, url=link,
+                date=day.isoformat() if day else raw_date,
+                day=day, kind=kind, text=text[:40000],
+            ))
+    out.sort(key=lambda x: x.get("day") or date.min, reverse=True)
+    return out[:max(1, int(limit))]
+
+
+def _trump_fetch_official(start=None, end=None, max_speeches: int = 8) -> list:
+    """Official Daily Compilation remarks from GovInfo (full transcripts, laggy)."""
+    hdr = {"User-Agent": "Mozilla/5.0 (Money Weather Trump Effect)"}
+    years = []
+    if start and end:
+        years = list(range(int(start.year), int(end.year) + 1))
+    if not years:
+        years = [date.today().year]
+    scored = []
+    for yr in years:
+        r = requests.post(
+            "https://www.govinfo.gov/wssearch/search",
+            json={"query": f"collection:CPD publishdate:{yr} remarks",
+                  "offset": 0, "pageSize": 50},
+            timeout=25, headers=hdr)
+        r.raise_for_status()
+        for row in (r.json() or {}).get("resultSet") or []:
+            fm = row.get("fieldMap") or {}
+            title = str(fm.get("title") or row.get("line1") or "").strip()
+            if not title.lower().startswith("remarks"):
+                continue
+            url = str(fm.get("url") or "").strip()
+            pkg = str(fm.get("packageid") or "")
+            m = re.search(r"(DCPD-20\d{2})(\d+)", pkg)
+            rank = int(m.group(2)) if m else 0
+            line2 = str(row.get("line2") or "")
+            dm = re.search(
+                r"(Monday|Tuesday|Wednesday|Thursday|Friday|"
+                r"Saturday|Sunday),\s+([A-Za-z]+ \d{1,2}, \d{4})", line2)
+            raw = dm.group(2) if dm else ""
+            day = _parse_dt(raw)
+            if not _in_date_range(day, start, end):
+                continue
+            if url:
+                scored.append(dict(
+                    title=title, url=url,
+                    date=day.isoformat() if day else raw,
+                    day=day, rank=rank, kind="Official transcript", text=""))
+    scored.sort(key=lambda x: (x.get("day") or date.min, x.get("rank") or 0),
+                reverse=True)
     out = []
     for item in scored[:max(1, int(max_speeches))]:
         try:
@@ -1848,36 +1954,6 @@ def _trump_fetch_official(max_speeches: int = 8) -> list:
             item["text"] = ""
         out.append(item)
     return out
-
-
-def _trump_fetch_news(max_articles: int = 5) -> list:
-    """Recent web coverage via Google News RSS — catches speeches not yet in GovInfo."""
-    import xml.etree.ElementTree as ET
-    hdr = {"User-Agent": "Mozilla/5.0 (Money Weather Trump Effect)"}
-    url = ("https://news.google.com/rss/search?q="
-           "Trump+speech+OR+remarks+OR+address&hl=en-US&gl=US&ceid=US:en")
-    r = requests.get(url, timeout=20, headers=hdr)
-    r.raise_for_status()
-    root = ET.fromstring(r.content)
-    items = []
-    for it in root.findall(".//item"):
-        title = (it.findtext("title") or "").strip()
-        link = (it.findtext("link") or "").strip()
-        date = (it.findtext("pubDate") or "").strip()
-        if title and link:
-            items.append(dict(title=title, url=link, date=date,
-                              kind="News coverage", text=""))
-        if len(items) >= max_articles:
-            break
-    for item in items:
-        try:
-            p = requests.get(item["url"], timeout=15, headers=hdr,
-                             allow_redirects=True)
-            if p.status_code < 400 and len(p.text) > 400:
-                item["text"] = _html_to_text(p.text)[:20000]
-        except Exception as e:
-            _log_exc("trump_effect_news", e)
-    return items
 
 
 def _trump_score_words(speeches: list) -> pd.DataFrame:
@@ -1957,23 +2033,51 @@ def _trump_score_words(speeches: list) -> pd.DataFrame:
     return agg
 
 
-def trump_effect_scan(max_speeches: int = 8) -> tuple:
-    """Pull recent Trump remarks (GovInfo transcripts + web coverage)
-    and rank words that look like a market or policy tell.
+def trump_effect_scan(max_speeches: int = 12, start=None, end=None) -> tuple:
+    """Pull Trump remarks in [start, end] (defaults: last 14 days).
+
+    White House RSS is the live path (same-day posts). GovInfo CPD
+    transcripts backfill older dates — that archive often lags weeks.
 
     Returns (words_df, speeches_df, meta).
     """
-    speeches, errors = [], []
+    today = date.today()
+    if end is None:
+        end = today
+    if start is None:
+        start = end - timedelta(days=14)
+    if isinstance(start, str):
+        start = date.fromisoformat(start[:10])
+    if isinstance(end, str):
+        end = date.fromisoformat(end[:10])
+    if start > end:
+        start, end = end, start
+
+    speeches, errors, seen = [], [], set()
+
+    def _take(items):
+        for s in items or []:
+            u = str(s.get("url") or "")
+            if not u or u in seen:
+                continue
+            seen.add(u)
+            speeches.append(s)
+
     try:
-        speeches.extend(_trump_fetch_official(max_speeches))
+        _take(_trump_fetch_whitehouse(
+            start, end, limit=max(int(max_speeches) * 2, 20)))
+    except Exception as e:
+        _log_exc("trump_effect_scan.whitehouse", e)
+        errors.append(f"White House live feed: {e}")
+    try:
+        need = max(4, int(max_speeches) - len(speeches))
+        _take(_trump_fetch_official(start, end, max_speeches=need))
     except Exception as e:
         _log_exc("trump_effect_scan.official", e)
         errors.append(f"Official transcripts: {e}")
-    try:
-        speeches.extend(_trump_fetch_news(5))
-    except Exception as e:
-        _log_exc("trump_effect_scan.news", e)
-        errors.append(f"Web coverage: {e}")
+
+    speeches.sort(key=lambda x: x.get("day") or date.min, reverse=True)
+    speeches = speeches[:max(1, int(max_speeches))]
     words = _trump_score_words(speeches)
     sp_df = pd.DataFrame([
         dict(Speech=s.get("title"), Date=s.get("date"),
@@ -1981,9 +2085,13 @@ def trump_effect_scan(max_speeches: int = 8) -> tuple:
              Chars=len(s.get("text") or ""))
         for s in speeches
     ])
-    meta = dict(n_speeches=len(speeches),
-                n_with_text=sum(1 for s in speeches if len(s.get("text") or "") > 80),
-                errors=errors)
+    days = [s.get("day") for s in speeches if s.get("day")]
+    meta = dict(
+        n_speeches=len(speeches),
+        n_with_text=sum(1 for s in speeches if len(s.get("text") or "") > 80),
+        newest=max(days).isoformat() if days else "",
+        start=start.isoformat(), end=end.isoformat(),
+        errors=errors)
     return words, sp_df, meta
 
 

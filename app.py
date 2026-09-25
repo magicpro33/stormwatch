@@ -594,9 +594,11 @@ def _keyword_scan(asof: str, query: str, min_price: float, max_price: float,
                            top=int(top))
 
 
-@st.cache_data(ttl=1800, show_spinner="Reading recent Trump remarks and news…")
-def _trump_effect_scan(asof: str, max_speeches: int = 8):
-    return ce.trump_effect_scan(max_speeches=int(max_speeches))
+@st.cache_data(ttl=300, show_spinner="Reading latest White House remarks…")
+def _trump_effect_scan(freshness: str, start: str, end: str,
+                       max_speeches: int = 12):
+    return ce.trump_effect_scan(start=start, end=end,
+                               max_speeches=int(max_speeches))
 
 
 @st.cache_data(ttl=1800, show_spinner="🎯 Hunting coils, sweeps and POC reclaims…")
@@ -4489,15 +4491,22 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
     closes, asof = _require_closes()
     st.markdown("### 🇺🇸 Trump Effect — what he keeps saying")
     st.caption(
-        "Scan recent official remarks (GovInfo transcripts) and web coverage. "
-        "Words are flagged two ways: **Market signal** is a place, commodity, "
-        "policy, or company that has moved a tape when he talks about it "
-        "(Greenland, tariffs, oil, chips…). **Repeated topic** is anything "
-        "he said often enough that it is a theme, not filler. Tap a word to "
-        "search the nightly dump for names that mention it."
+        "Live White House remarks and news (same-day posts), with GovInfo "
+        "transcripts as archive backfill — the official compilation often "
+        "lags weeks. Words are flagged two ways: **Market signal** is a "
+        "place, commodity, policy, or company that has moved a tape when he "
+        "talks about it (Greenland, tariffs, oil, chips…). **Repeated "
+        "topic** is anything he said often enough that it is a theme, not "
+        "filler. Tap a word to search the nightly dump for names that "
+        "mention it."
     )
-    _te_n = st.selectbox("How many official remarks to read", [4, 6, 8, 12],
-                         index=2, key="te_n")
+    _te_today = datetime.now().date()
+    _te_c1, _te_c2, _te_c3 = st.columns(3)
+    _te_from = _te_c1.date_input("From", value=_te_today - timedelta(days=14),
+                                 key="te_from")
+    _te_to = _te_c2.date_input("To", value=_te_today, key="te_to")
+    _te_n = _te_c3.selectbox("Max sources", [8, 12, 20, 30],
+                             index=1, key="te_n")
     if st.button("🔎 Scan speeches", type="primary", key="te_go",
                  width="stretch"):
         st.session_state["te_run"] = True
@@ -4513,8 +4522,14 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
             _tmeta = _tsnap.get("meta") or {}
         else:
             try:
+                _te_s = min(_te_from, _te_to)
+                _te_e = max(_te_from, _te_to)
+                _te_now = datetime.now(timezone.utc)
+                _te_fresh = (_te_now.strftime("%Y%m%d%H")
+                             + str(_te_now.minute // 5))
                 _wdf, _sdf, _tmeta = _trump_effect_scan(
-                    _dump_asof_key(), int(_te_n))
+                    _te_fresh, _te_s.isoformat(), _te_e.isoformat(),
+                    int(_te_n))
             except Exception as _te:
                 _wdf, _sdf, _tmeta = pd.DataFrame(), pd.DataFrame(), {}
                 st.error(f"Scan failed: {_te}")
@@ -4532,10 +4547,16 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
         _errs = (_tmeta or {}).get("errors") or []
         for _e in _errs:
             st.caption(f"Partial source miss: {_e}")
+        _te_newest = str((_tmeta or {}).get("newest") or "").strip()
+        _te_span = ""
+        if (_tmeta or {}).get("start") and (_tmeta or {}).get("end"):
+            _te_span = f"{_tmeta['start']} → {_tmeta['end']}"
         if _wdf is None or _wdf.empty:
-            st.info("No flagged words yet — the sources may still be catching "
-                    "up, or the latest remarks were too short to score.")
+            st.info("No flagged words in that date range — widen the dates, "
+                    "or the latest remarks were too short to score.")
         else:
+            _te_when = (f" · newest {_te_newest}" if _te_newest else "")
+            _te_rng = f" · {_te_span}" if _te_span else ""
             st.markdown(
                 f"""<div style="background:#0c1829;border:1px solid #1d2b40;
                 border-left:4px solid {ACCENT};border-radius:10px;
@@ -4543,8 +4564,9 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                 <b>{len(_wdf)} important word{'s' if len(_wdf) != 1 else ''}</b>
                 from {int((_tmeta or {}).get('n_with_text') or 0)} readable
                 source{'s' if int((_tmeta or {}).get('n_with_text') or 0) != 1 else ''}
-                <span style="color:{DIM};font-size:12px;"> · market signals
-                first, then repeated topics · tap a row to hunt the dump</span>
+                <span style="color:{DIM};font-size:12px;">{_te_when}{_te_rng}
+                 · market signals first, then repeated topics · tap a row
+                to hunt the dump</span>
                 </div>""",
                 unsafe_allow_html=True)
             _wshow = _wdf.copy()
