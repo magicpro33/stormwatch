@@ -2002,6 +2002,51 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                "Research view, not investment advice.")
 
 
+def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
+    """The Stock Lookup body — analyzer chain, cards, chart, IGNITION, profile."""
+    tk = str(tk or "").strip().upper()
+    if not tk:
+        return
+    st.divider()
+    try:
+        _info, df_tk, _eh, _ef = _analyzer(tk, asof)
+    except Exception:
+        _info, df_tk = {}, pd.DataFrame()
+    if (df_tk is None or df_tk.empty) and closes is not None \
+            and tk in getattr(closes, "columns", []):
+        df_tk = pd.DataFrame({"Close": closes[tk].dropna()})
+        _info = dict(_info or {}, _hist_source="node history")
+    _hs = {"alpaca": "Alpaca history (live)", "yahoo": "Yahoo history",
+           "dump": "nightly dump"}.get((_info or {}).get("_hist_source"),
+                                       (_info or {}).get("_hist_source"))
+    render_ticker_analysis(tk, closes, state_key=state_key, closable=False,
+                           df=df_tk, src_label=_hs, info=_info)
+    if df_tk is None or df_tk.empty:
+        st.error(f"No price history found for **{tk}** from Alpaca, Yahoo, "
+                 "or the nightly dump.")
+        return
+    try:
+        render_ignition_analyzer(tk, closes, key_prefix=az_prefix)
+    except Exception as _ae:
+        st.caption(f"Analyzer unavailable: {_ae}")
+    try:
+        _biz = dict(_info or {})
+        try:
+            _live = _yf_info(tk) or {}
+        except Exception:
+            _live = {}
+        if _live.get("longBusinessSummary") or _live.get("description"):
+            _biz.update({k: _live[k] for k in _live
+                         if _live.get(k) not in (None, "")})
+        else:
+            for k, v in _live.items():
+                if v not in (None, "") and not _biz.get(k):
+                    _biz[k] = v
+        render_business_summary(_biz, tk)
+    except Exception as _bse:
+        st.caption(f"Business summary unavailable: {_bse}")
+
+
 def _render_scan_hub_detail(tk: str, state_key: str, az_prefix: str,
                             closable: bool = True) -> None:
     """Same inline stack Hybrid Screener uses: identity cards, chart,
@@ -2070,7 +2115,8 @@ def _watchlist_tag(tk: str, price, source: str) -> bool:
 
 
 def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
-                            ticker_col: str = "Ticker", source: str = "") -> None:
+                            ticker_col: str = "Ticker", source: str = "",
+                            full_lookup: bool = False) -> None:
     """On a table row click, open the Hybrid-style stock cards under it.
     The last ticker for this scanner is kept so the chart returns after
     switching Scan Hub tabs (the dataframe selection itself resets)."""
@@ -2103,7 +2149,10 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
     st.session_state["lk_tk"] = tk
     if from_click and source:
         _watchlist_tag(tk, _row_price(row), source)
-    _render_scan_hub_detail(tk, state_key, az_prefix, closable=False)
+    if full_lookup:
+        _render_lookup_stack(tk, state_key, az_prefix)
+    else:
+        _render_scan_hub_detail(tk, state_key, az_prefix, closable=False)
 
 
 # Streamlit drops unused widget keys when a Scan Hub body unmounts. Mirror
@@ -2216,8 +2265,10 @@ def _try_closes():
 
 _MAIN = ["Cascade Map", "Stock Lookup", "Scan Hub", "Macro Sim", "Advanced Guide"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
-        "Ignition Scanner", "Key Word"]
+        "Ignition Scanner", "Key Word Search"]
 _ADV = ["Pressure", "Sentinels", "Forced Flows", "Validation Lab", "Lenses", "Guide"]
+if st.session_state.get("mw_hub") == "Key Word":
+    st.session_state["mw_hub"] = "Key Word Search"
 _main = _section_bar(_MAIN, "mw_main")
 _hub = _adv = None
 if _main == "Scan Hub":
@@ -4310,15 +4361,15 @@ if _main == "Scan Hub" and _hub == "POC Future":
     _hub_keep_save("poc", ("poc_",))
 
 
-# ── 🔎 Key Word — dump name + business-summary search ────────────────
-if _main == "Scan Hub" and _hub == "Key Word":
+# ── 🔎 Key Word Search — dump name + business-summary search ─────────
+if _main == "Scan Hub" and _hub == "Key Word Search":
     _hub_keep_restore("kw", ("kw_",))
-    _try_closes()
-    st.markdown("### 🔎 Key Word — name and business summary")
+    closes, asof = _require_closes()
+    st.markdown("### 🔎 Key Word Search — name and business summary")
     st.caption("Search the nightly dump for a word or phrase in the company "
                "name and the stored business summary. Set a price range, "
-               "then tap a row for the same chart and cards as the other "
-               "scanners.")
+               "then tap a row to load the full Stock Lookup — chart, cards, "
+               "analyzer, and company profile — under the list.")
 
     _kw_q = st.text_input(
         "Keyword or phrase", key="kw_query",
@@ -4406,10 +4457,9 @@ if _main == "Scan Hub" and _hub == "Key Word":
                     "Price": st.column_config.Column(
                         help="Last close in the nightly dump."),
                 })
-            st.caption("👆 Tap a row for the chart, cards, and company "
-                       "profile below.")
+            st.caption("👆 Tap a row to load the full Stock Lookup below the list.")
             _scan_hub_pick_and_show(_ksel, _kdf, "kw_inline", "kwaz",
-                                   source="Key Word")
+                                   source="Key Word Search", full_lookup=True)
 
     _hub_keep_save("kw", ("kw_",))
 
