@@ -1807,6 +1807,34 @@ def _count_phrase(text: str, phrase: str) -> int:
     return len(re.findall(r"\b" + re.escape(phrase) + r"\b", text, flags=re.I))
 
 
+def _trump_snippet(text: str, phrase: str, window: int = 110) -> str:
+    """Short stretch of the speech around the first phrase hit."""
+    blob = text or ""
+    if not blob:
+        return ""
+    if not phrase:
+        return (blob[:220] + "…") if len(blob) > 220 else blob
+    m = re.search(r"\b" + re.escape(phrase) + r"\b", blob, flags=re.I)
+    if not m:
+        return (blob[:220] + "…") if len(blob) > 220 else blob
+    a = max(0, m.start() - int(window))
+    b = min(len(blob), m.end() + int(window))
+    chunk = blob[a:b].strip()
+    if a:
+        chunk = "…" + chunk
+    if b < len(blob):
+        chunk = chunk + "…"
+    return chunk
+
+
+def _speech_mentions(sp: dict, query: str) -> bool:
+    q = (query or "").strip()
+    if not q:
+        return True
+    blob = f"{sp.get('title') or ''} {sp.get('text') or ''}"
+    return _count_phrase(blob, q) > 0
+
+
 def _parse_dt(s):
     """Best-effort calendar day from RSS / GovInfo date strings."""
     if s is None or (isinstance(s, float) and not np.isfinite(s)):
@@ -1837,7 +1865,7 @@ def _in_date_range(day, start, end) -> bool:
     return True
 
 
-def _is_speechy(title: str, body: str = "") -> bool:
+def _is_speechy(title: str, body: str = "", query: str = "") -> bool:
     """Keep remarks / addresses / Trump-quoted releases; drop proclamations."""
     t = (title or "").lower()
     skip = ("signed into law", "presidential message",
@@ -1847,6 +1875,9 @@ def _is_speechy(title: str, body: str = "") -> bool:
         return False
     if any(s in t for s in skip):
         return False
+    q = (query or "").strip()
+    if q and (_count_phrase(title, q) or _count_phrase(body, q)):
+        return True
     hints = ("remark", "speech", "address", "delivers", "delivered",
              "united nations", "press conference", "exchange with",
              "president trump at", "president trump delivers")
@@ -1858,7 +1889,8 @@ def _is_speechy(title: str, body: str = "") -> bool:
     return "the president." in blob or "president trump said" in blob
 
 
-def _trump_fetch_whitehouse(start=None, end=None, limit: int = 40) -> list:
+def _trump_fetch_whitehouse(start=None, end=None, limit: int = 40,
+                            query: str = "") -> list:
     """Live White House RSS — remarks + news, often hours old, not weeks."""
     import xml.etree.ElementTree as ET
     hdr = {"User-Agent": "Mozilla/5.0 (Money Weather Trump Effect)"}
@@ -1888,7 +1920,7 @@ def _trump_fetch_whitehouse(start=None, end=None, limit: int = 40) -> list:
             text = _html_to_text(raw)
             if not title or not link or link in seen:
                 continue
-            if not _is_speechy(title, text):
+            if not _is_speechy(title, text, query):
                 continue
             day = _parse_dt(raw_date)
             if not _in_date_range(day, start, end):
@@ -1903,7 +1935,8 @@ def _trump_fetch_whitehouse(start=None, end=None, limit: int = 40) -> list:
     return out[:max(1, int(limit))]
 
 
-def _trump_fetch_official(start=None, end=None, max_speeches: int = 8) -> list:
+def _trump_fetch_official(start=None, end=None, max_speeches: int = 8,
+                          query: str = "") -> list:
     """Official Daily Compilation remarks from GovInfo (full transcripts, laggy)."""
     hdr = {"User-Agent": "Mozilla/5.0 (Money Weather Trump Effect)"}
     years = []
@@ -1911,11 +1944,12 @@ def _trump_fetch_official(start=None, end=None, max_speeches: int = 8) -> list:
         years = list(range(int(start.year), int(end.year) + 1))
     if not years:
         years = [date.today().year]
+    q_extra = f" {(query or '').strip()}" if (query or "").strip() else ""
     scored = []
     for yr in years:
         r = requests.post(
             "https://www.govinfo.gov/wssearch/search",
-            json={"query": f"collection:CPD publishdate:{yr} remarks",
+            json={"query": f"collection:CPD publishdate:{yr} remarks{q_extra}",
                   "offset": 0, "pageSize": 50},
             timeout=25, headers=hdr)
         r.raise_for_status()
@@ -2033,11 +2067,50 @@ def _trump_score_words(speeches: list) -> pd.DataFrame:
     return agg
 
 
-def trump_effect_scan(max_speeches: int = 12, start=None, end=None) -> tuple:
+def _trump_search_row(speeches: list, query: str) -> pd.DataFrame:
+    """One chart row for the searched phrase — same columns as the scan."""
+    q = (query or "").strip()
+    if not q:
+        return pd.DataFrame()
+    hits, total, snippet = [], 0, ""
+    for sp in speeches:
+        n = _count_phrase(sp.get("text") or "", q)
+        if n <= 0:
+            n = _count_phrase(sp.get("title") or "", q)
+        if n <= 0:
+            continue
+        total += n
+        hits.append((n, sp))
+        if not snippet:
+            snippet = _trump_snippet(sp.get("text") or "", q)
+    if total <= 0:
+        return pd.DataFrame()
+    hits.sort(key=lambda x: x[0], reverse=True)
+    top = hits[0][1]
+    key = q.lower()
+    flag = "Market signal" if key in _TRUMP_MARKET else "Search hit"
+    why = _TRUMP_MARKET.get(key, f"Matches your search “{q}”")
+    return pd.DataFrame([{
+        "Word": q,
+        "Times said": int(total),
+        "Speeches": len(hits),
+        "Flag": flag,
+        "Why": why,
+        "Speech": top.get("title") or "—",
+        "Date": top.get("date") or "",
+        "Source": top.get("url") or "",
+        "Snippet": snippet,
+    }])
+
+
+def trump_effect_scan(max_speeches: int = 12, start=None, end=None,
+                      query: str = "") -> tuple:
     """Pull Trump remarks in [start, end] (defaults: last 14 days).
 
     White House RSS is the live path (same-day posts). GovInfo CPD
     transcripts backfill older dates — that archive often lags weeks.
+    When query is set, keep only sources that mention the keyword/phrase
+    and return the same word chart for those speeches.
 
     Returns (words_df, speeches_df, meta).
     """
@@ -2052,6 +2125,7 @@ def trump_effect_scan(max_speeches: int = 12, start=None, end=None) -> tuple:
         end = date.fromisoformat(end[:10])
     if start > end:
         start, end = end, start
+    q = (query or "").strip()
 
     speeches, errors, seen = [], [], set()
 
@@ -2063,35 +2137,67 @@ def trump_effect_scan(max_speeches: int = 12, start=None, end=None) -> tuple:
             seen.add(u)
             speeches.append(s)
 
+    pool = max(int(max_speeches) * 2, 20)
+    if q:
+        pool = max(pool, 40)
     try:
         _take(_trump_fetch_whitehouse(
-            start, end, limit=max(int(max_speeches) * 2, 20)))
+            start, end, limit=pool, query=q))
     except Exception as e:
         _log_exc("trump_effect_scan.whitehouse", e)
         errors.append(f"White House live feed: {e}")
     try:
-        need = max(4, int(max_speeches) - len(speeches))
-        _take(_trump_fetch_official(start, end, max_speeches=need))
+        need = 20 if q else max(4, int(max_speeches) - len(speeches))
+        _take(_trump_fetch_official(
+            start, end, max_speeches=need, query=q))
     except Exception as e:
         _log_exc("trump_effect_scan.official", e)
         errors.append(f"Official transcripts: {e}")
 
     speeches.sort(key=lambda x: x.get("day") or date.min, reverse=True)
-    speeches = speeches[:max(1, int(max_speeches))]
+    if q:
+        speeches = [s for s in speeches if _speech_mentions(s, q)]
+        cap = max(int(max_speeches) * 2, 20)
+        speeches = speeches[:cap]
+    else:
+        speeches = speeches[:max(1, int(max_speeches))]
     words = _trump_score_words(speeches)
-    sp_df = pd.DataFrame([
-        dict(Speech=s.get("title"), Date=s.get("date"),
-             Kind=s.get("kind"), Source=s.get("url"),
-             Chars=len(s.get("text") or ""))
-        for s in speeches
-    ])
+    if q:
+        hit = _trump_search_row(speeches, q)
+        if not hit.empty:
+            if isinstance(words, pd.DataFrame) and not words.empty:
+                words = words.copy()
+                if "Snippet" not in words.columns:
+                    words["Snippet"] = ""
+                mask = words.Word.astype(str).str.lower() == q.lower()
+                words = words.loc[~mask]
+                words = pd.concat([hit, words], ignore_index=True)
+            else:
+                words = hit
+        if isinstance(words, pd.DataFrame) and not words.empty:
+            keep_q = (words.Flag.isin(["Market signal", "Search hit"])
+                      | (words.Word.astype(str).str.lower() == q.lower()))
+            words = words.loc[keep_q].reset_index(drop=True)
+    sp_rows = []
+    for s in speeches:
+        row = dict(Speech=s.get("title"), Date=s.get("date"),
+                   Kind=s.get("kind"), Source=s.get("url"),
+                   Chars=len(s.get("text") or ""))
+        if q:
+            n = _count_phrase(s.get("text") or "", q)
+            if n <= 0:
+                n = _count_phrase(s.get("title") or "", q)
+            row["Hits"] = int(n)
+            row["Snippet"] = _trump_snippet(s.get("text") or "", q)
+        sp_rows.append(row)
+    sp_df = pd.DataFrame(sp_rows)
     days = [s.get("day") for s in speeches if s.get("day")]
     meta = dict(
         n_speeches=len(speeches),
         n_with_text=sum(1 for s in speeches if len(s.get("text") or "") > 80),
         newest=max(days).isoformat() if days else "",
         start=start.isoformat(), end=end.isoformat(),
-        errors=errors)
+        query=q, errors=errors)
     return words, sp_df, meta
 
 

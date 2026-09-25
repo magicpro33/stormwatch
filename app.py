@@ -596,9 +596,10 @@ def _keyword_scan(asof: str, query: str, min_price: float, max_price: float,
 
 @st.cache_data(ttl=300, show_spinner="Reading latest White House remarks…")
 def _trump_effect_scan(freshness: str, start: str, end: str,
-                       max_speeches: int = 12):
+                       max_speeches: int = 12, query: str = ""):
     return ce.trump_effect_scan(start=start, end=end,
-                               max_speeches=int(max_speeches))
+                               max_speeches=int(max_speeches),
+                               query=query or "")
 
 
 @st.cache_data(ttl=1800, show_spinner="🎯 Hunting coils, sweeps and POC reclaims…")
@@ -2179,7 +2180,7 @@ _HUB_KEEP_SKIP = {
     "hs_inline", "hs_run", "hs_hot_btn", "hs_chart_table", "hs_chart_handled",
     "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk",
     "te_run", "te_snap", "te_words", "te_speeches", "te_inline", "te_inline_tk",
-    "te_table", "te_go",
+    "te_table", "te_go", "te_search",
 }
 
 
@@ -4507,12 +4508,29 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
     _te_to = _te_c2.date_input("To", value=_te_today, key="te_to")
     _te_n = _te_c3.selectbox("Max sources", [8, 12, 20, 30],
                              index=1, key="te_n")
-    if st.button("🔎 Scan speeches", type="primary", key="te_go",
-                 width="stretch"):
+    _te_q = st.text_input(
+        "Keyword or phrase in speeches", key="te_query",
+        placeholder="greenland · drug prices · china · tariffs",
+        help="Search the same live remarks. Returns the same word chart, "
+             "but only sources and words that mention this phrase.")
+    _te_b1, _te_b2 = st.columns(2)
+    if _te_b1.button("🔎 Scan speeches", type="primary", key="te_go",
+                     width="stretch"):
         st.session_state["te_run"] = True
+        st.session_state["te_mode"] = "scan"
         st.session_state.pop("te_snap", None)
         st.session_state.pop("te_inline_tk", None)
         st.session_state.pop("te_word", None)
+    if _te_b2.button("🔎 Search speeches", key="te_search",
+                     width="stretch"):
+        if not str(_te_q or "").strip():
+            st.warning("Enter a keyword or phrase to search.")
+        else:
+            st.session_state["te_run"] = True
+            st.session_state["te_mode"] = "search"
+            st.session_state.pop("te_snap", None)
+            st.session_state.pop("te_inline_tk", None)
+            st.session_state.pop("te_word", None)
 
     if st.session_state.get("te_run"):
         _tsnap = st.session_state.get("te_snap") or {}
@@ -4527,9 +4545,12 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                 _te_now = datetime.now(timezone.utc)
                 _te_fresh = (_te_now.strftime("%Y%m%d%H")
                              + str(_te_now.minute // 5))
+                _te_quse = ""
+                if st.session_state.get("te_mode") == "search":
+                    _te_quse = str(_te_q or "").strip()
                 _wdf, _sdf, _tmeta = _trump_effect_scan(
                     _te_fresh, _te_s.isoformat(), _te_e.isoformat(),
-                    int(_te_n))
+                    int(_te_n), _te_quse)
             except Exception as _te:
                 _wdf, _sdf, _tmeta = pd.DataFrame(), pd.DataFrame(), {}
                 st.error(f"Scan failed: {_te}")
@@ -4551,17 +4572,26 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
         _te_span = ""
         if (_tmeta or {}).get("start") and (_tmeta or {}).get("end"):
             _te_span = f"{_tmeta['start']} → {_tmeta['end']}"
+        _te_qhit = str((_tmeta or {}).get("query") or "").strip()
         if _wdf is None or _wdf.empty:
-            st.info("No flagged words in that date range — widen the dates, "
-                    "or the latest remarks were too short to score.")
+            if _te_qhit:
+                st.info(f"No speeches in that date range mention "
+                        f"“{_esc(_te_qhit)}” — try a wider range or "
+                        f"another phrase.")
+            else:
+                st.info("No flagged words in that date range — widen the "
+                        "dates, or the latest remarks were too short to score.")
         else:
             _te_when = (f" · newest {_te_newest}" if _te_newest else "")
             _te_rng = f" · {_te_span}" if _te_span else ""
+            _te_about = (f" pertaining to “{_esc(_te_qhit)}”"
+                         if _te_qhit else "")
             st.markdown(
                 f"""<div style="background:#0c1829;border:1px solid #1d2b40;
                 border-left:4px solid {ACCENT};border-radius:10px;
                 padding:10px 14px;margin:8px 0;">
                 <b>{len(_wdf)} important word{'s' if len(_wdf) != 1 else ''}</b>
+                {_te_about}
                 from {int((_tmeta or {}).get('n_with_text') or 0)} readable
                 source{'s' if int((_tmeta or {}).get('n_with_text') or 0) != 1 else ''}
                 <span style="color:{DIM};font-size:12px;">{_te_when}{_te_rng}
@@ -4576,7 +4606,8 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                 key="te_words",
                 column_order=[c for c in ["Word", "Times said", "Speeches",
                                           "Flag", "Why", "Speech", "Date",
-                                          "Source"] if c in _wshow.columns],
+                                          "Snippet", "Source"]
+                              if c in _wshow.columns],
                 column_config={
                     "Word": st.column_config.Column(help="The flagged term."),
                     "Times said": st.column_config.Column(
@@ -4586,9 +4617,13 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                         help="How many of the scanned sources used the word."),
                     "Flag": st.column_config.Column(
                         help="Market signal = on the investment lexicon. "
-                             "Repeated topic = said often enough to be a theme."),
+                             "Repeated topic = said often enough to be a theme. "
+                             "Search hit = the phrase you searched."),
                     "Why": st.column_config.Column(
                         help="Why this word is treated as a tell."),
+                    "Snippet": st.column_config.Column(
+                        width="large",
+                        help="The stretch of the speech around the search."),
                     "Source": st.column_config.LinkColumn(
                         "Source", display_text="Open source",
                         help="The speech or article this count came from."),
@@ -4631,10 +4666,16 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                         _tsel, _tdf, "te_inline", "teaz",
                         source="Trump Effect", full_lookup=True)
         if _sdf is not None and not _sdf.empty:
-            with st.expander("Sources scanned", expanded=False):
+            with st.expander("Sources scanned", expanded=bool(_te_qhit)):
                 st.dataframe(
                     _sdf, width="stretch", hide_index=True,
                     column_config={
+                        "Hits": st.column_config.Column(
+                            help="How many times the searched phrase "
+                                 "appears in this source."),
+                        "Snippet": st.column_config.Column(
+                            width="large",
+                            help="The stretch of the speech around the search."),
                         "Source": st.column_config.LinkColumn(
                             "Source", display_text="Open"),
                     })
