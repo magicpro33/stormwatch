@@ -17,11 +17,12 @@ downstream nodes each wave historically reaches — with lag and hit rate.
 - Cascade Map — the storm tracks: ~50 global nodes, edges re-estimated
   walk-forward weekly, live wave → downstream forecasts.
 - Cascade Validation Lab — one-click walk-forward backtest with an honesty split.
-- Cascade Guide — the reference, including Crypto Helper (how to read Crypto Copycat).
+- Cascade Guide — the reference for the cascade (waves, glossary, flow map).
 - Scan Hub — TOP20, APEX FLOW, POC Future, ShakeOut, Hybrid Screener,
   Ignition Scanner.
 - Crypto Copycat — Hyperliquid top-earner buys and sells, plus vaults
   (the exchange's own copy-trading product). Public data, no key.
+  Crypto Helper on that same tab explains the screen.
 
 **Deploy (Streamlit Cloud)**
 1. Push this folder (or connect the repo) to [share.streamlit.io](https://share.streamlit.io). Main file: `app.py`. Python 3.10+.

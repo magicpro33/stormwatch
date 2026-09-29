@@ -1114,10 +1114,107 @@ def _render_vaults() -> None:
     )
 
 
+def _render_helper() -> None:
+    st.markdown("### ₿ Crypto Helper")
+    st.caption("How to read this screen. It does not place trades.")
+    st.markdown(
+        "Crypto Copycat uses Hyperliquid's public data. No key, no wallet "
+        "connection, and no orders. A fill you can already see has printed, "
+        "so you do not get that entry. The way to actually follow a leader "
+        "on this exchange is a **vault**: you deposit USDC, the leader trades "
+        "the pool, and your share follows the book from then on.\n\n"
+        "Third-party sites such as Hypurrscan and Coinglass repackage the "
+        "same public tape. The wallet links on the roster open Hypurrscan "
+        "when you want a deeper look at one address. The ranking, the tape, "
+        "and the vault list here are the same Hyperliquid feeds.")
+
+    st.markdown("#### The three views")
+    st.markdown(
+        "- **Earner tape** — who is up, and the buys and sells they printed "
+        "in the tape window. A bar chart shows net buy versus sell notional. "
+        "Under that, the largest open bets (eight of them). The rest of the "
+        "book is on Open books.\n"
+        "- **Open books** — the live perp positions for those wallets, "
+        "including Hyperliquid's other markets (the `xyz` books and the rest). "
+        "The default perp endpoint misses those, and a lot of the big books "
+        "sit there. When two or more wallets are on the same coin, the line "
+        "above the table is their net agreement.\n"
+        "- **Copy vaults** — Hyperliquid's own copy-trading product. Closed "
+        "vaults and child vaults are left out. The protocol vault (HLP) is "
+        "tagged. Each row links to the vault page, where a deposit is made "
+        "on Hyperliquid, not in this app.")
+
+    st.markdown("#### Who counts as a top earner")
+    st.markdown(
+        "- **Rank window** — Day is who is hot right now, and it is the "
+        "default so the tape is not a list of people sitting still. Week, "
+        "month, and all-time are the slower cut. Month PnL stays on the "
+        "roster either way.\n"
+        "- **Rank by** — dollar PnL is money earned in that window. ROI % is "
+        "the return on account value, so a smaller account can outrank a "
+        "larger one.\n"
+        "- **Min account** — drops tiny accounts whose percentage is one "
+        "lucky fill. Default is 100k.\n"
+        "- **Max volume / equity** — drops market makers. Default is 3×. "
+        "A wallet whose volume in the window is many times its equity is "
+        "scalping both sides. Those fills are not a book you can copy.\n"
+        "- **Wallets** — how many ranked addresses to follow, from 3 to 8. "
+        "The cap keeps the public API inside its rate limit.\n"
+        "- **Also watch** — one extra 0x address, 42 characters, followed "
+        "alongside the ranked list.")
+
+    st.markdown("#### The tape")
+    st.markdown(
+        "Each row is one fill: time (New York), trader, coin, market, side, "
+        "whether it opened or closed, size, price, notional, and closed PnL.\n\n"
+        "- **Tape window** — 15 minutes, 1 hour, 4 hours, or 24 hours. "
+        "Default is 1 hour.\n"
+        "- **Side** — All, Buys, or Sells. This filters the tape only. "
+        "Open positions stay listed either way.\n"
+        "- **Coin filter** — limits both the tape and the open-book list "
+        "to coins whose name contains that text.\n"
+        "- **Live** — positions and fills refresh about every 25 seconds. "
+        "The leaderboard snapshot itself refreshes about hourly. "
+        "**Reload leaderboard** pulls a new snapshot without waiting.\n\n"
+        "Hyperliquid returns at most 2,000 fills per request, and a full "
+        "2,000 is the oldest slice in the window, not the newest. If a "
+        "wallet is still at that cap on a shorter retry, its tape is hidden "
+        "for a while and its positions still show. An empty tape next to a "
+        "large open book means they are holding, not that the feed failed. "
+        "Day leaders often sit like that.\n\n"
+        "Board equity is the leaderboard's account value. Live perp equity "
+        "is what the position endpoint reports right now. They can differ "
+        "when margin sits somewhere the perp call does not count. Spot USDC "
+        "is not added on top of perp equity, because that double-counts "
+        "margin.")
+
+    st.markdown("#### Copy vaults")
+    st.markdown(
+        "Defaults keep vaults with at least 250k locked, 45 days of history, "
+        "and a positive month, sorted by month PnL, showing 20. A four-digit "
+        "APR on a vault opened last week is not a track record, which is "
+        "what the age and size floors are for.\n\n"
+        "- **Month PnL** — dollars the vault made over the last month.\n"
+        "- **Month / TVL** — that profit relative to the money in the vault.\n"
+        "- **APR** — the exchange's annualized figure. Treat a huge number "
+        "on a young vault as a short hot streak.\n"
+        "- **All-time PnL** and **Age** — the longer record sitting next to "
+        "the month.\n"
+        "- **Reload vaults** refreshes the list. The cached copy is about "
+        "30 minutes old otherwise.\n\n"
+        "Open the vault link, read who the leader is, and decide there. "
+        "This app will not deposit for you.")
+    st.caption("Research only. Probability tilts, not prophecy. "
+               "Not investment advice.")
+
+
 def render_crypto_copycat_tab() -> None:
     """Money Maker entry point."""
     _header()
-    view = _section(["Earner tape", "Open books", "Copy vaults"], "cc_view")
+    view = _section(["Earner tape", "Open books", "Copy vaults", "Crypto Helper"], "cc_view")
+    if view == "Crypto Helper":
+        _render_helper()
+        return
     if view == "Copy vaults":
         _vault_controls()
         _render_vaults()
