@@ -2193,16 +2193,27 @@ _HUB_KEEP_SKIP = {
     "ig_last_scan_time", "ig_last_watchlist_key", "ig_az_ticker",
     "ig_scan", "ig_wl_add", "ig_results_table",
     "hs_inline", "hs_run", "hs_hot_btn", "hs_chart_table", "hs_chart_handled",
+    "hs_preset_clean", "hs_preset_felix", "hs_preset_squeeze", "hs_preset_lowpos",
+    "hs_preset_volume", "hs_preset_breakout", "hs_preset_insider", "hs_preset_ipo",
     "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk",
     "te_run", "te_snap", "te_words", "te_speeches", "te_inline", "te_inline_tk",
     "te_table", "te_go", "te_search", "macro_advise", "macro_apply",
 }
 
 
+def _hub_keep_is_button(k: str) -> bool:
+    """One-shot widgets — Streamlit forbids writing their keys in session_state."""
+    if k.endswith(("_btn", "_table", "_csv", "_go", "_run", "_scan")):
+        return True
+    if "_preset_" in k:
+        return True
+    return False
+
+
 def _hub_keep_ok(k: str, prefixes: tuple) -> bool:
     if k in _HUB_KEEP_SKIP or k.startswith("_keep_"):
         return False
-    if k.endswith(("_btn", "_table", "_csv", "_go", "_run", "_scan")):
+    if _hub_keep_is_button(k):
         return False
     return any(k == p or k.startswith(p) for p in prefixes)
 
@@ -2212,7 +2223,7 @@ def _hub_keep_restore(name: str, prefixes: tuple) -> None:
     for k, v in list(bag.items()):
         if not _hub_keep_ok(k, prefixes):
             bag.pop(k, None)
-            if k.endswith(("_btn", "_go", "_run", "_scan")):
+            if _hub_keep_is_button(k):
                 st.session_state.pop(k, None)
             continue
         if k not in st.session_state:
