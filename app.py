@@ -120,6 +120,13 @@ try:
 except Exception as _ige:
     render_ignition_scanner_tab, _IG_ERR = None, _ige
 
+try:
+    _cc = _load_local_mod("crypto_copycat")
+    render_crypto_copycat_tab = _cc.render_crypto_copycat_tab
+    _CC_ERR = None
+except Exception as _cce:
+    render_crypto_copycat_tab, _CC_ERR = None, _cce
+
 REQUIRED_ENGINE = "2.42"
 st.set_page_config(page_title="Money Weather", page_icon="🌩", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
@@ -135,7 +142,7 @@ if _engine_v != REQUIRED_ENGINE:
 # ── Global tab focus-outline fix ────────────────────────────────────
 # Applies once, at the top level, so it covers every tab in every sub-app
 # (Cascade Map, Stock Lookup, Top 20, Hybrid Screener, Ignition Scanner,
-# etc.) rather than relying on each module's own CSS block, which only
+# Crypto Copycat, etc.) rather than relying on each module's own CSS block, which only
 # lands in the DOM while that module happens to be rendering. Browsers
 # draw a default focus ring on the clicked tab button; this removes it
 # while leaving each app's own "active tab" highlight styling untouched.
@@ -2292,7 +2299,7 @@ def _try_closes():
     return closes, asof
 
 
-_MAIN = ["Cascade Map", "Stock Lookup", "Scan Hub", "Macro Sim", "Advanced Guide"]
+_MAIN = ["Cascade Map", "Stock Lookup", "Scan Hub", "Crypto Copycat", "Macro Sim", "Advanced Guide"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
         "Ignition Scanner", "Key Word Search", "Trump Effect"]
 _ADV = ["Pressure", "Sentinels", "Forced Flows", "Validation Lab", "Lenses", "Guide"]
@@ -3955,6 +3962,12 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                     "Research tool. Probability tilts, not prophecy. Not investment advice.")
 
     _hub_keep_save("apex", ("apex_",))
+
+if _main == "Crypto Copycat":
+    if _CC_ERR is not None or render_crypto_copycat_tab is None:
+        st.error(f"Crypto Copycat failed to load: {_CC_ERR}")
+    else:
+        render_crypto_copycat_tab()
 
     # ── 🧪 macro simulator (the original, embedded whole) ────────────────
 if _main == "Macro Sim":

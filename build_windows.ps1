@@ -29,7 +29,7 @@ Write-Host "Compile-check…"
 & $venvPy -m compileall -q `
     app.py cascade_engine.py desktop_main.py mw_paths.py mw_log.py mw_secrets.py mw_yf.py `
     apex_flow.py poc_future.py hybrid_screener.py ignition_scanner.py `
-    storm_watch_tab.py storm_watch_engine.py
+    storm_watch_tab.py storm_watch_engine.py crypto_copycat.py
 if ($LASTEXITCODE -ne 0) { Write-Error "compileall failed" }
 
 if (Test-Path ".\dist\MoneyWeather") { Remove-Item -Recurse -Force ".\dist\MoneyWeather" }

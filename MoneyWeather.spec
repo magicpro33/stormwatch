@@ -14,6 +14,7 @@ datas = [
     (os.path.join(ROOT, "storm_watch_tab.py"), "."),
     (os.path.join(ROOT, "storm_watch_engine.py"), "."),
     (os.path.join(ROOT, "ignition_scanner.py"), "."),
+    (os.path.join(ROOT, "crypto_copycat.py"), "."),
     (os.path.join(ROOT, "mw_paths.py"), "."),
     (os.path.join(ROOT, "mw_log.py"), "."),
     (os.path.join(ROOT, "mw_secrets.py"), "."),
@@ -35,7 +36,7 @@ if os.path.isfile(_bt):
 hiddenimports = [
     "mw_paths", "mw_log", "mw_secrets", "mw_yf",
     "cascade_engine", "apex_flow", "poc_future", "hybrid_screener",
-    "storm_watch_tab", "storm_watch_engine", "ignition_scanner",
+    "storm_watch_tab", "storm_watch_engine", "ignition_scanner", "crypto_copycat",
     "streamlit", "streamlit.web.cli", "streamlit.runtime.scriptrunner",
     "yfinance", "plotly", "plotly.graph_objects", "plotly.subplots",
     "pandas", "numpy", "pyarrow", "requests", "tzdata",

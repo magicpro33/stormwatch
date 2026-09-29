@@ -19,6 +19,8 @@ downstream nodes each wave historically reaches — with lag and hit rate.
 - Validation Lab — one-click walk-forward backtest with an honesty split.
 - Scan Hub — TOP20, APEX FLOW, POC Future, ShakeOut, Hybrid Screener,
   Ignition Scanner.
+- Crypto Copycat — Hyperliquid top-earner buys and sells, plus vaults
+  (the exchange's own copy-trading product). Public data, no key.
 
 **Deploy (Streamlit Cloud)**
 1. Push this folder (or connect the repo) to [share.streamlit.io](https://share.streamlit.io). Main file: `app.py`. Python 3.10+.
@@ -27,7 +29,7 @@ downstream nodes each wave historically reaches — with lag and hit rate.
 4. Ship together (same commit):
    - `app.py`, `cascade_engine.py`, `apex_flow.py`, `poc_future.py`
    - `hybrid_screener.py`, `ignition_scanner.py`
-   - `storm_watch_tab.py`, `storm_watch_engine.py`
+   - `storm_watch_tab.py`, `storm_watch_engine.py`, `crypto_copycat.py`
    - `mw_paths.py`, `mw_log.py`, `mw_secrets.py`, `mw_yf.py`
    - `macro_simulator.html`, `assets/aiupscale_logo.png`
    - `requirements.txt`, `.streamlit/config.toml`
