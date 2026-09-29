@@ -116,9 +116,12 @@ except Exception as _swe:
 try:
     _ig = _load_local_mod("ignition_scanner")
     render_ignition_scanner_tab = _ig.render_ignition_scanner_tab
+    render_catalyst_signals = getattr(_ig, "render_catalyst_signals", None)
     _IG_ERR = None
 except Exception as _ige:
-    render_ignition_scanner_tab, _IG_ERR = None, _ige
+    render_ignition_scanner_tab = None
+    render_catalyst_signals = None
+    _IG_ERR = _ige
 
 try:
     _cc = _load_local_mod("crypto_copycat")
@@ -2035,6 +2038,11 @@ def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
                                        (_info or {}).get("_hist_source"))
     render_ticker_analysis(tk, closes, state_key=state_key, closable=False,
                            df=df_tk, src_label=_hs, info=_info)
+    try:
+        if render_catalyst_signals:
+            render_catalyst_signals(tk)
+    except Exception as _cse:
+        st.caption(f"Catalyst signals unavailable: {_cse}")
     if df_tk is None or df_tk.empty:
         st.error(f"No price history found for **{tk}** from Alpaca, Yahoo, "
                  "or the nightly dump.")
@@ -2183,6 +2191,7 @@ _HUB_KEEP_SKIP = {
     "sw_table", "sw_download", "sw_inline", "sw_inline_tk",
     "ig_last_results", "ig_alerts", "ig_alerted", "ig_screener_pre",
     "ig_last_scan_time", "ig_last_watchlist_key", "ig_az_ticker",
+    "ig_scan", "ig_wl_add", "ig_results_table",
     "hs_inline", "hs_run", "hs_hot_btn", "hs_chart_table", "hs_chart_handled",
     "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk",
     "te_run", "te_snap", "te_words", "te_speeches", "te_inline", "te_inline_tk",
@@ -2193,14 +2202,19 @@ _HUB_KEEP_SKIP = {
 def _hub_keep_ok(k: str, prefixes: tuple) -> bool:
     if k in _HUB_KEEP_SKIP or k.startswith("_keep_"):
         return False
-    if k.endswith(("_btn", "_table", "_csv", "_go", "_run")):
+    if k.endswith(("_btn", "_table", "_csv", "_go", "_run", "_scan")):
         return False
     return any(k == p or k.startswith(p) for p in prefixes)
 
 
 def _hub_keep_restore(name: str, prefixes: tuple) -> None:
     bag = st.session_state.get(f"_keep_{name}") or {}
-    for k, v in bag.items():
+    for k, v in list(bag.items()):
+        if not _hub_keep_ok(k, prefixes):
+            bag.pop(k, None)
+            if k.endswith(("_btn", "_go", "_run", "_scan")):
+                st.session_state.pop(k, None)
+            continue
         if k not in st.session_state:
             st.session_state[k] = v
 
@@ -2303,7 +2317,7 @@ def _try_closes():
     return closes, asof
 
 
-_MAIN = ["Scan Hub", "Cascade Map", "Stock Lookup", "Crypto Copycat", "Macro Sim"]
+_MAIN = ["Scan Hub", "Stock Lookup", "Crypto Copycat", "Macro Sim", "Cascade Map"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
         "Ignition Scanner", "Key Word Search", "Trump Effect"]
 _MAP = ["Market Weather", "Cascade Pressure", "Cascade Sentinels", "Forced Flows",
@@ -2770,6 +2784,12 @@ if _main == "Stock Lookup":
                     if hasattr(ce, "watchlist_source_label")
                     else (str((_ent or {}).get("source") or _src or "").strip() or "Stock Lookup"))
             st.caption(f"⭐ {tk} is on your watchlist · {_tag}")
+
+        try:
+            if render_catalyst_signals:
+                render_catalyst_signals(tk)
+        except Exception as _cse:
+            st.caption(f"Catalyst signals unavailable: {_cse}")
 
         # ── IGNITION Stock Analyzer (ported) — full fundamental deep dive ──
         st.divider()

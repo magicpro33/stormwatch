@@ -544,6 +544,161 @@ CATALYST_SECTOR_WHITELIST = {
     "earn_growth": None,   # universal — any company can post record earnings
 }
 
+CATALYST_TAG_META = {
+    "earnings":     ("EARNINGS",  "ct-earnings",
+                     lambda t: f"https://finance.yahoo.com/calendar/earnings?symbol={t}"),
+    "fda":          ("FDA",       "ct-fda",
+                     lambda t: f"https://www.google.com/search?q={t}+FDA+approval+news&tbm=nws"),
+    "buyout":       ("M&A",       "ct-buyout",
+                     lambda t: f"https://www.google.com/search?q={t}+merger+acquisition+buyout&tbm=nws"),
+    "legal":        ("LEGAL",     "ct-legal",
+                     lambda t: f"https://www.google.com/search?q={t}+lawsuit+settlement+verdict&tbm=nws"),
+    "partnership":  ("PARTNER",   "ct-partnership",
+                     lambda t: f"https://finance.yahoo.com/quote/{t}/news/"),
+    "squeeze":      ("SQUEEZE",   "ct-squeeze",
+                     lambda t: f"https://finviz.com/quote.ashx?t={t}"),
+    "breakout":     ("BREAKOUT",  "ct-breakout",
+                     lambda t: f"https://finviz.com/quote.ashx?t={t}&ty=c&ta=1&p=d"),
+    "geopolitical": ("GEO/MACRO", "ct-geopolitical",
+                     lambda t: f"https://www.google.com/search?q={t}+tariff+geopolitical+news&tbm=nws"),
+    "rate":         ("FED/RATES", "ct-rate",
+                     lambda t: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"),
+    "earn_growth":  ("EARN ↑",    "ct-earn-growth",
+                     lambda t: f"https://finance.yahoo.com/quote/{t}/financials/"),
+}
+BIMODAL_TAG = (
+    "BIMODAL", "ct-bimodal",
+    lambda t: f"https://finance.yahoo.com/calendar/earnings?symbol={t}",
+)
+
+CATALYST_SIGNAL_CSS = """<style>
+.fuel-tag {
+    display: inline-block; font-family: 'Space Mono', monospace; font-size: 11px;
+    padding: 2px 8px; border-radius: 4px; margin-right: 6px; margin-bottom: 4px;
+    background: #0d1e33; border: 1px solid #1e3a5f; color: #b0c8e8;
+}
+.fuel-tag a { color: inherit; text-decoration: none; }
+.fuel-tag a:hover { text-decoration: underline; opacity: 0.85; }
+.ct-earnings     { background:#0d2215; border-color:#1e6b35; color:#4dd880; }
+.ct-fda          { background:#150d22; border-color:#6b35a0; color:#c07ae0; }
+.ct-buyout       { background:#211800; border-color:#c47d0e; color:#f5c040; }
+.ct-legal        { background:#220d0d; border-color:#a03535; color:#ff4444; }
+.ct-partnership  { background:#07111f; border-color:#1e6a8a; color:#29b6c8; }
+.ct-squeeze      { background:#1f1200; border-color:#c47d0e; color:#f5a623; }
+.ct-breakout     { background:#071a10; border-color:#1a8040; color:#3ddc84; }
+.ct-geopolitical { background:#0d1020; border-color:#3a5090; color:#7090d0; }
+.ct-rate         { background:#1a1500; border-color:#907020; color:#d0b040; }
+.ct-bimodal      { background:#221800; border-color:#f5a623; color:#f5a623; }
+.ct-earn-growth  { background:#071a10; border-color:#1e8a3a; color:#4dd880; }
+.dtc-gauge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: 'Space Mono', monospace; font-size: 11px;
+    padding: 2px 8px 2px 7px; border-radius: 4px; margin-right: 6px;
+    background: #0a1828; border: 1px solid #1e4a7a; color: #b0c8e8;
+    vertical-align: middle;
+}
+.dtc-gauge a { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+.dtc-bar-track {
+    display: inline-block; width: 36px; height: 5px; background: #122540;
+    border-radius: 3px; overflow: hidden; vertical-align: middle;
+}
+.dtc-bar-fill { display: block; height: 100%; border-radius: 3px; }
+</style>"""
+
+
+def catalyst_pill(label: str, css_class: str, url: str) -> str:
+    return (
+        f"<span class='fuel-tag {css_class}'>"
+        f"<a href='{url}' target='_blank' rel='noopener'>{label}</a>"
+        f"</span>"
+    )
+
+
+def dtc_gauge_pill(ticker: str, dtc: float) -> str:
+    url = f"https://finviz.com/quote.ashx?t={ticker}"
+    pct = min(dtc / 15.0, 1.0) * 100
+    if dtc >= 10:
+        color, label, intensity = "#ff3333", "SQUEEZE", "EXTREME"
+    elif dtc >= 7:
+        color, label, intensity = "#f5a623", "SHORT", "HIGH"
+    elif dtc >= 5:
+        color, label, intensity = "#d0b040", "SHORT", "MOD"
+    else:
+        color, label, intensity = "#5090d0", "SHORT", "LOW"
+    bar = (
+        f"<span class='dtc-bar-track'>"
+        f"<span class='dtc-bar-fill' style='width:{pct:.0f}%;background:{color}'></span>"
+        f"</span>"
+    )
+    return (
+        f"<span class='dtc-gauge' style='border-color:{color};color:{color}'>"
+        f"<a href='{url}' target='_blank' rel='noopener'>"
+        f"{label} {bar} {intensity} "
+        f"<span style='color:#7a9ab8;font-size:10px'>({dtc}d)</span>"
+        f"</a></span>"
+    )
+
+
+def build_catalyst_tags_html(ticker: str, cat_tags: list, bimodal: bool,
+                             dtc=None, earnings_days=None) -> str:
+    parts = []
+    if bimodal:
+        label, css, url_fn = BIMODAL_TAG
+        parts.append(catalyst_pill(label, css, url_fn(ticker)))
+    for tag in cat_tags or []:
+        if tag not in CATALYST_TAG_META:
+            continue
+        label, css, url_fn = CATALYST_TAG_META[tag]
+        if tag == "earnings" and earnings_days is not None:
+            label = (f"EARN {earnings_days}d" if earnings_days >= 0
+                     else f"EARN -{abs(earnings_days)}d")
+        parts.append(catalyst_pill(label, css, url_fn(ticker)))
+    if dtc and dtc >= 5:
+        parts.append(dtc_gauge_pill(ticker, dtc))
+    return "".join(parts)
+
+
+def render_catalyst_signals(ticker: str) -> None:
+    """IGNITION catalyst pills for a single ticker (Stock Lookup, etc.)."""
+    tk = str(ticker or "").strip().upper()
+    if not tk:
+        return
+    st.markdown(CATALYST_SIGNAL_CSS, unsafe_allow_html=True)
+    st.markdown("##### Catalysts Detected")
+    try:
+        with st.spinner("Scanning catalysts…"):
+            fuel = fetch_fuel(tk) or {}
+    except Exception as e:
+        st.caption(f"Catalyst scan unavailable: {e}")
+        return
+    cat_tags = fuel.get("catalyst_tags") or []
+    bimodal = bool(fuel.get("bimodal_event"))
+    dtc_val = fuel.get("days_to_cover")
+    ed = fuel.get("earnings_days")
+    cat_html = build_catalyst_tags_html(tk, cat_tags, bimodal, dtc_val, ed)
+    suppressed = fuel.get("catalyst_suppressed") or []
+    for s in suppressed:
+        cat_html += (
+            f"<span style='font-family:Space Mono,monospace;font-size:10px;"
+            f"color:#7a9ab8;border:1px dashed #1e3a5f;border-radius:4px;"
+            f"padding:1px 6px;margin:2px 3px 2px 0;text-decoration:line-through;"
+            f"display:inline-block'>{str(s).upper()}</span>"
+        )
+    headline = str(fuel.get("latest_headline") or "").strip()
+    if headline:
+        cat_html += (
+            f"<div style='margin-top:8px;font-size:12px;color:#9aa8bd'>"
+            f"{headline}</div>"
+        )
+    if cat_html:
+        st.markdown(cat_html, unsafe_allow_html=True)
+    else:
+        st.caption("No catalyst tags firing on this name right now.")
+    issues = fuel.get("data_issues") or []
+    if issues:
+        st.caption(" · ".join(str(x) for x in issues[:2]))
+
+
 # ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
@@ -2609,86 +2764,6 @@ def render_ignition_scanner_tab():
     # Banners removed — IGNITING and GAP REV status shown via card icons instead
     igniting_now = [r for r in ok if r["igniting"]]
     reversals_now = [r for r in ok if r["gap_reversal"]]
-
-    # Catalyst tag definitions: label, CSS class, URL builder (lambda ticker -> url)
-    CATALYST_TAG_META = {
-        "earnings":     ("EARNINGS",  "ct-earnings",     lambda t: f"https://finance.yahoo.com/calendar/earnings?symbol={t}"),
-        "fda":          ("FDA",       "ct-fda",          lambda t: f"https://www.google.com/search?q={t}+FDA+approval+news&tbm=nws"),
-        "buyout":       ("M&A",       "ct-buyout",       lambda t: f"https://www.google.com/search?q={t}+merger+acquisition+buyout&tbm=nws"),
-        "legal":        ("LEGAL",     "ct-legal",        lambda t: f"https://www.google.com/search?q={t}+lawsuit+settlement+verdict&tbm=nws"),
-        "partnership":  ("PARTNER",   "ct-partnership",  lambda t: f"https://finance.yahoo.com/quote/{t}/news/"),
-        "squeeze":      ("SQUEEZE",   "ct-squeeze",      lambda t: f"https://finviz.com/quote.ashx?t={t}"),
-        "breakout":     ("BREAKOUT",  "ct-breakout",     lambda t: f"https://finviz.com/quote.ashx?t={t}&ty=c&ta=1&p=d"),
-        "geopolitical": ("GEO/MACRO", "ct-geopolitical", lambda t: f"https://www.google.com/search?q={t}+tariff+geopolitical+news&tbm=nws"),
-        "rate":         ("FED/RATES", "ct-rate",         lambda t: "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"),
-        "earn_growth":  ("EARN ↑",    "ct-earn-growth",  lambda t: f"https://finance.yahoo.com/quote/{t}/financials/"),
-    }
-
-    BIMODAL_TAG = ("BIMODAL", "ct-bimodal", lambda t: f"https://finance.yahoo.com/calendar/earnings?symbol={t}")
-    DTC_TAG_CLASS = "ct-dtc"
-
-
-    def catalyst_pill(label: str, css_class: str, url: str) -> str:
-        """Return an HTML span pill that is a clickable colored link."""
-        return (
-            f"<span class='fuel-tag {css_class}'>"
-            f"<a href='{url}' target='_blank' rel='noopener'>{label}</a>"
-            f"</span>"
-        )
-
-
-    def dtc_gauge_pill(ticker: str, dtc: float) -> str:
-        """Render DTC as a labeled fuel gauge bar pill.
-        Scale: 0d = empty, 15d+ = full. Color shifts low→mid→high."""
-        url = f"https://finviz.com/quote.ashx?t={ticker}"
-        pct = min(dtc / 15.0, 1.0) * 100
-        if dtc >= 10:
-            color = "#ff3333"   # red  = extreme squeeze fuel
-            label = "SQUEEZE"
-            intensity = "EXTREME"
-        elif dtc >= 7:
-            color = "#f5a623"   # amber = high squeeze fuel
-            label = "SHORT"
-            intensity = "HIGH"
-        elif dtc >= 5:
-            color = "#d0b040"   # yellow = moderate
-            label = "SHORT"
-            intensity = "MOD"
-        else:
-            color = "#5090d0"   # blue = low
-            label = "SHORT"
-            intensity = "LOW"
-        bar = (
-            f"<span class='dtc-bar-track'>"
-            f"<span class='dtc-bar-fill' style='width:{pct:.0f}%;background:{color}'></span>"
-            f"</span>"
-        )
-        return (
-            f"<span class='dtc-gauge' style='border-color:{color};color:{color}'>"
-            f"<a href='{url}' target='_blank' rel='noopener'>"
-            f"{label} {bar} {intensity} <span style='color:#7a9ab8;font-size:10px'>({dtc}d)</span>"
-            f"</a></span>"
-        )
-
-
-    def build_catalyst_tags_html(ticker: str, cat_tags: list, bimodal: bool,
-                                  dtc=None, earnings_days=None) -> str:
-        """Build the full row of colored clickable catalyst pills for a ticker."""
-        parts = []
-        if bimodal:
-            label, css, url_fn = BIMODAL_TAG
-            parts.append(catalyst_pill(label, css, url_fn(ticker)))
-        for tag in cat_tags:
-            if tag not in CATALYST_TAG_META:
-                continue
-            label, css, url_fn = CATALYST_TAG_META[tag]
-            if tag == "earnings" and earnings_days is not None:
-                label = f"EARN {earnings_days}d" if earnings_days >= 0 else f"EARN -{abs(earnings_days)}d"
-            parts.append(catalyst_pill(label, css, url_fn(ticker)))
-        if dtc and dtc >= 5:
-            parts.append(dtc_gauge_pill(ticker, dtc))
-        return "".join(parts)
-
 
     def _score_icon(sc, igniting, gap_rev):
         """Return an SVG icon that communicates signal strength without a number.
