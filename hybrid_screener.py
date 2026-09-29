@@ -831,29 +831,24 @@ def render_hybrid_screener() -> None:
     """Filters + results. Call from the Hybrid Screener tab."""
     _ensure_defaults()
 
-    st.caption(
-        "The Hybrid Stock Screener from the nightly dump — same presets, "
-        "metric weights, and gates. No live Yahoo scan: scores are the ones "
-        "computed overnight, with Price / MA50 / range refreshed from the dump panel."
-    )
-
-    presets = st.columns(8)
-    _preset_btns = [
-        ("clean", "📐 Clean Setup", "Trend + flag + RSI band. Strongest preset in the suite."),
-        ("felix", "🎩 Felix", "ROIC, moat, cash, Piotroski, P/E ≤ 50."),
-        ("squeeze", "🎯 Short Squeeze", "High short interest + quality + above MA50."),
-        ("lowpos", "📉 Low Price Position", "Range low + OE Yield + ROIC."),
-        ("volume", "⚡ Magic Volume", "OBV / PCV surge with MACD confirmation."),
-        ("breakout", "🚀 Breakout Setup", "Tight coil at range low, ready to break."),
-        ("insider", "🕵️ Insider Buying", "Accumulation footprints in quiet ranges."),
-        ("ipo", "🆕 Just IPO'd",
-         "Names whose first print in the nightly dump is within 90 days. "
-         "Proxy for a recent IPO — the scan keeps ~1 year of prices, so a "
-         "short tape usually means the name just started trading. Newest first."),
-    ]
-    for col, (key, label, help_) in zip(presets, _preset_btns):
-        if col.button(label, width="stretch", key=_k(f"preset_{key}"), help=help_):
-            _apply_preset(key)
+    with st.container(border=True):
+        presets = st.columns(8)
+        _preset_btns = [
+            ("clean", "📐 Clean Setup", "Trend + flag + RSI band. Strongest preset in the suite."),
+            ("felix", "🎩 Felix", "ROIC, moat, cash, Piotroski, P/E ≤ 50."),
+            ("squeeze", "🎯 Short Squeeze", "High short interest + quality + above MA50."),
+            ("lowpos", "📉 Low Price Position", "Range low + OE Yield + ROIC."),
+            ("volume", "⚡ Magic Volume", "OBV / PCV surge with MACD confirmation."),
+            ("breakout", "🚀 Breakout Setup", "Tight coil at range low, ready to break."),
+            ("insider", "🕵️ Insider Buying", "Accumulation footprints in quiet ranges."),
+            ("ipo", "🆕 Just IPO'd",
+             "Names whose first print in the nightly dump is within 90 days. "
+             "Proxy for a recent IPO — the scan keeps ~1 year of prices, so a "
+             "short tape usually means the name just started trading. Newest first."),
+        ]
+        for col, (key, label, help_) in zip(presets, _preset_btns):
+            if col.button(label, width="stretch", key=_k(f"preset_{key}"), help=help_):
+                _apply_preset(key)
 
     with st.expander("⚙️ Filters", expanded=True):
         r1 = st.columns([1.2, 1, 1, 1])
@@ -894,6 +889,17 @@ def render_hybrid_screener() -> None:
                 _hh2.caption(f"🔥 Hottest ({_hs_lbl}): " + " · ".join(_hs_now))
         except Exception:
             pass
+        _ms_kw = ({} if _k("sectors") in st.session_state
+                  else {"default": _all_secs})
+        _picked_secs = st.multiselect(
+            "Sectors", _all_secs, key=_k("sectors"), **_ms_kw,
+            help="Defaults to every sector. Narrow it to focus the screen — "
+                 "use today's hot sectors to start from the names that "
+                 "received the most money, then add or remove.")
+        sectors_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
+                          else list(_picked_secs))
+        if sectors_filter:
+            st.caption(f"🎯 Screening {len(sectors_filter)} of {len(_all_secs)} sectors.")
         with st.expander("🔥 Where the money went in the last session"):
             try:
                 _fl = _hs_sector_flow(datetime.today().strftime("%Y-%m-%d"),
@@ -926,17 +932,6 @@ def render_hybrid_screener() -> None:
                         "VolSurge": st.column_config.Column(help="Median dollar-volume vs its own 63-day average. Above 1 = unusual turnover."),
                         "Names": st.column_config.Column(help="Liquid names in the sector. Sectors under 15 are excluded as too thin to read."),
                     })
-        _ms_kw = ({} if _k("sectors") in st.session_state
-                  else {"default": _all_secs})
-        _picked_secs = st.multiselect(
-            "Sectors", _all_secs, key=_k("sectors"), **_ms_kw,
-            help="Defaults to every sector. Narrow it to focus the screen — "
-                 "use today's hot sectors to start from the names that "
-                 "received the most money, then add or remove.")
-        sectors_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
-                          else list(_picked_secs))
-        if sectors_filter:
-            st.caption(f"🎯 Screening {len(sectors_filter)} of {len(_all_secs)} sectors.")
 
         r2 = st.columns([1.4, 1, 1, 1.2])
         ma50_mode = r2[0].radio(

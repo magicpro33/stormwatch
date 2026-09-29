@@ -496,18 +496,19 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             LENS_AUTO = "📡 Auto — detect the live regime"
             lens_opts = {LENS_OFF: "off", LENS_AUTO: None}
             lens_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
-            st.markdown("**Macro lens**")
-            lens_label = st.selectbox(
-                "Macro lens", list(lens_opts), key="sw_lens",
-                label_visibility="collapsed", help=HELP["macro_lens"])
-            lens_token = lens_opts.get(lens_label)
-            if lens_token == "off":
-                st.caption("No sector tilt. Pure shakeout ranking.")
-            elif lens_token is None:
-                st.caption("Uses whichever regime is detected now. 🔭 Lenses has the playbooks.")
-            else:
-                card = ce.REGIME_CARDS.get(lens_token, {})
-                st.caption(card.get("thesis") or card.get("leads") or "")
+            with st.container(border=True):
+                st.markdown("**Macro lens**")
+                lens_label = st.selectbox(
+                    "Macro lens", list(lens_opts), key="sw_lens",
+                    label_visibility="collapsed", help=HELP["macro_lens"])
+                lens_token = lens_opts.get(lens_label)
+                if lens_token == "off":
+                    st.caption("No sector tilt. Pure shakeout ranking.")
+                elif lens_token is None:
+                    st.caption("Uses whichever regime is detected now. 🔭 Lenses has the playbooks.")
+                else:
+                    card = ce.REGIME_CARDS.get(lens_token, {})
+                    st.caption(card.get("thesis") or card.get("leads") or "")
 
             lb, off, flbl = _flow_window(True)
             try:
@@ -536,6 +537,13 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             pending = st.session_state.pop("_sw_sectors_pending", None)
             if pending:
                 st.session_state["sw_sectors"] = pending
+            ms_kw = {} if "sw_sectors" in st.session_state else {"default": all_secs}
+            picked = st.multiselect(
+                "Sectors", all_secs, key="sw_sectors", **ms_kw, help=HELP["sectors"])
+            sec_filter = (None if (not picked or (all_secs and len(picked) == len(all_secs)))
+                          else list(picked))
+            if sec_filter:
+                st.caption(f"🎯 Scanning {len(sec_filter)} of {len(all_secs)} sectors.")
             with st.expander("🔥 Where the money went in the last session"):
                 try:
                     fl = ce.sector_flow(lookback=lb, offset=off)
@@ -562,13 +570,6 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                             "Breadth": st.column_config.Column(help="Share of names in the sector that rose."),
                             "VolSurge": st.column_config.Column(help="Median dollar-volume vs its 63-day average."),
                         })
-            ms_kw = {} if "sw_sectors" in st.session_state else {"default": all_secs}
-            picked = st.multiselect(
-                "Sectors", all_secs, key="sw_sectors", **ms_kw, help=HELP["sectors"])
-            sec_filter = (None if (not picked or (all_secs and len(picked) == len(all_secs)))
-                          else list(picked))
-            if sec_filter:
-                st.caption(f"🎯 Scanning {len(sec_filter)} of {len(all_secs)} sectors.")
         fc1, fc2 = st.columns(2)
         min_sh = fc1.slider(
             "Min shakeout (0–5)", 0, 5, BASIC_MIN_SHAKEOUT, key="sw_min_shakeout",

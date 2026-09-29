@@ -1652,26 +1652,29 @@ def render_ignition_scanner_tab():
         unsafe_allow_html=True,
     )
 
-    col_refresh, col_status = st.columns([1, 4])
-    with col_refresh:
-        refresh_clicked = st.button(
-            "🚀 Scan",
-            type="primary",
-            key="ig_scan",
-            help="Run the live ignition scan. Nothing is fetched until you hit this.",
-            use_container_width=True,
-        )
-    with col_status:
-        scan_count = len(st.session_state.get("ig_last_results", []))
-        if scan_count:
-            st.markdown(
-                f"<div style='padding:8px 0;font-family:Space Mono,monospace;font-size:12px;"
-                f"color:#7a9ab8'>{scan_count} tickers scanned</div>",
-                unsafe_allow_html=True,
+    with st.container(border=True):
+        col_refresh, col_status = st.columns([1, 4])
+        with col_refresh:
+            refresh_clicked = st.button(
+                "🚀 Scan",
+                type="primary",
+                key="ig_scan",
+                help="Run the live ignition scan. Nothing is fetched until you hit this.",
+                use_container_width=True,
             )
+        with col_status:
+            scan_count = len(st.session_state.get("ig_last_results", []))
+            if scan_count:
+                st.markdown(
+                    f"<div style='padding:8px 0;font-family:Space Mono,monospace;font-size:12px;"
+                    f"color:#7a9ab8'>{scan_count} tickers scanned</div>",
+                    unsafe_allow_html=True,
+                )
+        if "ig_last_results" not in st.session_state:
+            st.caption("Hit **Scan** to run. Nothing is fetched until then.")
 
-    screener_mode = False
-    st.markdown("<div class='sidebar-section'>Watchlist</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown("<div class='sidebar-section'>Watchlist</div>", unsafe_allow_html=True)
 
     # ── Top-N results slider (defined here — used by all watchlist modes) ──
     top_n = st.slider(
@@ -2989,62 +2992,12 @@ def render_ignition_scanner_tab():
                             pass
                     st.rerun()
     else:
-        if never_scanned:
-            st.info("Hit **Scan** to run. Nothing is fetched until then.")
-        else:
+        if not never_scanned:
             st.warning("No data returned. Market may be closed, or tickers invalid.")
 
     if failed:
         st.caption(f"No data for: {', '.join(failed)}")
 
-    with st.expander("Metric guide - what everything means"):
-        st.markdown("""
-    **The two halves of the Score**
-
-    - **Ignition (60% of Score)** answers *"is money flowing in right now?"* It is rebuilt
-      from live bars every refresh. Its loudest inputs are **RVOL** (today's volume vs the
-      20-day norm for this time of day) and the **volume Surge** in the last 3 minutes.
-      Price **Velocity/Acceleration**, a **VWAP** reclaim, a **new High of Day**, RSI in the
-      55-75 thrust zone, and a fresh MACD cross round it out.
-    - **Fuel (40% of Score)** answers *"is this stock primed to make a big move?"* High
-      **short % of float** means forced buyers if price runs. **Insider net buying** means
-      informed accumulation. **Fresh news** provides the catalyst. **Small float** makes
-      moves violent. **Near 52-week highs** is where momentum lives.
-
-    **IGNITING NOW banner / urgent phone alert**
-
-    Fires only when ALL of these confirm on the same refresh - the footprint of the first
-    minutes of a real momentum leg:
-    - RVOL at least 2x normal pace (pace follows the real U-shaped intraday volume curve,
-      so 9:45 AM readings are no longer inflated)
-    - Last-3-bar volume surge at least 2x the session average
-    - Positive 5-minute velocity
-    - A new high of day OR a VWAP reclaim within the last few bars
-    - AND the stock is NOT down hard on the day (no big gap-down, day change above -4%)
-
-    **GAP REVERSAL banner (teal) / high-priority phone alert**
-
-    The same live footprint firing while the stock is down 4%+ on the day or gapped down
-    4%+ at the open - usually a post-earnings flush being bought. This is a bounce attempt
-    inside a selloff: a real, tradable pattern, but a different and riskier trade than
-    fresh ignition. Bounces in crushed stocks fail more often than breakouts in strong
-    ones, which is why it gets its own label instead of the IGNITING banner.
-
-    **Alert feed** logs each ticker once per day, the first time it crosses your score
-    threshold or ignites. Phone pushes mirror the feed when ntfy is configured.
-
-    **Chart**: candles are 1-minute bars for the current session; the amber line is VWAP -
-    price above it means buyers control the session. Volume bars underneath confirm whether
-    a move has real participation.
-
-    **NightlyRank vs Score**: NightlyRank is how the stock graded in last night's screener
-    dump (yesterday's homework). Score is the live grade. A high NightlyRank with a surging
-    Ignition number is the combination this tool exists to catch.
-
-    *Detects momentum early; does not predict the future. Not financial advice.*
-    """)
-
-    # ----------------------------------------------------------------------------
     # ----------------------------------------------------------------------------
     # Stock Analyzer  (replaces chart + alert feed)
     # ----------------------------------------------------------------------------
@@ -3504,6 +3457,53 @@ def render_ignition_scanner_tab():
 
     with st.expander("📖 Reference key", expanded=False):
         render_reference_key()
+
+    with st.expander("Metric guide - what everything means"):
+        st.markdown("""
+    **The two halves of the Score**
+
+    - **Ignition (60% of Score)** answers *"is money flowing in right now?"* It is rebuilt
+      from live bars every refresh. Its loudest inputs are **RVOL** (today's volume vs the
+      20-day norm for this time of day) and the **volume Surge** in the last 3 minutes.
+      Price **Velocity/Acceleration**, a **VWAP** reclaim, a **new High of Day**, RSI in the
+      55-75 thrust zone, and a fresh MACD cross round it out.
+    - **Fuel (40% of Score)** answers *"is this stock primed to make a big move?"* High
+      **short % of float** means forced buyers if price runs. **Insider net buying** means
+      informed accumulation. **Fresh news** provides the catalyst. **Small float** makes
+      moves violent. **Near 52-week highs** is where momentum lives.
+
+    **IGNITING NOW banner / urgent phone alert**
+
+    Fires only when ALL of these confirm on the same refresh - the footprint of the first
+    minutes of a real momentum leg:
+    - RVOL at least 2x normal pace (pace follows the real U-shaped intraday volume curve,
+      so 9:45 AM readings are no longer inflated)
+    - Last-3-bar volume surge at least 2x the session average
+    - Positive 5-minute velocity
+    - A new high of day OR a VWAP reclaim within the last few bars
+    - AND the stock is NOT down hard on the day (no big gap-down, day change above -4%)
+
+    **GAP REVERSAL banner (teal) / high-priority phone alert**
+
+    The same live footprint firing while the stock is down 4%+ on the day or gapped down
+    4%+ at the open - usually a post-earnings flush being bought. This is a bounce attempt
+    inside a selloff: a real, tradable pattern, but a different and riskier trade than
+    fresh ignition. Bounces in crushed stocks fail more often than breakouts in strong
+    ones, which is why it gets its own label instead of the IGNITING banner.
+
+    **Alert feed** logs each ticker once per day, the first time it crosses your score
+    threshold or ignites. Phone pushes mirror the feed when ntfy is configured.
+
+    **Chart**: candles are 1-minute bars for the current session; the amber line is VWAP -
+    price above it means buyers control the session. Volume bars underneath confirm whether
+    a move has real participation.
+
+    **NightlyRank vs Score**: NightlyRank is how the stock graded in last night's screener
+    dump (yesterday's homework). Score is the live grade. A high NightlyRank with a surging
+    Ignition number is the combination this tool exists to catch.
+
+    *Detects momentum early; does not predict the future. Not financial advice.*
+    """)
 
 
 if __name__ == "__main__":

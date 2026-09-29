@@ -228,6 +228,14 @@ div[data-testid="stExpander"] details summary {
     color: #F6F4E9 !important;
     font-weight: 650 !important;
 }
+
+/* Scan Hub contained pills */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: #0c1829 !important;
+    border: 1px solid #3d6a94 !important;
+    border-radius: 18px !important;
+    padding: 6px 10px 10px 10px !important;
+}
 </style>""", unsafe_allow_html=True)
 
 
@@ -2166,7 +2174,7 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
 _HUB_KEEP_SKIP = {
     "top20_go", "top20_snap", "top20_mode", "top20_run_secs", "t20_live",
     "t20_inline", "t20_inline_tk", "top20_run", "top20_live", "top20_hot_btn",
-    "macro_advise", "top20_table", "forecast_table", "macro_table", "felix_table",
+    "macro_advise", "macro_apply", "top20_table", "forecast_table", "macro_table", "felix_table",
     "apex_run", "apex_snap", "apex_run_tf", "apex_run_secs",
     "apex_inline", "apex_inline_tk", "apex_go", "apex_hot", "apex_table", "apex_csv",
     "poc_run", "poc_snap", "poc_run_sig", "poc_inline", "poc_inline_tk",
@@ -2178,7 +2186,7 @@ _HUB_KEEP_SKIP = {
     "hs_inline", "hs_run", "hs_hot_btn", "hs_chart_table", "hs_chart_handled",
     "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk",
     "te_run", "te_snap", "te_words", "te_speeches", "te_inline", "te_inline_tk",
-    "te_table", "te_go", "te_search",
+    "te_table", "te_go", "te_search", "macro_advise", "macro_apply",
 }
 
 
@@ -2241,6 +2249,11 @@ def _section_bar(options, key):
                     label_visibility="collapsed")
 
 
+def _hub_pill():
+    """Rounded contained block for Scan Hub controls."""
+    return st.container(border=True)
+
+
 def _gauge():
     """Pressure gauge on demand — not on every first paint."""
     try:
@@ -2290,15 +2303,18 @@ def _try_closes():
     return closes, asof
 
 
-_MAIN = ["Cascade Map", "Stock Lookup", "Scan Hub", "Crypto Copycat", "Macro Sim", "Cascade Guide"]
+_MAIN = ["Scan Hub", "Cascade Map", "Stock Lookup", "Crypto Copycat", "Macro Sim"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
         "Ignition Scanner", "Key Word Search", "Trump Effect"]
-_ADV = ["Cascade Pressure", "Cascade Sentinels", "Forced Flows",
+_MAP = ["Market Weather", "Cascade Pressure", "Cascade Sentinels", "Forced Flows",
         "Cascade Validation Lab", "Lenses", "Guide"]
 if st.session_state.get("mw_hub") == "Key Word":
     st.session_state["mw_hub"] = "Key Word Search"
-if st.session_state.get("mw_main") == "Advanced Guide":
-    st.session_state["mw_main"] = "Cascade Guide"
+if st.session_state.get("mw_main") in ("Advanced Guide", "Cascade Guide"):
+    _guide_to = st.session_state.get("mw_adv") or st.session_state.get("mw_map")
+    st.session_state["mw_main"] = "Cascade Map"
+    if _guide_to and _guide_to in _MAP:
+        st.session_state["mw_map"] = _guide_to
 if st.session_state.get("mw_adv") == "Crypto Helper":
     st.session_state["mw_main"] = "Crypto Copycat"
     st.session_state["mw_adv"] = "Guide"
@@ -2310,12 +2326,14 @@ _old_adv = {
 }.get(st.session_state.get("mw_adv"))
 if _old_adv:
     st.session_state["mw_adv"] = _old_adv
+    if st.session_state.get("mw_main") == "Cascade Map" and not st.session_state.get("mw_map"):
+        st.session_state["mw_map"] = _old_adv
 _main = _section_bar(_MAIN, "mw_main")
-_hub = _adv = None
+_hub = _map = None
 if _main == "Scan Hub":
     _hub = _section_bar(_HUB, "mw_hub")
-elif _main == "Cascade Guide":
-    _adv = _section_bar(_ADV, "mw_adv")
+elif _main == "Cascade Map":
+    _map = _section_bar(_MAP, "mw_map")
 
 
 def _dump_asof_key() -> str:
@@ -2353,7 +2371,7 @@ def flow_window_picker(prefix: str, compact: bool = False):
 
 
 # ── 🌊 cascade map ───────────────────────────────────────────────────
-if _main == "Cascade Map":
+if _main == "Cascade Map" and _map == "Market Weather":
     closes, asof = _require_closes()
     if st.session_state.get("mw_analyze"):
         render_ticker_analysis(st.session_state["mw_analyze"], closes)
@@ -3039,13 +3057,14 @@ if _main == "Scan Hub" and _hub == "TOP20":
     st.markdown("##### 1 · How to rank")
     _d1, _d2 = st.columns(2, gap="medium")
     with _d1:
-        st.markdown("**Engine**")
-        _method_label = st.radio(
-            "Rank stocks by", list(_METHODS), key="top20_method",
-            captions=_METHOD_CAPTIONS, label_visibility="collapsed",
-            help="Pick the engine that orders the list. 'None — macro only' "
-                 "ignores market flow entirely and ranks purely on how well a "
-                 "quality company fits the scenario you choose.")
+        with _hub_pill():
+            st.markdown("**Engine**")
+            _method_label = st.radio(
+                "Rank stocks by", list(_METHODS), key="top20_method",
+                captions=_METHOD_CAPTIONS, label_visibility="collapsed",
+                help="Pick the engine that orders the list. 'None — macro only' "
+                     "ignores market flow entirely and ranks purely on how well a "
+                     "quality company fits the scenario you choose.")
     _method = _METHODS[_method_label]
 
     _pending = st.session_state.pop("_scenario_pending", None)
@@ -3057,24 +3076,112 @@ if _main == "Scan Hub" and _hub == "TOP20":
     _scn_opts = {_LENS_OFF: "off", _LENS_AUTO: None}
     _scn_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
     with _d2:
-        st.markdown("**Macro lens**")
-        _lens_choices = list(_scn_opts)
-        if _method == "macro":
-            _lens_choices = [o for o in _lens_choices if o != _LENS_OFF]
-        _lens_label = st.selectbox(
-            "Macro lens", _lens_choices, key="top20_lens",
-            disabled=(_method == "felix"), label_visibility="collapsed",
-            help=HELP["macro_lens"])
-        _lens = _scn_opts.get(_lens_label)
-        if _method == "felix":
-            st.caption("Felix is quality-only — lens, sectors and session do not apply.")
-        elif _lens == "off":
-            st.caption("No sector tilt. Pure ranking. Playbooks are in 🔭 Lenses.")
-        elif _lens is None:
-            st.caption("Uses the regime detected now. Playbooks are in 🔭 Lenses.")
-        else:
-            _cd0 = ce.REGIME_CARDS.get(_lens, {})
-            st.caption(_cd0.get("thesis") or _cd0.get("leads", ""))
+        with _hub_pill():
+            _lh, _lb = st.columns([1.35, 1], vertical_alignment="center")
+            _lh.markdown("**Macro lens**")
+            if _lb.button("🧭 Recommend lens", key="macro_advise",
+                          width="stretch", disabled=(_method == "felix"),
+                          help="Weigh the market, the tape and the headlines, "
+                               "then recommend which scenario fits."):
+                st.session_state["macro_advice_on"] = True
+                st.session_state["macro_advice_nonce"] = \
+                    st.session_state.get("macro_advice_nonce", 0) + 1
+            _lens_choices = list(_scn_opts)
+            if _method == "macro":
+                _lens_choices = [o for o in _lens_choices if o != _LENS_OFF]
+            _lens_label = st.selectbox(
+                "Macro lens", _lens_choices, key="top20_lens",
+                disabled=(_method == "felix"), label_visibility="collapsed",
+                help=HELP["macro_lens"])
+            _lens = _scn_opts.get(_lens_label)
+            if _method == "felix":
+                st.caption("Felix is quality-only — lens, sectors and session "
+                           "do not apply.")
+            elif _lens == "off":
+                st.caption("No sector tilt. Pure ranking. Playbooks are in "
+                           "🔭 Lenses.")
+            elif _lens is None:
+                st.caption("Uses the regime detected now. Playbooks are in "
+                           "🔭 Lenses.")
+            else:
+                _cd0 = ce.REGIME_CARDS.get(_lens, {})
+                st.caption(_cd0.get("thesis") or _cd0.get("leads", ""))
+
+            _advice = None
+            if (st.session_state.get("macro_advice_on")
+                    and _method != "felix"):
+                try:
+                    _advice = _macro_advice(
+                        asof, _gauge,
+                        st.session_state.get("macro_advice_nonce", 0))
+                except Exception as _ae:
+                    _advice = None
+                    st.error(f"Advisor failed: {_ae}")
+                if _advice:
+                    _cc = {"high": GREEN, "medium": "#d0b040",
+                           "low": DIM}[_advice["confidence"]]
+                    _md_html(
+                        f"<div style='background:#081325;border:1px solid #1d2b40;"
+                        f"border-left:5px solid {_cc};border-radius:12px;"
+                        f"padding:12px 16px;margin:6px 0;'>"
+                        f"<div style='font-size:12px;color:{DIM};letter-spacing:1px;"
+                        f"text-transform:uppercase;'>Recommended · "
+                        f"{_esc(_advice['confidence'])} confidence</div>"
+                        f"<div style='font-size:17px;font-weight:800;"
+                        f"margin:3px 0 5px;'>{_esc(_advice['label'])}</div>"
+                        f"<div style='color:{DIM};font-size:12px;'>Margin "
+                        f"{_esc(_advice['margin'])} pts · "
+                        f"{_esc(_advice['n_articles'])} headlines read · "
+                        f"{_esc(_advice['stamp'])}</div></div>")
+                    _rl = ce.REGIME_NAMES.get(_advice["recommended"])
+                    if _rl and st.button(f"✅ Use {_rl}", key="macro_apply",
+                                         width="stretch"):
+                        st.session_state["_scenario_pending"] = _rl
+                        st.session_state["macro_advice_on"] = False
+                        st.rerun()
+                    with st.expander("🔍 The evidence behind this call"):
+                        _ev = pd.DataFrame(_advice["evidence"])
+                        if not _ev.empty:
+                            _ev["Argues for"] = _ev.regime.map(
+                                lambda r: ce.REGIME_NAMES.get(r, r))
+                            _ev = _ev.rename(columns={
+                                "signal": "Signal", "reading": "Reading",
+                                "weight": "Weight"})
+                            st.dataframe(
+                                _ev[["Signal", "Reading", "Argues for",
+                                     "Weight"]]
+                                .style.format({"Weight": "{:.1f}"}),
+                                width="stretch", hide_index=True)
+                        st.caption(
+                            "Headlines are capped at 2 points — news confirms "
+                            "the tape, it never outvotes it.")
+
+            _apply_macro = not (_method == "felix" or _lens == "off")
+            _override = (_lens if (_apply_macro and _lens not in (None, "off"))
+                         else None)
+            if _apply_macro and _method != "felix":
+                _rk = _override or (
+                    ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
+                    if _lens is None else None)
+                _cd = ce.REGIME_CARDS.get(_rk) if _rk else None
+                if _cd:
+                    _md_html(
+                        f"<div style='display:flex;align-items:center;gap:10px;"
+                        f"background:#081325;border-left:3px solid {ACCENT};"
+                        f"padding:8px 14px;margin:6px 0;font-size:13px;'>"
+                        f"<span style='font-size:17px;'>{_cd['emoji']}</span>"
+                        f"<span><b>{_esc(_cd['name'])}</b>"
+                        f"<span style='color:{DIM};font-size:12px;'> — "
+                        f"{_esc(_cd.get('thesis') or '')}</span>"
+                        f"<br><span style='color:{GREEN};'> ▲ "
+                        f"{_esc(_cd['leads'])}</span>"
+                        f"<span style='color:{RED};'> ▼ "
+                        f"{_esc(_cd['lags'])}</span></span></div>")
+                    with st.expander(
+                            f"📖 What {_cd['name']} means — who wins, who loses"):
+                        render_lens_playbook(_cd, _rk, full=False)
+                        st.caption("Full playbooks, comparisons, and sector "
+                                   "multipliers are in the 🔭 Lenses tab.")
 
     _apply_macro = not (_method == "felix" or _lens == "off")
     _override = _lens if (_apply_macro and _lens not in (None, "off")) else None
@@ -3090,187 +3197,135 @@ if _main == "Scan Hub" and _hub == "TOP20":
         _all_secs, _picked_secs, _sec_filter = [], [], None
         _use_flow = False
     else:
-        st.markdown("##### 2 · Session and sectors")
-        _t_lb, _t_off, _t_lbl = flow_window_picker("t20")
-        _t20_pending = st.session_state.pop("_top20_sectors_pending", None)
-        if _t20_pending:
-            st.session_state["top20_sectors"] = _t20_pending
-        try:
-            _all_secs = _apex_sector_list(asof)
-        except Exception:
-            _all_secs = []
-        _hs_now = []
-        try:
-            _hs_now = _hot_sectors(asof, 5, _t_lb, _t_off, dump_asof=_dump_asof_key())
-        except Exception:
+        with _hub_pill():
+            st.markdown("##### 2 · Session and sectors")
+            _t_lb, _t_off, _t_lbl = flow_window_picker("t20")
+            _t20_pending = st.session_state.pop("_top20_sectors_pending", None)
+            if _t20_pending:
+                st.session_state["top20_sectors"] = _t20_pending
+            try:
+                _all_secs = _apex_sector_list(asof)
+            except Exception:
+                _all_secs = []
             _hs_now = []
-        _hs1, _hs2 = st.columns([1, 2], gap="medium")
-        if _hs1.button("🔥 Use today's hot sectors", key="top20_hot_btn",
-                       width="stretch",
-                       help="Replace the sector selection with the sectors that "
-                            "received the most money in the last session."):
             try:
-                _hot = _hot_sectors(asof, 5, _t_lb, _t_off, dump_asof=_dump_asof_key())
-                if _hot:
-                    st.session_state["_top20_sectors_pending"] = _hot
-                    st.rerun()
-            except Exception as _he:
-                st.caption(f"Hot sectors unavailable: {_he}")
-        if _hs_now:
-            _hs2.caption(f"Hottest ({_t_lbl}): " + " · ".join(_hs_now))
-        with st.expander("Where the money went", expanded=False):
-            try:
-                _fl = _sector_flow(asof, _t_lb, _t_off, dump_asof=_dump_asof_key())
-            except Exception as _fe:
-                _fl = pd.DataFrame(); st.caption(f"Sector flow unavailable: {_fe}")
-            if _fl is None or _fl.empty:
-                st.caption("No sector-flow reading available yet.")
-            else:
-                st.caption(f"{_t_lbl} ({_fl.attrs.get('window_start','—')} → "
-                           f"{_fl.attrs.get('window_end','—')}) · market "
-                           f"{_fl.attrs.get('market_return',0):+.2%}")
-                _fs = _fl.copy()
-                _hot_mark = set(_hs_now) if _hs_now else set(
-                    str(s) for s in _fs.Sector.head(5))
-                _fs["Hot"] = ["🔥" if str(s) in _hot_mark else "" for s in _fs.Sector]
-                st.dataframe(
-                    _fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
-                    .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
-                                   "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
-                    .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
-                         subset=["Ret", "RS"]),
-                    width="stretch", hide_index=True,
-                    column_config={
-                        "Ret": st.column_config.Column(help="Dollar-weighted sector return."),
-                        "RS": st.column_config.Column(help="Sector return minus the market's."),
-                        "Breadth": st.column_config.Column(help="Share of names in the sector that rose."),
-                        "VolSurge": st.column_config.Column(help="Median dollar-volume vs its 63-day average."),
-                        "Names": st.column_config.Column(help="Liquid names in the sector."),
-                    })
-        _ms_kw = ({} if "top20_sectors" in st.session_state
-                  else {"default": _all_secs})
-        _picked_secs = st.multiselect(
-            "Sectors", _all_secs, key="top20_sectors", **_ms_kw,
-            help="Defaults to every sector. Narrow it to focus the scan.")
-        _sec_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
-                       else list(_picked_secs))
-        _tf1, _tf2 = st.columns(2, gap="medium")
-        _use_flow = _tf1.toggle("Sector-flow tilt in the score", value=True,
-                               key="top20_flow",
-                               help="Adds the sector's money-flow percentile to the "
-                                    "cascade score. Turn off for a pure ranking.")
-        if _sec_filter:
-            _tf2.caption(f"Scanning {len(_sec_filter)} of {len(_all_secs)} sectors.")
+                _hs_now = _hot_sectors(asof, 5, _t_lb, _t_off, dump_asof=_dump_asof_key())
+            except Exception:
+                _hs_now = []
+            _hs1, _hs2 = st.columns([1, 2], gap="medium")
+            if _hs1.button("🔥 Use today's hot sectors", key="top20_hot_btn",
+                           width="stretch",
+                           help="Replace the sector selection with the sectors that "
+                                "received the most money in the last session."):
+                try:
+                    _hot = _hot_sectors(asof, 5, _t_lb, _t_off, dump_asof=_dump_asof_key())
+                    if _hot:
+                        st.session_state["_top20_sectors_pending"] = _hot
+                        st.rerun()
+                except Exception as _he:
+                    st.caption(f"Hot sectors unavailable: {_he}")
+            if _hs_now:
+                _hs2.caption(f"Hottest ({_t_lbl}): " + " · ".join(_hs_now))
+            _ms_kw = ({} if "top20_sectors" in st.session_state
+                      else {"default": _all_secs})
+            _picked_secs = st.multiselect(
+                "Sectors", _all_secs, key="top20_sectors", **_ms_kw,
+                help="Defaults to every sector. Narrow it to focus the scan.")
+            _sec_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
+                           else list(_picked_secs))
+            _tf1, _tf2 = st.columns(2, gap="medium")
+            _use_flow = _tf1.toggle("Sector-flow tilt in the score", value=True,
+                                   key="top20_flow",
+                                   help="Adds the sector's money-flow percentile to the "
+                                        "cascade score. Turn off for a pure ranking.")
+            if _sec_filter:
+                _tf2.caption(f"Scanning {len(_sec_filter)} of {len(_all_secs)} sectors.")
+            with st.expander("Where the money went", expanded=False):
+                try:
+                    _fl = _sector_flow(asof, _t_lb, _t_off, dump_asof=_dump_asof_key())
+                except Exception as _fe:
+                    _fl = pd.DataFrame(); st.caption(f"Sector flow unavailable: {_fe}")
+                if _fl is None or _fl.empty:
+                    st.caption("No sector-flow reading available yet.")
+                else:
+                    st.caption(f"{_t_lbl} ({_fl.attrs.get('window_start','—')} → "
+                               f"{_fl.attrs.get('window_end','—')}) · market "
+                               f"{_fl.attrs.get('market_return',0):+.2%}")
+                    _fs = _fl.copy()
+                    _hot_mark = set(_hs_now) if _hs_now else set(
+                        str(s) for s in _fs.Sector.head(5))
+                    _fs["Hot"] = ["🔥" if str(s) in _hot_mark else "" for s in _fs.Sector]
+                    st.dataframe(
+                        _fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
+                        .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
+                                       "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
+                        .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
+                             subset=["Ret", "RS"]),
+                        width="stretch", hide_index=True,
+                        column_config={
+                            "Ret": st.column_config.Column(help="Dollar-weighted sector return."),
+                            "RS": st.column_config.Column(help="Sector return minus the market's."),
+                            "Breadth": st.column_config.Column(help="Share of names in the sector that rose."),
+                            "VolSurge": st.column_config.Column(help="Median dollar-volume vs its 63-day average."),
+                            "Names": st.column_config.Column(help="Liquid names in the sector."),
+                        })
     _secs_key = tuple(sorted(_sec_filter)) if _sec_filter else ()
 
-    st.markdown("##### 3 · Size and run")
-    _n1, _n2 = st.columns([1, 2], gap="medium")
-    _top_n = _n1.selectbox("How many stocks", list(range(20, 55, 5)),
-                           index=0, key="top20_count",
-                           help="Length of the results list.")
-    if _method == "forecast":
-        _scan_all = _n2.toggle(
-            "Scan the entire universe (~5,700 stocks)", value=True,
-            key="forecast_all_toggle",
-            help="ON: forecast every tradeable stock. OFF: a 120-name cascade shortlist.")
-    else:
-        _scan_all = True
-        _n2.caption("Results list length. The scan covers the full nightly dump.")
+    with _hub_pill():
+        st.markdown("##### 3 · Size and run")
+        _n1, _n2 = st.columns([1, 2], gap="medium")
+        _top_n = _n1.selectbox("How many stocks", list(range(20, 55, 5)),
+                               index=0, key="top20_count",
+                               help="Length of the results list.")
+        if _method == "forecast":
+            _scan_all = _n2.toggle(
+                "Scan the entire universe (~5,700 stocks)", value=True,
+                key="forecast_all_toggle",
+                help="ON: forecast every tradeable stock. OFF: a 120-name cascade shortlist.")
+        else:
+            _scan_all = True
+            _n2.caption("Results list length. The scan covers the full nightly dump.")
 
-    _eng_txt = {"cascade": "cascade score", "forecast": "odds of gain",
-                "felix": "the Felix quality checklist",
-                "macro": "scenario fit alone"}[_method]
-    if _method == "felix":
-        _lens_txt = "no macro lens (quality only)"
-    elif not _apply_macro:
-        _lens_txt = "no macro lens"
-    elif _lens is None:
-        _lens_txt = "the auto-detected regime"
-    else:
-        _lens_txt = ce.REGIME_NAMES.get(_lens, _lens)
-    st.markdown(
-        f"""<div style="background:#16344f;border:1px solid #3d6a94;border-left:4px solid {ACCENT};
-        padding:10px 14px;margin:4px 0 12px;font-size:13.5px;border-radius:8px;">
-        Ranking the top <b>{_top_n}</b> by <b style="color:{ACCENT};">{_eng_txt}</b>,
-        through <b style="color:{ACCENT};">{_lens_txt}</b>{
-        f", limited to {len(_sec_filter)} sectors ({_t_lbl})" if (_sec_filter and _method != "felix") else ""}.</div>""",
-        unsafe_allow_html=True)
+        _eng_txt = {"cascade": "cascade score", "forecast": "odds of gain",
+                    "felix": "the Felix quality checklist",
+                    "macro": "scenario fit alone"}[_method]
+        if _method == "felix":
+            _lens_txt = "no macro lens (quality only)"
+        elif not _apply_macro:
+            _lens_txt = "no macro lens"
+        elif _lens is None:
+            _lens_txt = "the auto-detected regime"
+        else:
+            _lens_txt = ce.REGIME_NAMES.get(_lens, _lens)
+        _md_html(
+            f"<div style='background:#16344f;border:1px solid #3d6a94;"
+            f"border-left:4px solid {ACCENT};padding:10px 14px;margin:4px 0 12px;"
+            f"font-size:13.5px;border-radius:8px;'>"
+            f"Ranking the top <b>{_top_n}</b> by "
+            f"<b style='color:{ACCENT};'>{_eng_txt}</b>, "
+            f"through <b style='color:{ACCENT};'>{_lens_txt}</b>"
+            f"{f', limited to {len(_sec_filter)} sectors ({_t_lbl})' if (_sec_filter and _method != 'felix') else ''}."
+            f"</div>")
 
-    _b1, _b2, _b3 = st.columns([2, 1, 1], gap="medium")
-    if _b1.button("🚀 Run scan", type="primary", key="top20_run", width="stretch"):
-        st.session_state["top20_go"] = True
-        st.session_state["top20_mode"] = _method
-        st.session_state["top20_run_secs"] = _secs_key
-        st.session_state.pop("t20_live", None)
-        st.session_state.pop("top20_snap", None)
-    if _b2.button("📡 Live prices", key="top20_live", width="stretch",
-                  help="Pull live prices for the stocks currently listed — "
-                       "Alpaca first, then Yahoo."):
-        st.session_state["t20_live"] = True
-    if _b3.button("🧭 Recommend lens", key="macro_advise", width="stretch",
-                  disabled=(_method == "felix"),
-                  help="Weigh the market, the tape and the headlines, then "
-                       "recommend which scenario fits."):
-        st.session_state["macro_advice_on"] = True
-        st.session_state["macro_advice_nonce"] = \
-            st.session_state.get("macro_advice_nonce", 0) + 1
-
-    # ── advisor result + scenario explainer ─────────────────────────
-    _adv = None
-    if st.session_state.get("macro_advice_on") and _method != "felix":
-        try:
-            _adv = _macro_advice(asof, _gauge,
-                                 st.session_state.get("macro_advice_nonce", 0))
-        except Exception as _ae:
-            _adv = None
-            st.error(f"Advisor failed: {_ae}")
-        if _adv:
-            _cc = {"high": GREEN, "medium": "#d0b040", "low": DIM}[_adv["confidence"]]
-            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:5px solid {_cc};border-radius:12px;padding:12px 16px;margin:6px 0;">
-                <div style="font-size:12px;color:{DIM};letter-spacing:1px;text-transform:uppercase;">
-                  Recommended · {_adv['confidence']} confidence</div>
-                <div style="font-size:17px;font-weight:800;margin:3px 0 5px;">{_adv['label']}</div>
-                <div style="color:{DIM};font-size:12px;">Margin {_adv['margin']} pts ·
-                  {_adv['n_articles']} headlines read · {_adv['stamp']}</div></div>""",
-                unsafe_allow_html=True)
-            _rl = ce.REGIME_NAMES.get(_adv["recommended"])
-            if _rl and st.button(f"✅ Use {_rl}", key="macro_apply", width="stretch"):
-                st.session_state["_scenario_pending"] = _rl
-                st.session_state["macro_advice_on"] = False
-                st.rerun()
-
-    # compact scenario strip (full explainer one tap away)
-    if _apply_macro and _method != "felix":
-        _rk = _override or (ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
-                            if _lens is None else None)
-        _cd = ce.REGIME_CARDS.get(_rk) if _rk else None
-        if _cd:
-            st.markdown(f"""<div style="display:flex;align-items:center;gap:10px;
-                background:#0c1829;border-left:3px solid {ACCENT};padding:8px 14px;
-                margin:6px 0;font-size:13px;">
-                <span style="font-size:17px;">{_cd['emoji']}</span>
-                <span><b>{_cd['name']}</b>
-                <span style="color:{DIM};font-size:12px;"> — {_esc(_cd.get('thesis') or '')}</span>
-                <br><span style="color:{GREEN};"> ▲ {_esc(_cd['leads'])}</span>
-                <span style="color:{RED};"> ▼ {_esc(_cd['lags'])}</span></span></div>""",
-                unsafe_allow_html=True)
-            with st.expander(f"📖 What {_cd['name']} means — who wins, who loses"):
-                render_lens_playbook(_cd, _rk, full=False)
-                st.caption("Full playbooks, comparisons, and sector multipliers are in the 🔭 Lenses tab.")
-
-    if _adv:
-        with st.expander("🔍 The evidence behind this call"):
-            _ev = pd.DataFrame(_adv["evidence"])
-            if not _ev.empty:
-                _ev["Argues for"] = _ev.regime.map(lambda r: ce.REGIME_NAMES.get(r, r))
-                _ev = _ev.rename(columns={"signal": "Signal", "reading": "Reading",
-                                          "weight": "Weight"})
-                st.dataframe(_ev[["Signal", "Reading", "Argues for", "Weight"]]
-                             .style.format({"Weight": "{:.1f}"}),
-                             width="stretch", hide_index=True)
-            st.caption("Headlines are capped at 2 points — news confirms the "
-                       "tape, it never outvotes it.")
+        _t20_ready = bool(st.session_state.get("top20_go")
+                          and (st.session_state.get("t20_inline")
+                               or st.session_state.get("t20_inline_tk")))
+        if _t20_ready:
+            _b1, _b2 = st.columns([3, 1], gap="medium")
+        else:
+            _b1, _b2 = st, None
+        if _b1.button("🚀 Run scan", type="primary", key="top20_run",
+                      width="stretch"):
+            st.session_state["top20_go"] = True
+            st.session_state["top20_mode"] = _method
+            st.session_state["top20_run_secs"] = _secs_key
+            st.session_state.pop("t20_live", None)
+            st.session_state.pop("top20_snap", None)
+        if _t20_ready and _b2.button(
+                "📡 Live prices", key="top20_live", width="stretch",
+                help="Pull live prices for the stocks currently listed — "
+                     "Alpaca first, then Yahoo."):
+            st.session_state["t20_live"] = True
 
     def _apply_live(_df):
         """Refresh the on-screen list against live market data (any mode)."""
@@ -3680,16 +3735,18 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                        "position 25 + value-area structure 15 + regime 15 + trend quality 10 "
                        "— so anything that ranks here looks identical on your chart.")
 
-            _ac1, _ac2, _ac3 = st.columns([2, 1, 1], vertical_alignment="bottom")
-            _tf = _ac1.radio("Timeframe", _tf_names, key="apex_tf", horizontal=True,
-                             help="1 Day is the only timeframe the score was validated on. "
-                                  "Lower timeframes rescale the volatility thresholds "
-                                  "correctly, but the edge itself is unproven there — see "
-                                  "the badge below.")
-            _meta = af.TIMEFRAMES[_tf]
-            _top_n = _ac2.number_input("Show top", 10, 200, 30, step=10, key="apex_top")
-            _min_score = _ac3.slider("Min score", 0, 100, 80, step=5, key="apex_minscore",
-                                     help="80 is the tested gate. Lower it to see more names.")
+            with _hub_pill():
+                st.markdown("**Timeframe and score**")
+                _ac1, _ac2, _ac3 = st.columns([2, 1, 1], vertical_alignment="bottom")
+                _tf = _ac1.radio("Timeframe", _tf_names, key="apex_tf", horizontal=True,
+                                 help="1 Day is the only timeframe the score was validated on. "
+                                      "Lower timeframes rescale the volatility thresholds "
+                                      "correctly, but the edge itself is unproven there — see "
+                                      "the badge below.")
+                _meta = af.TIMEFRAMES[_tf]
+                _top_n = _ac2.number_input("Show top", 10, 200, 30, step=10, key="apex_top")
+                _min_score = _ac3.slider("Min score", 0, 100, 80, step=5, key="apex_minscore",
+                                         help="80 is the tested gate. Lower it to see more names.")
 
             if _meta["validated"]:
                 st.markdown(f"""<div style="background:#0d2215;border:1px solid #1e6b35;
@@ -3721,99 +3778,103 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
             except Exception:
                 _all_secs = []
             _ax_l1, _ax_l2 = st.columns([1, 1])
-            _AX_OFF = "🚫 Off — no macro tilt"
-            _AX_AUTO = "📡 Auto — detect the live regime"
-            _ax_opts = {_AX_OFF: "off", _AX_AUTO: None}
-            _ax_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
-            _ax_lens_label = _ax_l1.selectbox(
-                "Macro lens", list(_ax_opts), key="apex_lens",
-                help=HELP["macro_lens"] + " The lens NEVER changes the APEX score or "
-                     "the CALM/RS gates — it only re-orders the names that already "
-                     "passed them.")
-            _ax_lens = _ax_opts.get(_ax_lens_label)
-            if _ax_lens == "off":
-                _ax_tilts = None
-                _ax_regkey = None
-            else:
-                _ax_regkey = _ax_lens
-                if _ax_regkey is None:
+            with _hub_pill():
+                _AX_OFF = "🚫 Off — no macro tilt"
+                _AX_AUTO = "📡 Auto — detect the live regime"
+                _ax_opts = {_AX_OFF: "off", _AX_AUTO: None}
+                _ax_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
+                st.markdown("**Macro lens**")
+                _ax_lens_label = st.selectbox(
+                    "Macro lens", list(_ax_opts), key="apex_lens",
+                    label_visibility="collapsed",
+                    help=HELP["macro_lens"] + " The lens NEVER changes the APEX score or "
+                         "the CALM/RS gates — it only re-orders the names that already "
+                         "passed them.")
+                _ax_lens = _ax_opts.get(_ax_lens_label)
+                if _ax_lens == "off":
+                    _ax_tilts = None
+                    _ax_regkey = None
+                else:
+                    _ax_regkey = _ax_lens
+                    if _ax_regkey is None:
+                        try:
+                            _ax_regkey = ce.macro_regime(
+                                closes, pressure_gauge=GAUGE)["regime"]
+                        except Exception:
+                            _ax_regkey = "base"
+                    _ax_tilts = ce.SECTOR_TILTS.get(_ax_regkey) or None
+                if _ax_regkey:
+                    _axc = ce.REGIME_CARDS.get(_ax_regkey)
+                    if _axc:
+                        _md_html(
+                            f"<div style='background:#081325;border-left:3px solid {ACCENT};"
+                            f"padding:7px 12px;margin-top:8px;font-size:12.5px;'>"
+                            f"<b>{_axc['emoji']} {_esc(_axc['name'])}</b>"
+                            f"<span style='color:{DIM};'> — {_esc(_axc.get('thesis') or '')}</span>"
+                            f"<br><span style='color:{GREEN};'> ▲ {_esc(_axc['leads'])}</span>"
+                            f"<br><span style='color:{RED};'> ▼ {_esc(_axc['lags'])}</span></div>")
+                        with st.expander(f"📖 {_axc['name']} playbook — who wins, who loses"):
+                            render_lens_playbook(_axc, _ax_regkey, full=False)
+                            st.caption("Full playbooks are in the 🔭 Lenses tab.")
+                    else:
+                        st.caption("No tilt card for this regime.")
+                else:
+                    st.caption("No tilt — pure APEX ranking.")
+
+            with _hub_pill():
+                st.markdown("**Session and sectors**")
+                _a_lb, _a_off, _a_lbl = flow_window_picker("apex")
+                _hs1, _hs2 = st.columns([1, 3])
+                if _hs1.button("🔥 Use today's hot sectors", key="apex_hot",
+                               width="stretch",
+                               help="Replace the sector selection with the sectors that "
+                                    "received the most money in the last session."):
                     try:
-                        _ax_regkey = ce.macro_regime(
-                            closes, pressure_gauge=GAUGE)["regime"]
-                    except Exception:
-                        _ax_regkey = "base"
-                _ax_tilts = ce.SECTOR_TILTS.get(_ax_regkey) or None
-            if _ax_regkey:
-                _axc = ce.REGIME_CARDS.get(_ax_regkey)
-                if _axc:
-                    _ax_l2.markdown(
-                        f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
-                        padding:7px 12px;margin-top:26px;font-size:12.5px;">
-                        <b>{_axc['emoji']} {_axc['name']}</b>
-                        <span style="color:{DIM};"> — {_esc(_axc.get('thesis') or '')}</span>
-                        <br><span style="color:{GREEN};"> ▲ {_esc(_axc['leads'])}</span>
-                        <br><span style="color:{RED};"> ▼ {_esc(_axc['lags'])}</span></div>""",
-                        unsafe_allow_html=True)
-                    with st.expander(f"📖 {_axc['name']} playbook — who wins, who loses"):
-                        render_lens_playbook(_axc, _ax_regkey, full=False)
-                        st.caption("Full playbooks are in the 🔭 Lenses tab.")
-                else:
-                    _ax_l2.caption("No tilt card for this regime.")
-            else:
-                _ax_l2.caption("No tilt — pure APEX ranking.")
-
-            _a_lb, _a_off, _a_lbl = flow_window_picker("apex")
-            _hs1, _hs2 = st.columns([1, 3])
-            if _hs1.button("🔥 Use today's hot sectors", key="apex_hot",
-                           width="stretch",
-                           help="Replace the sector selection with the sectors that "
-                                "received the most money in the last session."):
+                        _hot = _hot_sectors(asof, 5, _a_lb, _a_off, dump_asof=_dump_asof_key())
+                        if _hot:
+                            st.session_state["_apex_sectors_pending"] = _hot
+                            st.rerun()
+                    except Exception as _he:
+                        st.caption(f"Hot sectors unavailable: {_he}")
                 try:
-                    _hot = _hot_sectors(asof, 5, _a_lb, _a_off, dump_asof=_dump_asof_key())
-                    if _hot:
-                        st.session_state["_apex_sectors_pending"] = _hot
-                        st.rerun()
-                except Exception as _he:
-                    st.caption(f"Hot sectors unavailable: {_he}")
-            try:
-                _hs_now = _hot_sectors(asof, 5, _a_lb, _a_off, dump_asof=_dump_asof_key())
-                if _hs_now:
-                    _hs2.caption(f"🔥 Hottest ({_a_lbl}): " + " · ".join(_hs_now))
-            except Exception:
-                pass
+                    _hs_now = _hot_sectors(asof, 5, _a_lb, _a_off, dump_asof=_dump_asof_key())
+                    if _hs_now:
+                        _hs2.caption(f"🔥 Hottest ({_a_lbl}): " + " · ".join(_hs_now))
+                except Exception:
+                    pass
 
-            _ms_kw = ({} if "apex_sectors" in st.session_state
-                      else {"default": _all_secs})
-            _picked_secs = st.multiselect(
-                "Sectors", _all_secs, key="apex_sectors", **_ms_kw,
-                help="Defaults to every sector. Narrow it to focus the scan — the "
-                     "top-N cut is applied WITHIN your selection, so you always get a "
-                     "full list from the sectors you picked, not leftovers from a "
-                     "whole-market ranking.")
-            _sec_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
-                           else _picked_secs)
-            if _sec_filter:
-                st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_all_secs)} sectors.")
+                _ms_kw = ({} if "apex_sectors" in st.session_state
+                          else {"default": _all_secs})
+                _picked_secs = st.multiselect(
+                    "Sectors", _all_secs, key="apex_sectors", **_ms_kw,
+                    help="Defaults to every sector. Narrow it to focus the scan — the "
+                         "top-N cut is applied WITHIN your selection, so you always get a "
+                         "full list from the sectors you picked, not leftovers from a "
+                         "whole-market ranking.")
+                _sec_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
+                               else _picked_secs)
+                if _sec_filter:
+                    st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_all_secs)} sectors.")
 
-            with st.expander("⚙️ Filters"):
-                _f1, _f2, _f3, _f4 = st.columns(4)
-                _require_calm = _f1.checkbox("CALM volatility only", True, key="apex_calm",
-                    help="The validated configuration. Off = also allow NORMAL-volatility names.")
-                _apply_rs = _f2.checkbox("Relative-strength filter", True, key="apex_rs",
-                    help="Keep only names tracking within ±3% of SPY over 20 bars. Lifted the "
-                         "win rate from 54.9% to 60.2% in testing.")
-                _min_price = _f3.number_input("Min price $", 1.0, 500.0, 5.0, step=1.0, key="apex_px")
-                _min_dv = _f4.number_input("Min $ volume (M)", 0.0, 500.0, 5.0, step=1.0,
-                    key="apex_dv", help="Median daily dollar volume. The CALM gate rewards low "
-                         "volatility, and a stock that barely trades satisfies that trivially — "
-                         "this keeps dead microcaps out of the results.")
-                if not _meta["validated"]:
-                    _uni_n = st.slider("Intraday universe size (most liquid N)", 50, 1000, 300,
-                        step=50, key="apex_uni",
-                        help="Intraday bars are fetched per symbol, so the scan runs on the N "
-                             "most liquid names rather than all ~5,700. Larger = slower.")
-                else:
-                    _uni_n = None
+                with st.expander("⚙️ Filters"):
+                    _f1, _f2, _f3, _f4 = st.columns(4)
+                    _require_calm = _f1.checkbox("CALM volatility only", True, key="apex_calm",
+                        help="The validated configuration. Off = also allow NORMAL-volatility names.")
+                    _apply_rs = _f2.checkbox("Relative-strength filter", True, key="apex_rs",
+                        help="Keep only names tracking within ±3% of SPY over 20 bars. Lifted the "
+                             "win rate from 54.9% to 60.2% in testing.")
+                    _min_price = _f3.number_input("Min price $", 1.0, 500.0, 5.0, step=1.0, key="apex_px")
+                    _min_dv = _f4.number_input("Min $ volume (M)", 0.0, 500.0, 5.0, step=1.0,
+                        key="apex_dv", help="Median daily dollar volume. The CALM gate rewards low "
+                             "volatility, and a stock that barely trades satisfies that trivially — "
+                             "this keeps dead microcaps out of the results.")
+                    if not _meta["validated"]:
+                        _uni_n = st.slider("Intraday universe size (most liquid N)", 50, 1000, 300,
+                            step=50, key="apex_uni",
+                            help="Intraday bars are fetched per symbol, so the scan runs on the N "
+                                 "most liquid names rather than all ~5,700. Larger = slower.")
+                    else:
+                        _uni_n = None
         else:
             _tf = _tf_names[0]
             _meta = af.TIMEFRAMES[_tf]
@@ -4050,7 +4111,7 @@ if _main == "Macro Sim":
 
 
 # ── 🔭 Lenses — full playbooks for every macro regime ─────────────────
-if _main == "Cascade Guide" and _adv == "Lenses":
+if _main == "Cascade Map" and _map == "Lenses":
     closes, asof = _require_closes()
     GAUGE = _gauge()
     st.markdown("### 🔭 Macro lenses — who wins, who loses")
@@ -4158,56 +4219,57 @@ if _main == "Scan Hub" and _hub == "POC Future":
                  "app.py, cascade_engine.py and apex_flow.py, then reboot. "
                  "The rest of the app still works.")
     else:
-        _poc_mode = st.radio(
-            "Controls", ["Basic", "Advanced"], horizontal=True,
-            key="poc_ui_mode",
-            help="Basic = pick a plain-English pattern. Advanced = the same "
-                 "hunt menu plus coil, range, and freshness knobs.")
-        _poc_basic = _poc_mode == "Basic"
+        with _hub_pill():
+            _poc_mode = st.radio(
+                "Controls", ["Basic", "Advanced"], horizontal=True,
+                key="poc_ui_mode",
+                help="Basic = pick a plain-English pattern. Advanced = the same "
+                     "hunt menu plus coil, range, and freshness knobs.")
+            _poc_basic = _poc_mode == "Basic"
 
-        _preset_names = list(pfut.POC_PRESETS)
-        _preset_ix = _preset_names.index(pfut.POC_PRESET_DEFAULT) \
-            if pfut.POC_PRESET_DEFAULT in _preset_names else 0
-        if _poc_basic:
-            _p1, _pc2 = st.columns([2, 1])
-            _preset = _p1.selectbox(
-                "What to hunt", _preset_names, index=_preset_ix,
-                key="poc_preset",
-                help="Each choice is a named bundle of the same settings "
-                     "Advanced exposes as sliders.")
-            _pp = pfut.POC_PRESETS[_preset]
-            _stage_pick = list(_pp["stages"])
-            _accum = int(_pp["accum_len"])
-            _rng = float(_pp["max_range_atr"])
-            _poc_fresh = int(_pp["max_bars_ago"])
-            _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200, 500],
-                                      index=1, key="poc_top")
-        else:
-            _pc1, _pc2, _pc3 = st.columns([2, 1, 1])
-            _preset = _pc1.selectbox(
-                "What to hunt", _preset_names, index=_preset_ix,
-                key="poc_preset",
-                help="Sets which stages to scan. Coil length, range, and "
-                     "freshness stay on the knobs below.")
-            _pp = pfut.POC_PRESETS[_preset]
-            _stage_pick = list(_pp["stages"])
-            _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200, 500],
-                                      index=1, key="poc_top")
-            _poc_fresh = _pc3.selectbox("Max bars since trigger", [3, 5, 10, 20, 45],
-                                        index=2, key="poc_fresh",
-                                        help="A reclaim from three weeks ago is "
-                                             "history, not a setup.")
-            with st.expander("⚙️ Pattern settings"):
-                _e1, _e2 = st.columns(2)
-                _accum = _e1.slider("Accumulation length (bars)", 8, 40,
-                                    pfut.ACCUM_LEN, key="poc_accum",
-                                    help="Your backtest retuned this from 20 to 15: "
-                                         "4.6x more setups at the same expectancy "
-                                         "and positive in 10 of 10 months.")
-                _rng = _e2.slider("Max range (x ATR)", 1.0, 4.0,
-                                  pfut.MAX_RANGE_ATR, step=0.1, key="poc_rng",
-                                  help="The coil must be no wider than this many "
-                                       "ATRs. Lower = tighter, rarer bases.")
+            _preset_names = list(pfut.POC_PRESETS)
+            _preset_ix = _preset_names.index(pfut.POC_PRESET_DEFAULT) \
+                if pfut.POC_PRESET_DEFAULT in _preset_names else 0
+            if _poc_basic:
+                _p1, _pc2 = st.columns([2, 1])
+                _preset = _p1.selectbox(
+                    "What to hunt", _preset_names, index=_preset_ix,
+                    key="poc_preset",
+                    help="Each choice is a named bundle of the same settings "
+                         "Advanced exposes as sliders.")
+                _pp = pfut.POC_PRESETS[_preset]
+                _stage_pick = list(_pp["stages"])
+                _accum = int(_pp["accum_len"])
+                _rng = float(_pp["max_range_atr"])
+                _poc_fresh = int(_pp["max_bars_ago"])
+                _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200, 500],
+                                          index=1, key="poc_top")
+            else:
+                _pc1, _pc2, _pc3 = st.columns([2, 1, 1])
+                _preset = _pc1.selectbox(
+                    "What to hunt", _preset_names, index=_preset_ix,
+                    key="poc_preset",
+                    help="Sets which stages to scan. Coil length, range, and "
+                         "freshness stay on the knobs below.")
+                _pp = pfut.POC_PRESETS[_preset]
+                _stage_pick = list(_pp["stages"])
+                _poc_top = _pc2.selectbox("How many", [25, 50, 100, 200, 500],
+                                          index=1, key="poc_top")
+                _poc_fresh = _pc3.selectbox("Max bars since trigger", [3, 5, 10, 20, 45],
+                                            index=2, key="poc_fresh",
+                                            help="A reclaim from three weeks ago is "
+                                                 "history, not a setup.")
+                with st.expander("⚙️ Pattern settings"):
+                    _e1, _e2 = st.columns(2)
+                    _accum = _e1.slider("Accumulation length (bars)", 8, 40,
+                                        pfut.ACCUM_LEN, key="poc_accum",
+                                        help="Your backtest retuned this from 20 to 15: "
+                                             "4.6x more setups at the same expectancy "
+                                             "and positive in 10 of 10 months.")
+                    _rng = _e2.slider("Max range (x ATR)", 1.0, 4.0,
+                                      pfut.MAX_RANGE_ATR, step=0.1, key="poc_rng",
+                                      help="The coil must be no wider than this many "
+                                           "ATRs. Lower = tighter, rarer bases.")
 
         if _poc_basic:
             _sec_filter = None
@@ -4348,33 +4410,6 @@ if _main == "Scan Hub" and _hub == "POC Future":
                                        source="POC Future")
 
         if not _poc_basic:
-            with st.expander("🩺 Diagnostics — why am I seeing this many setups?"):
-                st.caption("Runs the funnel on THIS deployment's data, so a thin "
-                           "board can be traced to the exact step that drops names "
-                           "instead of guessed at.")
-                if st.button("Run diagnostics", key="poc_diag"):
-                    try:
-                        _d = pfut.diagnose(accum_len=int(_accum),
-                                           max_range_atr=float(_rng))
-                        _s = _d["stages_raw"]
-                        st.markdown(
-                            f"- module **poc_future v{_d['version']}**, "
-                            f"{_d['bars']} bars, last bar **{_d['last_date']}**\n"
-                            f"- dump universe: **{_d['universe']:,}**\n"
-                            f"- priced ≥ $5: **{_d['after_price']:,}**\n"
-                            f"- and ≥ $5M median dollar volume: **{_d['after_liquidity']:,}**\n"
-                            f"- with a real recent print: **{_d['scannable']:,}** ← scanned\n"
-                            f"- **setups found before your filters: "
-                            f"{_d['setups_before_filters']:,}** "
-                            f"(coiling {_s['COILING']:,} · swept {_s['SWEPT']:,} · "
-                            f"triggered {_s['TRIGGERED']:,} · no setup {_s['NONE']:,})")
-                        if _d["setups_before_filters"] < 20:
-                            st.warning("Very few setups before filtering — that points "
-                                       "at the data, not your settings. Hit 🔄 Refresh "
-                                       "on the Cascade Map and check the last bar date.")
-                    except Exception as _de:
-                        st.error(f"Diagnostics failed: {_de}")
-
             with st.expander("❓ What this is, and what the testing actually showed"):
                 st.markdown(
                     "**The three acts**\n"
@@ -4418,27 +4453,28 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                "then tap a row to load the full Stock Lookup — chart, cards, "
                "analyzer, and company profile — under the list.")
 
-    _kw_q = st.text_input(
-        "Keyword or phrase", key="kw_query",
-        placeholder="lithium · semiconductor · REIT · rare earth",
-        help="Case-insensitive. A phrase matches as written — "
-             "\"rare earth\" will not match \"rare\" alone.")
-    _k1, _k2, _k3 = st.columns([1, 1, 1])
-    _kw_lo = _k1.number_input("Min price $", 0.0, 100000.0, 1.0, step=1.0,
-                              key="kw_min",
-                              help="Last nightly-dump close. Stocks without "
-                                   "a price are dropped when a minimum is set.")
-    _kw_hi = _k2.number_input("Max price $", 0.0, 100000.0, 500.0, step=1.0,
-                              key="kw_max",
-                              help="Last nightly-dump close.")
-    _kw_top = _k3.selectbox("How many", [25, 50, 100, 200, 500],
-                            index=1, key="kw_top")
+    with _hub_pill():
+        _kw_q = st.text_input(
+            "Keyword or phrase", key="kw_query",
+            placeholder="lithium · semiconductor · REIT · rare earth",
+            help="Case-insensitive. A phrase matches as written — "
+                 "\"rare earth\" will not match \"rare\" alone.")
+        _k1, _k2, _k3 = st.columns([1, 1, 1])
+        _kw_lo = _k1.number_input("Min price $", 0.0, 100000.0, 1.0, step=1.0,
+                                  key="kw_min",
+                                  help="Last nightly-dump close. Stocks without "
+                                       "a price are dropped when a minimum is set.")
+        _kw_hi = _k2.number_input("Max price $", 0.0, 100000.0, 500.0, step=1.0,
+                                  key="kw_max",
+                                  help="Last nightly-dump close.")
+        _kw_top = _k3.selectbox("How many", [25, 50, 100, 200, 500],
+                                index=1, key="kw_top")
 
-    if st.button("🔎 Search the dump", type="primary", key="kw_go",
-                 width="stretch"):
-        st.session_state["kw_run"] = True
-        st.session_state.pop("kw_snap", None)
-        st.session_state.pop("kw_inline_tk", None)
+        if st.button("🔎 Search the dump", type="primary", key="kw_go",
+                     width="stretch"):
+            st.session_state["kw_run"] = True
+            st.session_state.pop("kw_snap", None)
+            st.session_state.pop("kw_inline_tk", None)
 
     if st.session_state.get("kw_run"):
         _ksnap = st.session_state.get("kw_snap") or {}
@@ -4530,36 +4566,37 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
         "filler. Tap a word to search the nightly dump for names that "
         "mention it."
     )
-    _te_today = datetime.now().date()
-    _te_c1, _te_c2, _te_c3 = st.columns(3)
-    _te_from = _te_c1.date_input("From", value=_te_today - timedelta(days=14),
-                                 key="te_from")
-    _te_to = _te_c2.date_input("To", value=_te_today, key="te_to")
-    _te_n = _te_c3.selectbox("Max sources", [8, 12, 20, 30],
-                             index=1, key="te_n")
-    _te_q = st.text_input(
-        "Keyword or phrase in speeches", key="te_query",
-        placeholder="greenland · drug prices · china · tariffs",
-        help="Search the same live remarks. Returns the same word chart, "
-             "but only sources and words that mention this phrase.")
-    _te_b1, _te_b2 = st.columns(2)
-    if _te_b1.button("🔎 Scan speeches", type="primary", key="te_go",
-                     width="stretch"):
-        st.session_state["te_run"] = True
-        st.session_state["te_mode"] = "scan"
-        st.session_state.pop("te_snap", None)
-        st.session_state.pop("te_inline_tk", None)
-        st.session_state.pop("te_word", None)
-    if _te_b2.button("🔎 Search speeches", key="te_search",
-                     width="stretch"):
-        if not str(_te_q or "").strip():
-            st.warning("Enter a keyword or phrase to search.")
-        else:
+    with _hub_pill():
+        _te_today = datetime.now().date()
+        _te_c1, _te_c2, _te_c3 = st.columns(3)
+        _te_from = _te_c1.date_input("From", value=_te_today - timedelta(days=14),
+                                     key="te_from")
+        _te_to = _te_c2.date_input("To", value=_te_today, key="te_to")
+        _te_n = _te_c3.selectbox("Max sources", [8, 12, 20, 30],
+                                 index=1, key="te_n")
+        _te_q = st.text_input(
+            "Keyword or phrase in speeches", key="te_query",
+            placeholder="greenland · drug prices · china · tariffs",
+            help="Search the same live remarks. Returns the same word chart, "
+                 "but only sources and words that mention this phrase.")
+        _te_b1, _te_b2 = st.columns(2)
+        if _te_b1.button("🔎 Scan speeches", type="primary", key="te_go",
+                         width="stretch"):
             st.session_state["te_run"] = True
-            st.session_state["te_mode"] = "search"
+            st.session_state["te_mode"] = "scan"
             st.session_state.pop("te_snap", None)
             st.session_state.pop("te_inline_tk", None)
             st.session_state.pop("te_word", None)
+        if _te_b2.button("🔎 Search speeches", key="te_search",
+                         width="stretch"):
+            if not str(_te_q or "").strip():
+                st.warning("Enter a keyword or phrase to search.")
+            else:
+                st.session_state["te_run"] = True
+                st.session_state["te_mode"] = "search"
+                st.session_state.pop("te_snap", None)
+                st.session_state.pop("te_inline_tk", None)
+                st.session_state.pop("te_word", None)
 
     if st.session_state.get("te_run"):
         _tsnap = st.session_state.get("te_snap") or {}
@@ -4789,7 +4826,7 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
-if _main == "Cascade Guide" and _adv == "Cascade Pressure":
+if _main == "Cascade Map" and _map == "Cascade Pressure":
     st.caption("The upstream source of every wave: global net liquidity. "
                "Rising pressure = waves travel far. Draining = fade the rallies.")
     try:
@@ -4830,7 +4867,7 @@ if _main == "Cascade Guide" and _adv == "Cascade Pressure":
 
 
 # ── 🛰 sentinels ─────────────────────────────────────────────────────
-if _main == "Cascade Guide" and _adv == "Cascade Sentinels":
+if _main == "Cascade Map" and _map == "Cascade Sentinels":
     closes, asof = _require_closes()
     st.caption("The 24/7 early-warning line — fast, frictionless assets that "
                "react to pressure changes first. Crypto trades all weekend; "
@@ -4866,7 +4903,7 @@ if _main == "Cascade Guide" and _adv == "Cascade Sentinels":
 
 
 # ── 📅 forced flows ──────────────────────────────────────────────────
-if _main == "Cascade Guide" and _adv == "Cascade Sentinels":
+if _main == "Cascade Map" and _map == "Cascade Sentinels":
     st.markdown("#### 🏛 Bond master switch — the risk-free rate & credit spreads")
     try:
         _bond = ce.bond_master_switch(closes)
@@ -4977,7 +5014,7 @@ if _main == "Cascade Guide" and _adv == "Cascade Sentinels":
                 <span style="color:{DIM};font-size:12px;flex:1;">{r['meaning']}</span>
                 </div>""", unsafe_allow_html=True)
 
-if _main == "Cascade Guide" and _adv == "Forced Flows":
+if _main == "Cascade Map" and _map == "Forced Flows":
     st.caption("The closest thing to prophecy that legally exists: flows that "
                "are scheduled and price-insensitive. They don't care what the "
                "chart looks like — they have to trade.")
@@ -5013,7 +5050,7 @@ if _main == "Cascade Guide" and _adv == "Forced Flows":
 
 
 # ── 🔬 validation lab ────────────────────────────────────────────────
-if _main == "Cascade Guide" and _adv == "Cascade Validation Lab":
+if _main == "Cascade Map" and _map == "Cascade Validation Lab":
     closes, asof = _require_closes()
     st.caption("Trust nothing you haven't walk-forward tested. This re-runs "
                "the honest experiment: weekly, re-estimate the graph on "
@@ -5065,7 +5102,7 @@ if _main == "Cascade Guide" and _adv == "Cascade Validation Lab":
 
 
 # ── 📖 guide: every wave, every term, every key ──────────────────────
-if _main == "Cascade Guide" and _adv == "Guide":
+if _main == "Cascade Map" and _map == "Guide":
     _cats = {"core": "🏛 Core Indices", "sector": "🏭 Sectors",
              "theme": "🎯 Themes & Industries", "factor": "🧬 Factors",
              "breadth": "📊 Breadth", "country": "🌍 Countries",
