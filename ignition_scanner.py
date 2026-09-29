@@ -1800,20 +1800,13 @@ def render_ignition_scanner_tab():
                 st.error(f"Could not load nightly dump: {e}")
                 tickers = []
         current_watchlist_key = ",".join(sorted(tickers))
-        with ig_progress_slot:
-            progress = st.progress(0.0, text="")
-            _scan_label = st.empty()
+        bar = ig_progress_slot.progress(0.0, text="Scanning…")
 
         def _scan_progress(done, total, last_t):
-            progress.progress(done / max(total, 1))
-            _scan_label.markdown(
-                f"<span style='color:#cc0000;font-family:Space Mono,monospace;"
-                f"font-size:13px;font-weight:500'>Scanning… ({done}/{total})</span>",
-                unsafe_allow_html=True,
-            )
+            n = max(int(total), 1)
+            bar.progress(min(done / n, 1.0), text=f"Scanning… ({done}/{total})")
 
         results = scan_tickers_parallel(tickers, progress_cb=_scan_progress)
-
         ig_progress_slot.empty()
         st.session_state["ig_last_results"] = results
         st.session_state["ig_last_scan_time"] = datetime.now().strftime("%H:%M:%S")
