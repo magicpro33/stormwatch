@@ -52,14 +52,14 @@ foreach ($f in @("LICENSE", "THIRD_PARTY_NOTICES.txt", "WINDOWS_DESKTOP.md")) {
 $pyVer = & $venvPy -c "import sys; print(sys.version.replace(chr(10),' '))"
 $freeze = & $venvPy -m pip freeze
 $buildInfo = @"
-Money Weather 2.40
+Money Maker 2.40
 Python: $pyVer
 $freeze
 "@
 Set-Content -Path ".\dist\MoneyWeather\BUILD_INFO.txt" -Value $buildInfo -Encoding UTF8
 
 $readme = @"
-Money Weather 2.40 — Windows
+Money Maker 2.40 — Windows
 ============================
 Double-click MoneyWeather.exe. Keep that window open. Your browser opens
 to a local page (127.0.0.1). Close the window to quit.

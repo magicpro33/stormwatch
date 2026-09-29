@@ -1,6 +1,6 @@
 # Third-party notices
 
-Money Weather bundles open-source Python packages in the Windows onedir
+Money Maker bundles open-source Python packages in the Windows onedir
 build (`_internal/`). Each package's license text ships next to it as
 `_internal/<package>-<version>.dist-info/licenses/` (or `LICENSE*`).
 

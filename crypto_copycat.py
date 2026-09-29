@@ -1115,7 +1115,7 @@ def _render_vaults() -> None:
 
 
 def render_crypto_copycat_tab() -> None:
-    """Money Weather entry point."""
+    """Money Maker entry point."""
     _header()
     view = _section(["Earner tape", "Open books", "Copy vaults"], "cc_view")
     if view == "Copy vaults":

@@ -1,4 +1,4 @@
-# Money Weather — dependencies
+# Money Maker — dependencies
 # Hard-won pins from the stock app (do not float these):
 #  - pyarrow<25: 25.0.0 segfaults in pandas<->arrow conversion under Streamlit
 #  - pandas<3:   arrow-backed strings route through the crashing path

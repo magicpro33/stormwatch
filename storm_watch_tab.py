@@ -1,7 +1,7 @@
 """
 Shakeout tab — coils at range lows after a short-term washout.
 
-Money Weather:
+Money Maker:
     from storm_watch_tab import render_storm_watch_tab
     with tab_shakeout:
         render_storm_watch_tab(asof=asof, closes=closes, gauge=GAUGE)
@@ -40,7 +40,7 @@ HELP = {
     "mode": "Basic uses the backtest defaults and hides the rest. "
             "Advanced shows every filter (macro lens, hot sectors, shakeout gate, list length).",
     "macro_lens": "A playbook overlaid on the ranking. Off = no sector tilt. "
-                  "Auto = the regime Money Weather detects live. A named lens re-orders "
+                  "Auto = the regime Money Maker detects live. A named lens re-orders "
                   "names toward that scenario's winners — it does not change the shakeout "
                   "checklist. Full playbooks live in the Lenses tab.",
     "hot_sectors": "Replace the sector list with the sectors that received the most money "
@@ -53,7 +53,7 @@ HELP = {
                     "sector residual > −3%, vol/range compressed. 3 is the validated default.",
     "n_show": "How many coils to list after filters.",
     "scan": "Nothing ranks until you hit this. First scan takes ~15s, then cached for an hour.",
-    "watchlist": "Saves the ticker to the same Money Weather watchlist as Stock Lookup.",
+    "watchlist": "Saves the ticker to the same Money Maker watchlist as Stock Lookup.",
     "chart": "Last ~180 sessions from the nightly dump. SMA50 / SMA150 overlaid.",
     "score": "Equal-weight cross-sectional rank of 5d reversal, range-low coil, peer catch-up, "
              "lower Bollinger stretch, and RSI oversold — then multiplied by the macro-lens sector fit.",

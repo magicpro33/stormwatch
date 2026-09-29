@@ -1,5 +1,5 @@
 """
-🌩 MONEY WEATHER — the Global Flow Cascade map.
+💰 MONEY MAKER — the Global Flow Cascade map.
 
 Standalone Streamlit app. Money propagates through the world's assets like
 weather fronts: fast frictionless nodes first, slow heavy ones last. This app
@@ -128,7 +128,7 @@ except Exception as _cce:
     render_crypto_copycat_tab, _CC_ERR = None, _cce
 
 REQUIRED_ENGINE = "2.42"
-st.set_page_config(page_title="Money Weather", page_icon="🌩", layout="wide")
+st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
     st.error(f"⚠️ **Version mismatch** — this app.py needs cascade_engine.py "
@@ -414,7 +414,7 @@ with _ht:
     st.markdown(
         f"""
         <div style="padding:6px 0 2px;">
-          <span style="font-size:30px;font-weight:700;">🌩 Money Weather</span>
+          <span style="font-size:30px;font-weight:700;">💰 Money Maker</span>
           <span style="color:#E87722;font-size:15px;margin-left:10px;">
             the global flow cascade map</span>
         </div>
@@ -2299,17 +2299,27 @@ def _try_closes():
     return closes, asof
 
 
-_MAIN = ["Cascade Map", "Stock Lookup", "Scan Hub", "Crypto Copycat", "Macro Sim", "Advanced Guide"]
+_MAIN = ["Cascade Map", "Stock Lookup", "Scan Hub", "Crypto Copycat", "Macro Sim", "Cascade Guide"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
         "Ignition Scanner", "Key Word Search", "Trump Effect"]
-_ADV = ["Pressure", "Sentinels", "Forced Flows", "Validation Lab", "Lenses", "Guide"]
+_ADV = ["Cascade Pressure", "Cascade Sentinels", "Forced Flows",
+        "Cascade Validation Lab", "Lenses", "Guide", "Crypto Helper"]
 if st.session_state.get("mw_hub") == "Key Word":
     st.session_state["mw_hub"] = "Key Word Search"
+if st.session_state.get("mw_main") == "Advanced Guide":
+    st.session_state["mw_main"] = "Cascade Guide"
+_old_adv = {
+    "Pressure": "Cascade Pressure",
+    "Sentinels": "Cascade Sentinels",
+    "Validation Lab": "Cascade Validation Lab",
+}.get(st.session_state.get("mw_adv"))
+if _old_adv:
+    st.session_state["mw_adv"] = _old_adv
 _main = _section_bar(_MAIN, "mw_main")
 _hub = _adv = None
 if _main == "Scan Hub":
     _hub = _section_bar(_HUB, "mw_hub")
-elif _main == "Advanced Guide":
+elif _main == "Cascade Guide":
     _adv = _section_bar(_ADV, "mw_adv")
 
 
@@ -4045,7 +4055,7 @@ if _main == "Macro Sim":
 
 
 # ── 🔭 Lenses — full playbooks for every macro regime ─────────────────
-if _main == "Advanced Guide" and _adv == "Lenses":
+if _main == "Cascade Guide" and _adv == "Lenses":
     closes, asof = _require_closes()
     GAUGE = _gauge()
     st.markdown("### 🔭 Macro lenses — who wins, who loses")
@@ -4784,7 +4794,7 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
-if _main == "Advanced Guide" and _adv == "Pressure":
+if _main == "Cascade Guide" and _adv == "Cascade Pressure":
     st.caption("The upstream source of every wave: global net liquidity. "
                "Rising pressure = waves travel far. Draining = fade the rallies.")
     try:
@@ -4825,7 +4835,7 @@ if _main == "Advanced Guide" and _adv == "Pressure":
 
 
 # ── 🛰 sentinels ─────────────────────────────────────────────────────
-if _main == "Advanced Guide" and _adv == "Sentinels":
+if _main == "Cascade Guide" and _adv == "Cascade Sentinels":
     closes, asof = _require_closes()
     st.caption("The 24/7 early-warning line — fast, frictionless assets that "
                "react to pressure changes first. Crypto trades all weekend; "
@@ -4861,7 +4871,7 @@ if _main == "Advanced Guide" and _adv == "Sentinels":
 
 
 # ── 📅 forced flows ──────────────────────────────────────────────────
-if _main == "Advanced Guide" and _adv == "Sentinels":
+if _main == "Cascade Guide" and _adv == "Cascade Sentinels":
     st.markdown("#### 🏛 Bond master switch — the risk-free rate & credit spreads")
     try:
         _bond = ce.bond_master_switch(closes)
@@ -4972,7 +4982,7 @@ if _main == "Advanced Guide" and _adv == "Sentinels":
                 <span style="color:{DIM};font-size:12px;flex:1;">{r['meaning']}</span>
                 </div>""", unsafe_allow_html=True)
 
-if _main == "Advanced Guide" and _adv == "Forced Flows":
+if _main == "Cascade Guide" and _adv == "Forced Flows":
     st.caption("The closest thing to prophecy that legally exists: flows that "
                "are scheduled and price-insensitive. They don't care what the "
                "chart looks like — they have to trade.")
@@ -5008,7 +5018,7 @@ if _main == "Advanced Guide" and _adv == "Forced Flows":
 
 
 # ── 🔬 validation lab ────────────────────────────────────────────────
-if _main == "Advanced Guide" and _adv == "Validation Lab":
+if _main == "Cascade Guide" and _adv == "Cascade Validation Lab":
     closes, asof = _require_closes()
     st.caption("Trust nothing you haven't walk-forward tested. This re-runs "
                "the honest experiment: weekly, re-estimate the graph on "
@@ -5059,8 +5069,104 @@ if _main == "Advanced Guide" and _adv == "Validation Lab":
                "this tab exists. Not investment advice.")
 
 
+# ── ₿ crypto helper ──────────────────────────────────────────────────
+if _main == "Cascade Guide" and _adv == "Crypto Helper":
+    st.markdown("### ₿ Crypto Helper")
+    st.caption("How to read Crypto Copycat. That tab watches Hyperliquid. "
+               "This one explains the screen. It does not place trades.")
+    st.markdown(
+        "Crypto Copycat uses Hyperliquid's public data. No key, no wallet "
+        "connection, and no orders. A fill you can already see has printed, "
+        "so you do not get that entry. The way to actually follow a leader "
+        "on this exchange is a **vault**: you deposit USDC, the leader trades "
+        "the pool, and your share follows the book from then on.\n\n"
+        "Third-party sites such as Hypurrscan and Coinglass repackage the "
+        "same public tape. The wallet links on the roster open Hypurrscan "
+        "when you want a deeper look at one address. The ranking, the tape, "
+        "and the vault list here are the same Hyperliquid feeds.")
+
+    st.markdown("#### The three views")
+    st.markdown(
+        "- **Earner tape** — who is up, and the buys and sells they printed "
+        "in the tape window. A bar chart shows net buy versus sell notional. "
+        "Under that, the largest open bets (eight of them). The rest of the "
+        "book is on Open books.\n"
+        "- **Open books** — the live perp positions for those wallets, "
+        "including Hyperliquid's other markets (the `xyz` books and the rest). "
+        "The default perp endpoint misses those, and a lot of the big books "
+        "sit there. When two or more wallets are on the same coin, the line "
+        "above the table is their net agreement.\n"
+        "- **Copy vaults** — Hyperliquid's own copy-trading product. Closed "
+        "vaults and child vaults are left out. The protocol vault (HLP) is "
+        "tagged. Each row links to the vault page, where a deposit is made "
+        "on Hyperliquid, not in this app.")
+
+    st.markdown("#### Who counts as a top earner")
+    st.markdown(
+        "- **Rank window** — Day is who is hot right now, and it is the "
+        "default so the tape is not a list of people sitting still. Week, "
+        "month, and all-time are the slower cut. Month PnL stays on the "
+        "roster either way.\n"
+        "- **Rank by** — dollar PnL is money earned in that window. ROI % is "
+        "the return on account value, so a smaller account can outrank a "
+        "larger one.\n"
+        "- **Min account** — drops tiny accounts whose percentage is one "
+        "lucky fill. Default is 100k.\n"
+        "- **Max volume / equity** — drops market makers. Default is 3×. "
+        "A wallet whose volume in the window is many times its equity is "
+        "scalping both sides. Those fills are not a book you can copy.\n"
+        "- **Wallets** — how many ranked addresses to follow, from 3 to 8. "
+        "The cap keeps the public API inside its rate limit.\n"
+        "- **Also watch** — one extra 0x address, 42 characters, followed "
+        "alongside the ranked list.")
+
+    st.markdown("#### The tape")
+    st.markdown(
+        "Each row is one fill: time (New York), trader, coin, market, side, "
+        "whether it opened or closed, size, price, notional, and closed PnL.\n\n"
+        "- **Tape window** — 15 minutes, 1 hour, 4 hours, or 24 hours. "
+        "Default is 1 hour.\n"
+        "- **Side** — All, Buys, or Sells. This filters the tape only. "
+        "Open positions stay listed either way.\n"
+        "- **Coin filter** — limits both the tape and the open-book list "
+        "to coins whose name contains that text.\n"
+        "- **Live** — positions and fills refresh about every 25 seconds. "
+        "The leaderboard snapshot itself refreshes about hourly. "
+        "**Reload leaderboard** pulls a new snapshot without waiting.\n\n"
+        "Hyperliquid returns at most 2,000 fills per request, and a full "
+        "2,000 is the oldest slice in the window, not the newest. If a "
+        "wallet is still at that cap on a shorter retry, its tape is hidden "
+        "for a while and its positions still show. An empty tape next to a "
+        "large open book means they are holding, not that the feed failed. "
+        "Day leaders often sit like that.\n\n"
+        "Board equity is the leaderboard's account value. Live perp equity "
+        "is what the position endpoint reports right now. They can differ "
+        "when margin sits somewhere the perp call does not count. Spot USDC "
+        "is not added on top of perp equity, because that double-counts "
+        "margin.")
+
+    st.markdown("#### Copy vaults")
+    st.markdown(
+        "Defaults keep vaults with at least 250k locked, 45 days of history, "
+        "and a positive month, sorted by month PnL, showing 20. A four-digit "
+        "APR on a vault opened last week is not a track record, which is "
+        "what the age and size floors are for.\n\n"
+        "- **Month PnL** — dollars the vault made over the last month.\n"
+        "- **Month / TVL** — that profit relative to the money in the vault.\n"
+        "- **APR** — the exchange's annualized figure. Treat a huge number "
+        "on a young vault as a short hot streak.\n"
+        "- **All-time PnL** and **Age** — the longer record sitting next to "
+        "the month.\n"
+        "- **Reload vaults** refreshes the list. The cached copy is about "
+        "30 minutes old otherwise.\n\n"
+        "Open the vault link, read who the leader is, and decide there. "
+        "This app will not deposit for you.")
+    st.caption("Research only. Probability tilts, not prophecy. "
+               "Not investment advice.")
+
+
 # ── 📖 guide: every wave, every term, every key ──────────────────────
-if _main == "Advanced Guide" and _adv == "Guide":
+if _main == "Cascade Guide" and _adv == "Guide":
     _cats = {"core": "🏛 Core Indices", "sector": "🏭 Sectors",
              "theme": "🎯 Themes & Industries", "factor": "🧬 Factors",
              "breadth": "📊 Breadth", "country": "🌍 Countries",
@@ -5120,7 +5226,7 @@ if _main == "Advanced Guide" and _adv == "Guide":
         ("Piotroski", "9-point fundamental health checklist. 7+ = fortress."),
         ("ROIC / ROCE", "Return on invested capital / capital employed — how much profit each dollar in the business generates. Felix's favorite lenses; 15%+ is elite."),
         ("OE Yield", "Owner-earnings yield — real cash generated relative to price."),
-        ("Yen carry trade", "The world's funding trade: borrow at Japan's ~0% rates, buy risk assets globally. A surging yen margin-calls all of it at once — the Sentinels tab watches for the unwind signature (yen ▲ + QQQ/BTC ▼ + VIX ▲ together), and a confirmed unwind forces the regime to Shock."),
+        ("Yen carry trade", "The world's funding trade: borrow at Japan's ~0% rates, buy risk assets globally. A surging yen margin-calls all of it at once — the Cascade Sentinels tab watches for the unwind signature (yen ▲ + QQQ/BTC ▼ + VIX ▲ together), and a confirmed unwind forces the regime to Shock."),
         ("Catalysts (scored vs shown)", "Data fingerprints (breakout, vol shock, gap, fresh MACD) are backtested and scored. News tags and squeeze setup are context only — read them, don't count them."),
     ]:
         st.markdown(f"- **{term}** — {defn}")

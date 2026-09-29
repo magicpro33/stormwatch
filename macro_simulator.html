@@ -294,7 +294,7 @@ footer a:hover{color:var(--ac)}
     <button class="api-clear" onclick="clearAlpaca()">CLEAR</button>
     <span class="api-status" id="api-status"></span>
   </div>
-  <div class="api-note">Keys are stored only in this browser (localStorage) and sent <strong style="color:var(--tx)">only to data.alpaca.markets over HTTPS</strong> &mdash; never through the CORS proxies. Free keys from <span style="color:var(--ac)">alpaca.markets</span> (paper trading account works). Inside Stormwatch, WTI / Fed funds / 10Y / DXY seed from the server (Yahoo CL=F + FRED DFF/DGS10 + DX=F) so Live Market is not blocked by iframe CORS. Standalone fallback: Yahoo CL=F, ^TNX, DX=F, JPY=X with FRED DFF (not the T-bill), DGS10/DGS2, DCOILWTICO, CPIAUCSL. Stooq and Alpaca ETF proxies (USO, UUP) are last resorts.</div>
+  <div class="api-note">Keys are stored only in this browser (localStorage) and sent <strong style="color:var(--tx)">only to data.alpaca.markets over HTTPS</strong> &mdash; never through the CORS proxies. Free keys from <span style="color:var(--ac)">alpaca.markets</span> (paper trading account works). Inside Money Maker, WTI / Fed funds / 10Y / DXY seed from the server (Yahoo CL=F + FRED DFF/DGS10 + DX=F) so Live Market is not blocked by iframe CORS. Standalone fallback: Yahoo CL=F, ^TNX, DX=F, JPY=X with FRED DFF (not the T-bill), DGS10/DGS2, DCOILWTICO, CPIAUCSL. Stooq and Alpaca ETF proxies (USO, UUP) are last resorts.</div>
 </div>
 <div class="pulsebar" id="pulse"></div>
 
@@ -331,10 +331,10 @@ footer a:hover{color:var(--ac)}
 <div class="mbar" id="mbar"></div>
 <div class="fp"><div class="pt">Macro Event Timeline</div><div class="tl" id="tl"></div></div>
 
-<!-- DUMP TOP 20 + WATCHLIST (scenario-scoped from Stormwatch dump) -->
+<!-- DUMP TOP 20 + WATCHLIST (scenario-scoped from Money Maker dump) -->
 <div class="fp" id="dump-top20-panel">
   <div class="pt">DUMP TOP 20 &mdash; Nightly 5,700-name scan for this scenario <span class="scan-badge">QUALITY &times; TILT</span></div>
-  <div class="scen-note" id="dump-cap">Same ranking as Scan Hub Macro-only: business quality &times; this scenario&apos;s sector tilt. Open Macro Sim inside Stormwatch to load the dump.</div>
+  <div class="scen-note" id="dump-cap">Same ranking as Scan Hub Macro-only: business quality &times; this scenario&apos;s sector tilt. Open Macro Sim inside Money Maker to load the dump.</div>
   <div class="sg" id="g-dump"></div>
 </div>
 <div class="fp" id="watchlist-panel">
@@ -1937,9 +1937,9 @@ function renderDumpTop20(k){
  const cap=document.getElementById('dump-cap');
  const MW=window.MW_MACRO;
  if(!MW || !MW.scans){
-  if(cap) cap.textContent='Open Macro Sim from Stormwatch to load the nightly dump Top 20 for this scenario.';
+  if(cap) cap.textContent='Open Macro Sim from Money Maker to load the nightly dump Top 20 for this scenario.';
   const el=document.getElementById('g-dump');
-  if(el) el.innerHTML='<div class="sr">Dump ranking is injected by Stormwatch. Standalone HTML keeps the playbook lists only.</div>';
+  if(el) el.innerHTML='<div class="sr">Dump ranking is injected by Money Maker. Standalone HTML keeps the playbook lists only.</div>';
   return;
  }
  const ek=engineKey(k);
@@ -1952,9 +1952,9 @@ function renderWatchlist(k){
  const cap=document.getElementById('watch-cap');
  const MW=window.MW_MACRO;
  if(!MW || !MW.watch){
-  if(cap) cap.textContent='Watchlist outcomes load when this simulator is opened inside Stormwatch.';
+  if(cap) cap.textContent='Watchlist outcomes load when this simulator is opened inside Money Maker.';
   const el=document.getElementById('g-watch');
-  if(el) el.innerHTML='<div class="sr">Your Stormwatch watchlist is scored here against the selected preset.</div>';
+  if(el) el.innerHTML='<div class="sr">Your Money Maker watchlist is scored here against the selected preset.</div>';
   return;
  }
  const ek=engineKey(k);
@@ -1967,7 +1967,7 @@ function renderWatchlist(k){
  if(cap){
   cap.textContent=n
    ? (n+' watchlist name'+(n===1?'':'s')+' scored for this scenario — '+fav+' favored/supported, '+head+' headwind.')
-   : 'Your Stormwatch watchlist is empty. Add names from Scan Hub or Stock Lookup.';
+   : 'Your Money Maker watchlist is empty. Add names from Scan Hub or Stock Lookup.';
  }
  mkFitGrid(rows,'g-watch',k);
 }
@@ -2559,7 +2559,7 @@ async function doRefresh(){
   try {
 
   // ── Phase 1: Macro + index series ──────────────────────────
-  // Stormwatch injects MW_MACRO.prints (no CORS). Browser Yahoo/FRED fill gaps.
+  // Money Maker injects MW_MACRO.prints (no CORS). Browser Yahoo/FRED fill gaps.
   setStat('Fetching macro data (oil · yields · dollar · gold · VIX · BTC)...');
   const macroCfgs = Object.values(MACRO_SQ).concat(Object.values(POLICY_CFG));
   const idxKeys   = Object.keys(IDX_SQ);
@@ -2609,7 +2609,7 @@ async function doRefresh(){
   const macroSrc = {}; // key → 'yahoo' | 'fred' | 'stooq' | 'etf-proxy' | 'stormwatch'
   const proxied  = new Set();
 
-  // 0. Server prints (Stormwatch) — authoritative; skips iframe CORS entirely
+  // 0. Server prints (Money Maker) — authoritative; skips iframe CORS entirely
   {
     const src = seedLiveFromServer();
     Object.keys(src).forEach(k => {
@@ -2617,7 +2617,7 @@ async function doRefresh(){
       macroSrc[k] = src[k];
     });
     if (doneM.size) {
-      lastVia = 'Stormwatch live prints';
+      lastVia = 'Money Maker live prints';
       updPulse();
       upd();
     }
@@ -2849,7 +2849,7 @@ document.addEventListener('click',function(e){
 
 window.addEventListener('load',()=>{
   syncApiUI();    // reflect stored Alpaca key on the API button
-  seedLiveFromServer();  // paint Stormwatch prints before the first render
+  seedLiveFromServer();  // paint Money Maker prints before the first render
   initCharts();
   bldAngles();
   upd();          // render cards immediately — never wait for network

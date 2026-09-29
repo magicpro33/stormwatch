@@ -134,7 +134,7 @@ def main() -> int:
     except Exception as e:
         if log is not None:
             log.exception("prepare user dir")
-        _say(f"Money Weather failed to start: {e}")
+        _say(f"Money Maker failed to start: {e}")
         try:
             input("Press Enter to close...")
         except EOFError:
@@ -156,7 +156,7 @@ def main() -> int:
     url = f"http://127.0.0.1:{port}"
 
     _say("")
-    _say("  Money Weather")
+    _say("  Money Maker")
     _say("  ---------------------------------")
     _say(f"  Opening {url}")
     _say("  Keep this window open. Close it to quit.")
@@ -197,11 +197,11 @@ def main() -> int:
         return 0
     except Exception as e:
         if log is not None:
-            log.exception("Money Weather failed to start")
+            log.exception("Money Maker failed to start")
         else:
             import traceback
             traceback.print_exc()
-        _say(f"Money Weather failed to start: {e}")
+        _say(f"Money Maker failed to start: {e}")
         _say("Log: %LOCALAPPDATA%\\MoneyWeather\\moneyweather.log")
         try:
             input("Press Enter to close...")

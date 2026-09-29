@@ -1,5 +1,5 @@
 """
-cascade_engine.py — the Global Flow Cascade engine behind Money Weather.
+cascade_engine.py — the Global Flow Cascade engine behind Money Maker.
 
 Concept: money propagates through the world's assets in repeatable paths —
 fast, frictionless nodes react first (crypto, FX, semis), slow heavy ones
