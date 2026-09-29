@@ -415,17 +415,8 @@ with _ht:
         f"""
         <div style="padding:6px 0 2px;">
           <span style="font-size:30px;font-weight:700;">💰 Money Maker</span>
-          <span style="color:#E87722;font-size:15px;margin-left:10px;">
-            the global flow cascade map</span>
         </div>
-        <div style="color:#9aa8bd;font-size:13px;margin-bottom:10px;">
-          Money doesn't teleport — it propagates. Track the pressure, watch the
-          sentinels, follow the storm tracks. Probability tilts, not prophecy.
-          <br><span style="color:#3fbf7f;">■ green = supportive / working</span> ·
-          <span style="color:#e05252;">■ red = draining / against you</span> ·
-          <span style="color:#9aa8bd;">■ dim = neutral noise</span>
-          <br><span style="font-size:12px;color:#9aa8bd;">{_dump_line}</span>
-        </div>
+        <div style="color:#9aa8bd;font-size:12px;margin-bottom:10px;">{_dump_line}</div>
         """, unsafe_allow_html=True)
 
 
