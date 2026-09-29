@@ -4114,10 +4114,10 @@ if _main == "Macro Sim":
                 "<script src=",
                 f"<script>window.MW_MACRO={_payload};</script>\n<script src=",
                 1)
-            components.html(_sim_html, height=2600, scrolling=True)
+            components.html(_sim_html, height=2900, scrolling=True)
         except Exception as _e1:
             try:
-                st.iframe(_sim_path, height=2600)
+                st.iframe(_sim_path, height=2900)
             except Exception as _e2:
                 st.error(f"Simulator embed failed: {_e1}")
         st.caption("Scroll inside the panel for the full simulator. Its live "

@@ -5,7 +5,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Macro Market Simulator v7.9 — Brad's Playbook</title>
+<title>Macro Market Simulator v8.0 — Brad's Playbook</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 /* Google Fonts loaded async — system fonts used as immediate fallback */
@@ -74,6 +74,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .oil-alert{background:rgba(255,107,53,.1);border:1px solid rgba(255,107,53,.4);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;display:none;line-height:1.5}
 .oil-alert.show{display:block}
 .oil-alert strong{color:var(--ac2)}
+.diesel-alert{background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.45);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;display:none;line-height:1.5}
+.diesel-alert.show{display:block}
+.diesel-alert strong{color:#f5a623}
+#dsl-card.hot,#crack-card.hot,#dist-card.tight{border-color:rgba(245,166,35,.55);background:rgba(245,166,35,.04)}
 .ob{margin-bottom:9px}
 .obl{display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px}
 .bt{height:7px;background:var(--bdr);border-radius:4px;overflow:hidden}
@@ -266,9 +270,9 @@ footer a:hover{color:var(--ac)}
   </a>
   <div class="htop">
     <div>
-      <div class="eye">// Brad's Playbook v7.9 &mdash; Live Yahoo/FRED Feed &bull; Yen Carry &bull; Bretton Woods 2.0 &bull; Inflate-$</div>
+      <div class="eye">// Brad's Playbook v8.0 &mdash; Live Yahoo/FRED Feed &bull; Diesel Crack &bull; Yen Carry &bull; Bretton Woods 2.0 &bull; Inflate-$</div>
       <h1>Macro Market Simulator</h1>
-      <p class="sub">Warsh Fed &middot; Yen Carry Trade &middot; Bretton Woods 2.0 &middot; Strong Dollar &middot; Iran Deal &middot; Inflate the Debt &middot; Live market feed (Jun 23 2026 baseline) &middot; by <a href="https://aiupscalellc.netlify.app/" target="_blank" rel="noopener" class="aiu-link">AI Upscale LLC</a></p>
+      <p class="sub">Diesel Crisis &middot; Warsh Fed &middot; Yen Carry &middot; Bretton Woods 2.0 &middot; Inflate the Debt &middot; Live feed (Sep 29 2026 EIA diesel $6.38) &middot; by <a href="https://aiupscalellc.netlify.app/" target="_blank" rel="noopener" class="aiu-link">AI Upscale LLC</a></p>
     </div>
     <div class="sbadge"><div class="pulse"></div><span id="live-scen">SCENARIO: BASE CASE</span></div>
   </div>
@@ -308,11 +312,16 @@ footer a:hover{color:var(--ac)}
   <button class="tab" onclick="setScen('strong',this)">&#x1F4AA; Strong Dollar</button>
   <button class="tab" onclick="setScen('carry',this)">&#x1F1EF;&#x1F1F5; Yen Carry Unwind</button>
   <button class="tab" onclick="setScen('inflate',this)">&#128176;&#128293; Inflate $</button>
+  <button class="tab" onclick="setScen('diesel',this)">&#9981; Diesel Crisis</button>
 </div>
 <div class="narr" id="narr"></div>
-<div class="oil-alert" id="oil-alert"><strong>&#9889; HIGH OIL ALERT (WTI $90+):</strong> Alternative Energy section below is now in play. Solar, nuclear, wind &amp; storage names gain strategic tailwind as energy independence becomes a national priority. High short interest in solar = potential squeeze.</div>
+<div class="oil-alert" id="oil-alert"><strong>&#9889; HIGH OIL ALERT (WTI $90+):</strong> Alternative Energy section below is now in play. Solar, nuclear, wind &amp; storage names gain a strategic tailwind as energy independence becomes a national priority. High short interest in solar = potential squeeze.</div>
+<div class="diesel-alert" id="diesel-alert"><strong>&#9981; DIESEL / DISTILLATE ALERT:</strong> National on-highway diesel is in record-nominal territory. SPR barrels are crude, not pump-ready diesel. A wide 3-2-1 crack means finished fuel is the scarce thing &mdash; refiners, rail, nuclear, and solar/storage catch the bid; freight-heavy cyclicals eat the surcharge.</div>
 <div class="sliders">
   <div class="scard"><div class="slbl">WTI Oil Price <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>WTI Crude Oil Price ($/barrel)</strong>West Texas Intermediate — the US benchmark for crude oil. Live from CL=F (Yahoo) / FRED DCOILWTICO. Directly drives CPI (gas prices), energy sector earnings, tanker rates, and the Iran deal narrative. Above $90 activates the Alt Energy section.<div class="tip-why">Why it matters: Oil is the single biggest swing variable. A $30 move in oil changes CPI by ~1.5%, alters Fed policy, and flips sector leadership from tech to energy.</div></div></span><button class="rbtn" onclick="rv('sl-oil',68)">RST</button></div><div id="v-oil" class="sval editable" onclick="editVal('oil')" title="Click to type exact value">$68</div><input type="range" min="20" max="200" value="68" id="sl-oil" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$20</span><span>$200</span></div></div>
+  <div class="scard" id="dsl-card"><div class="slbl">US Diesel ($/gal) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>National on-highway diesel ($/gallon)</strong>EIA weekly retail average. Sep 28 2026 print: $6.382 (was $6.529 on Sep 21). Record nominal. Diesel is the freight, farm, construction, and heating-oil fuel — it hits the CPI basket through everything that moves on a truck.<div class="tip-why">Why it matters: Gasoline is the political sign; diesel is the inflation machine. $8 national is a 20–30% December tail; $10 parks 20–35% of marginal trucks.</div></div></span><button class="rbtn" onclick="rv('sl-dsl',638)">RST</button></div><div id="v-dsl" class="sval editable" onclick="editVal('dsl')" title="Click to type exact value">$6.38</div><input type="range" min="250" max="1200" value="638" id="sl-dsl" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$2.50</span><span>$12.00</span></div></div>
+  <div class="scard" id="crack-card"><div class="slbl">3-2-1 Crack ($/bbl) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>3-2-1 crack spread</strong>3 barrels of crude → 2 gasoline + 1 distillate. Crack = product value minus crude. A fat crack means finished fuel is tight even if WTI looks calm. EIA lifted the 2026 distillate crack outlook to ~$1.57/gal (~$66/bbl diesel crack) in Sep 2026.<div class="tip-why">Why it matters: More crude does not automatically mean more diesel. Refineries cannot instantly switch yields; shipping and Russian/Red Sea outages keep the product scarce.</div></div></span><button class="rbtn" onclick="rv('sl-crack',48)">RST</button></div><div id="v-crack" class="sval editable" onclick="editVal('crack')" title="Click to type exact value">$48</div><input type="range" min="5" max="90" value="48" id="sl-crack" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$5</span><span>$90</span></div></div>
+  <div class="scard" id="dist-card"><div class="slbl">Distillate Stocks (MMbbl) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>US commercial distillate inventory</strong>EIA weekly. Mid/late Sep 2026 sat ~104–108 million barrels, 13–14% below the 5-year seasonal average. SPR (~287 MMbbl) is crude — it still has to be refined and piped.<div class="tip-why">Why it matters: Fall maintenance, harvest diesel, and winter heating oil all pull from the same thin tank. Below ~100 MMbbl leaves almost no shock absorber.</div></div></span><button class="rbtn" onclick="rv('sl-dist',108)">RST</button></div><div id="v-dist" class="sval editable" onclick="editVal('dist')" title="Click to type exact value">108</div><input type="range" min="70" max="180" value="108" id="sl-dist" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>70</span><span>180</span></div></div>
   <div class="scard"><div class="slbl">Fed Funds Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Fed Funds Rate (%)</strong>Effective federal funds when FRED DFF is available; otherwise the 13-week T-bill (^IRX) as a live proxy. Set by the FOMC. Under Warsh, cuts still require inflation to fall first.<div class="tip-why">Why it matters: The single most powerful lever in all of finance. Every 25bps cut adds ~2-3% to S&P forward P/E multiples and unlocks bank carry trades via SLR deregulation.</div></div></span><button class="rbtn" onclick="rv('sl-fed',363)">RST</button></div><div id="v-fed" class="sval editable" onclick="editVal('fed')" title="Click to type exact value">3.63%</div><input type="range" min="100" max="700" value="363" id="sl-fed" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>7.0%</span></div></div>
   <div class="scard"><div class="slbl">Iran Deal % <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Iran Deal Status (%)</strong>Probability the Iran nuclear deal holds and the Strait of Hormuz stays open. 0% = full closure, supply shock. 100% = deal signed, Iranian oil floods market, WTI crashes to $55-60.<div class="tip-why">Why it matters: ~20% of global oil supply transits Hormuz. A closure would spike oil $30-40/barrel within weeks, re-accelerating inflation and trapping the Fed.</div></div></span><button class="rbtn" onclick="rv('sl-iran',62)">RST</button></div><div id="v-iran" class="sval editable" onclick="editVal('iran')" title="Click to type exact value">62%</div><input type="range" min="0" max="100" value="62" id="sl-iran" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>Collapsed</span><span>Signed</span></div></div>
   <div class="scard"><div class="slbl">CPI Inflation <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>CPI Inflation (% YoY)</strong>Consumer Price Index year-over-year, pulled live from FRED CPIAUCSL when the feed is available. The Fed's stated target is 2.0%. Warsh uses a trimmed-mean PCE variant; this slider is headline CPI.<div class="tip-why">Why it matters: Inflation above 3.5% keeps the Fed on hold. Below 2.5% unlocks cuts. It's the gatekeeper between the current environment and the QE machine scenario.</div></div></span><button class="rbtn" onclick="rv('sl-cpi',42)">RST</button></div><div id="v-cpi" class="sval editable" onclick="editVal('cpi')" title="Click to type exact value">4.2%</div><input type="range" min="10" max="120" value="42" id="sl-cpi" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>12%</span></div></div>
@@ -346,7 +355,7 @@ footer a:hover{color:var(--ac)}
 <!-- BUY LISTS -->
 <div class="fp" id="buy-list-panel">
   <div class="pt">BUY LIST &mdash; Playbook names for this scenario <span class="scan-badge">REAL DATA</span></div>
-  <div class="play-sec" data-scen="base,bull,bear,qe,stag,carry,inflate">
+  <div class="play-sec" data-scen="base,bull,bear,qe,stag,carry,inflate,diesel">
   <div class="sh"><span class="dot" style="background:var(--gold)"></span>GOLD &amp; PRECIOUS METALS &mdash; Inflation Hedge + Dollar Weakness Play</div>
   <div class="sg" id="g-gold"></div>
   </div>
@@ -358,15 +367,15 @@ footer a:hover{color:var(--ac)}
   <div class="sh"><span class="dot" style="background:var(--pur)"></span>AI &amp; TECH &mdash; Disinflationary Buildout + AI Infrastructure</div>
   <div class="sg" id="g-tech"></div>
   </div>
-  <div class="play-sec" data-scen="bear,stag,inflate">
+  <div class="play-sec" data-scen="bear,stag,inflate,diesel">
   <div class="sh"><span class="dot" style="background:var(--ac2)"></span>ENERGY &mdash; Tankers + E&amp;P + Refiners (Top Screened Picks)</div>
   <div class="sg" id="g-energy"></div>
   </div>
-  <div class="play-sec" data-scen="base,stag,inflate">
+  <div class="play-sec" data-scen="base,stag,inflate,diesel">
   <div class="sh"><span class="dot" style="background:var(--ac3)"></span>PRICING POWER &mdash; Inflation Pass-Through + Consumer Necessities</div>
   <div class="sg" id="g-pricing"></div>
   </div>
-  <div class="play-sec" data-scen="base,bull,bear,qe,stag,strong,carry,inflate">
+  <div class="play-sec" data-scen="base,bull,bear,qe,stag,strong,carry,inflate,diesel">
   <div class="sh"><span class="dot" style="background:var(--mu)"></span>ETF BROAD EXPOSURE &mdash; One-Click Scenario Plays</div>
   <div class="sg" id="g-etf"></div>
   </div>
@@ -377,15 +386,41 @@ footer a:hover{color:var(--ac)}
 </div>
 
 <!-- ALT ENERGY -->
-<div class="fp playbook" id="alt-energy-panel" data-scen="bull,bear,qe,stag">
-  <div class="pt" style="color:var(--ac3)">ALT ENERGY &mdash; High Oil ($90+) Activation Section</div>
-  <div style="background:rgba(57,255,20,.05);border:1px solid rgba(57,255,20,.2);border-radius:9px;padding:11px;margin-bottom:14px;font-size:11px;line-height:1.6;color:var(--tx)">When oil stays elevated above $90, three forces accelerate simultaneously: <strong style="color:var(--ac3)">government subsidies increase</strong> (IRA enforcement + new allocations), <strong style="color:var(--ac3)">corporate procurement shifts</strong> (companies lock in renewable PPAs to escape oil exposure), and <strong style="color:var(--ac3)">retail rotation intensifies</strong> (high gas prices = emotional narrative). Nuclear is the sleeper &mdash; AI data centers need clean baseload power and there&apos;s only one scalable source. Solar has high short interest = squeeze potential. Grid buildout wins regardless of which energy source wins.</div>
+<div class="fp playbook" id="alt-energy-panel" data-scen="bull,bear,qe,stag,diesel">
+  <div class="pt" style="color:var(--ac3)">ALT ENERGY &mdash; High Oil / High Diesel Activation</div>
+  <div style="background:rgba(57,255,20,.05);border:1px solid rgba(57,255,20,.2);border-radius:9px;padding:11px;margin-bottom:14px;font-size:11px;line-height:1.6;color:var(--tx)">When WTI stays above $90 <em>or</em> national diesel holds above $6, three forces accelerate: <strong style="color:var(--ac3)">government subsidies and export curbs</strong> (IRA plus talk of a US diesel export stop), <strong style="color:var(--ac3)">corporate procurement shifts</strong> (PPAs to escape diesel/freight and oil exposure), and <strong style="color:var(--ac3)">retail rotation</strong> (pump pain = solar + storage narrative). Nuclear is the sleeper &mdash; AI data centers need clean baseload. Solar still carries high short interest = squeeze torque. Grid, trackers, and storage win regardless of which electron source wins.</div>
   <div class="sh"><span class="dot" style="background:#22c55e"></span>NUCLEAR &mdash; AI Data Center Baseload + Clean Power Contracts</div>
   <div class="sg" id="g-nuke"></div>
   <div class="sh"><span class="dot" style="background:#facc15"></span>SOLAR &mdash; IRA Moat + Short Squeeze Potential on Oil Spike</div>
   <div class="sg" id="g-solar"></div>
   <div class="sh"><span class="dot" style="background:#38bdf8"></span>WIND / GRID / STORAGE &mdash; Infrastructure Build Beneficiaries</div>
   <div class="sg" id="g-wind"></div>
+</div>
+
+<div class="fp" id="diesel-panel" data-scen="diesel">
+  <div class="pt" style="color:#f5a623">&#9981; DIESEL CRISIS &mdash; Distillate Tight, Crack Wide, SPR Is the Wrong Tank <span id="diesel-badge" style="font-size:9px;background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.45);border-radius:4px;padding:2px 8px;margin-left:6px;color:#f5a623;font-family:'JetBrains Mono',monospace;letter-spacing:.5px">DSL $6.20+ / CRACK $36+ / DIST &le;112</span></div>
+  <div style="background:rgba(245,166,35,.06);border:1px solid rgba(245,166,35,.22);border-radius:9px;padding:12px 14px;margin-bottom:14px;font-size:11px;line-height:1.7;color:var(--tx)">
+    <strong style="color:#f5a623">The setup (late Sep 2026):</strong> EIA on-highway diesel printed a record-nominal run &mdash; $6.529 on Sep 21, still $6.382 on Sep 28, +$2.63 vs a year ago. California ~$7.40. Distillate stocks ~104&ndash;108 MMbbl, 13&ndash;14% below the 5-year seasonal. SPR is ~287 MMbbl of <em>crude</em>, not ULSD. The 3-2-1 crack is the tell: finished fuel is scarce even when more oil is pumped.
+    <br><br>
+    <strong style="color:var(--tx)">Why it is tight:</strong> Russian refinery hits, Red Sea / Houthi + IRGC reroutes, US distillate being pulled into the world market (export-stop talk), fall turnarounds, harvest diesel, winter heating oil competing for the same barrel. Truckers floated an Oct 1 strike threat; $8/gal is ~$1,330 per 1,000 miles vs ~$1,000 at $6.
+    <br><br>
+    <strong style="color:var(--ac3)">Paths:</strong> $8 national by December ~20&ndash;30% if the Middle East stays hot, inventories fail to rebuild, and winter/harvest demand stacks. $10 national ~3&ndash;7% &mdash; needs a second shock (refinery outage + Russia barrels + pipeline/shipping). Fuel is one line in grocery cost; 50% diesel &ne; 50% food, but freight surcharges land first.
+    <br><br>
+    <strong style="color:var(--ac2)">Politics:</strong> Voters punish gasoline they can see on the sign (2008 / 2022 midterm pattern). Diesel hits truckers, farms, contractors, rural heat first, then everyone else via shelf prices. Midterms sit weeks away from this tape.
+    <br><br>
+    <em style="color:var(--mu)">Educational scenario, not advice. SPR releases do not mint diesel. Do not model panic-buying fuel &mdash; gasoline shelf life is months, not a strategic reserve.</em>
+  </div>
+  <div id="diesel-trigger-msg" style="display:none;background:rgba(57,255,20,.06);border:1px solid rgba(57,255,20,.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11px;color:var(--ac3);font-family:'JetBrains Mono',monospace">
+    &#9889; ACTIVE: Diesel $6.20+, 3-2-1 crack $36+, distillate &le;112 MMbbl. Product tightness is live on the sliders.
+  </div>
+  <div class="sh"><span class="dot" style="background:#f5a623"></span>REFINERS &amp; PRODUCT TANKERS &mdash; Own the crack, not the crude story</div>
+  <div class="sg" id="g-diesel-refine"></div>
+  <div class="sh"><span class="dot" style="background:#22c55e"></span>SUBSTITUTION &mdash; Solar, nuclear, storage, grid (diesel/gas stay expensive)</div>
+  <div class="sg" id="g-diesel-alt"></div>
+  <div class="sh"><span class="dot" style="background:var(--ac3)"></span>SURVIVE THE FREIGHT TAX &mdash; Staples, rail, pricing-power tolls</div>
+  <div class="sg" id="g-diesel-survive"></div>
+  <div class="sh"><span class="dot" style="background:var(--red)"></span>EAT THE SURCHARGE &mdash; Discretionary, high-burn EV, freight-intensive wants</div>
+  <div class="sg" id="g-diesel-hurt"></div>
 </div>
 
 <!-- DANGER ZONE -->
@@ -463,7 +498,7 @@ footer a:hover{color:var(--ac)}
   <div class="sg" id="g-strong-financial"></div>
 </div>
 
-<div class="fp" id="hioil-panel" data-scen="bear,stag">
+<div class="fp" id="hioil-panel" data-scen="bear,stag,diesel">
   <div class="pt" style="color:var(--ac2)">&#9981; HIGH OIL + HIGH DOLLAR BUY LIST <span id="hioil-badge" style="font-size:9px;background:rgba(255,107,53,.15);border:1px solid rgba(255,107,53,.4);border-radius:4px;padding:2px 8px;margin-left:6px;color:var(--ac2);font-family:'JetBrains Mono',monospace;letter-spacing:.5px">WTI $90+ / DXY 100+</span></div>
   <div style="background:rgba(255,107,53,.06);border:1px solid rgba(255,107,53,.2);border-radius:9px;padding:12px 14px;margin-bottom:14px;font-size:11px;line-height:1.7;color:var(--tx)">The <strong style="color:var(--ac2)">high oil + strong dollar</strong> scenario: Iran deal fails or collapses, WTI stays above $90, and the dollar remains elevated as a flight-to-safety trade. This pressures consumers globally but creates clear winners: <strong style="color:var(--tx)">energy producers with USD revenues, domestic consumer necessities, defense contractors, and companies with proven pricing power</strong> that can pass input costs through. These stocks outperformed in 2022 (oil spike), 1990 (Gulf War), and the 1973-74 oil shock.</div>
   <div id="hioil-trigger-msg" style="display:none;background:rgba(57,255,20,.06);border:1px solid rgba(57,255,20,.2);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11px;color:var(--ac3);font-family:'JetBrains Mono',monospace">&#9889; ACTIVE: WTI $90+ AND DXY 100+ detected. This scenario is live right now.</div>
@@ -475,7 +510,7 @@ footer a:hover{color:var(--ac)}
   <div class="sg" id="g-hioil-defense"></div>
 </div>
 
-<div class="fp" id="danger-panel" data-scen="bear,stag,carry">
+<div class="fp" id="danger-panel" data-scen="bear,stag,carry,diesel">
   <div class="pt" style="color:var(--red)">DANGER ZONE &mdash; Avoid / Short by Sector</div>
 
   <div class="dsec">
@@ -714,6 +749,22 @@ energy:[
   roic:'11.2%',revy:'+5.1%',earny:'+12.3%',piotr:5,gc:1,mcap:'$488B',price:'$109.82',div:'3.4%',pe:'14.2',score:42.1,
   r:'ROIC 11.2%, Piotr:5, 3.4% div — every $10 oil adds ~$4B earnings; USD revenues',
   desc:'ExxonMobil generates most revenue in USD. High oil expands margins directly. Core stagflation and inflate-the-debt energy holding with a secure dividend.'},
+ {t:'PSX',n:'Phillips 66',sec:'Energy',base:8,bull:2,bear:28,qe:6,stag:24,strong:0,carry:0,inflate:16,diesel:36,
+  roic:'10%',revy:'+6%',earny:'+8%',piotr:5,gc:1,mcap:'$55B',price:'$130',div:'3.2%',pe:'13',score:30,
+  r:'Refining + midstream — 3-2-1 crack is the P&L, not the WTI headline',
+  desc:'Phillips 66 is a large US refiner and midstream. Diesel-crisis tab is a crack-spread tape: product tightness, not a crude shortage. Core diesel-panel name with MPC and VLO.'},
+ {t:'DINO',n:'HF Sinclair',sec:'Energy',base:7,bull:2,bear:26,qe:5,stag:22,strong:0,carry:0,inflate:14,diesel:32,
+  roic:'9%',revy:'+4%',earny:'+6%',piotr:4,gc:1,mcap:'$10B',price:'$48',div:'4.0%',pe:'11',score:24,
+  r:'Rockies / mid-con refiner — regional diesel tightness, harvest demand',
+  desc:'HF Sinclair refines in the interior. Harvest-season diesel and thin PADD inventories hit these cracks first. Higher torque than the Gulf majors on a US-only distillate squeeze.'},
+ {t:'PBF',n:'PBF Energy',sec:'Energy',base:6,bull:0,bear:30,qe:4,stag:24,strong:-2,carry:-2,inflate:12,diesel:34,
+  roic:'8%',revy:'+3%',earny:'+0%',piotr:3,gc:0.5,mcap:'$4B',price:'$32',div:'2.5%',pe:'8',score:18,
+  r:'High-beta independent refiner — widest crack = most torque',
+  desc:'PBF is a leveraged crack-spread name. When 3-2-1 is at cycle highs, PBF moves more than MPC. Size smaller — operational and balance-sheet risk is real.'},
+ {t:'UNP',n:'Union Pacific',sec:'Industrials',base:6,bull:10,bear:4,qe:8,stag:2,strong:4,carry:-6,inflate:4,diesel:18,
+  roic:'14%',revy:'+4%',earny:'+6%',piotr:5,gc:1,mcap:'$140B',price:'$230',div:'2.4%',pe:'20',score:28,
+  r:'Class I rail — can take freight from parked trucks when diesel hits $8–$10',
+  desc:'Rail burns diesel too, but less per ton-mile than trucking. If marginal trucks park at $10, rail captures the overflow. Quality industrial for the diesel-crisis survive sleeve.'},
 ],
 pricing:[
  {t:'COST',n:'Costco',sec:'Consumer Defensive',base:8,bull:14,bear:2,qe:10,stag:9,strong:5,carry:4,inflate:10,
@@ -814,6 +865,14 @@ etf:[
   roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$220',div:'~1.4%',pe:'—',score:0,
   r:'Small caps — 80%+ domestic revenue; strong-dollar and QE-beta play',
   desc:'Russell 2000 small caps are mostly domestic. Strong dollar does not haircut EPS the way it does mega-cap multinationals. High beta to QE and bull tapes.'},
+ {t:'TAN',n:'Invesco Solar ETF',sec:'ETF',base:6,bull:12,bear:22,qe:14,stag:24,strong:0,carry:-6,inflate:12,diesel:30,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$42',div:'~0.5%',pe:'—',score:0,
+  r:'Solar complex — diesel/gas substitution basket',
+  desc:'TAN owns the solar manufacturers and developers. Use on Diesel Crisis and high-oil stag tabs.'},
+ {t:'ICLN',n:'iShares Global Clean Energy',sec:'ETF',base:6,bull:14,bear:16,qe:16,stag:18,strong:2,carry:-4,inflate:12,diesel:24,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'~$14',div:'~1%',pe:'—',score:0,
+  r:'Global clean energy — broader than TAN when freight fuel stays expensive',
+  desc:'ICLN mixes solar, wind, and clean utilities. Diesel-crisis substitution sleeve next to URA and XLE.'},
 ],
 scan:[
  {t:'SBLK',n:'Star Bulk Carriers',sec:'Industrials',base:14,bull:-5,bear:50,qe:10,stag:45,
@@ -878,6 +937,18 @@ nuke:[
   roic:'—',revy:'+96.7%',earny:'+0%',piotr:2,gc:0.5,mcap:'$20.8B',price:'$436.06',div:'0.0%',pe:'—',score:43.5,
   r:'RevG +96.7%, GC:0.5 — nuclear + gas power; AI data center contracts developing',
   desc:'Talen Energy operates nuclear and natural gas power plants with AI data center power purchase contracts in development. Revenue growth of 96.7% signals operational ramp. Nuclear scarcity premium increases as AI power demand explodes beyond grid capacity.'},
+ {t:'OKLO',n:'Oklo',sec:'Utilities',base:4,bull:14,bear:8,qe:12,stag:10,strong:0,carry:-10,inflate:8,diesel:16,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'$3B',price:'$18',div:'0.0%',pe:'—',score:0,
+  r:'SMR developer — speculative nuclear when diesel/grid stress is the headline',
+  desc:'Oklo is a small modular reactor story. High diesel and data-center power shortages keep the SMR narrative bid. Speculative — no current earnings. Size as a satellite, not a core.'},
+ {t:'LEU',n:'Centrus Energy',sec:'Energy',base:8,bull:12,bear:16,qe:12,stag:18,strong:4,carry:0,inflate:12,diesel:22,
+  roic:'—',revy:'+20%',earny:'+0%',piotr:3,gc:1,mcap:'$3B',price:'$80',div:'0.0%',pe:'—',score:18,
+  r:'US uranium enrichment — fuel-cycle bottleneck if nuclear is the diesel hedge',
+  desc:'Centrus is the domestic enrichment name. If diesel stays expensive and nuclear PPAs keep getting signed, fuel-cycle tightness is the second-order trade after CEG.'},
+ {t:'CCJ',n:'Cameco',sec:'Energy',base:10,bull:14,bear:18,qe:14,stag:20,strong:4,carry:2,inflate:14,diesel:24,
+  roic:'8%',revy:'+18%',earny:'+25%',piotr:4,gc:1,mcap:'$25B',price:'$55',div:'0.3%',pe:'28',score:28,
+  r:'Uranium producer — fuel for the reactors that replace diesel gensets and coal',
+  desc:'Cameco is the liquid uranium producer. Diesel crisis plus AI power is a uranium demand story even when WTI is not at $115.'},
 ],
 solar:[
  {t:'FSLR',n:'First Solar',sec:'Technology',base:12,bull:10,bear:32,qe:18,stag:28,
@@ -896,6 +967,38 @@ solar:[
   roic:'-32.45%',revy:'+41.5%',earny:'+0%',piotr:4,gc:1,mcap:'$3.5B',price:'$58.20',div:'0.0%',pe:'—',score:0,
   r:'RevG +41.5%, ShortSq:0.50, GC:1 — solar inverter; speculative high-oil narrative play',
   desc:'SolarEdge makes solar inverters and optimizers. Revenue growing 41.5% with Golden Cross confirmed. Speculative — negative ROIC is a real risk — but oil-spike narrative can drive violent short-term moves given the short interest. Higher risk, higher potential reward.'},
+ {t:'NXT',n:'Nextracker',sec:'Technology',base:10,bull:16,bear:24,qe:18,stag:26,strong:4,carry:-4,inflate:16,diesel:34,
+  roic:'18%',revy:'+28%',earny:'+40%',piotr:5,gc:1,mcap:'$8B',price:'$48',div:'0.0%',pe:'18',score:38,
+  r:'Utility-scale solar trackers — picks-and-shovels when diesel/gas stay expensive',
+  desc:'Nextracker sells the trackers that make utility-scale solar farms produce more kWh. High diesel and grid stress accelerate PPA demand. Higher-quality solar industrial than most module names.'},
+ {t:'ARRY',n:'Array Technologies',sec:'Technology',base:6,bull:12,bear:20,qe:14,stag:22,strong:2,carry:-6,inflate:12,diesel:28,
+  roic:'8%',revy:'+15%',earny:'+20%',piotr:4,gc:0.5,mcap:'$2B',price:'$12',div:'0.0%',pe:'22',score:22,
+  r:'Tracker #2 — same diesel-to-solar substitution tape as NXT, more torque',
+  desc:'Array is the other large US solar-tracker franchise. More cyclical than NXT, more squeeze if diesel stays above $6 and utility solar orders re-accelerate.'},
+ {t:'SHLS',n:'Shoals Technologies',sec:'Technology',base:5,bull:10,bear:18,qe:12,stag:20,strong:2,carry:-6,inflate:10,diesel:26,
+  roic:'12%',revy:'+10%',earny:'+14%',piotr:4,gc:0,mcap:'$1.5B',price:'$8',div:'0.0%',pe:'20',score:18,
+  r:'EBOS wiring for solar farms — electrical balance of system, not a panel bet',
+  desc:'Shoals makes the electrical guts that connect solar arrays to the grid. Diesel-expensive freight and high power prices both pull utility solar forward.'},
+ {t:'CSIQ',n:'Canadian Solar',sec:'Technology',base:4,bull:8,bear:16,qe:10,stag:18,strong:-4,carry:-8,inflate:8,diesel:22,
+  roic:'4%',revy:'+8%',earny:'+0%',piotr:3,gc:0,mcap:'$1.2B',price:'$16',div:'0.0%',pe:'12',score:12,
+  r:'Modules + projects — higher-beta solar when pump prices stay elevated',
+  desc:'Canadian Solar is a module and project developer. More China/trade risk than FSLR. Use as satellite torque, not the core solar holding.'},
+ {t:'TAN',n:'Invesco Solar ETF',sec:'ETF',base:6,bull:12,bear:22,qe:14,stag:24,strong:0,carry:-6,inflate:12,diesel:30,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'$42',div:'~0.5%',pe:'—',score:0,
+  r:'One-ticker solar basket — FSLR/ENPH/NXT complex when diesel is the CPI story',
+  desc:'TAN is the cleanest way to own the solar complex if you do not want single-name module risk. Diesel-crisis tab is when this basket historically catches the narrative bid.'},
+ {t:'ICLN',n:'iShares Global Clean Energy',sec:'ETF',base:6,bull:14,bear:16,qe:16,stag:18,strong:2,carry:-4,inflate:12,diesel:24,
+  roic:'—',revy:'—',earny:'—',piotr:null,gc:null,mcap:'ETF',price:'$14',div:'~1%',pe:'—',score:0,
+  r:'Global clean-energy sleeve — solar + wind + grid names in one ticker',
+  desc:'ICLN is broader than TAN (wind and utilities mix in). Use it when the substitution story is energy-prices-in-general, not just US residential solar.'},
+ {t:'HASI',n:'Hannon Armstrong',sec:'Financial Services',base:6,bull:10,bear:8,qe:14,stag:10,strong:2,carry:4,inflate:12,diesel:16,
+  roic:'—',revy:'+12%',earny:'+8%',piotr:3,gc:1,mcap:'$4B',price:'$28',div:'5.5%',pe:'14',score:20,
+  r:'Climate-infrastructure lender — finances solar/storage when diesel makes PPAs pencil',
+  desc:'HASI finances renewable and efficiency projects. High diesel and high power prices improve project IRRs. Bond-like yield plus energy-transition torque.'},
+ {t:'AMRC',n:'Ameresco',sec:'Industrials',base:6,bull:12,bear:10,qe:12,stag:12,strong:2,carry:-4,inflate:10,diesel:20,
+  roic:'6%',revy:'+10%',earny:'+12%',piotr:4,gc:0.5,mcap:'$2B',price:'$28',div:'0.0%',pe:'22',score:16,
+  r:'ESCO / behind-the-meter — hospitals, feds, campuses cut diesel genset hours',
+  desc:'Ameresco builds energy-savings and renewable projects for government and campuses. Backup-generator diesel cost is a direct sales pitch.'},
 ],
 wind:[
  {t:'BE',n:'Bloom Energy',sec:'Industrials',base:8,bull:15,bear:10,qe:12,stag:14,
@@ -918,6 +1021,18 @@ wind:[
   roic:'—',revy:'+444.7%',earny:'+0%',piotr:3,gc:0,mcap:'$2.6B',price:'$7.55',div:'0.0%',pe:'—',score:0,
   r:'RevG +444.7% — zinc battery storage; early stage but 444% RevG signals real demand',
   desc:'Eos Energy makes zinc-based battery storage systems for utility and commercial customers. 444.7% revenue growth is explosive and signals real market adoption. Very early stage with high risk, but if oil stays high, energy storage becomes strategically critical.'},
+ {t:'FLNC',n:'Fluence Energy',sec:'Industrials',base:6,bull:14,bear:12,qe:12,stag:16,strong:2,carry:-6,inflate:10,diesel:24,
+  roic:'—',revy:'+30%',earny:'+0%',piotr:2,gc:0.5,mcap:'$3B',price:'$16',div:'0.0%',pe:'—',score:14,
+  r:'Grid-scale batteries — shave diesel peakers and firm solar when distillate is tight',
+  desc:'Fluence is a leading grid-storage integrator. High diesel makes peaker substitution and solar-firming more valuable. Speculative earnings, real backlog torque.'},
+ {t:'ORA',n:'Ormat Technologies',sec:'Utilities',base:6,bull:10,bear:8,qe:10,stag:10,strong:2,carry:2,inflate:8,diesel:16,
+  roic:'5%',revy:'+8%',earny:'+10%',piotr:4,gc:1,mcap:'$5B',price:'$75',div:'0.7%',pe:'28',score:18,
+  r:'Geothermal baseload — 24/7 electrons that do not burn diesel',
+  desc:'Ormat is the liquid geothermal name. When diesel and gas stay expensive, always-on renewable baseload gets a scarcity bid next to nuclear.'},
+ {t:'BEPC',n:'Brookfield Renewable Corp',sec:'Utilities',base:6,bull:12,bear:6,qe:14,stag:8,strong:2,carry:4,inflate:10,diesel:14,
+  roic:'—',revy:'+8%',earny:'+0%',piotr:3,gc:1,mcap:'$6B',price:'$30',div:'4.5%',pe:'—',score:16,
+  r:'Hydro / wind / solar yieldco — contracted power as a diesel-inflation hedge',
+  desc:'Brookfield Renewable is a global contracted-power vehicle. High diesel and sticky CPI re-rate real-asset utilities with inflation-linked contracts.'},
 ],
 avBonds:[
  {t:'TLT',n:'iShares 20+ Yr Treasury',sec:'Bond ETF',bp:-38,sp:-50,
@@ -1107,18 +1222,21 @@ hioil:[
 // ============================================================
 const SCENS = {
  // boj = BOJ policy rate *100 (100=1.00%); usdjpy = USD/JPY *10 (1638=163.8)
- base:  {oil:68,  fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638},
- bull:  {oil:58,  fed:275, iran:92, cpi:25, yield:330, y2:270, dxy:920,  qe:72, slr:82, boj:100, usdjpy:1580},
- bear:  {oil:105, fed:425, iran:5,  cpi:68, yield:510, y2:455, dxy:1065, qe:12, slr:12, boj:100, usdjpy:1680},
- qe:    {oil:68,  fed:250, iran:75, cpi:28, yield:310, y2:210, dxy:900,  qe:95, slr:95, boj:75,  usdjpy:1720},
- stag:  {oil:115, fed:400, iran:0,  cpi:82, yield:615, y2:415, dxy:1065, qe:8,  slr:8 , boj:125, usdjpy:1500},
- strong:{oil:72,  fed:425, iran:50, cpi:45, yield:500, y2:448, dxy:1100, qe:15, slr:30, boj:100, usdjpy:1720},
+ // dsl = diesel $/gal *100; crack = 3-2-1 $/bbl; dist = distillate MMbbl
+ base:  {oil:68,  fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638, dsl:520, crack:22, dist:128},
+ bull:  {oil:58,  fed:275, iran:92, cpi:25, yield:330, y2:270, dxy:920,  qe:72, slr:82, boj:100, usdjpy:1580, dsl:380, crack:16, dist:145},
+ bear:  {oil:105, fed:425, iran:5,  cpi:68, yield:510, y2:455, dxy:1065, qe:12, slr:12, boj:100, usdjpy:1680, dsl:780, crack:58, dist:92},
+ qe:    {oil:68,  fed:250, iran:75, cpi:28, yield:310, y2:210, dxy:900,  qe:95, slr:95, boj:75,  usdjpy:1720, dsl:480, crack:20, dist:132},
+ stag:  {oil:115, fed:400, iran:0,  cpi:82, yield:615, y2:415, dxy:1065, qe:8,  slr:8 , boj:125, usdjpy:1500, dsl:820, crack:62, dist:88},
+ strong:{oil:72,  fed:425, iran:50, cpi:45, yield:500, y2:448, dxy:1100, qe:15, slr:30, boj:100, usdjpy:1720, dsl:500, crack:20, dist:130},
  // CARRY: Yen Carry Trade Unwind -- BOJ shock-hikes to 1.75%, USD/JPY crashes 164->132
  // Mirrors Aug 2024 precedent (BOJ hike + weak US jobs -> Nikkei -12.4% in a day)
- carry: {oil:74,  fed:363, iran:55, cpi:42, yield:420, y2:390, dxy:960,  qe:35, slr:25, boj:175, usdjpy:1320},
+ carry: {oil:74,  fed:363, iran:55, cpi:42, yield:420, y2:390, dxy:960,  qe:35, slr:25, boj:175, usdjpy:1320, dsl:540, crack:24, dist:124},
  // INFLATE $: Fiscal dominance / financial repression. Fed pinned BELOW inflation (real rate ~ -3%),
  // long yields capped by covert QE despite hot CPI, dollar debased, gold/silver/BTC run. 1940s+1970s playbook.
- inflate:{oil:88,  fed:250, iran:55, cpi:58, yield:430, y2:300, dxy:915,  qe:88, slr:80, boj:100, usdjpy:1720},
+ inflate:{oil:88,  fed:250, iran:55, cpi:58, yield:430, y2:300, dxy:915,  qe:88, slr:80, boj:100, usdjpy:1720, dsl:620, crack:34, dist:118},
+ // DIESEL: product tightness (late Sep 2026 EIA). Crude need not be $115. SPR is the wrong tank.
+ diesel:{oil:88,  fed:400, iran:28, cpi:52, yield:490, y2:430, dxy:1030, qe:22, slr:22, boj:100, usdjpy:1600, dsl:638, crack:48, dist:108},
 };const NARRS = {
  base:'<strong>BASE CASE:</strong> Iran deal partially holds, oil settles $70-$80. Warsh stays hawkish through Q3, pivots Q4 as trimmed PCE data justifies cuts. Banks get SLR exemption in pipeline. Covert QE begins Q1 2027. Dollar weakens gradually. Markets chop sideways then rip higher late 2026.',
  bull:"<strong>BULL &mdash; DEAL WORKS:</strong> Iran signed, Strait opens, oil crashes to $60s. Warsh's new real-time PCE shows 2.4% inflation. He cuts 75bps. Banks lever into treasuries via SLR deregulation. Dollar drops hard. Every Groman signal turns green simultaneously. S&P rips 20%+. Gold, BTC, Banks, Tech all win at once.",
@@ -1127,7 +1245,8 @@ const SCENS = {
  stag:'<strong>STAGFLATION &mdash; 1970s REPLAY:</strong> Oil at $115, GDP stalls, CPI stuck at 6%+. Fed cannot cut (bond market revolt) or raise much further (debt load). Trapped. Real wages fall. This is the Volcker moment Warsh fears becoming. Only gold, energy, and consumer necessities provide real shelter. Bonds are the death trade.',
  strong:'<strong>&#x1F4AA; STRONG DOLLAR (Bretton Woods 2.0):</strong> Engineered global dollar shortage. DXY targeting 110. World chaos forces nations to spend on US goods and arms, requiring dollars. 27 countries sought emergency dollar access (World Bank June 2026). De-dollarization trade is DEAD. <strong style="color:var(--ac2)">WINNERS: Defense (LMT +30%), Regional Banks (KRE +20%), Small Caps (IWM +12%), UUP ETF (+18%).</strong> <strong style="color:var(--red)">AVOID: Gold (-15%), BTC (-30%), AAPL/KO/PG/MSFT (50-65% overseas revenue = EPS headwind).</strong>',
  carry:'<strong>&#x1F1EF;&#x1F1F5; YEN CARRY TRADE UNWIND:</strong> BOJ shock-hikes to 1.75% while a weak US jobs print rattles confidence -- the exact combination that crashed USD/JPY from 161 to 141.70 in three weeks in August 2024 (Nikkei -12.4% in a single day, its worst since 1987). Leveraged funds that borrowed cheap yen to buy US tech, BTC, and EM assets face margin calls and forced liquidation. <strong style="color:var(--ac3)">SAFE HAVENS: Yen itself (FXY +22%), long bonds (flight to quality +20%), gold miners (+18%).</strong> <strong style="color:var(--red)">CARRY-FUNDED LOSERS: Leveraged AI/tech (NVDA -35%), Bitcoin (-35%), Emerging Markets (-22%), Regional Banks funding stress (-20%).</strong>',
- inflate:'<strong>&#128176;&#128293; INFLATE THE DEBT AWAY (Fiscal Dominance):</strong> The rollover wall forces the Fed&#39;s hand: ~$8T of debt reprices in 12 months and total debt (~$39.8T, ~122% of GDP) can&#39;t be serviced at 4-5% for long. The exit chosen every time debt gets this big &mdash; not default, not austerity, but <strong>financial repression</strong>: hold policy rates BELOW inflation, cap the long end with covert QE, and let a ~3% negative real rate quietly erode the debt&#39;s real value (the exact 1946-1951 + 1970s playbook that took debt/GDP from 120% to 30%). <strong style="color:var(--ac2)">WINNERS: hard money &mdash; gold (GDX/NEM +30-40%), silver, BTC (+50%+), energy &amp; real assets, TIPS.</strong> <strong style="color:var(--red)">LOSERS: cash &amp; long nominal bonds (TLT/ZROZ real value bleeds), savers &amp; fixed salaries. Stocks rise nominally but ~flat in real terms (1970s).</strong> <em style="color:var(--mu)">Not a forecast or advice &mdash; a mechanism model. See the Inflate-$ calculator below for the exact repression math.</em>'
+ inflate:'<strong>&#128176;&#128293; INFLATE THE DEBT AWAY (Fiscal Dominance):</strong> The rollover wall forces the Fed&#39;s hand: ~$8T of debt reprices in 12 months and total debt (~$39.8T, ~122% of GDP) can&#39;t be serviced at 4-5% for long. The exit chosen every time debt gets this big &mdash; not default, not austerity, but <strong>financial repression</strong>: hold policy rates BELOW inflation, cap the long end with covert QE, and let a ~3% negative real rate quietly erode the debt&#39;s real value (the exact 1946-1951 + 1970s playbook that took debt/GDP from 120% to 30%). <strong style="color:var(--ac2)">WINNERS: hard money &mdash; gold (GDX/NEM +30-40%), silver, BTC (+50%+), energy &amp; real assets, TIPS.</strong> <strong style="color:var(--red)">LOSERS: cash &amp; long nominal bonds (TLT/ZROZ real value bleeds), savers &amp; fixed salaries. Stocks rise nominally but ~flat in real terms (1970s).</strong> <em style="color:var(--mu)">Not a forecast or advice &mdash; a mechanism model. See the Inflate-$ calculator below for the exact repression math.</em>',
+ diesel:'<strong>&#9981; DIESEL CRISIS &mdash; THE PRODUCT IS THE SHOCK:</strong> EIA diesel ran a record-nominal print ($6.529 on Sep 21 2026, still $6.382 on Sep 28). Distillate stocks ~108 MMbbl, 13%+ below the 5-year. SPR (~287 MMbbl) is crude that still has to be cracked, shipped, and delivered. Russian refinery hits, Red Sea reroutes, US barrels leaving as exports, fall turnarounds, harvest, and winter heating oil all pull the same thin tank. <strong style="color:var(--ac2)">WINNERS: refiners (MPC/VLO/PSX &mdash; own the 3-2-1), product tankers, rail, nuclear, solar/storage/grid, staples with pass-through.</strong> <strong style="color:var(--red)">LOSERS: discretionary freight, high-burn EV, restaurants, furniture &mdash; the $8 path (20&ndash;30% by December) adds surcharges; the $10 tail (3&ndash;7%) parks 20&ndash;35% of marginal trucks.</strong> Midterms punish the gasoline sign; diesel is how it shows up in groceries six weeks later. <em style="color:var(--mu)">Not advice &mdash; a distillate-tightness playbook, distinct from a Hormuz crude spike.</em>'
 };
 const ANGLES = [
  {s:'BASE',c:'var(--ac)',t:'No Clear Driver — Quality Quietly Wins',b:'No single macro force is dominant. Size quality compounders (high ROIC, Piotroski 5+) and skip the narrative trades. Dump Top 20 here is almost pure business quality.',tks:['COST','V','MA','MSFT','JPM','SCHD']},
@@ -1140,6 +1259,10 @@ const ANGLES = [
  {s:'CARRY',c:'var(--pur)',t:'Yen Carry Trade Unwind -- The August 2024 Playbook Repeats',b:'BOJ hiked 25bp + weak US jobs data crashed USD/JPY from 161 to 141.70 in 3 weeks (Aug 2024), Nikkei -12.4% in a day. Fed-BOJ gap has narrowed from 525bp to ~263bp in 2026 -- less cushion, same trigger risk. Watch for BOJ surprise hikes paired with weak US data.',tks:['FXY','TLT','GDX','NVDA','IBIT','KRE']},
  {s:'CARRY',c:'var(--pur)',t:'Carry-Funded Assets Are the Hidden Risk in Every Portfolio',b:'Cheap yen leverage has quietly funded much of the 2024-2026 AI/tech rally and crypto positioning. When it unwinds, the assets that rallied hardest on liquidity (NVDA, BTC, high-beta growth) fall hardest. Bonds and yen itself are the natural hedge.',tks:['NVDA','IBIT','EEM','FXY','TLT','IEF']},
  {s:'INFLATE',c:'var(--gold)',t:'Inflate the Debt -- Financial Repression',b:'Policy rate pinned below CPI, QE caps the long end, dollar soft. Cash and nominal bonds bleed in real terms. Hard assets, gold, silver, and pricing-power staples defend purchasing power. This is the 1946-51 / 1970s mechanism, not a 12-month trade.',tks:['GLD','SLV','GDX','XOM','COST','TIP']},
+ {s:'DIESEL',c:'#f5a623',t:'Crack Spread, Not Crude -- Own the Refinery Gate',b:'More WTI does not mint ULSD. Russian refinery hits, Red Sea miles, and a thin 108 MMbbl distillate tank blow out the 3-2-1. MPC, VLO, PSX, DINO collect the margin. SPR releases are a headline, not a diesel delivery.',tks:['MPC','VLO','PSX','DINO','STNG','XLE']},
+ {s:'DIESEL',c:'#22c55e',t:'Substitution -- Solar, Nuclear, Storage, Grid',b:'$6+ diesel makes PPAs, trackers, batteries, and nuclear offtake pencil faster. FSLR/NXT/TAN for solar, CEG/CCJ/URA for the atom, FLNC/EOSE for storage, GEV/PWR/MTZ for the wires. This is why Alt Energy is live on this tab even if WTI is not $115.',tks:['FSLR','NXT','TAN','CEG','URA','FLNC']},
+ {s:'DIESEL',c:'var(--ac3)',t:'Freight Tax -- Who Passes It, Who Eats It',b:'At $6/gal a truck burns ~$1,000 per 1,000 miles; $8 is $1,330; $10 is $1,667. Rail (UNP) can steal parked-truck freight. WMT/COST/PG pass it. Furniture, restaurants, and rush-ship discretionary eat it. 50% diesel is not 50% groceries — but the surcharge lands first.',tks:['UNP','WMT','COST','PG','V','TIP']},
+ {s:'DIESEL',c:'var(--red)',t:'$8 vs $10 Paths -- And the Midterm Sign',b:'Experts will not give a clean forecast (JP Morgan sat this one out). $8 national by December is 20–30% if inventories fail and winter stacks. $10 is 3–7% and needs a second shock. Voters punish the gasoline sign they see every week; diesel is how food and heat get there.',tks:['UUP','XLE','WMT','QQQ','ARKK','DRI']},
 ];
 
 
@@ -1147,7 +1270,7 @@ let CH={};
 const CARD_STORE={};
 // Stores the most recently fetched live macro values
 // doRefresh() populates this; rv() restores from it
-const LIVE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638};
+const LIVE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638, dsl:638, crack:48, dist:108};
 const MANUAL_SET = new Set();  // macro keys the user typed by hand — refresh won't overwrite these
 
 function seedLiveFromServer(){
@@ -1173,7 +1296,7 @@ function rv(id, hardcoded){
   const keyMap = {
     'sl-oil':'oil','sl-fed':'fed','sl-iran':'iran','sl-cpi':'cpi',
     'sl-yield':'yield','sl-y2':'y2','sl-dxy':'dxy','sl-qe':'qe','sl-slr':'slr',
-    'sl-boj':'boj','sl-usdjpy':'usdjpy'
+    'sl-boj':'boj','sl-usdjpy':'usdjpy','sl-dsl':'dsl','sl-crack':'crack','sl-dist':'dist'
   };
   const k = keyMap[id];
   // RST means "follow live again" — drop the typed lock so refresh can update it
@@ -1200,6 +1323,9 @@ const EDIT_META = {
   slr:   {slider:'sl-slr',   scale:1,   min:0,   max:100, unit:'%',     label:'SLR Deregulation (%)', parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
   boj:   {slider:'sl-boj',   scale:100, min:0,   max:3,   unit:'%',     label:'BOJ Rate (%)',         parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
   usdjpy:{slider:'sl-usdjpy',scale:10,  min:100, max:200, unit:'¥',     label:'USD/JPY Rate',         parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
+  dsl:   {slider:'sl-dsl',   scale:100, min:2.5, max:12,  unit:'$/gal', label:'US Diesel ($/gallon)', parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
+  crack: {slider:'sl-crack', scale:1,   min:5,   max:90,  unit:'$/bbl', label:'3-2-1 Crack ($/bbl)',  parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
+  dist:  {slider:'sl-dist',  scale:1,   min:70,  max:180, unit:'MMbbl', label:'Distillate Stocks (MMbbl)', parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
 };
 function editVal(key){
   const m = EDIT_META[key];
@@ -1258,6 +1384,9 @@ function gv(){
   qe:   +document.getElementById('sl-qe').value,
   slr:  +document.getElementById('sl-slr').value,
   boj, usdjpy,
+  dsl:   +document.getElementById('sl-dsl').value / 100,
+  crack: +document.getElementById('sl-crack').value,
+  dist:  +document.getElementById('sl-dist').value,
 };}
 
 let WHATIF = null; // scenario key when a what-if tab is active; null = follow live prints
@@ -1269,6 +1398,8 @@ function gkey(v){
  if(v.oil>95 && v.cpi>7.5)                        return 'stag'; // entrenched inflation regime (cpi already in %)
  if(v.iran<20 && v.oil>90)                        return 'bear'; // geopolitical/Hormuz shock
  if(v.oil>95 && v.cpi>5.5)                        return 'stag'; // high oil + sticky CPI without Iran trigger
+ if(WHATIF==='diesel' || (v.dsl>=6.15 && v.crack>=36 && v.dist<=112 && v.oil<100 && v.cpi<7.5))
+                                                  return 'diesel'; // product tightness, not a crude spike
  if(v.iran>75 && v.oil<70)                        return 'bull';
  if(v.dxy>=107 && v.fed>=4.0 && v.qe<30)         return 'strong'; // dxy already in index points
  // INFLATE: financial repression -- policy rate pinned >=1.5% below CPI while QE floods & dollar weak
@@ -1293,6 +1424,9 @@ function setScen(s,el){
  document.getElementById('sl-usdjpy').value=p.usdjpy;
  document.getElementById('sl-qe').value=p.qe;
  document.getElementById('sl-slr').value=p.slr;
+ if(p.dsl!=null) document.getElementById('sl-dsl').value=p.dsl;
+ if(p.crack!=null) document.getElementById('sl-crack').value=p.crack;
+ if(p.dist!=null) document.getElementById('sl-dist').value=p.dist;
  upd();
 }
 
@@ -1302,7 +1436,8 @@ function setLive(el){
  if(el)el.classList.add('on');
  const map = {
    oil:'sl-oil', fed:'sl-fed', iran:'sl-iran', cpi:'sl-cpi', yield:'sl-yield',
-   y2:'sl-y2', dxy:'sl-dxy', qe:'sl-qe', slr:'sl-slr', boj:'sl-boj', usdjpy:'sl-usdjpy'
+   y2:'sl-y2', dxy:'sl-dxy', qe:'sl-qe', slr:'sl-slr', boj:'sl-boj', usdjpy:'sl-usdjpy',
+   dsl:'sl-dsl', crack:'sl-crack', dist:'sl-dist'
  };
  Object.entries(map).forEach(([k,id])=>{
    if (MANUAL_SET.has(k)) return;
@@ -1318,11 +1453,35 @@ function liveRegimeKey(){
     return gkey({
       oil:+m.oil, fed:+m.fed/100, iran:+m.iran, cpi:+m.cpi/10,
       y10:+m.yield/100, y2:+m.y2/100, dxy:+m.dxy/10,
-      qe:+m.qe, slr:+m.slr, boj:+m.boj/100, usdjpy:+m.usdjpy/10
+      qe:+m.qe, slr:+m.slr, boj:+m.boj/100, usdjpy:+m.usdjpy/10,
+      dsl:+(m.dsl||638)/100, crack:+(m.crack||48), dist:+(m.dist||108)
     });
   } catch(_){ return 'base'; }
 }
 let _PB = null;
+function playbookRet(s, key){
+  if (!s) return 0;
+  if (s[key] != null && isFinite(+s[key])) return +s[key];
+  if (key === 'diesel'){
+    const stag = s.stag != null ? +s.stag : (s.base || 0);
+    const t = String(s.t || '');
+    const sec = String(s.sec || '');
+    if (['MPC','VLO','PSX','DINO','PBF'].includes(t)) return stag + 10;
+    if (['FSLR','ENPH','RUN','SEDG','NXT','ARRY','SHLS','CSIQ','TAN','ICLN','HASI','AMRC'].includes(t))
+      return Math.max(stag, 16) + 8;
+    if (['CEG','TLN','OKLO','LEU','CCJ','URA','VST','NEE','AES'].includes(t))
+      return Math.max(stag, 12) + 6;
+    if (['FLNC','EOSE','BE','GEV','MTZ','PWR','ETN','ORA','CWEN','BEPC'].includes(t))
+      return Math.max(stag, 10) + 8;
+    if (['UNP','NSC','CSX','STNG','FRO','DHT'].includes(t)) return Math.max(stag, 12) + 6;
+    if (sec.includes('Energy')) return stag + 6;
+    if (sec.includes('Utilit')) return stag + 4;
+    if (sec.includes('Cyclical') || sec.includes('Discretion')) return stag - 8;
+    if (sec.includes('Defensive')) return stag + 2;
+    return stag;
+  }
+  return s.base || 0;
+}
 function playbookOf(t){
   if (!_PB){
     _PB = {};
@@ -1339,8 +1498,10 @@ function playbookOf(t){
 function scenarioPct(ticker, scen, d){
   const key = scen === 'live' ? liveRegimeKey() : scen;
   if (d && d[key] != null && isFinite(+d[key])) return +d[key];
+  if (d && key === 'diesel') return playbookRet(d, 'diesel');
   const pb = playbookOf(ticker);
   if (pb && pb[key] != null && isFinite(+pb[key])) return +pb[key];
+  if (pb && key === 'diesel') return playbookRet(pb, 'diesel');
   const hit = scenarioScore(ticker, key);
   if (hit && hit.macrofit != null && isFinite(+hit.macrofit)){
     const mf = +hit.macrofit;
@@ -1370,7 +1531,7 @@ function buildExpanded(t,n,d,k){
   ${bp&&lp!==bp?`<div><div style="font-size:9px;font-family:JetBrains Mono,monospace;color:var(--mu)">Baseline</div><div style="font-family:JetBrains Mono,monospace;font-size:14px;color:var(--mu)">${fmt(bp)}</div></div>`:''}
   <div style="margin-left:auto;font-size:9px;color:var(--mu);font-family:JetBrains Mono,monospace">via ${PX_SRC[t]||'baseline'}</div>
  </div>`:'';
- const scens=[{key:'live',lbl:'LIVE'},{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'},{key:'strong',lbl:'STRONG$'},{key:'carry',lbl:'CARRY'},{key:'inflate',lbl:'INFLATE$'}];
+ const scens=[{key:'live',lbl:'LIVE'},{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'},{key:'strong',lbl:'STRONG$'},{key:'carry',lbl:'CARRY'},{key:'inflate',lbl:'INFLATE$'},{key:'diesel',lbl:'DIESEL'}];
  const liveK=liveRegimeKey();
  const allRet=scens.map(sc=>{
   const v=scenarioPct(t, sc.key, d);
@@ -1429,7 +1590,7 @@ function mkGrid(arr,key,cid,cls){
  const el=document.getElementById(cid);
  if(!el)return;
  el.innerHTML=arr.map((s,i)=>{
-  const val=s[key]!=null?s[key]:(s.base||0);
+  const val=playbookRet(s,key);
   const pcls=val>0?'u':val<0?'d':'nt';
   const sign=val>=0?'+':'';
   const col=val>0?'var(--ac3)':val<0?'var(--red)':'var(--gold)';
@@ -1570,6 +1731,7 @@ function updCharts(v,k){
  carry:  [-12,  10, -35,  -8,  20,  -8],
  // INFLATE: hard money wins big, nominal bonds bleed (real), dollar debases. S&P up nominal only.
  inflate:[ 12,  38,  55,  30, -22, -16],
+ diesel: [ -4,  10, -18,  28, -16,   4],
 }; const r=RET[k]||RET.base;
  CH.asset.data.datasets[0].data=r;
  CH.asset.data.datasets[0].backgroundColor=r.map((rv,i)=>rv>=0?['#39ff14','#ffd700','#f97316','#6b7fa3','#a855f7','#22d3ee'][i]:['#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c'][i]);
@@ -1588,6 +1750,7 @@ function updCharts(v,k){
  carry:  [32, 42, 18, 38, 68, 72, 58, 66],
  // INFLATE: Energy/Materials (real assets) lead, Financials ok (steep curve), Tech nominal-ok, RE hard-asset hedge
  inflate:[60, 88, 58, 90, 55, 58, 78, 50],
+ diesel: [38, 92, 52, 72, 78, 58, 28, 70],
 }; CH.sector.data.datasets[0].data=SD[k]||SD.base;CH.sector.update('none');
  const y2   = v.y2 || (v.y10 - 0.26);
  const y10  = v.y10;
@@ -1609,6 +1772,7 @@ function updCharts(v,k){
    strong:[ 0.10, 0.10, 0.10, 0.08, 0.05, 0.15, 0.30, 0.40, 0.45], // hawkish hold + term premium
    carry: [-0.60,-0.60,-0.55,-0.55,-0.50,-0.45,-0.40,-0.30,-0.25], // flight-to-quality bond rally
    inflate:[-1.30,-1.30,-1.20,-1.05,-0.85,-0.55,-0.30,-0.15, 0.00], // front-end slashed, long end pinned by QE (yield-curve control)
+   diesel:[ 0.15, 0.15, 0.12, 0.10, 0.08, 0.20, 0.35, 0.45, 0.50], // sticky goods CPI, term premium up
  };
  const sh = shifts[k] || shifts.base;
  const yp = yc.map((y,i) => +(y + sh[i]).toFixed(2));
@@ -1619,18 +1783,18 @@ function updBars(k){
  const items=[
  // RECALIBRATED July 2 2026 with Strong Dollar + Yen Carry Unwind columns
  // KEY CHANGE: bear gold = NEGATIVE (DXY spike suppresses gold -- confirmed inverse)
- ['FRO','Frontline Tankers',    {bull:-20,bear:55,qe:8,stag:50,base:5, strong:-5,  carry:-8, inflate:20 }],
- ['NEM','Newmont Gold',         {bull:18, bear:-8,qe:32,stag:22,base:5, strong:-20, carry:15, inflate:38 }],
- ['LMT','Lockheed Martin',      {bull:5,  bear:28,qe:6,stag:22,base:10, strong:30,  carry:-3, inflate:8 }],
- ['NVDA','NVIDIA',              {bull:55, bear:-28,qe:45,stag:-22,base:18,strong:-12,carry:-35,inflate:8}],
- ['JPM','JPMorgan',             {bull:32, bear:-15,qe:40,stag:-18,base:12,strong:14, carry:-12,inflate:10}],
- ['IBIT','Bitcoin ETF',         {bull:58, bear:-42,qe:72,stag:-28,base:10,strong:-30,carry:-35,inflate:50}],
- ['XLE','Energy ETF',           {bull:-12,bear:38,qe:6,stag:35,base:0, strong:-5,  carry:-8, inflate:28 }],
- ['CEG','Constellation Nuke',   {bull:18, bear:20,qe:18,stag:18,base:14,strong:15,  carry:-10,inflate:14}],
- ['GDX','Gold Miners ETF',      {bull:25, bear:-10,qe:40,stag:20,base:5, strong:-22, carry:18, inflate:40 }],
- ['KRE','Regional Banks ETF',   {bull:22, bear:-22,qe:38,stag:-30,base:5, strong:20, carry:-20,inflate:8}],
- ['UUP','USD Bullish ETF',      {bull:-8, bear:8, qe:-14,stag:5, base:2, strong:18,  carry:-8, inflate:-16 }],
- ['PLTR','Palantir',            {bull:60, bear:-18,qe:40,stag:-8, base:18,strong:5,  carry:-18,inflate:10}],
+ ['FRO','Frontline Tankers',    {bull:-20,bear:55,qe:8,stag:50,base:5, strong:-5,  carry:-8, inflate:20, diesel:32 }],
+ ['NEM','Newmont Gold',         {bull:18, bear:-8,qe:32,stag:22,base:5, strong:-20, carry:15, inflate:38, diesel:12 }],
+ ['LMT','Lockheed Martin',      {bull:5,  bear:28,qe:6,stag:22,base:10, strong:30,  carry:-3, inflate:8, diesel:14 }],
+ ['NVDA','NVIDIA',              {bull:55, bear:-28,qe:45,stag:-22,base:18,strong:-12,carry:-35,inflate:8, diesel:-10}],
+ ['JPM','JPMorgan',             {bull:32, bear:-15,qe:40,stag:-18,base:12,strong:14, carry:-12,inflate:10, diesel:-6}],
+ ['IBIT','Bitcoin ETF',         {bull:58, bear:-42,qe:72,stag:-28,base:10,strong:-30,carry:-35,inflate:50, diesel:-12}],
+ ['XLE','Energy ETF',           {bull:-12,bear:38,qe:6,stag:35,base:0, strong:-5,  carry:-8, inflate:28, diesel:30 }],
+ ['CEG','Constellation Nuke',   {bull:18, bear:20,qe:18,stag:18,base:14,strong:15,  carry:-10,inflate:14, diesel:22}],
+ ['GDX','Gold Miners ETF',      {bull:25, bear:-10,qe:40,stag:20,base:5, strong:-22, carry:18, inflate:40, diesel:10 }],
+ ['KRE','Regional Banks ETF',   {bull:22, bear:-22,qe:38,stag:-30,base:5, strong:20, carry:-20,inflate:8, diesel:-8}],
+ ['UUP','USD Bullish ETF',      {bull:-8, bear:8, qe:-14,stag:5, base:2, strong:18,  carry:-8, inflate:-16, diesel:4 }],
+ ['FSLR','First Solar',         {bull:8,  bear:32,qe:18,stag:28,base:12,strong:2,   carry:-6, inflate:16, diesel:34}],
 ]; let h='';
  items.forEach(([t,nm,ret])=>{
   const r=ret[k]||0;
@@ -1664,6 +1828,9 @@ function updMbar(v,k){
   ['Iran '+v.iran+'%',          v.iran>70],
   ['QE '+v.qe+'%',              v.qe>60],
   ['SLR '+v.slr+'%',            v.slr>60],
+  ['Diesel $'+v.dsl.toFixed(2), v.dsl<5.5],
+  ['Crack $'+Math.round(v.crack), v.crack<28],
+  ['Dist '+Math.round(v.dist)+'mm', v.dist>120],
  ];
  document.getElementById('mbar').innerHTML=chips.map(([l,ok])=>{const c=ok?'var(--ac3)':'var(--red)';return'<div class="mch" style="color:'+c+';border-color:'+c+'">'+l+'</div>';}).join('');
 }
@@ -1838,6 +2005,7 @@ function updTL(k){
   strong:[{a:1,l:'Now',e:'DXY grinding up'},{a:0,l:'M+1',e:'27 nations seek USD'},{a:0,l:'M+2',e:'DXY breaks 107'},{a:0,l:'M+3',e:'Multinational EPS cut'},{a:0,l:'M+4',e:'Small caps lead'},{a:0,l:'Q4',e:'DXY 110 target'}],
   carry:[{a:1,l:'Now',e:'BOJ hawkish tilt'},{a:0,l:'Day 1',e:'BOJ shock hike'},{a:0,l:'Day 2-3',e:'Weak US data'},{a:0,l:'Wk 1',e:'USD/JPY breaks 150'},{a:0,l:'Wk 2-3',e:'Margin call cascade'},{a:0,l:'M+1',e:'Fed liquidity backstop'}],
   inflate:[{a:1,l:'Now',e:'$8T rollover wall'},{a:0,l:'Q3 2026',e:'30Y yield strains'},{a:0,l:'Q4 2026',e:'Fed caps long end'},{a:0,l:'2027',e:'Real rate goes -3%'},{a:0,l:'2027-30',e:'Gold/silver run'},{a:0,l:'5-8 yrs',e:'Debt/GDP inflated down'}],
+  diesel:[{a:1,l:'Now',e:'Diesel $6.38 EIA'},{a:1,l:'Sep 21',e:'Record $6.53'},{a:0,l:'Oct 1',e:'Harvest + strike risk'},{a:0,l:'Nov',e:'Midterms + pump sign'},{a:0,l:'Dec',e:'$8 path 20-30%'},{a:0,l:'Winter',e:'Heating oil squeeze'}],
  };
  const tl=TL[k]||TL.base;
  document.getElementById('tl').innerHTML=tl.map(i=>'<div class="tli"><div class="tld '+(i.a?'on':'')+'">'+( i.a?'✓':'○')+'</div><div class="tll">'+i.l+'</div><div class="tle">'+i.e+'</div></div>').join('');
@@ -1851,10 +2019,7 @@ function bldAngles(k){
 }
 
 function favored(arr,key){
- return (arr||[]).filter(s=>{
-  const v=s[key]!=null?s[key]:s.base;
-  return v!=null && Number(v)>0;
- });
+ return (arr||[]).filter(s=>playbookRet(s,key)>0);
 }
 function engineKey(k){
  if(k==='inflate') return 'repress';
@@ -1911,7 +2076,7 @@ function mkFitGrid(rows,cid,scenKey){
    quality:s.quality, macrofit:s.macrofit, fit:s.fit, outcome:oc,
    src:s.src||'dump',
    base:pb.base, bull:pb.bull, bear:pb.bear, qe:pb.qe, stag:pb.stag,
-   strong:pb.strong, carry:pb.carry, inflate:pb.inflate
+   strong:pb.strong, carry:pb.carry, inflate:pb.inflate, diesel:pb.diesel
   };
   const ret=scenarioPct(s.t, scenKey, d);
   const f=fmtRet(ret);
@@ -1991,11 +2156,22 @@ function upd(){
  setText('v-usdjpy',v.usdjpy.toFixed(1));
  setText('v-qe',v.qe+'%');
  setText('v-slr',v.slr+'%');
+ setText('v-dsl','$'+v.dsl.toFixed(2));
+ setText('v-crack','$'+Math.round(v.crack));
+ setText('v-dist',String(Math.round(v.dist)));
+ const _dc=document.getElementById('dsl-card');
+ if(_dc) _dc.className='scard'+(v.dsl>=6.2?' hot':'');
+ const _cc=document.getElementById('crack-card');
+ if(_cc) _cc.className='scard'+(v.crack>=36?' hot':'');
+ const _dsc=document.getElementById('dist-card');
+ if(_dsc) _dsc.className='scard'+(v.dist<=112?' tight':'');
  setText('live-scen',(WHATIF ? 'WHAT-IF: ' : 'LIVE: ')+k.toUpperCase());
  const narr=document.getElementById('narr');
  if(narr) narr.innerHTML=NARRS[k]||NARRS.base;
  const al=document.getElementById('oil-alert');
  if(al) v.oil>=90?al.classList.add('show'):al.classList.remove('show');
+ const dal=document.getElementById('diesel-alert');
+ if(dal) (v.dsl>=6.0 || k==='diesel')?dal.classList.add('show'):dal.classList.remove('show');
  try{ updSigs(v); }catch(e){ console.warn('updSigs', e); }
  try{ updCharts(v,k); }catch(e){ console.warn('updCharts', e); }
  try{ updBars(k); }catch(e){ console.warn('updBars', e); }
@@ -2014,6 +2190,20 @@ function upd(){
  mkGrid(favored(DB.nuke,k),k,'g-nuke','aec');
  mkGrid(favored(DB.solar,k),k,'g-solar','aec');
  mkGrid(favored(DB.wind,k),k,'g-wind','aec');
+ mkGrid(favored(DB.energy.filter(s=>['MPC','VLO','PSX','DINO','PBF','STNG'].includes(s.t)),k),k,'g-diesel-refine');
+ mkGrid(favored([].concat(DB.solar||[],DB.nuke||[],DB.wind||[]),k),k,'g-diesel-alt','aec');
+ mkGrid(favored([].concat(DB.pricing||[],DB.energy.filter(s=>s.t==='UNP'),DB.etf.filter(s=>['TIP','XLE'].includes(s.t))),k),k,'g-diesel-survive');
+ mkAvoid(DB.avCons.concat(DB.avTech.filter(s=>['LCID','RIVN','ARKK'].includes(s.t))),'g-diesel-hurt');
+ const dAct = v.dsl>=6.15 && v.crack>=36 && v.dist<=112;
+ const dTrig=document.getElementById('diesel-trigger-msg');
+ if(dTrig) dTrig.style.display = (dAct || k==='diesel') ? 'block' : 'none';
+ const dBadge=document.getElementById('diesel-badge');
+ if(dBadge){
+   dBadge.style.background  = dAct ? 'rgba(57,255,20,.15)' : 'rgba(245,166,35,.15)';
+   dBadge.style.borderColor = dAct ? 'rgba(57,255,20,.4)'  : 'rgba(245,166,35,.45)';
+   dBadge.style.color       = dAct ? 'var(--ac3)'          : '#f5a623';
+   dBadge.textContent       = dAct ? 'ACTIVE NOW'          : 'DSL $6.20+ / CRACK $36+ / DIST \u2264112';
+ }
  mkAvoid(DB.avBonds,'av-bonds');
  mkAvoid(DB.avTech,'av-tech');
  mkAvoid(DB.avCons,'av-cons');
@@ -2070,6 +2260,11 @@ function upd(){
    badge.textContent       = hioilActive ? 'ACTIVE NOW'          : 'WTI $90+ / DXY 100+';
  }
  applyScenarioChrome(k);
+ const ae=document.getElementById('alt-energy-panel');
+ if(ae && (k==='diesel' || v.oil>=90 || v.dsl>=6.0)){
+   ae.classList.remove('off');
+   ae.style.display='';
+ }
  } catch(e){ console.warn('upd grids', e); try{ applyScenarioChrome(k); }catch(_){ } }
 }
 
@@ -2115,7 +2310,9 @@ const BASE_PX = {
   FNV:220,GOLD:22,KGC:10,PAAS:28,BAC:42,BLK:950,SPGI:510,
   AVGO:340,AMZN:230,META:580,ANET:140,COP:110,VLO:145,SLB:45,
   PM:160,CL:95,HSY:190,GLD:230,SLV:28,SMH:260,URA:32,SHY:82,
-  VST:160,PWR:370,ETN:340,GD:290,LHX:230
+  VST:160,PWR:370,ETN:340,GD:290,LHX:230,
+  NXT:48,ARRY:12,SHLS:8,CSIQ:16,TAN:42,ICLN:14,HASI:28,AMRC:28,
+  OKLO:18,LEU:80,CCJ:55,FLNC:16,ORA:75,BEPC:30,PSX:130,DINO:48,PBF:32,UNP:230
 };
 
 function allTickers(){

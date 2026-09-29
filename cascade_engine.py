@@ -3347,6 +3347,7 @@ REGIME_LABELS = {
     "reset":   "🌍 Reserve Reset — foreign creditors step back; gold, miners & hard security lead",
     "base":   "⛅ No Clear Driver — no dominant force, quality quietly wins",
     "carry":  "💴 Yen Carry Unwind — BOJ hike + yen surge; gold & defensives catch the bid",
+    "diesel": "⛽ Diesel Crisis — distillate tight, crack spreads blow out; refiners + alt energy lead",
 }
 
 # short names for the dropdown (emoji + plain name only)
@@ -3355,6 +3356,7 @@ REGIME_NAMES = {
     "bear": "⛈️ Fear / Risk-Off", "strong": "💵 Rising Dollar",
     "repress": "💸 Debasement", "reset": "🌍 Reserve Reset",
     "base": "⛅ No Clear Driver", "carry": "💴 Yen Carry Unwind",
+    "diesel": "⛽ Diesel Crisis",
 }
 
 # display order for the Lenses tab and comparison tables
@@ -3923,6 +3925,14 @@ SECTOR_TILTS = {
                "Industrials": 0.95, "Financial Services": 0.88,
                "Communication Services": 0.82, "Consumer Cyclical": 0.80,
                "Technology": 0.72},
+    # Diesel / middle-distillate squeeze: product is tight even if crude is not.
+    # Refiners + energy lead; utilities (nuclear/solar/grid) and industrials
+    # (rail, electrification) catch the substitution bid. Cyclicals eat freight.
+    "diesel": {"Energy": 1.28, "Utilities": 1.18, "Industrials": 1.12,
+               "Consumer Defensive": 1.10, "Basic Materials": 1.08,
+               "Technology": 1.04, "Healthcare": 0.96, "Financial Services": 0.90,
+               "Communication Services": 0.88, "Real Estate": 0.84,
+               "Consumer Cyclical": 0.74},
 }
 
 # Where this regime ACTUALLY paid — measured excess vs SPY over 21 sessions,
@@ -5376,7 +5386,7 @@ def macro_only_scan(regime: str, top: int = 20, strict: bool = True,
 SIM_TO_REGIME = {
     "base": "base", "bull": "bull", "bear": "bear", "qe": "qe",
     "stag": "stag", "strong": "strong", "carry": "carry",
-    "inflate": "repress", "live": None,
+    "inflate": "repress", "diesel": "diesel", "live": None,
 }
 
 
@@ -5517,7 +5527,7 @@ def macro_sim_bundle(watchlist=None, live_regime: str | None = None,
     wl_tickers = list(dict.fromkeys(wl_tickers))
 
     scans, watch, cross = {}, {}, {}
-    regimes = ["base", "bull", "bear", "qe", "stag", "strong", "carry", "repress"]
+    regimes = ["base", "bull", "bear", "qe", "stag", "strong", "carry", "repress", "diesel"]
     if live_regime not in regimes:
         regimes.append(live_regime)
     dump_tickers = []
