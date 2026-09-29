@@ -156,6 +156,13 @@ def _coin_parts(coin: str) -> tuple[str, str]:
     return raw or "—", "perp"
 
 
+def _as_dt(ms):
+    try:
+        return datetime.fromtimestamp(int(ms) / 1000, ET)
+    except (TypeError, ValueError, OSError):
+        return pd.NaT
+
+
 def _fmt_time(ms: int) -> str:
     try:
         dt = datetime.fromtimestamp(int(ms) / 1000, ET)
@@ -543,26 +550,87 @@ def _chips(items: list[tuple[str, str, str]]) -> None:
     )
 
 
-def _table(headers: list[str], body_rows: list[str], max_h: int = 560) -> None:
-    ths = "".join(
-        f"<th style='position:sticky;top:0;background:#122a42;color:{DIM};text-align:left;"
-        f"padding:8px;font-weight:650;white-space:nowrap;'>{_esc(h)}</th>"
-        for h in headers
-    )
-    _html_block(
-        f"<div style='max-height:{int(max_h)}px;overflow:auto;border:1px solid #1d2b40;"
-        f"border-radius:10px;margin:6px 0 12px;'>"
-        f"<table style='width:100%;border-collapse:collapse;font-size:13px;'>"
-        f"<thead><tr>{ths}</tr></thead><tbody>{''.join(body_rows)}</tbody></table></div>"
-    )
+def _ncol(help_text: str, fmt: str = "dollar"):
+    return st.column_config.NumberColumn(help=help_text, format=fmt)
 
 
-def _td(text, color=INK, align="left", bold=False) -> str:
-    weight = "700" if bold else "500"
-    return (
-        f"<td style='padding:6px 8px;border-top:1px solid #1d2b40;color:{color};"
-        f"text-align:{align};font-weight:{weight};white-space:nowrap;'>{text}</td>"
+def _tcol(help_text: str):
+    return st.column_config.TextColumn(help=help_text)
+
+
+def _lcol(help_text: str, display: str):
+    return st.column_config.LinkColumn(help=help_text, display_text=display)
+
+
+def _dcol(help_text: str):
+    return st.column_config.DatetimeColumn(help=help_text, format="MMM D, HH:mm:ss")
+
+
+def _cell_sign(value) -> str:
+    return f"color:{_sign_color(value)}"
+
+
+def _side_css(value) -> str:
+    if value in ("Buy", "Long"):
+        return f"color:{GREEN};font-weight:600"
+    if value in ("Sell", "Short"):
+        return f"color:{RED};font-weight:600"
+    return ""
+
+
+def _grid(
+    frame: pd.DataFrame,
+    config: dict,
+    *,
+    height: int,
+    key: str,
+    default: str,
+    default_asc: bool,
+    sign_cols: tuple = (),
+    side_col: str | None = None,
+    column_order: list | None = None,
+) -> pd.DataFrame:
+    """Sortable table. Hover a heading for that column's description."""
+    order = list(column_order or list(frame.columns))
+    sort_key = f"{key}_sort"
+    asc_key = f"{key}_asc"
+    if st.session_state.get(sort_key) not in order:
+        st.session_state[sort_key] = default if default in order else order[0]
+    if asc_key not in st.session_state:
+        st.session_state[asc_key] = bool(default_asc)
+    c1, c2 = st.columns([3, 1])
+    choice = c1.selectbox(
+        "Sort by",
+        order,
+        key=sort_key,
+        help="Orders this table, and the choice stays put when the live data refreshes. "
+             "Hover a column heading to read what that column means.",
     )
+    ascending = c2.toggle(
+        "Ascending",
+        key=asc_key,
+        help="On puts the smallest, oldest, or A-to-Z first. Off puts the largest or newest first.",
+    )
+    ordered = frame.sort_values(
+        choice, ascending=bool(ascending), na_position="last", kind="mergesort",
+    )
+    visible = ordered.loc[:, order]
+    styled = visible.style
+    paint = [c for c in sign_cols if c in visible.columns]
+    if paint:
+        styled = styled.map(_cell_sign, subset=paint)
+    if side_col and side_col in visible.columns:
+        styled = styled.map(_side_css, subset=[side_col])
+    st.dataframe(
+        styled,
+        width="stretch",
+        hide_index=True,
+        height=min(int(height), 48 + 36 * max(len(visible), 1)),
+        column_config=config,
+        column_order=order,
+        key=f"{key}_grid",
+    )
+    return ordered
 
 
 def _flow_chart(fills: list, title: str) -> None:
@@ -782,54 +850,60 @@ def _fill_ok(fill: dict) -> bool:
 
 def _draw_roster(payload: dict) -> None:
     key = WINDOW_KEYS.get(payload["window"], "day")
+    window = payload["window"]
+    pnl_col = f"{window} PnL"
+    roi_col = f"{window} ROI"
     rows = []
     for i, earner in enumerate(payload["earners"], start=1):
         book = payload["books"].get(earner["address"]) or {}
         fills = [f for f in book.get("fills") or [] if _fill_ok(f)]
         positions = [p for p in book.get("positions") or [] if _coin_ok(p["coin"])]
-        if book.get("truncated"):
-            tape = "suppressed"
-            tape_color = ACCENT
-        elif book.get("error") and not fills:
-            tape = "error"
-            tape_color = RED
+        if book.get("truncated") or (book.get("error") and not fills):
+            fill_n = None
         else:
-            tape = str(len(fills))
-            tape_color = INK
-        label = _esc(_trader_label(earner))
+            fill_n = len(fills)
+        label = _trader_label(earner)
         if earner.get("watched"):
-            label += f" <span style='color:{ACCENT};font-size:11px;'>watched</span>"
+            label += " · watched"
         addr = earner["address"]
-        links = (
-            f"<a href='{EXPLORER}{addr}' target='_blank' rel='noopener' style='color:{ACCENT};'>explorer</a>"
-            f" · <a href='{HYPURRSCAN}{addr}' target='_blank' rel='noopener' style='color:{DIM};'>hypurrscan</a>"
-        )
-        pnl = earner.get(f"{key}_pnl") or 0.0
-        roi = earner.get(f"{key}_roi") or 0.0
-        rows.append(
-            "<tr>"
-            + _td(str(i), DIM)
-            + _td(label, INK, bold=True)
-            + _td(links)
-            + _td(_esc(_money(earner.get("account"))), align="right")
-            + _td(_esc(_money(book.get("equity"))), align="right")
-            + _td(_esc(_money(pnl, signed=True)), _sign_color(pnl), "right", True)
-            + _td(_esc(_pct(roi)), _sign_color(roi), "right")
-            + _td(_esc(_money(earner.get("month_pnl"), signed=True)), _sign_color(earner.get("month_pnl")), "right")
-            + _td(_esc(f"{earner.get('turn') or 0:.2f}×"), DIM, "right")
-            + _td(_esc(tape), tape_color, "right")
-            + _td(str(len(positions)), INK, "right")
-            + "</tr>"
-        )
+        rows.append({
+            "#": i,
+            "Trader": label,
+            "Explorer": EXPLORER + addr,
+            "Hypurrscan": HYPURRSCAN + addr,
+            "Board equity": earner.get("account"),
+            "Live perp equity": book.get("equity"),
+            pnl_col: earner.get(f"{key}_pnl") or 0.0,
+            roi_col: (earner.get(f"{key}_roi") or 0.0) * 100,
+            "Month PnL": earner.get("month_pnl") or 0.0,
+            "Vol/equity": earner.get("turn") or 0.0,
+            "Fills": fill_n,
+            "Open": len(positions),
+        })
     if not rows:
         st.info("No wallets passed these filters. Lower the minimum account, or raise max volume / equity.")
         return
-    _table(
-        ["#", "Trader", "Links", "Board equity", "Live perp equity",
-         f"{payload['window']} PnL", f"{payload['window']} ROI", "Month PnL",
-         "Vol/equity", "Fills", "Open"],
-        rows,
-        max_h=360,
+    _grid(
+        pd.DataFrame(rows),
+        {
+            "#": _ncol("Rank after the window, the PnL or ROI choice, the account minimum, and the volume filter. 1 is the top of that list.", "%d"),
+            "Trader": _tcol("Display name, or a shortened address. A watched suffix means this wallet was added in Also watch."),
+            "Explorer": _lcol("Hyperliquid's own page for this address.", "explorer"),
+            "Hypurrscan": _lcol("The same address on Hypurrscan, for a deeper look at the wallet.", "hypurrscan"),
+            "Board equity": _ncol("Account value on the leaderboard snapshot. That snapshot is about an hour old."),
+            "Live perp equity": _ncol("Perp equity from the live position read. It can differ from board equity when margin sits on a book that read misses. Spot USDC is not added on top."),
+            pnl_col: _ncol(f"Dollars gained or lost in the {window.lower()} leaderboard window."),
+            roi_col: _ncol(f"That {window.lower()} profit divided by account value.", "+%.1f%%"),
+            "Month PnL": _ncol("Dollars gained or lost over the last month, whichever rank window you picked."),
+            "Vol/equity": _ncol("Window volume divided by account value. A high number is two-sided scalping. The max-volume filter uses this.", "%.2f×"),
+            "Fills": _ncol("Buys and sells in the tape window that passed the coin and side filters. Blank means the tape was hidden because the wallet traded too much, or the read failed.", "%.0f"),
+            "Open": _ncol("Open perp positions that passed the coin filter.", "%d"),
+        },
+        height=360,
+        key="cc_roster",
+        default="#",
+        default_asc=True,
+        sign_cols=(pnl_col, roi_col, "Month PnL"),
     )
 
 
@@ -866,50 +940,51 @@ def _draw_tape(payload: dict) -> None:
         _flow_chart(fills, f"Net buy minus sell · {payload['lookback']}")
     else:
         st.caption("No fills in this window for the current filters. They may be holding. Open books shows the positions.")
-    body = []
-    for fill in fills[:250]:
-        color = GREEN if fill["side"] == "Buy" else RED
-        closed = fill.get("closed_pnl")
-        body.append(
-            "<tr>"
-            + _td(_esc(_fmt_time(fill["time"])), DIM)
-            + _td(_esc(names.get(fill["address"]) or _short(fill["address"])), INK, bold=True)
-            + _td(_esc(fill["coin"]), INK, bold=True)
-            + _td(_esc(fill["market"]), DIM)
-            + _td(_esc(fill["side"]), color, bold=True)
-            + _td(_esc(fill["dir"] or "—"), DIM)
-            + _td(_esc(_size(fill["sz"])), align="right")
-            + _td(_esc(_px(fill["px"])), align="right")
-            + _td(_esc(_money(fill["notional"])), align="right")
-            + _td(_esc(_money(closed, signed=True)), _sign_color(closed), "right")
-            + "</tr>"
-        )
-    if body:
-        _table(
-            ["Time", "Trader", "Coin", "Market", "Side", "Action", "Size", "Price", "Notional", "Closed PnL"],
-            body,
-            max_h=640,
-        )
-        frame = pd.DataFrame([{
-            "time_et": _fmt_time(f["time"]),
-            "trader": names.get(f["address"]) or _short(f["address"]),
-            "address": f["address"],
-            "coin": f["coin"],
-            "market": f["market"],
-            "side": f["side"],
-            "action": f["dir"],
-            "size": f["sz"],
-            "price": f["px"],
-            "notional": f["notional"],
-            "closed_pnl": f["closed_pnl"],
-        } for f in fills[:250]])
-        st.download_button(
-            "Download tape CSV",
-            frame.to_csv(index=False),
-            "crypto_copycat_tape.csv",
-            "text/csv",
-            key="cc_tape_csv",
-        )
+    shown = fills[:250]
+    if not shown:
+        return
+    frame = pd.DataFrame([{
+        "Time": _as_dt(f["time"]),
+        "Trader": names.get(f["address"]) or _short(f["address"]),
+        "Address": f["address"],
+        "Coin": f["coin"],
+        "Market": f["market"],
+        "Side": f["side"],
+        "Action": f["dir"] or "—",
+        "Size": f["sz"],
+        "Price": f["px"],
+        "Notional": f["notional"],
+        "Closed PnL": f["closed_pnl"],
+    } for f in shown])
+    ordered = _grid(
+        frame,
+        {
+            "Time": _dcol("When the fill printed, New York time."),
+            "Trader": _tcol("Which followed wallet printed this fill."),
+            "Coin": _tcol("Market symbol, such as BTC or the name on a builder market."),
+            "Market": _tcol("perp is the main book. Anything else is a builder market, such as xyz."),
+            "Side": _tcol("Buy or sell. Buy is green, sell is red."),
+            "Action": _tcol("Whether the fill opened a position, closed one, or flipped it. This is Hyperliquid's own label."),
+            "Size": _ncol("Contracts or coins in the fill.", "plain"),
+            "Price": _ncol("Fill price.", "plain"),
+            "Notional": _ncol("Size times price, in dollars. Always positive. Side says which way."),
+            "Closed PnL": _ncol("Realized profit on the part of the position this fill closed. Blank when the fill only opened."),
+        },
+        height=640,
+        key="cc_tape",
+        default="Time",
+        default_asc=False,
+        sign_cols=("Closed PnL",),
+        side_col="Side",
+        column_order=["Time", "Trader", "Coin", "Market", "Side", "Action", "Size", "Price", "Notional", "Closed PnL"],
+    )
+    st.download_button(
+        "Download tape CSV",
+        ordered.to_csv(index=False),
+        "crypto_copycat_tape.csv",
+        "text/csv",
+        key="cc_tape_csv",
+    )
 
 
 def _draw_books(payload: dict, limit: int | None = None, chart: bool = True) -> None:
@@ -946,29 +1021,38 @@ def _draw_books(payload: dict, limit: int | None = None, chart: bool = True) -> 
     if limit is not None and len(positions) > limit:
         hidden = len(positions) - limit
         positions = positions[:limit]
-    body = []
-    for pos in positions:
-        color = GREEN if pos["side"] == "Long" else RED
-        lev = pos.get("lev")
-        lev_txt = "—" if lev in (None, "") else f"{lev}×"
-        body.append(
-            "<tr>"
-            + _td(_esc(names.get(pos["address"]) or _short(pos["address"])), INK, bold=True)
-            + _td(_esc(pos["coin"]), INK, bold=True)
-            + _td(_esc(pos["market"]), DIM)
-            + _td(_esc(pos["side"]), color, bold=True)
-            + _td(_esc(_size(abs(pos["szi"]))), align="right")
-            + _td(_esc(_px(pos["entry"])), align="right")
-            + _td(_esc(_money(pos["notional"])), align="right")
-            + _td(_esc(_money(pos["upnl"], signed=True)), _sign_color(pos["upnl"]), "right", True)
-            + _td(_esc(lev_txt), DIM, "right")
-            + _td(_esc(_px(pos["liq"])), align="right")
-            + "</tr>"
-        )
-    _table(
-        ["Trader", "Coin", "Market", "Side", "Size", "Entry", "Notional", "uPnL", "Lev", "Liq"],
-        body,
-        max_h=420 if limit else 640,
+    frame = pd.DataFrame([{
+        "Trader": names.get(pos["address"]) or _short(pos["address"]),
+        "Coin": pos["coin"],
+        "Market": pos["market"],
+        "Side": pos["side"],
+        "Size": abs(pos["szi"]) if pos.get("szi") is not None else None,
+        "Entry": pos.get("entry"),
+        "Notional": pos.get("notional"),
+        "uPnL": pos.get("upnl"),
+        "Lev": _num(pos.get("lev")),
+        "Liq": pos.get("liq"),
+    } for pos in positions])
+    _grid(
+        frame,
+        {
+            "Trader": _tcol("Which followed wallet holds this position."),
+            "Coin": _tcol("Market symbol."),
+            "Market": _tcol("perp is the main book. Anything else is a builder market, such as xyz."),
+            "Side": _tcol("Long or short. Long is green, short is red."),
+            "Size": _ncol("Absolute position size, in contracts or coins.", "plain"),
+            "Entry": _ncol("Average entry price.", "plain"),
+            "Notional": _ncol("Absolute position value in dollars. Side says long or short."),
+            "uPnL": _ncol("Unrealized profit on the open position."),
+            "Lev": _ncol("Leverage on this position.", "%.2f×"),
+            "Liq": _ncol("Estimated liquidation price. Blank if the exchange did not send one.", "plain"),
+        },
+        height=420 if limit else 640,
+        key="cc_books_top" if limit else "cc_books",
+        default="Notional",
+        default_asc=False,
+        sign_cols=("uPnL",),
+        side_col="Side",
     )
     if hidden:
         st.caption(f"{hidden} smaller positions are on the Open books view.")
@@ -1063,51 +1147,45 @@ def _render_vaults() -> None:
     if not shown:
         st.info("No vaults passed. Lower the minimum TVL or age, or turn off the positive-month filter.")
         return
-    body = []
-    for row in shown:
-        kind = "protocol" if row["kind"] == "protocol" else "leader"
-        name = _esc(row["name"])
-        if kind == "protocol":
-            name += f" <span style='color:{ACCENT};font-size:11px;'>protocol</span>"
-        link = (
-            f"<a href='{VAULT_PAGE}{row['address']}' target='_blank' rel='noopener' "
-            f"style='color:{ACCENT};'>open vault</a>"
-        )
-        body.append(
-            "<tr>"
-            + _td(name, INK, bold=True)
-            + _td(link)
-            + _td(_esc(kind), DIM)
-            + _td(_esc(_money(row["tvl"])), align="right")
-            + _td(_esc(_money(row["month_pnl"], signed=True)), _sign_color(row["month_pnl"]), "right", True)
-            + _td(_esc(_pct(row["month_roi"])), _sign_color(row["month_roi"]), "right")
-            + _td(_esc(f"{row['apr'] * 100:.1f}%"), _sign_color(row["apr"]), "right")
-            + _td(_esc(_money(row["all_pnl"], signed=True)), _sign_color(row["all_pnl"]), "right")
-            + _td(_esc(_age_label(row["created"])), DIM, "right")
-            + _td(_esc(_short(row["leader"])), DIM)
-            + "</tr>"
-        )
-    _table(
-        ["Vault", "Link", "Type", "TVL", "Month PnL", "Month / TVL", "APR", "All-time PnL", "Age", "Leader"],
-        body,
-        max_h=680,
-    )
     frame = pd.DataFrame([{
-        "name": r["name"],
-        "vault": r["address"],
-        "leader": r["leader"],
-        "type": r["kind"],
-        "tvl": r["tvl"],
-        "month_pnl": r["month_pnl"],
-        "month_roi": r["month_roi"],
-        "apr": r["apr"],
-        "all_time_pnl": r["all_pnl"],
-        "age_days": r["age_days"],
-        "url": VAULT_PAGE + r["address"],
-    } for r in shown])
+        "Vault": (row["name"] + " · protocol") if row["kind"] == "protocol" else row["name"],
+        "Link": VAULT_PAGE + row["address"],
+        "Type": "protocol" if row["kind"] == "protocol" else "leader",
+        "TVL": row["tvl"],
+        "Month PnL": row["month_pnl"],
+        "Month / TVL": (row["month_roi"] or 0.0) * 100,
+        "APR": (row["apr"] or 0.0) * 100,
+        "All-time PnL": row["all_pnl"],
+        "Age": row["age_days"],
+        "Leader": _short(row["leader"]),
+        "Vault address": row["address"],
+        "Leader address": row["leader"],
+    } for row in shown])
+    vault_default = {"APR": "APR", "TVL": "TVL"}.get(sort, "Month PnL")
+    ordered = _grid(
+        frame,
+        {
+            "Vault": _tcol("Vault name. A protocol suffix is Hyperliquid's own pool (HLP)."),
+            "Link": _lcol("The vault page. A deposit is made there, on Hyperliquid, not in this app.", "open vault"),
+            "Type": _tcol("protocol is Hyperliquid's own market-making pool. leader is someone else's vault."),
+            "TVL": _ncol("Dollars currently in the vault."),
+            "Month PnL": _ncol("Dollars the vault made over the last month."),
+            "Month / TVL": _ncol("Month profit divided by the money in the vault.", "+%.1f%%"),
+            "APR": _ncol("Annualized return Hyperliquid publishes. A huge number on a young vault is a short hot streak.", "+%.1f%%"),
+            "All-time PnL": _ncol("Profit since the vault opened."),
+            "Age": _ncol("Days since the vault opened.", "%.0fd"),
+            "Leader": _tcol("Shortened address of the wallet that trades the vault."),
+        },
+        height=680,
+        key="cc_vaults",
+        default=vault_default,
+        default_asc=False,
+        sign_cols=("Month PnL", "Month / TVL", "APR", "All-time PnL"),
+        column_order=["Vault", "Link", "Type", "TVL", "Month PnL", "Month / TVL", "APR", "All-time PnL", "Age", "Leader"],
+    )
     st.download_button(
         "Download vault CSV",
-        frame.to_csv(index=False),
+        ordered.to_csv(index=False),
         "crypto_copycat_vaults.csv",
         "text/csv",
         key="cc_vault_csv",
@@ -1116,7 +1194,11 @@ def _render_vaults() -> None:
 
 def _render_helper() -> None:
     st.markdown("### ₿ Crypto Helper")
-    st.caption("How to read this screen. It does not place trades.")
+    st.caption(
+        "How to read this screen. It does not place trades. "
+        "On each table, Sort by orders any column and that order sticks when the data refreshes. "
+        "Hover a column heading for what that column means."
+    )
     st.markdown(
         "Crypto Copycat uses Hyperliquid's public data. No key, no wallet "
         "connection, and no orders. A fill you can already see has printed, "
