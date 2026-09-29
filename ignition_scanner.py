@@ -1673,8 +1673,7 @@ def render_ignition_scanner_tab():
         if "ig_last_results" not in st.session_state:
             st.caption("Hit **Scan** to run. Nothing is fetched until then.")
 
-    with st.container(border=True):
-        st.markdown("<div class='sidebar-section'>Watchlist</div>", unsafe_allow_html=True)
+    ig_progress_slot = st.empty()
 
     # ── Top-N results slider (defined here — used by all watchlist modes) ──
     top_n = st.slider(
@@ -1801,8 +1800,9 @@ def render_ignition_scanner_tab():
                 st.error(f"Could not load nightly dump: {e}")
                 tickers = []
         current_watchlist_key = ",".join(sorted(tickers))
-        progress = st.progress(0.0, text="")
-        _scan_label = st.empty()
+        with ig_progress_slot:
+            progress = st.progress(0.0, text="")
+            _scan_label = st.empty()
 
         def _scan_progress(done, total, last_t):
             progress.progress(done / max(total, 1))
@@ -1814,8 +1814,7 @@ def render_ignition_scanner_tab():
 
         results = scan_tickers_parallel(tickers, progress_cb=_scan_progress)
 
-        progress.empty()
-        _scan_label.empty()
+        ig_progress_slot.empty()
         st.session_state["ig_last_results"] = results
         st.session_state["ig_last_scan_time"] = datetime.now().strftime("%H:%M:%S")
         st.session_state["ig_last_watchlist_key"] = current_watchlist_key
