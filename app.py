@@ -2179,6 +2179,31 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
 
 # Streamlit drops unused widget keys when a Scan Hub body unmounts. Mirror
 # each scanner's controls into a keep-bag so they come back with the tab.
+# Buttons / download_buttons must never be written back — Streamlit raises
+# StreamlitValueAssignmentNotAllowedError if their keys are assigned.
+_HUB_KEEP_PREFIXES = (
+    "hs_", "ig_", "sw_", "top20_", "t20_", "apex_", "poc_", "kw_", "te_",
+)
+
+# Run / result flags — bools, but not widgets. Keep them in session_state.
+_HUB_KEEP_FLAGS = {
+    "top20_go", "t20_live", "sw_go", "apex_run", "poc_run", "kw_run", "te_run",
+    "macro_advice_on",
+}
+
+# Real checkboxes / toggles — the only bools safe to persist.
+_HUB_KEEP_TOGGLES = {
+    "hs_range", "hs_ipo", "hs_pe_filter", "hs_rev_filter",
+    "forecast_all_toggle", "top20_flow",
+    "apex_calm", "apex_rs",
+    "ig_all_presets_mode",
+}
+
+_HUB_KEEP_BUTTON_SUFFIXES = (
+    "_btn", "_table", "_csv", "_go", "_run", "_scan",
+    "_clear", "_live", "_search", "_hot", "_download",
+)
+
 _HUB_KEEP_SKIP = {
     "top20_go", "top20_snap", "top20_mode", "top20_run_secs", "t20_live",
     "t20_inline", "t20_inline_tk", "top20_run", "top20_live", "top20_hot_btn",
@@ -2195,25 +2220,56 @@ _HUB_KEEP_SKIP = {
     "hs_inline", "hs_run", "hs_hot_btn", "hs_chart_table", "hs_chart_handled",
     "hs_preset_clean", "hs_preset_felix", "hs_preset_squeeze", "hs_preset_lowpos",
     "hs_preset_volume", "hs_preset_breakout", "hs_preset_insider", "hs_preset_ipo",
-    "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk",
+    "hs_dl_csv",
+    "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk", "kw_go",
     "te_run", "te_snap", "te_words", "te_speeches", "te_inline", "te_inline_tk",
-    "te_table", "te_go", "te_search", "macro_advise", "macro_apply",
+    "te_table", "te_go", "te_search", "te_px_btn", "macro_advise", "macro_apply",
 }
 
 
 def _hub_keep_is_button(k: str) -> bool:
     """One-shot widgets — Streamlit forbids writing their keys in session_state."""
-    if k.endswith(("_btn", "_table", "_csv", "_go", "_run", "_scan")):
+    if k in _HUB_KEEP_FLAGS:
+        return False
+    if k in {"ig_wl_add", "macro_advise", "macro_apply"}:
         return True
-    if "_preset_" in k:
+    if k.endswith(_HUB_KEEP_BUTTON_SUFFIXES):
+        return True
+    if "_preset_" in k or "_dl_" in k:
+        return True
+    if k.startswith(("hs_tk_", "sw_wl_", "an_", "close_")):
+        return True
+    if k.split("_")[-1].isdigit() and "_tk_" in k:
         return True
     return False
 
 
-def _hub_keep_ok(k: str, prefixes: tuple) -> bool:
+def _hub_keep_is_toggle(k: str) -> bool:
+    """Bools that are real checkboxes / toggles — safe to persist."""
+    if k in _HUB_KEEP_TOGGLES:
+        return True
+    if "_tog_" in k or k.endswith(("_filter", "_toggle")):
+        return True
+    return False
+
+
+def _hub_keep_should_pop(k: str, v=None) -> bool:
+    """True when a leftover value would crash a later st.button / download."""
+    if k in _HUB_KEEP_FLAGS or k.startswith("_keep_"):
+        return False
+    if _hub_keep_is_button(k):
+        return True
+    if isinstance(v, bool) and not _hub_keep_is_toggle(k):
+        return any(k == p or k.startswith(p) for p in _HUB_KEEP_PREFIXES)
+    return False
+
+
+def _hub_keep_ok(k: str, prefixes: tuple, v=None) -> bool:
     if k in _HUB_KEEP_SKIP or k.startswith("_keep_"):
         return False
     if _hub_keep_is_button(k):
+        return False
+    if isinstance(v, bool) and not _hub_keep_is_toggle(k):
         return False
     return any(k == p or k.startswith(p) for p in prefixes)
 
@@ -2221,13 +2277,30 @@ def _hub_keep_ok(k: str, prefixes: tuple) -> bool:
 def _hub_keep_restore(name: str, prefixes: tuple) -> None:
     bag = st.session_state.get(f"_keep_{name}") or {}
     for k, v in list(bag.items()):
-        if not _hub_keep_ok(k, prefixes):
+        if not _hub_keep_ok(k, prefixes, v):
             bag.pop(k, None)
-            if _hub_keep_is_button(k):
+            if _hub_keep_should_pop(k, v):
                 st.session_state.pop(k, None)
             continue
         if k not in st.session_state:
             st.session_state[k] = v
+
+
+def _hub_keep_scrub() -> None:
+    """Drop leftover button bools from every keep-bag and from session_state."""
+    for k, v in list(st.session_state.items()):
+        if str(k).startswith("_keep_"):
+            if isinstance(v, dict):
+                for bk, bv in list(v.items()):
+                    if _hub_keep_is_button(bk) or (
+                        isinstance(bv, bool)
+                        and not _hub_keep_is_toggle(bk)
+                        and bk not in _HUB_KEEP_FLAGS
+                    ):
+                        v.pop(bk, None)
+            continue
+        if _hub_keep_should_pop(k, v):
+            st.session_state.pop(k, None)
 
 
 def _drop_blank_cols(df):
@@ -2252,11 +2325,14 @@ def _fit_list_height(n, max_h=520):
 def _hub_keep_save(name: str, prefixes: tuple) -> None:
     bag = st.session_state.setdefault(f"_keep_{name}", {})
     for k, v in list(st.session_state.items()):
-        if not _hub_keep_ok(k, prefixes):
+        if not _hub_keep_ok(k, prefixes, v):
             continue
         if hasattr(v, "iloc"):
             continue
         bag[k] = v
+
+
+_hub_keep_scrub()
 
 
 closes = None
