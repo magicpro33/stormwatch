@@ -27,11 +27,11 @@ header{padding:28px 0 20px;border-bottom:1px solid var(--bdr);margin-bottom:22px
 .eye{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ac);letter-spacing:3px;text-transform:uppercase;margin-bottom:3px}
 h1{font-size:clamp(18px,3.5vw,32px);font-weight:700;background:linear-gradient(135deg,#fff 0%,var(--ac) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .sub{color:var(--mu);font-size:11px;margin-top:3px}
-.sbadge{display:flex;align-items:center;gap:8px;background:var(--sur2);border:1px solid var(--bdr);border-radius:100px;padding:7px 14px;font-size:11px;font-weight:500}
+.sbadge{display:flex;align-items:center;gap:8px;background:var(--sur2);border:1px solid var(--bdr);border-radius:100px;padding:7px 14px;font-size:12px;font-weight:700;color:#fff;letter-spacing:.3px}
 .pulse{width:8px;height:8px;border-radius:50%;background:var(--ac3);animation:pu 2s infinite}
 @keyframes pu{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.3)}}
 .tabs{display:flex;gap:7px;margin-bottom:20px;flex-wrap:wrap}
-.tab{padding:8px 16px;border-radius:8px;border:1px solid var(--bdr);background:var(--sur);color:var(--mu);cursor:pointer;font-size:12px;font-weight:500;transition:all .2s;font-family:'Space Grotesk',sans-serif}
+.tab{padding:8px 16px;border-radius:8px;border:1px solid var(--bdr);background:var(--sur);color:#fff;cursor:pointer;font-size:12px;font-weight:600;transition:all .2s;font-family:'Space Grotesk',sans-serif}
 .tab.on{background:var(--ac);color:#000;border-color:var(--ac);font-weight:700}
 .tab:hover:not(.on){border-color:var(--ac);color:var(--ac)}
 .sliders{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:11px;margin-bottom:22px}
@@ -71,6 +71,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .ss{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700}
 .narr{background:var(--sur2);border-left:3px solid var(--ac);border-radius:0 8px 8px 0;padding:13px;font-size:12px;line-height:1.7;color:var(--tx);margin-bottom:18px}
 .narr strong{color:var(--ac)}
+.lp-name{font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.4px;color:var(--gold);font-weight:700;margin:2px 0 4px}
+.lp-why{color:var(--mu);font-size:11px;margin-bottom:6px}
 .oil-alert{background:rgba(255,107,53,.1);border:1px solid rgba(255,107,53,.4);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;display:none;line-height:1.5}
 .oil-alert.show{display:block}
 .oil-alert strong{color:var(--ac2)}
@@ -96,7 +98,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .sp{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700}
 .sp.u{color:var(--ac3)}.sp.d{color:var(--red)}.sp.nt{color:var(--gold)}
 .sm{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
-.mc{font-size:9px;font-family:'JetBrains Mono',monospace;background:var(--bdr);color:var(--mu);padding:2px 5px;border-radius:3px}
+.mc{font-size:10px;font-family:'JetBrains Mono',monospace;background:var(--bdr);color:#fff;font-weight:700;padding:2px 6px;border-radius:3px}
 .mc.hi{color:var(--ac3)}
 .sr{font-size:10px;color:var(--mu);margin-top:3px;line-height:1.4}
 .aec{background:rgba(57,255,20,.04);border:1px solid rgba(57,255,20,.18);border-radius:10px;padding:10px 12px;cursor:pointer;transition:all .2s}
@@ -122,7 +124,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .tll{font-size:9px;color:var(--mu);margin-bottom:2px}
 .tle{font-size:8px;font-family:'JetBrains Mono',monospace;color:var(--tx)}
 .mbar{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
-.mch{padding:4px 11px;border-radius:100px;font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:500;border:1px solid;transition:all .3s}
+.mch{padding:4px 11px;border-radius:100px;font-size:11px;font-family:'JetBrains Mono',monospace;font-weight:700;border:1px solid;transition:all .3s}
 .rbtn{background:transparent;border:1px solid var(--bdr);color:var(--mu);padding:3px 9px;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer;transition:all .2s}
 .rbtn:hover{border-color:var(--ac);color:var(--ac)}
 /* ── LIVE DATA BAR (was missing entirely) ── */
@@ -179,10 +181,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 @media(max-width:900px){.ic-inputs{grid-template-columns:repeat(2,1fr)}.ic-cards{grid-template-columns:1fr}}
 /* ── LIVE MARKET PULSE STRIP ── */
 .pulsebar{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
-.pchip{padding:4px 11px;border-radius:100px;font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:600;border:1px solid var(--bdr);color:var(--mu);transition:all .3s}
+.pchip{padding:4px 11px;border-radius:100px;font-size:11px;font-family:'JetBrains Mono',monospace;font-weight:700;border:1px solid var(--bdr);color:#fff;transition:all .3s}
 .pchip.u{color:var(--ac3);border-color:rgba(57,255,20,.4)}
 .pchip.d{color:var(--red);border-color:rgba(255,59,92,.4)}
-.pchip .pv{color:var(--tx);margin-left:4px}
+.pchip .pv{color:#fff;font-weight:700;margin-left:4px}
+.pchip.u .pv{color:var(--ac3)}
+.pchip.d .pv{color:var(--red)}
 /* ── HELP ICON & TOOLTIP ── */
 .hlp{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:rgba(107,127,163,.2);border:1px solid var(--bdr);color:var(--mu);font-size:9px;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s;margin-left:4px;flex-shrink:0;line-height:1;font-weight:700}
 .hlp:hover{background:rgba(0,229,255,.15);border-color:var(--ac);color:var(--ac)}
@@ -1530,6 +1534,56 @@ function setScen(s,el){
  upd();
 }
 
+const PLANS = {
+ base:   {name:'Base Case',
+          why:v=>'No shock is lit. Oil is $'+v.oil+', CPI '+v.cpi.toFixed(1)+'%, DXY '+v.dxy.toFixed(1)+'.',
+          win:'Quality compounders, and banks if the curve steepens.',
+          lose:'One-way narrative trades with no cash flow.'},
+ bull:   {name:'Bull: Deal Works',
+          why:v=>'Iran deal odds are '+v.iran+'% and WTI is $'+v.oil+'.',
+          win:'Banks, tech, bitcoin, and gold.',
+          lose:'Oil producers and the energy hedge.'},
+ bear:   {name:'Bear: Deal Fails',
+          why:v=>'Iran deal odds are '+v.iran+'% and WTI is $'+v.oil+'.',
+          win:'Tankers, energy, and the dollar.',
+          lose:'Gold, bitcoin, and the S&P.'},
+ qe:     {name:'QE Machine',
+          why:v=>'QE willingness '+v.qe+'%, SLR '+v.slr+'%, CPI '+v.cpi.toFixed(1)+'%. No yield cap is on.',
+          win:'Bitcoin, gold miners, and banks.',
+          lose:'The dollar, and cash in real terms.'},
+ stag:   {name:'Stagflation',
+          why:v=>'WTI is $'+v.oil+' and CPI is '+v.cpi.toFixed(1)+'%. The yield cap is off.',
+          win:'Gold, energy, and necessities.',
+          lose:'Long bonds, high-multiple tech, and property multiples.'},
+ strong: {name:'Strong Dollar',
+          why:v=>'DXY '+v.dxy.toFixed(1)+', Fed '+v.fed.toFixed(2)+'%, QE willingness '+v.qe+'%.',
+          win:'Defense, regional banks, and the dollar.',
+          lose:'Gold, bitcoin, and multinationals.'},
+ carry:  {name:'Yen Carry Unwind',
+          why:v=>'BOJ is '+v.boj.toFixed(2)+'% and USD/JPY is '+v.usdjpy.toFixed(1)+'.',
+          win:'The yen, long Treasuries, and gold after the first liquidation.',
+          lose:'Bitcoin, leveraged tech, and emerging markets.'},
+ inflate:{name:'Inflate the Debt',
+          why:v=>'CPI '+v.cpi.toFixed(1)+'% versus a '+v.fed.toFixed(2)+'% policy rate, QE '+v.qe+'%, DXY '+v.dxy.toFixed(1)+'. Buybacks $'+Math.round(v.bb)+'B/mo and no announced yield cap.',
+          win:'Gold, silver, bitcoin, energy, and TIPS.',
+          lose:'Cash, and long nominal bonds in real terms.'},
+ debase: {name:'Debasement',
+          why:v=>'CPI '+v.cpi.toFixed(1)+'% against a '+(v.ycc<0.3?'cap that is off':v.ycc.toFixed(2)+'% cap')+', money growth '+v.m2.toFixed(1)+'%, buybacks $'+Math.round(v.bb)+'B/mo, DXY '+v.dxy.toFixed(1)+'.',
+          win:'Miners, silver, and gold, then housing and TIPS.',
+          lose:'Cash and the dollar. Long bonds can pop in year one, then bleed.'},
+ diesel: {name:'Diesel Crisis',
+          why:v=>'Diesel $'+v.dsl.toFixed(2)+', crack $'+Math.round(v.crack)+', distillate stocks '+Math.round(v.dist)+' million barrels, WTI $'+v.oil+'.',
+          win:'Refiners, product tankers, rail, nuclear, and solar.',
+          lose:'Discretionary freight, restaurants, and high-burn stories.'}
+};
+function planVerdict(v, k){
+ const p = PLANS[k] || PLANS.base;
+ return '<strong>The live numbers match this plan.</strong>'
+  + '<div class="lp-name">'+p.name+'</div>'
+  + '<div class="lp-why">'+p.why(v)+'</div>'
+  + '<div><strong style="color:var(--ac3)">WINS</strong> '+p.win+'</div>'
+  + '<div><strong style="color:var(--red)">LOSES</strong> '+p.lose+'</div>';
+}
 function setLive(el){
  WHATIF = null;
  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
@@ -1546,6 +1600,7 @@ function setLive(el){
    if (node && LIVE_MACRO[k] != null) node.value = LIVE_MACRO[k];
  });
  upd();
+ doRefresh();
 }
 
 function liveRegimeKey(){
@@ -2689,9 +2744,10 @@ function upd(){
  if(_cc) _cc.className='scard'+(v.crack>=36?' hot':'');
  const _dsc=document.getElementById('dist-card');
  if(_dsc) _dsc.className='scard'+(v.dist<=112?' tight':'');
- setText('live-scen',(WHATIF ? 'WHAT-IF: ' : 'LIVE: ')+({debase:'DEBASEMENT'}[k]||k.toUpperCase()));
+ const plan = PLANS[k] || PLANS.base;
+ setText('live-scen',(WHATIF ? 'WHAT-IF: ' : 'LIVE PLAN: ')+plan.name.toUpperCase());
  const narr=document.getElementById('narr');
- if(narr) narr.innerHTML=NARRS[k]||NARRS.base;
+ if(narr) narr.innerHTML = WHATIF ? (NARRS[k]||NARRS.base) : planVerdict(v,k);
  const al=document.getElementById('oil-alert');
  if(al) v.oil>=90?al.classList.add('show'):al.classList.remove('show');
  const dal=document.getElementById('diesel-alert');
