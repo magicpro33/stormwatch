@@ -5386,7 +5386,7 @@ def macro_only_scan(regime: str, top: int = 20, strict: bool = True,
 SIM_TO_REGIME = {
     "base": "base", "bull": "bull", "bear": "bear", "qe": "qe",
     "stag": "stag", "strong": "strong", "carry": "carry",
-    "inflate": "repress", "diesel": "diesel", "live": None,
+    "inflate": "repress", "debase": "repress", "diesel": "diesel", "live": None,
 }
 
 
@@ -5449,7 +5449,7 @@ def macro_score_tickers(regime: str, tickers: list) -> list:
     if not want:
         return []
     regime = SIM_TO_REGIME.get(regime, regime) or "base"
-    if regime == "inflate":
+    if regime in ("inflate", "debase"):
         regime = "repress"
     try:
         panel, tks, sectors, mdv, dts = load_dump_panel()

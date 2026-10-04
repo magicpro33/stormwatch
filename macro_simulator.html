@@ -5,7 +5,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Macro Market Simulator v8.0 — Brad's Playbook</title>
+<title>Macro Market Simulator v8.1 — Brad's Playbook</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 /* Google Fonts loaded async — system fonts used as immediate fallback */
@@ -198,6 +198,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .hlp-wrap:hover .hlp-tip,.hlp-wrap:focus-within .hlp-tip{display:block}
 .play-sec.off,.playbook.off{display:none}
 .scen-note{font-size:11px;color:var(--mu);line-height:1.6;margin:-4px 0 12px}
+.db-table{width:100%;border-collapse:collapse;font-size:12px;margin:4px 0 12px}
+.db-table th{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--mu);text-align:right;padding:6px 8px;letter-spacing:.4px;text-transform:uppercase;border-bottom:1px solid var(--bdr);white-space:nowrap}
+.db-table th:first-child,.db-table td:first-child{text-align:left}
+.db-table td{padding:7px 8px;border-bottom:1px solid rgba(30,45,69,.65);font-family:'JetBrains Mono',monospace;text-align:right;vertical-align:top}
+.db-table td.nm{color:var(--tx);font-weight:700;white-space:nowrap}
+.db-table .db-why,.db-table th.db-why{text-align:left;color:var(--mu);font-family:'Space Grotesk',sans-serif;font-size:11px;font-weight:400;letter-spacing:0;text-transform:none;line-height:1.45;min-width:220px}
+.db-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 12px}
+.db-actions button{background:transparent;border:1px solid var(--gold);color:var(--gold);padding:6px 12px;border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;cursor:pointer}
+.db-actions button:hover{background:rgba(255,215,0,.12)}
+.db-actions label{font-size:11px;color:var(--tx);display:flex;align-items:center;gap:6px;cursor:pointer}
+.db-flag{display:none;background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.4);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:11px;line-height:1.55;color:var(--gold);font-family:'JetBrains Mono',monospace}
 .oc{font-size:9px;font-family:'JetBrains Mono',monospace;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:.3px}
 .oc.fav{color:var(--ac3);background:rgba(57,255,20,.12);border:1px solid rgba(57,255,20,.35)}
 .oc.sup{color:var(--ac);background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.3)}
@@ -270,7 +281,7 @@ footer a:hover{color:var(--ac)}
   </a>
   <div class="htop">
     <div>
-      <div class="eye">// Brad's Playbook v8.0 &mdash; Live Yahoo/FRED Feed &bull; Diesel Crack &bull; Yen Carry &bull; Bretton Woods 2.0 &bull; Inflate-$</div>
+      <div class="eye">// Brad's Playbook v8.1 &mdash; Live Yahoo/FRED Feed &bull; Debasement &bull; Diesel Crack &bull; Yen Carry &bull; Bretton Woods 2.0</div>
       <h1>Macro Market Simulator</h1>
       <p class="sub">Diesel Crisis &middot; Warsh Fed &middot; Yen Carry &middot; Bretton Woods 2.0 &middot; Inflate the Debt &middot; Live feed (Sep 29 2026 EIA diesel $6.38) &middot; by <a href="https://aiupscalellc.netlify.app/" target="_blank" rel="noopener" class="aiu-link">AI Upscale LLC</a></p>
     </div>
@@ -312,29 +323,33 @@ footer a:hover{color:var(--ac)}
   <button class="tab" onclick="setScen('strong',this)">&#x1F4AA; Strong Dollar</button>
   <button class="tab" onclick="setScen('carry',this)">&#x1F1EF;&#x1F1F5; Yen Carry Unwind</button>
   <button class="tab" onclick="setScen('inflate',this)">&#128176;&#128293; Inflate $</button>
+  <button class="tab" onclick="setScen('debase',this)">&#128176; Debasement</button>
   <button class="tab" onclick="setScen('diesel',this)">&#9981; Diesel Crisis</button>
 </div>
 <div class="narr" id="narr"></div>
 <div class="oil-alert" id="oil-alert"><strong>&#9889; HIGH OIL ALERT (WTI $90+):</strong> Alternative Energy section below is now in play. Solar, nuclear, wind &amp; storage names gain a strategic tailwind as energy independence becomes a national priority. High short interest in solar = potential squeeze.</div>
 <div class="diesel-alert" id="diesel-alert"><strong>&#9981; DIESEL / DISTILLATE ALERT:</strong> National on-highway diesel is in record-nominal territory. SPR barrels are crude, not pump-ready diesel. A wide 3-2-1 crack means finished fuel is the scarce thing &mdash; refiners, rail, nuclear, and solar/storage catch the bid; freight-heavy cyclicals eat the surcharge.</div>
 <div class="sliders">
-  <div class="scard"><div class="slbl">WTI Oil Price <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>WTI Crude Oil Price ($/barrel)</strong>West Texas Intermediate — the US benchmark for crude oil. Live from CL=F (Yahoo) / FRED DCOILWTICO. Directly drives CPI (gas prices), energy sector earnings, tanker rates, and the Iran deal narrative. Above $90 activates the Alt Energy section.<div class="tip-why">Why it matters: Oil is the single biggest swing variable. A $30 move in oil changes CPI by ~1.5%, alters Fed policy, and flips sector leadership from tech to energy.</div></div></span><button class="rbtn" onclick="rv('sl-oil',68)">RST</button></div><div id="v-oil" class="sval editable" onclick="editVal('oil')" title="Click to type exact value">$68</div><input type="range" min="20" max="200" value="68" id="sl-oil" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$20</span><span>$200</span></div></div>
-  <div class="scard" id="dsl-card"><div class="slbl">US Diesel ($/gal) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>National on-highway diesel ($/gallon)</strong>EIA weekly retail average. Sep 28 2026 print: $6.382 (was $6.529 on Sep 21). Record nominal. Diesel is the freight, farm, construction, and heating-oil fuel — it hits the CPI basket through everything that moves on a truck.<div class="tip-why">Why it matters: Gasoline is the political sign; diesel is the inflation machine. $8 national is a 20–30% December tail; $10 parks 20–35% of marginal trucks.</div></div></span><button class="rbtn" onclick="rv('sl-dsl',638)">RST</button></div><div id="v-dsl" class="sval editable" onclick="editVal('dsl')" title="Click to type exact value">$6.38</div><input type="range" min="250" max="1200" value="638" id="sl-dsl" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$2.50</span><span>$12.00</span></div></div>
-  <div class="scard" id="crack-card"><div class="slbl">3-2-1 Crack ($/bbl) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>3-2-1 crack spread</strong>3 barrels of crude → 2 gasoline + 1 distillate. Crack = product value minus crude. A fat crack means finished fuel is tight even if WTI looks calm. EIA lifted the 2026 distillate crack outlook to ~$1.57/gal (~$66/bbl diesel crack) in Sep 2026.<div class="tip-why">Why it matters: More crude does not automatically mean more diesel. Refineries cannot instantly switch yields; shipping and Russian/Red Sea outages keep the product scarce.</div></div></span><button class="rbtn" onclick="rv('sl-crack',48)">RST</button></div><div id="v-crack" class="sval editable" onclick="editVal('crack')" title="Click to type exact value">$48</div><input type="range" min="5" max="90" value="48" id="sl-crack" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$5</span><span>$90</span></div></div>
-  <div class="scard" id="dist-card"><div class="slbl">Distillate Stocks (MMbbl) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>US commercial distillate inventory</strong>EIA weekly. Mid/late Sep 2026 sat ~104–108 million barrels, 13–14% below the 5-year seasonal average. SPR (~287 MMbbl) is crude — it still has to be refined and piped.<div class="tip-why">Why it matters: Fall maintenance, harvest diesel, and winter heating oil all pull from the same thin tank. Below ~100 MMbbl leaves almost no shock absorber.</div></div></span><button class="rbtn" onclick="rv('sl-dist',108)">RST</button></div><div id="v-dist" class="sval editable" onclick="editVal('dist')" title="Click to type exact value">108</div><input type="range" min="70" max="180" value="108" id="sl-dist" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>70</span><span>180</span></div></div>
-  <div class="scard"><div class="slbl">Fed Funds Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Fed Funds Rate (%)</strong>Effective federal funds when FRED DFF is available; otherwise the 13-week T-bill (^IRX) as a live proxy. Set by the FOMC. Under Warsh, cuts still require inflation to fall first.<div class="tip-why">Why it matters: The single most powerful lever in all of finance. Every 25bps cut adds ~2-3% to S&P forward P/E multiples and unlocks bank carry trades via SLR deregulation.</div></div></span><button class="rbtn" onclick="rv('sl-fed',363)">RST</button></div><div id="v-fed" class="sval editable" onclick="editVal('fed')" title="Click to type exact value">3.63%</div><input type="range" min="100" max="700" value="363" id="sl-fed" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>7.0%</span></div></div>
-  <div class="scard"><div class="slbl">Iran Deal % <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Iran Deal Status (%)</strong>Probability the Iran nuclear deal holds and the Strait of Hormuz stays open. 0% = full closure, supply shock. 100% = deal signed, Iranian oil floods market, WTI crashes to $55-60.<div class="tip-why">Why it matters: ~20% of global oil supply transits Hormuz. A closure would spike oil $30-40/barrel within weeks, re-accelerating inflation and trapping the Fed.</div></div></span><button class="rbtn" onclick="rv('sl-iran',62)">RST</button></div><div id="v-iran" class="sval editable" onclick="editVal('iran')" title="Click to type exact value">62%</div><input type="range" min="0" max="100" value="62" id="sl-iran" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>Collapsed</span><span>Signed</span></div></div>
-  <div class="scard"><div class="slbl">CPI Inflation <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>CPI Inflation (% YoY)</strong>Consumer Price Index year-over-year, pulled live from FRED CPIAUCSL when the feed is available. The Fed's stated target is 2.0%. Warsh uses a trimmed-mean PCE variant; this slider is headline CPI.<div class="tip-why">Why it matters: Inflation above 3.5% keeps the Fed on hold. Below 2.5% unlocks cuts. It's the gatekeeper between the current environment and the QE machine scenario.</div></div></span><button class="rbtn" onclick="rv('sl-cpi',42)">RST</button></div><div id="v-cpi" class="sval editable" onclick="editVal('cpi')" title="Click to type exact value">4.2%</div><input type="range" min="10" max="120" value="42" id="sl-cpi" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>12%</span></div></div>
-  <div class="scard"><div class="slbl">10-Year Yield <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>10-Year Treasury Yield (%)</strong>Live from Cboe ^TNX (intraday) with FRED DGS10 as the official daily fallback. Drives mortgage rates, corporate bond rates, and REIT valuations.<div class="tip-why">Why it matters: The 10Y is the long anchor of the yield curve. Rising = bond market revolt (inflation fear). Falling = QE/growth optimism. Directly sets the 2Y-10Y spread.</div></div></span><button class="rbtn" onclick="rv('sl-yield',448)">RST</button></div><div id="v-yield" class="sval editable" onclick="editVal('yield')" title="Click to type exact value">4.48%</div><input type="range" min="150" max="800" value="448" id="sl-yield" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.5%</span><span>8.0%</span></div></div>
-  <div class="scard" id="spread-card"><div class="slbl">2-Year Yield <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>2-Year Treasury Yield (%)</strong>Live from Yahoo 2YY=F (quoted as a yield, not the ZT=F price) with FRED DGS2 as the official daily fallback. This is the bond market's real-time prediction of Fed Funds over the next two years.<div class="tip-why">Why it matters: The 2Y-10Y spread (shown below) is the #1 recession predictor. When 2Y > 10Y (inverted), banks lose money on lending and credit tightens. Every recession since 1955 was preceded by inversion.</div></div></span><button class="rbtn" onclick="rv('sl-y2',424)">RST</button></div><div id="v-y2" class="sval editable" onclick="editVal('y2')" title="Click to type exact value">4.24%</div><input type="range" min="100" max="800" value="424" id="sl-y2" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>8.0%</span></div><div id="spread-display" style="margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:10px"></div></div>
-  <div class="scard"><div class="slbl">DXY Dollar Index <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>US Dollar Index (DXY)</strong>Measures the USD against a basket of 6 currencies (EUR, JPY, GBP, CAD, SEK, CHF). A weaker dollar is Groman Signal #1 — it means liquidity is expanding globally.<div class="tip-why">Why it matters: DXY below 100 is bullish for gold, commodities, and emerging markets. QE scenarios push DXY to 88-92. Dollar strength (DXY 105+) crushes everything denominated in USD abroad.</div></div></span><button class="rbtn" onclick="rv('sl-dxy',1013)">RST</button></div><div id="v-dxy" class="sval editable" onclick="editVal('dxy')" title="Click to type exact value">101.3</div><input type="range" min="800" max="1200" value="1013" id="sl-dxy" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>80</span><span>120</span></div></div>
-  <div class="scard"><div class="slbl">QE Probability <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>QE Probability (%)</strong>Probability the Fed resumes Quantitative Easing — buying bonds to expand the money supply. Currently indirect via SLR deregulation: banks buy treasuries with leverage, creating 'covert QE.'<div class="tip-why">Why it matters: Every major asset rally since 2008 has been powered by QE. When this flips above 80%, hard assets (gold, BTC, commodities) historically rip 30-90% within 12 months.</div></div></span><button class="rbtn" onclick="rv('sl-qe',45)">RST</button></div><div id="v-qe" class="sval editable" onclick="editVal('qe')" title="Click to type exact value">45%</div><input type="range" min="0" max="100" value="45" id="sl-qe" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0%</span><span>100%</span></div></div>
-  <div class="scard"><div class="slbl">SLR Deregulation <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>SLR Deregulation (%)</strong>Supplementary Leverage Ratio — a rule limiting how much banks can lever up. Deregulating it lets banks exclude US Treasuries from their leverage calculations, effectively letting JPM/GS/BAC buy unlimited bonds.<div class="tip-why">Why it matters: This is the mechanism of Warsh's 'covert QE.' Banks borrow at the 2Y rate, buy 10Y bonds, pocket the spread. At 95% deregulation + QE, banks could absorb $800B+ in new Treasury supply.</div></div></span><button class="rbtn" onclick="rv('sl-slr',40)">RST</button></div><div id="v-slr" class="sval editable" onclick="editVal('slr')" title="Click to type exact value">40%</div><input type="range" min="0" max="100" value="40" id="sl-slr" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>None</span><span>Full Dereg</span></div></div>
-  <div class="scard" id="carry-card"><div class="slbl">BOJ Rate (Japan) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Bank of Japan Policy Rate (%)</strong>Japan's overnight rate, raised to 1.00% in June 2026 after a decade near zero. The BOJ is normalizing slowly while the Fed holds much higher rates.<div class="tip-why">Why it matters: The Fed-BOJ gap funds the global "yen carry trade" -- borrow cheap yen, buy higher-yielding USD assets. When BOJ hikes fast or the gap narrows suddenly, carry trades unwind violently (Aug 2024: Nikkei -12.4% in one day).</div></div></span><button class="rbtn" onclick="rv('sl-boj',100)">RST</button></div><div id="v-boj" class="sval editable" onclick="editVal('boj')" title="Click to type exact value">1.00%</div><input type="range" min="0" max="300" value="100" id="sl-boj" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0.0%</span><span>3.0%</span></div></div>
-  <div class="scard" id="usdjpy-card"><div class="slbl">USD/JPY Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>USD/JPY Exchange Rate</strong>How many yen buy one dollar. Live from Yahoo JPY=X. Mid-2026 printed near 164; a fast drop toward 145 with a BOJ hike is the carry-unwind tell.<div class="tip-why">Why it matters: A falling USD/JPY (yen strengthening fast) signals the carry trade unwinding -- leveraged funds rush to buy back yen, forcing liquidation of the risk assets (tech stocks, BTC, EM) that carry funded. Below 145 with a BOJ hike = danger zone.</div></div></span><button class="rbtn" onclick="rv('sl-usdjpy',1638)">RST</button></div><div id="v-usdjpy" class="sval editable" onclick="editVal('usdjpy')" title="Click to type exact value">163.8</div><input type="range" min="1000" max="1800" value="1638" id="sl-usdjpy" oninput="upd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>100</span><span>180</span></div><div id="carry-display" style="margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:10px"></div></div>
+  <div class="scard"><div class="slbl">WTI Oil Price <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>WTI Crude Oil Price ($/barrel)</strong>West Texas Intermediate — the US benchmark for crude oil. Live from CL=F (Yahoo) / FRED DCOILWTICO. Directly drives CPI (gas prices), energy sector earnings, tanker rates, and the Iran deal narrative. Above $90 activates the Alt Energy section.<div class="tip-why">Why it matters: Oil is the single biggest swing variable. A $30 move in oil changes CPI by ~1.5%, alters Fed policy, and flips sector leadership from tech to energy.</div></div></span><button class="rbtn" onclick="rv('sl-oil',68)">RST</button></div><div id="v-oil" class="sval editable" onclick="editVal('oil')" title="Click to type exact value">$68</div><input type="range" min="20" max="200" value="68" id="sl-oil" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$20</span><span>$200</span></div></div>
+  <div class="scard" id="dsl-card"><div class="slbl">US Diesel ($/gal) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>National on-highway diesel ($/gallon)</strong>EIA weekly retail average. Sep 28 2026 print: $6.382 (was $6.529 on Sep 21). Record nominal. Diesel is the freight, farm, construction, and heating-oil fuel — it hits the CPI basket through everything that moves on a truck.<div class="tip-why">Why it matters: Gasoline is the political sign; diesel is the inflation machine. $8 national is a 20–30% December tail; $10 parks 20–35% of marginal trucks.</div></div></span><button class="rbtn" onclick="rv('sl-dsl',638)">RST</button></div><div id="v-dsl" class="sval editable" onclick="editVal('dsl')" title="Click to type exact value">$6.38</div><input type="range" min="250" max="1200" value="638" id="sl-dsl" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$2.50</span><span>$12.00</span></div></div>
+  <div class="scard" id="crack-card"><div class="slbl">3-2-1 Crack ($/bbl) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>3-2-1 crack spread</strong>3 barrels of crude → 2 gasoline + 1 distillate. Crack = product value minus crude. A fat crack means finished fuel is tight even if WTI looks calm. EIA lifted the 2026 distillate crack outlook to ~$1.57/gal (~$66/bbl diesel crack) in Sep 2026.<div class="tip-why">Why it matters: More crude does not automatically mean more diesel. Refineries cannot instantly switch yields; shipping and Russian/Red Sea outages keep the product scarce.</div></div></span><button class="rbtn" onclick="rv('sl-crack',48)">RST</button></div><div id="v-crack" class="sval editable" onclick="editVal('crack')" title="Click to type exact value">$48</div><input type="range" min="5" max="90" value="48" id="sl-crack" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$5</span><span>$90</span></div></div>
+  <div class="scard" id="dist-card"><div class="slbl">Distillate Stocks (MMbbl) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>US commercial distillate inventory</strong>EIA weekly. Mid/late Sep 2026 sat ~104–108 million barrels, 13–14% below the 5-year seasonal average. SPR (~287 MMbbl) is crude — it still has to be refined and piped.<div class="tip-why">Why it matters: Fall maintenance, harvest diesel, and winter heating oil all pull from the same thin tank. Below ~100 MMbbl leaves almost no shock absorber.</div></div></span><button class="rbtn" onclick="rv('sl-dist',108)">RST</button></div><div id="v-dist" class="sval editable" onclick="editVal('dist')" title="Click to type exact value">108</div><input type="range" min="70" max="180" value="108" id="sl-dist" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>70</span><span>180</span></div></div>
+  <div class="scard"><div class="slbl">Fed Funds Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Fed Funds Rate (%)</strong>Effective federal funds when FRED DFF is available; otherwise the 13-week T-bill (^IRX) as a live proxy. Set by the FOMC. Under Warsh, cuts still require inflation to fall first.<div class="tip-why">Why it matters: The single most powerful lever in all of finance. Every 25bps cut adds ~2-3% to S&P forward P/E multiples and unlocks bank carry trades via SLR deregulation.</div></div></span><button class="rbtn" onclick="rv('sl-fed',363)">RST</button></div><div id="v-fed" class="sval editable" onclick="editVal('fed')" title="Click to type exact value">3.63%</div><input type="range" min="25" max="700" value="363" id="sl-fed" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0.25%</span><span>7.0%</span></div></div>
+  <div class="scard"><div class="slbl">Iran Deal % <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Iran Deal Status (%)</strong>Probability the Iran nuclear deal holds and the Strait of Hormuz stays open. 0% = full closure, supply shock. 100% = deal signed, Iranian oil floods market, WTI crashes to $55-60.<div class="tip-why">Why it matters: ~20% of global oil supply transits Hormuz. A closure would spike oil $30-40/barrel within weeks, re-accelerating inflation and trapping the Fed.</div></div></span><button class="rbtn" onclick="rv('sl-iran',62)">RST</button></div><div id="v-iran" class="sval editable" onclick="editVal('iran')" title="Click to type exact value">62%</div><input type="range" min="0" max="100" value="62" id="sl-iran" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>Collapsed</span><span>Signed</span></div></div>
+  <div class="scard"><div class="slbl">CPI Inflation <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>CPI Inflation (% YoY)</strong>Consumer Price Index year-over-year, pulled live from FRED CPIAUCSL when the feed is available. The Fed's stated target is 2.0%. Warsh uses a trimmed-mean PCE variant; this slider is headline CPI.<div class="tip-why">Why it matters: Inflation above 3.5% keeps the Fed on hold. Below 2.5% unlocks cuts. It's the gatekeeper between the current environment and the QE machine scenario.</div></div></span><button class="rbtn" onclick="rv('sl-cpi',42)">RST</button></div><div id="v-cpi" class="sval editable" onclick="editVal('cpi')" title="Click to type exact value">4.2%</div><input type="range" min="10" max="180" value="42" id="sl-cpi" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.0%</span><span>18%</span></div></div>
+  <div class="scard"><div class="slbl">10-Year Yield <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>10-Year Treasury Yield (%)</strong>Live from Cboe ^TNX (intraday) with FRED DGS10 as the official daily fallback. Drives mortgage rates, corporate bond rates, and REIT valuations.<div class="tip-why">Why it matters: The 10Y is the long anchor of the yield curve. Rising = bond market revolt (inflation fear). Falling = QE/growth optimism. Directly sets the 2Y-10Y spread.</div></div></span><button class="rbtn" onclick="rv('sl-yield',448)">RST</button></div><div id="v-yield" class="sval editable" onclick="editVal('yield')" title="Click to type exact value">4.48%</div><input type="range" min="150" max="800" value="448" id="sl-yield" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>1.5%</span><span>8.0%</span></div></div>
+  <div class="scard" id="spread-card"><div class="slbl">2-Year Yield <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>2-Year Treasury Yield (%)</strong>Live from Yahoo 2YY=F (quoted as a yield, not the ZT=F price) with FRED DGS2 as the official daily fallback. This is the bond market's real-time prediction of Fed Funds over the next two years.<div class="tip-why">Why it matters: The 2Y-10Y spread (shown below) is the #1 recession predictor. When 2Y > 10Y (inverted), banks lose money on lending and credit tightens. Every recession since 1955 was preceded by inversion.</div></div></span><button class="rbtn" onclick="rv('sl-y2',424)">RST</button></div><div id="v-y2" class="sval editable" onclick="editVal('y2')" title="Click to type exact value">4.24%</div><input type="range" min="25" max="800" value="424" id="sl-y2" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0.25%</span><span>8.0%</span></div><div id="spread-display" style="margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:10px"></div></div>
+  <div class="scard"><div class="slbl">DXY Dollar Index <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>US Dollar Index (DXY)</strong>Measures the USD against a basket of 6 currencies (EUR, JPY, GBP, CAD, SEK, CHF). A weaker dollar is Groman Signal #1 — it means liquidity is expanding globally.<div class="tip-why">Why it matters: DXY below 100 is bullish for gold, commodities, and emerging markets. QE scenarios push DXY to 88-92. Dollar strength (DXY 105+) crushes everything denominated in USD abroad.</div></div></span><button class="rbtn" onclick="rv('sl-dxy',1013)">RST</button></div><div id="v-dxy" class="sval editable" onclick="editVal('dxy')" title="Click to type exact value">101.3</div><input type="range" min="800" max="1200" value="1013" id="sl-dxy" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>80</span><span>120</span></div></div>
+  <div class="scard"><div class="slbl">QE Probability <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>QE Probability (%)</strong>Probability the Fed resumes Quantitative Easing — buying bonds to expand the money supply. Currently indirect via SLR deregulation: banks buy treasuries with leverage, creating 'covert QE.'<div class="tip-why">Why it matters: Every major asset rally since 2008 has been powered by QE. When this flips above 80%, hard assets (gold, BTC, commodities) historically rip 30-90% within 12 months.</div></div></span><button class="rbtn" onclick="rv('sl-qe',45)">RST</button></div><div id="v-qe" class="sval editable" onclick="editVal('qe')" title="Click to type exact value">45%</div><input type="range" min="0" max="100" value="45" id="sl-qe" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0%</span><span>100%</span></div></div>
+  <div class="scard"><div class="slbl">SLR Deregulation <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>SLR Deregulation (%)</strong>Supplementary Leverage Ratio — a rule limiting how much banks can lever up. Deregulating it lets banks exclude US Treasuries from their leverage calculations, effectively letting JPM/GS/BAC buy unlimited bonds.<div class="tip-why">Why it matters: This is the mechanism of Warsh's 'covert QE.' Banks borrow at the 2Y rate, buy 10Y bonds, pocket the spread. At 95% deregulation + QE, banks could absorb $800B+ in new Treasury supply.</div></div></span><button class="rbtn" onclick="rv('sl-slr',40)">RST</button></div><div id="v-slr" class="sval editable" onclick="editVal('slr')" title="Click to type exact value">40%</div><input type="range" min="0" max="100" value="40" id="sl-slr" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>None</span><span>Full Dereg</span></div></div>
+  <div class="scard"><div class="slbl">M2 Growth <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>M2 growth (% YoY)</strong>Broad money growth. Not a live feed — an assumption. The quantity equation used by Debasement is CPI ≈ M2 growth + velocity change − real GDP growth. 4% is a normal expansion. The debasement preset uses 8%.<div class="tip-why">Why it matters: Printing is the input. Inflation is the output, with a lag. Velocity is the fudge the equation hides, so it is its own input in the calculator.</div></div></span><button class="rbtn" onclick="rv('sl-m2',40)">RST</button></div><div id="v-m2" class="sval editable" onclick="editVal('m2')" title="Click to type exact value">4.0%</div><input type="range" min="0" max="250" value="40" id="sl-m2" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0%</span><span>25%</span></div></div>
+  <div class="scard"><div class="slbl">Debt buyback ($B/mo) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Fed + Treasury buying ($B per month)</strong>How hard the government is buying its own debt. Today's Treasury buyback program is on the order of $15B/month. 2020 QE ran about $80–120B/month. The debasement preset uses $110B/month, which is what this model needs to defend the yield cap.<div class="tip-why">Why it matters: A cap the Fed will not fund is not a cap. Cut this under the line shown on the Debasement tab and the regime breaks — bonds sell off, and metals keep less of the bid.</div></div></span><button class="rbtn" onclick="rv('sl-bb',15)">RST</button></div><div id="v-bb" class="sval editable" onclick="editVal('bb')" title="Click to type exact value">$15B</div><input type="range" min="0" max="200" value="15" id="sl-bb" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>$0</span><span>$200B</span></div></div>
+  <div class="scard"><div class="slbl">Yield cap / YCC <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>10-year yield cap (%)</strong>0 = no cap. From 1942 to the March 1951 Accord the Fed pegged the long bond at 2.5% and bought whatever was issued. The modern preset caps the 10-year at 3.25% — below inflation, above the wartime peg, because there are no capital controls this time.<div class="tip-why">Why it matters: Pinned yields plus rising CPI is a negative real long rate. That is the debt tax. If the 10-year slider sits above the cap, the cap is not in force.</div></div></span><button class="rbtn" onclick="rv('sl-ycc',0)">RST</button></div><div id="v-ycc" class="sval editable" onclick="editVal('ycc')" title="Click to type exact value">OFF</div><input type="range" min="0" max="800" value="0" id="sl-ycc" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>Off</span><span>8%</span></div></div>
+  <div class="scard" id="carry-card"><div class="slbl">BOJ Rate (Japan) <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>Bank of Japan Policy Rate (%)</strong>Japan's overnight rate, raised to 1.00% in June 2026 after a decade near zero. The BOJ is normalizing slowly while the Fed holds much higher rates.<div class="tip-why">Why it matters: The Fed-BOJ gap funds the global "yen carry trade" -- borrow cheap yen, buy higher-yielding USD assets. When BOJ hikes fast or the gap narrows suddenly, carry trades unwind violently (Aug 2024: Nikkei -12.4% in one day).</div></div></span><button class="rbtn" onclick="rv('sl-boj',100)">RST</button></div><div id="v-boj" class="sval editable" onclick="editVal('boj')" title="Click to type exact value">1.00%</div><input type="range" min="0" max="300" value="100" id="sl-boj" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>0.0%</span><span>3.0%</span></div></div>
+  <div class="scard" id="usdjpy-card"><div class="slbl">USD/JPY Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>USD/JPY Exchange Rate</strong>How many yen buy one dollar. Live from Yahoo JPY=X. Mid-2026 printed near 164; a fast drop toward 145 with a BOJ hike is the carry-unwind tell.<div class="tip-why">Why it matters: A falling USD/JPY (yen strengthening fast) signals the carry trade unwinding -- leveraged funds rush to buy back yen, forcing liquidation of the risk assets (tech stocks, BTC, EM) that carry funded. Below 145 with a BOJ hike = danger zone.</div></div></span><button class="rbtn" onclick="rv('sl-usdjpy',1638)">RST</button></div><div id="v-usdjpy" class="sval editable" onclick="editVal('usdjpy')" title="Click to type exact value">163.8</div><input type="range" min="1000" max="1800" value="1638" id="sl-usdjpy" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>100</span><span>180</span></div><div id="carry-display" style="margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:10px"></div></div>
 </div>
 <div class="fp"><div class="pt">Macro Signal Dashboard &mdash; 10 Signals (Groman Core 5 + Spread &middot; Carry &middot; VIX &middot; Copper/Gold &middot; Credit)</div><div class="sgg" id="sigs"></div><div style="font-size:10px;color:var(--mu);margin-top:5px">Groman core (Dollar, Stocks, 10Y, Gold, Bitcoin) all GREEN = QE confirmed &bull; All RED = plan failing &bull; VIX, Copper/Gold &amp; Credit are live market-confirmation signals &mdash; watch for divergence between model and market</div></div>
-<div class="g2"><div class="panel"><div class="pt">S&amp;P 500 &mdash; 12-Month Projection</div><div class="cw"><canvas id="spxC"></canvas></div></div><div class="panel"><div class="pt">Asset Class 12M Return (%)</div><div class="cw"><canvas id="assetC"></canvas></div></div></div>
+<div class="g2"><div class="panel"><div class="pt">S&amp;P 500 &mdash; 12-Month Projection</div><div class="cw"><canvas id="spxC"></canvas></div></div><div class="panel"><div class="pt" id="asset-pt">Asset Class 12M Return (%)</div><div class="cw"><canvas id="assetC"></canvas></div></div></div>
 <div class="g2"><div class="panel"><div class="pt">Sector Rotation Radar</div><div class="cw"><canvas id="sectorC"></canvas></div></div><div class="panel"><div class="pt">Yield Curve: Current vs 12M Projected</div><div class="cw"><canvas id="yieldC"></canvas></div></div></div>
 <div class="fp"><div class="pt">Projected Moves &mdash; Key Instruments (Click for Details)</div><div id="obs"></div></div>
 <div class="mbar" id="mbar"></div>
@@ -355,7 +370,7 @@ footer a:hover{color:var(--ac)}
 <!-- BUY LISTS -->
 <div class="fp" id="buy-list-panel">
   <div class="pt">BUY LIST &mdash; Playbook names for this scenario <span class="scan-badge">REAL DATA</span></div>
-  <div class="play-sec" data-scen="base,bull,bear,qe,stag,carry,inflate,diesel">
+  <div class="play-sec" data-scen="base,bull,bear,qe,stag,carry,inflate,debase,diesel">
   <div class="sh"><span class="dot" style="background:var(--gold)"></span>GOLD &amp; PRECIOUS METALS &mdash; Inflation Hedge + Dollar Weakness Play</div>
   <div class="sg" id="g-gold"></div>
   </div>
@@ -367,15 +382,15 @@ footer a:hover{color:var(--ac)}
   <div class="sh"><span class="dot" style="background:var(--pur)"></span>AI &amp; TECH &mdash; Disinflationary Buildout + AI Infrastructure</div>
   <div class="sg" id="g-tech"></div>
   </div>
-  <div class="play-sec" data-scen="bear,stag,inflate,diesel">
+  <div class="play-sec" data-scen="bear,stag,inflate,debase,diesel">
   <div class="sh"><span class="dot" style="background:var(--ac2)"></span>ENERGY &mdash; Tankers + E&amp;P + Refiners (Top Screened Picks)</div>
   <div class="sg" id="g-energy"></div>
   </div>
-  <div class="play-sec" data-scen="base,stag,inflate,diesel">
+  <div class="play-sec" data-scen="base,stag,inflate,debase,diesel">
   <div class="sh"><span class="dot" style="background:var(--ac3)"></span>PRICING POWER &mdash; Inflation Pass-Through + Consumer Necessities</div>
   <div class="sg" id="g-pricing"></div>
   </div>
-  <div class="play-sec" data-scen="base,bull,bear,qe,stag,strong,carry,inflate,diesel">
+  <div class="play-sec" data-scen="base,bull,bear,qe,stag,strong,carry,inflate,debase,diesel">
   <div class="sh"><span class="dot" style="background:var(--mu)"></span>ETF BROAD EXPOSURE &mdash; One-Click Scenario Plays</div>
   <div class="sg" id="g-etf"></div>
   </div>
@@ -441,7 +456,30 @@ footer a:hover{color:var(--ac)}
   <div class="sg" id="g-carry-loss"></div>
 </div>
 
-<div class="fp" id="inflate-panel" data-scen="inflate">
+<div class="fp" id="debase-panel" data-scen="debase">
+  <div class="pt" style="color:var(--gold)">&#128176; DEBASEMENT &mdash; PRINT, BUY THE DEBT, INFLATE THE STOCK AWAY</div>
+  <div style="background:rgba(255,215,0,.05);border:1px solid rgba(255,215,0,.22);border-radius:9px;padding:12px 14px;margin-bottom:12px;font-size:11px;line-height:1.7;color:var(--tx)">
+    From 1942 until the Fed&ndash;Treasury Accord in March 1951, the Fed pegged bills at <strong>0.375%</strong> and the long bond at <strong>2.5%</strong> and bought whatever the Treasury issued. CPI was 8% in 1946, 14% in 1947, 8% in 1948. Gross debt fell from about <strong>119% of GDP to about 70%</strong> by the early 1950s. Primary surpluses and roughly 4% real growth did a large share of that work. <strong>Gold did not.</strong> It was fixed at $35 until 1971.
+    <br><br>
+    This button is that mechanism on today&rsquo;s debt, with the peg off. CPI is the quantity equation on the new sliders: <strong>M2 growth + velocity change &minus; real GDP growth</strong>. The 10-year is capped below that inflation. Buybacks have to be large enough to defend the cap &mdash; about $25B/month per 1 percentage point of CPI above the cap, per $8T that rolls each year, and QE willingness of 70 or higher. That rule is a model threshold, not a law. Under it, the preset ($110B/month, cap 3.25%, CPI 6.4%) holds. Cut the buying and the cap breaks, which is 2022, not 1946.
+    <br><br>
+    The ranking is <strong>purchasing power over the horizon</strong>, not the first-year tape. Long bonds can rally in year one as the cap is installed, then lose ground every year the coupon sits under inflation. Gold&rsquo;s gain is mostly a one-time revaluation, then inflation plus about 1.5 points &mdash; not 40% a year for a decade. Elasticities, versus the live baseline: gold &asymp; 7.5% per 1pp drop in the real policy rate, plus &asymp; 1.05% per 1 DXY point, plus 0.7% per 1pp of extra M2. Silver 1.25&times; that first year. Miners 1.6&times;. Damped so the dollar and the real rate do not fully double-count.
+    <br><br><em style="color:var(--mu)">Educational mechanism model, not a forecast or advice. Direction is the sturdy part. The percent is an elasticity, not a price target.</em>
+  </div>
+  <div class="db-flag" id="db-flag"></div>
+  <div class="db-actions">
+    <button type="button" onclick="reloadFreeGold()">Free gold (now)</button>
+    <button type="button" onclick="load1946Peg()">1946&ndash;51 with gold peg</button>
+    <button type="button" onclick="lockCpiToPrint()">Lock CPI to the print</button>
+    <label><input type="checkbox" id="db-peg" onchange="scheduleUpd()"> Gold still $35 (Bretton Woods)</label>
+  </div>
+  <div id="db-lead" style="font-size:12px;line-height:1.6;margin-bottom:10px"></div>
+  <div class="ic-cards" id="db-cards"></div>
+  <div style="overflow-x:auto"><table class="db-table" id="db-rank"></table></div>
+  <div style="font-size:10px;color:var(--mu);line-height:1.55;margin-bottom:8px">Velocity, the Fed&rsquo;s share of the debt, the deficit, and the horizon are the inputs in the calculator under this panel. 1946 had a primary surplus; the free-gold preset keeps today&rsquo;s deficit, which is why the ratio falls slower than it did then.</div>
+</div>
+
+<div class="fp" id="inflate-panel" data-scen="inflate,debase">
   <div class="pt" style="color:var(--gold)">&#128176;&#128293; INFLATE-THE-DEBT CALCULATOR <span id="inflate-badge" style="font-size:9px;background:rgba(255,215,0,.15);border:1px solid rgba(255,215,0,.4);border-radius:4px;padding:2px 8px;margin-left:6px;color:var(--gold);font-family:'JetBrains Mono',monospace;letter-spacing:.5px">CPI &minus; Fed &ge; 1.5% / QE 70+ / DXY &lt;98</span></div>
   <div style="background:rgba(255,215,0,.05);border:1px solid rgba(255,215,0,.2);border-radius:9px;padding:12px 14px;margin-bottom:14px;font-size:11px;line-height:1.7;color:var(--tx)">
     <strong style="color:var(--gold)">The mechanism (fiscal dominance):</strong> When debt gets this large, a government has three ways out &mdash; grow out of it (rarely enough), default (never chosen by a reserve issuer), or <strong>inflate it away</strong> via financial repression: pin policy rates below inflation, cap the long end with QE, and let a negative real rate erode the debt&#39;s real value. The US did exactly this from 1946&ndash;1951 and again through the 1970s. This calculator runs that math on today&#39;s numbers &mdash; adjust any input.
@@ -457,11 +495,13 @@ footer a:hover{color:var(--ac)}
     <div class="ic-in"><label>Primary deficit (% GDP)</label><input type="number" id="ic-def" value="3.5" step="0.1"></div>
     <div class="ic-in"><label>Target debt/GDP (%)</label><input type="number" id="ic-tgt" value="90" step="1" min="10"></div>
     <div class="ic-in"><label>Horizon (yrs)</label><input type="number" id="ic-yrs" value="10" step="1" min="1" max="40"></div>
+    <div class="ic-in"><label>Velocity change (pp)</label><input type="number" id="ic-vel" value="0.6" step="0.1"></div>
+    <div class="ic-in"><label>Fed share of debt (%)</label><input type="number" id="ic-fedsh" value="11" step="0.5" min="0" max="60"></div>
   </div>
 
   <div class="ic-cards" id="ic-cards"></div>
 
-  <div class="ic-assets">
+  <div class="ic-assets" id="ic-legacy">
     <div class="ic-path-head">
       <div class="sh" style="margin:0"><span class="dot" style="background:var(--gold)"></span>WHAT $10,000 DOES OVER THE HORIZON &mdash; <span id="ic-path-label">1970s stagflation pattern</span></div>
       <div class="ic-toggle" id="ic-toggle">
@@ -1221,22 +1261,21 @@ hioil:[
 
 // ============================================================
 const SCENS = {
- // boj = BOJ policy rate *100 (100=1.00%); usdjpy = USD/JPY *10 (1638=163.8)
+ // boj = BOJ policy rate *100; usdjpy = USD/JPY *10
  // dsl = diesel $/gal *100; crack = 3-2-1 $/bbl; dist = distillate MMbbl
- base:  {oil:68,  fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638, dsl:520, crack:22, dist:128},
- bull:  {oil:58,  fed:275, iran:92, cpi:25, yield:330, y2:270, dxy:920,  qe:72, slr:82, boj:100, usdjpy:1580, dsl:380, crack:16, dist:145},
- bear:  {oil:105, fed:425, iran:5,  cpi:68, yield:510, y2:455, dxy:1065, qe:12, slr:12, boj:100, usdjpy:1680, dsl:780, crack:58, dist:92},
- qe:    {oil:68,  fed:250, iran:75, cpi:28, yield:310, y2:210, dxy:900,  qe:95, slr:95, boj:75,  usdjpy:1720, dsl:480, crack:20, dist:132},
- stag:  {oil:115, fed:400, iran:0,  cpi:82, yield:615, y2:415, dxy:1065, qe:8,  slr:8 , boj:125, usdjpy:1500, dsl:820, crack:62, dist:88},
- strong:{oil:72,  fed:425, iran:50, cpi:45, yield:500, y2:448, dxy:1100, qe:15, slr:30, boj:100, usdjpy:1720, dsl:500, crack:20, dist:130},
- // CARRY: Yen Carry Trade Unwind -- BOJ shock-hikes to 1.75%, USD/JPY crashes 164->132
- // Mirrors Aug 2024 precedent (BOJ hike + weak US jobs -> Nikkei -12.4% in a day)
- carry: {oil:74,  fed:363, iran:55, cpi:42, yield:420, y2:390, dxy:960,  qe:35, slr:25, boj:175, usdjpy:1320, dsl:540, crack:24, dist:124},
- // INFLATE $: Fiscal dominance / financial repression. Fed pinned BELOW inflation (real rate ~ -3%),
- // long yields capped by covert QE despite hot CPI, dollar debased, gold/silver/BTC run. 1940s+1970s playbook.
- inflate:{oil:88,  fed:250, iran:55, cpi:58, yield:430, y2:300, dxy:915,  qe:88, slr:80, boj:100, usdjpy:1720, dsl:620, crack:34, dist:118},
- // DIESEL: product tightness (late Sep 2026 EIA). Crude need not be $115. SPR is the wrong tank.
- diesel:{oil:88,  fed:400, iran:28, cpi:52, yield:490, y2:430, dxy:1030, qe:22, slr:22, boj:100, usdjpy:1600, dsl:638, crack:48, dist:108},
+ // m2 = M2 YoY *10 (40 = 4.0%); bb = Fed+Treasury buyback $B/month; ycc = 10Y cap *100 (0 = off)
+ base:  {oil:68,  fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638, dsl:520, crack:22, dist:128, m2:40, bb:15, ycc:0},
+ bull:  {oil:58,  fed:275, iran:92, cpi:25, yield:330, y2:270, dxy:920,  qe:72, slr:82, boj:100, usdjpy:1580, dsl:380, crack:16, dist:145, m2:40, bb:15, ycc:0},
+ bear:  {oil:105, fed:425, iran:5,  cpi:68, yield:510, y2:455, dxy:1065, qe:12, slr:12, boj:100, usdjpy:1680, dsl:780, crack:58, dist:92,  m2:45, bb:15, ycc:0},
+ qe:    {oil:68,  fed:250, iran:75, cpi:28, yield:310, y2:210, dxy:900,  qe:95, slr:95, boj:75,  usdjpy:1720, dsl:480, crack:20, dist:132, m2:55, bb:40, ycc:0},
+ stag:  {oil:115, fed:400, iran:0,  cpi:82, yield:615, y2:415, dxy:1065, qe:8,  slr:8 , boj:125, usdjpy:1500, dsl:820, crack:62, dist:88,  m2:50, bb:10, ycc:0},
+ strong:{oil:72,  fed:425, iran:50, cpi:45, yield:500, y2:448, dxy:1100, qe:15, slr:30, boj:100, usdjpy:1720, dsl:500, crack:20, dist:130, m2:35, bb:10, ycc:0},
+ carry: {oil:74,  fed:363, iran:55, cpi:42, yield:420, y2:390, dxy:960,  qe:35, slr:25, boj:175, usdjpy:1320, dsl:540, crack:24, dist:124, m2:40, bb:15, ycc:0},
+ inflate:{oil:88, fed:250, iran:55, cpi:58, yield:430, y2:300, dxy:915,  qe:88, slr:80, boj:100, usdjpy:1720, dsl:620, crack:34, dist:118, m2:65, bb:40, ycc:0},
+ diesel:{oil:88,  fed:400, iran:28, cpi:52, yield:490, y2:430, dxy:1030, qe:22, slr:22, boj:100, usdjpy:1600, dsl:638, crack:48, dist:108, m2:45, bb:15, ycc:0},
+ // Free-gold replay of 1946-51. CPI 6.4 = M2 8 + velocity 0.6 - real growth 2.2.
+ // 10Y capped at 3.25. Buybacks $110B/mo defend it. Gold is not pegged.
+ debase:{oil:78,  fed:200, iran:60, cpi:64, yield:325, y2:230, dxy:940,  qe:92, slr:70, boj:100, usdjpy:1520, dsl:560, crack:26, dist:122, m2:80, bb:110, ycc:325},
 };const NARRS = {
  base:'<strong>BASE CASE:</strong> Iran deal partially holds, oil settles $70-$80. Warsh stays hawkish through Q3, pivots Q4 as trimmed PCE data justifies cuts. Banks get SLR exemption in pipeline. Covert QE begins Q1 2027. Dollar weakens gradually. Markets chop sideways then rip higher late 2026.',
  bull:"<strong>BULL &mdash; DEAL WORKS:</strong> Iran signed, Strait opens, oil crashes to $60s. Warsh's new real-time PCE shows 2.4% inflation. He cuts 75bps. Banks lever into treasuries via SLR deregulation. Dollar drops hard. Every Groman signal turns green simultaneously. S&P rips 20%+. Gold, BTC, Banks, Tech all win at once.",
@@ -1246,6 +1285,7 @@ const SCENS = {
  strong:'<strong>&#x1F4AA; STRONG DOLLAR (Bretton Woods 2.0):</strong> Engineered global dollar shortage. DXY targeting 110. World chaos forces nations to spend on US goods and arms, requiring dollars. 27 countries sought emergency dollar access (World Bank June 2026). De-dollarization trade is DEAD. <strong style="color:var(--ac2)">WINNERS: Defense (LMT +30%), Regional Banks (KRE +20%), Small Caps (IWM +12%), UUP ETF (+18%).</strong> <strong style="color:var(--red)">AVOID: Gold (-15%), BTC (-30%), AAPL/KO/PG/MSFT (50-65% overseas revenue = EPS headwind).</strong>',
  carry:'<strong>&#x1F1EF;&#x1F1F5; YEN CARRY TRADE UNWIND:</strong> BOJ shock-hikes to 1.75% while a weak US jobs print rattles confidence -- the exact combination that crashed USD/JPY from 161 to 141.70 in three weeks in August 2024 (Nikkei -12.4% in a single day, its worst since 1987). Leveraged funds that borrowed cheap yen to buy US tech, BTC, and EM assets face margin calls and forced liquidation. <strong style="color:var(--ac3)">SAFE HAVENS: Yen itself (FXY +22%), long bonds (flight to quality +20%), gold miners (+18%).</strong> <strong style="color:var(--red)">CARRY-FUNDED LOSERS: Leveraged AI/tech (NVDA -35%), Bitcoin (-35%), Emerging Markets (-22%), Regional Banks funding stress (-20%).</strong>',
  inflate:'<strong>&#128176;&#128293; INFLATE THE DEBT AWAY (Fiscal Dominance):</strong> The rollover wall forces the Fed&#39;s hand: ~$8T of debt reprices in 12 months and total debt (~$39.8T, ~122% of GDP) can&#39;t be serviced at 4-5% for long. The exit chosen every time debt gets this big &mdash; not default, not austerity, but <strong>financial repression</strong>: hold policy rates BELOW inflation, cap the long end with covert QE, and let a ~3% negative real rate quietly erode the debt&#39;s real value (the exact 1946-1951 + 1970s playbook that took debt/GDP from 120% to 30%). <strong style="color:var(--ac2)">WINNERS: hard money &mdash; gold (GDX/NEM +30-40%), silver, BTC (+50%+), energy &amp; real assets, TIPS.</strong> <strong style="color:var(--red)">LOSERS: cash &amp; long nominal bonds (TLT/ZROZ real value bleeds), savers &amp; fixed salaries. Stocks rise nominally but ~flat in real terms (1970s).</strong> <em style="color:var(--mu)">Not a forecast or advice &mdash; a mechanism model. See the Inflate-$ calculator below for the exact repression math.</em>',
+ debase:'<strong>&#128176; DEBASEMENT &mdash; PRINT AND BUY THE DEBT:</strong> The Fed caps the long bond and monetizes the rollover, the job it did from 1942 until the 1951 Accord. CPI on this tab is the quantity equation (money growth + velocity &minus; real growth), so the real policy rate is negative and the debt ratio erodes. <strong style="color:var(--ac3)">PURCHASING POWER RISES IN:</strong> gold, silver, and the miners &mdash; the release valve that was shut when gold was $35 &mdash; then housing, TIPS, and real assets. Stocks rise in dollars and roughly hold, or slightly slip, in real terms if real growth stays near 2%. <strong style="color:var(--red)">CASH AND THE DOLLAR PAY FOR IT.</strong> Long bonds can pop in year one as the cap is installed, then lose real value every year the coupon sits under inflation. If the buyback is too small the cap breaks, metals get cut, and bonds sell off. The table on this tab is the model. Not advice.',
  diesel:'<strong>&#9981; DIESEL CRISIS &mdash; THE PRODUCT IS THE SHOCK:</strong> EIA diesel ran a record-nominal print ($6.529 on Sep 21 2026, still $6.382 on Sep 28). Distillate stocks ~108 MMbbl, 13%+ below the 5-year. SPR (~287 MMbbl) is crude that still has to be cracked, shipped, and delivered. Russian refinery hits, Red Sea reroutes, US barrels leaving as exports, fall turnarounds, harvest, and winter heating oil all pull the same thin tank. <strong style="color:var(--ac2)">WINNERS: refiners (MPC/VLO/PSX &mdash; own the 3-2-1), product tankers, rail, nuclear, solar/storage/grid, staples with pass-through.</strong> <strong style="color:var(--red)">LOSERS: discretionary freight, high-burn EV, restaurants, furniture &mdash; the $8 path (20&ndash;30% by December) adds surcharges; the $10 tail (3&ndash;7%) parks 20&ndash;35% of marginal trucks.</strong> Midterms punish the gasoline sign; diesel is how it shows up in groceries six weeks later. <em style="color:var(--mu)">Not advice &mdash; a distillate-tightness playbook, distinct from a Hormuz crude spike.</em>'
 };
 const ANGLES = [
@@ -1262,6 +1302,8 @@ const ANGLES = [
  {s:'DIESEL',c:'#f5a623',t:'Crack Spread, Not Crude -- Own the Refinery Gate',b:'More WTI does not mint ULSD. Russian refinery hits, Red Sea miles, and a thin 108 MMbbl distillate tank blow out the 3-2-1. MPC, VLO, PSX, DINO collect the margin. SPR releases are a headline, not a diesel delivery.',tks:['MPC','VLO','PSX','DINO','STNG','XLE']},
  {s:'DIESEL',c:'#22c55e',t:'Substitution -- Solar, Nuclear, Storage, Grid',b:'$6+ diesel makes PPAs, trackers, batteries, and nuclear offtake pencil faster. FSLR/NXT/TAN for solar, CEG/CCJ/URA for the atom, FLNC/EOSE for storage, GEV/PWR/MTZ for the wires. This is why Alt Energy is live on this tab even if WTI is not $115.',tks:['FSLR','NXT','TAN','CEG','URA','FLNC']},
  {s:'DIESEL',c:'var(--ac3)',t:'Freight Tax -- Who Passes It, Who Eats It',b:'At $6/gal a truck burns ~$1,000 per 1,000 miles; $8 is $1,330; $10 is $1,667. Rail (UNP) can steal parked-truck freight. WMT/COST/PG pass it. Furniture, restaurants, and rush-ship discretionary eat it. 50% diesel is not 50% groceries — but the surcharge lands first.',tks:['UNP','WMT','COST','PG','V','TIP']},
+ {s:'DEBASE',c:'var(--gold)',t:'What rises once the cap is funded',b:'Ranked by purchasing power over the horizon, not the first print. Miners, silver, and gold revalue when the real policy rate goes negative and the dollar falls. Housing and TIPS hold. The S&P rises in dollars. Cash is the tax. Long bonds look clever in year one and then bleed.',tks:['GDX','SLV','GLD','TIP','XLE','VNQ']},
+ {s:'DEBASE',c:'var(--red)',t:'1946 paid bondholders. Gold was not invited.',b:'Turn on the $35 peg. Bullion goes flat in dollars and backwards in real terms, which is what happened. Houses and equities did the work, helped by a postwar surplus and ~4% real growth. Today the primary balance is a deficit, so the same real rate takes longer. That gap is the calculator.',tks:['GLD','TLT','COST','XOM','TIP','GDX']},
  {s:'DIESEL',c:'var(--red)',t:'$8 vs $10 Paths -- And the Midterm Sign',b:'Experts will not give a clean forecast (JP Morgan sat this one out). $8 national by December is 20–30% if inventories fail and winter stacks. $10 is 3–7% and needs a second shock. Voters punish the gasoline sign they see every week; diesel is how food and heat get there.',tks:['UUP','XLE','WMT','QQQ','ARKK','DRI']},
 ];
 
@@ -1270,7 +1312,7 @@ let CH={};
 const CARD_STORE={};
 // Stores the most recently fetched live macro values
 // doRefresh() populates this; rv() restores from it
-const LIVE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638, dsl:638, crack:48, dist:108};
+const LIVE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638, dsl:638, crack:48, dist:108, m2:40, bb:15, ycc:0};
 const MANUAL_SET = new Set();  // macro keys the user typed by hand — refresh won't overwrite these
 
 function seedLiveFromServer(){
@@ -1296,7 +1338,8 @@ function rv(id, hardcoded){
   const keyMap = {
     'sl-oil':'oil','sl-fed':'fed','sl-iran':'iran','sl-cpi':'cpi',
     'sl-yield':'yield','sl-y2':'y2','sl-dxy':'dxy','sl-qe':'qe','sl-slr':'slr',
-    'sl-boj':'boj','sl-usdjpy':'usdjpy','sl-dsl':'dsl','sl-crack':'crack','sl-dist':'dist'
+    'sl-boj':'boj','sl-usdjpy':'usdjpy','sl-dsl':'dsl','sl-crack':'crack','sl-dist':'dist',
+    'sl-m2':'m2','sl-bb':'bb','sl-ycc':'ycc'
   };
   const k = keyMap[id];
   // RST means "follow live again" — drop the typed lock so refresh can update it
@@ -1313,11 +1356,11 @@ function rv(id, hardcoded){
 //   fromReal is implicit in each slider's scale.
 const EDIT_META = {
   oil:   {slider:'sl-oil',   scale:1,   min:20,  max:200, unit:'$/bbl', label:'WTI Oil ($/barrel)',   parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
-  fed:   {slider:'sl-fed',   scale:100, min:0,   max:8,   unit:'%',     label:'Fed Funds Rate (%)',   parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
+  fed:   {slider:'sl-fed',   scale:100, min:0.25,max:8,   unit:'%',     label:'Fed Funds Rate (%)',   parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
   iran:  {slider:'sl-iran',  scale:1,   min:0,   max:100, unit:'%',     label:'Iran Deal (%)',        parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
-  cpi:   {slider:'sl-cpi',   scale:10,  min:0,   max:15,  unit:'%',     label:'CPI Inflation (% YoY)',parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
+  cpi:   {slider:'sl-cpi',   scale:10,  min:0,   max:18,  unit:'%',     label:'CPI Inflation (% YoY)',parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
   yield: {slider:'sl-yield', scale:100, min:0.5, max:9,   unit:'%',     label:'10-Year Yield (%)',    parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
-  y2:    {slider:'sl-y2',    scale:100, min:0.5, max:9,   unit:'%',     label:'2-Year Yield (%)',     parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
+  y2:    {slider:'sl-y2',    scale:100, min:0.25,max:9,   unit:'%',     label:'2-Year Yield (%)',     parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
   dxy:   {slider:'sl-dxy',   scale:10,  min:80,  max:120, unit:'idx',   label:'DXY Dollar Index',     parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
   qe:    {slider:'sl-qe',    scale:1,   min:0,   max:100, unit:'%',     label:'QE Probability (%)',   parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
   slr:   {slider:'sl-slr',   scale:1,   min:0,   max:100, unit:'%',     label:'SLR Deregulation (%)', parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
@@ -1326,6 +1369,9 @@ const EDIT_META = {
   dsl:   {slider:'sl-dsl',   scale:100, min:2.5, max:12,  unit:'$/gal', label:'US Diesel ($/gallon)', parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
   crack: {slider:'sl-crack', scale:1,   min:5,   max:90,  unit:'$/bbl', label:'3-2-1 Crack ($/bbl)',  parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
   dist:  {slider:'sl-dist',  scale:1,   min:70,  max:180, unit:'MMbbl', label:'Distillate Stocks (MMbbl)', parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
+  m2:    {slider:'sl-m2',    scale:10,  min:0,   max:25,  unit:'%',     label:'M2 growth (% YoY)',    parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
+  bb:    {slider:'sl-bb',    scale:1,   min:0,   max:200, unit:'$B/mo', label:'Debt buyback ($B/month)', parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
+  ycc:   {slider:'sl-ycc',   scale:100, min:0,   max:8,   unit:'%',     label:'Yield cap (% , 0 = off)', parse:s=>parseFloat(s.replace(/[^0-9.]/g,''))},
 };
 function editVal(key){
   const m = EDIT_META[key];
@@ -1387,6 +1433,9 @@ function gv(){
   dsl:   +document.getElementById('sl-dsl').value / 100,
   crack: +document.getElementById('sl-crack').value,
   dist:  +document.getElementById('sl-dist').value,
+  m2:    +document.getElementById('sl-m2').value / 10,
+  bb:    +document.getElementById('sl-bb').value,
+  ycc:   +document.getElementById('sl-ycc').value / 100,
 };}
 
 let WHATIF = null; // scenario key when a what-if tab is active; null = follow live prints
@@ -1394,7 +1443,9 @@ let WHATIF = null; // scenario key when a what-if tab is active; null = follow l
 function gkey(v){
  // Yen carry unwind is a violent, acute shock (Aug 2024 precedent) -- checked first
  if(v.boj>=1.5 && v.usdjpy<=145)                 return 'carry';
- if(v.qe>80 && v.slr>80)                         return 'qe';
+ if(debaseLive(v))                               return 'debase';
+ // QE Machine is the disinflationary covert-QE path. Hot CPI with a cap is debasement.
+ if(v.qe>80 && v.slr>80 && v.cpi<3.5)            return 'qe';
  if(v.oil>95 && v.cpi>7.5)                        return 'stag'; // entrenched inflation regime (cpi already in %)
  if(v.iran<20 && v.oil>90)                        return 'bear'; // geopolitical/Hormuz shock
  if(v.oil>95 && v.cpi>5.5)                        return 'stag'; // high oil + sticky CPI without Iran trigger
@@ -1424,9 +1475,19 @@ function setScen(s,el){
  document.getElementById('sl-usdjpy').value=p.usdjpy;
  document.getElementById('sl-qe').value=p.qe;
  document.getElementById('sl-slr').value=p.slr;
+ document.getElementById('sl-m2').value=(p.m2!=null?p.m2:40);
+ document.getElementById('sl-bb').value=(p.bb!=null?p.bb:15);
+ document.getElementById('sl-ycc').value=(p.ycc!=null?p.ycc:0);
  if(p.dsl!=null) document.getElementById('sl-dsl').value=p.dsl;
  if(p.crack!=null) document.getElementById('sl-crack').value=p.crack;
  if(p.dist!=null) document.getElementById('sl-dist').value=p.dist;
+ if(s==='debase'){
+  GOLD_PEG=false;
+  const peg=document.getElementById('db-peg'); if(peg) peg.checked=false;
+  const grow=document.getElementById('ic-grow'); if(grow) grow.value='2.2';
+  const def=document.getElementById('ic-def'); if(def) def.value='3.5';
+  const vel=document.getElementById('ic-vel'); if(vel) vel.value='0.6';
+ }
  upd();
 }
 
@@ -1437,7 +1498,8 @@ function setLive(el){
  const map = {
    oil:'sl-oil', fed:'sl-fed', iran:'sl-iran', cpi:'sl-cpi', yield:'sl-yield',
    y2:'sl-y2', dxy:'sl-dxy', qe:'sl-qe', slr:'sl-slr', boj:'sl-boj', usdjpy:'sl-usdjpy',
-   dsl:'sl-dsl', crack:'sl-crack', dist:'sl-dist'
+   dsl:'sl-dsl', crack:'sl-crack', dist:'sl-dist',
+   m2:'sl-m2', bb:'sl-bb', ycc:'sl-ycc'
  };
  Object.entries(map).forEach(([k,id])=>{
    if (MANUAL_SET.has(k)) return;
@@ -1454,7 +1516,8 @@ function liveRegimeKey(){
       oil:+m.oil, fed:+m.fed/100, iran:+m.iran, cpi:+m.cpi/10,
       y10:+m.yield/100, y2:+m.y2/100, dxy:+m.dxy/10,
       qe:+m.qe, slr:+m.slr, boj:+m.boj/100, usdjpy:+m.usdjpy/10,
-      dsl:+(m.dsl||638)/100, crack:+(m.crack||48), dist:+(m.dist||108)
+      dsl:+(m.dsl||638)/100, crack:+(m.crack||48), dist:+(m.dist||108),
+      m2:+(m.m2||40)/10, bb:+(m.bb||15), ycc:+(m.ycc||0)/100
     });
   } catch(_){ return 'base'; }
 }
@@ -1462,6 +1525,25 @@ let _PB = null;
 function playbookRet(s, key){
   if (!s) return 0;
   if (s[key] != null && isFinite(+s[key])) return +s[key];
+  if (key === 'debase'){
+    const b = debaseBucket(s);
+    if (DEBASE_FC && b && DEBASE_FC[b] != null && isFinite(+DEBASE_FC[b])){
+      // Bucket return is the asset-class model. Nudge by how this name
+      // differed from the bucket anchor in the older inflate map, so the
+      // cards are not identical clones.
+      const anchor = {miners:38,silver:40,gold:38,energy:28,btc:50,tech:8,banks:10,staples:10,pay:8,spx:12,tips:16,nukes:14,power:12,defense:8,tankers:12};
+      const own = s.inflate != null ? +s.inflate : (s.qe != null ? +s.qe : null);
+      let out = +DEBASE_FC[b];
+      if (own != null && anchor[b] != null) out += (own - anchor[b]) * 0.35;
+      return Math.round(out);
+    }
+    if (s.inflate != null) return +s.inflate;
+  }
+  if (key === 'inflate' && s.inflate == null){
+    const sec = String(s.sec || '');
+    if (sec.indexOf('Basic Materials') >= 0) return Math.round(+((s.qe != null ? s.qe : s.base) || 0) * 0.85);
+    if (sec.indexOf('Energy') >= 0) return Math.round(+((s.stag != null ? s.stag : s.base) || 0) * 0.7);
+  }
   if (key === 'diesel'){
     const stag = s.stag != null ? +s.stag : (s.base || 0);
     const t = String(s.t || '');
@@ -1497,6 +1579,10 @@ function playbookOf(t){
 }
 function scenarioPct(ticker, scen, d){
   const key = scen === 'live' ? liveRegimeKey() : scen;
+  if (key === 'debase'){
+    const src = Object.assign({t: ticker}, playbookOf(ticker) || {}, d || {});
+    return playbookRet(src, 'debase');
+  }
   if (d && d[key] != null && isFinite(+d[key])) return +d[key];
   if (d && key === 'diesel') return playbookRet(d, 'diesel');
   const pb = playbookOf(ticker);
@@ -1531,7 +1617,7 @@ function buildExpanded(t,n,d,k){
   ${bp&&lp!==bp?`<div><div style="font-size:9px;font-family:JetBrains Mono,monospace;color:var(--mu)">Baseline</div><div style="font-family:JetBrains Mono,monospace;font-size:14px;color:var(--mu)">${fmt(bp)}</div></div>`:''}
   <div style="margin-left:auto;font-size:9px;color:var(--mu);font-family:JetBrains Mono,monospace">via ${PX_SRC[t]||'baseline'}</div>
  </div>`:'';
- const scens=[{key:'live',lbl:'LIVE'},{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'},{key:'strong',lbl:'STRONG$'},{key:'carry',lbl:'CARRY'},{key:'inflate',lbl:'INFLATE$'},{key:'diesel',lbl:'DIESEL'}];
+ const scens=[{key:'live',lbl:'LIVE'},{key:'base',lbl:'BASE'},{key:'bull',lbl:'BULL'},{key:'bear',lbl:'BEAR'},{key:'qe',lbl:'QE'},{key:'stag',lbl:'STAG'},{key:'strong',lbl:'STRONG$'},{key:'carry',lbl:'CARRY'},{key:'inflate',lbl:'INFLATE$'},{key:'debase',lbl:'DEBASE'},{key:'diesel',lbl:'DIESEL'}];
  const liveK=liveRegimeKey();
  const allRet=scens.map(sc=>{
   const v=scenarioPct(t, sc.key, d);
@@ -1713,6 +1799,10 @@ function updCharts(v,k){
  // INFLATE: nominal S&P grinds HIGHER (money debasement lifts asset prices) but this is NOMINAL --
  // real return is roughly flat once you deflate by ~5-6% CPI (the 1970s lesson).
  if(k==='inflate') proj=proj.map((p,i)=>Math.round(p*(1+0.015*i/11+0.06)));
+ if(k==='debase' && DEBASE_FC){
+  const end=1+DEBASE_FC.spx/100;
+  proj=Array.from({length:12},function(_,i){return Math.round(spx0*(1+(end-1)*(i/11)));});
+ }
  CH.spx.data.datasets[0].data=bull;CH.spx.data.datasets[1].data=proj;CH.spx.data.datasets[2].data=bear;CH.spx.update('none');
  const RET={
  //               [S&P, Gold,  BTC,  Oil, Bond,  USD]
@@ -1729,10 +1819,17 @@ function updCharts(v,k){
  // Bonds RALLY hard (flight to quality, yields plunge) -- biggest positive in this scenario
  // BTC crashes on leveraged unwind (Aug 2024 precedent); USD (DXY) falls as JPY (13.6% weight) surges
  carry:  [-12,  10, -35,  -8,  20,  -8],
- // INFLATE: hard money wins big, nominal bonds bleed (real), dollar debases. S&P up nominal only.
- inflate:[ 12,  38,  55,  30, -22, -16],
+ // INFLATE: hard money wins. Bond figure is 12m NOMINAL if the long end stays pinned; real value still bleeds over the hold.
+ inflate:[ 12,  38,  55,  30,   4, -16],
+ debase:[  8,  42,  48,   8,  15,  -7],
  diesel: [ -4,  10, -18,  28, -16,   4],
-}; const r=RET[k]||RET.base;
+}; let r=RET[k]||RET.base;
+ if(k==='debase' && DEBASE_FC){
+  const f=DEBASE_FC;
+  r=[Math.round(f.spx),Math.round(f.gold),Math.round(f.btc),Math.round(f.oil),Math.round(f.bond10),Math.round(f.usd)];
+ }
+ const _apt=document.getElementById('asset-pt');
+ if(_apt) _apt.textContent=k==='debase'?'Asset class — 12m nominal vs live baseline':'Asset Class 12M Return (%)';
  CH.asset.data.datasets[0].data=r;
  CH.asset.data.datasets[0].backgroundColor=r.map((rv,i)=>rv>=0?['#39ff14','#ffd700','#f97316','#6b7fa3','#a855f7','#22d3ee'][i]:['#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c'][i]);
  CH.asset.update('none');
@@ -1751,6 +1848,7 @@ function updCharts(v,k){
  // INFLATE: Energy/Materials (real assets) lead, Financials ok (steep curve), Tech nominal-ok, RE hard-asset hedge
  inflate:[60, 88, 58, 90, 55, 58, 78, 50],
  diesel: [38, 92, 52, 72, 78, 58, 28, 70],
+ debase:[74, 82, 38, 90, 52, 48, 76, 62],
 }; CH.sector.data.datasets[0].data=SD[k]||SD.base;CH.sector.update('none');
  const y2   = v.y2 || (v.y10 - 0.26);
  const y10  = v.y10;
@@ -1773,9 +1871,15 @@ function updCharts(v,k){
    carry: [-0.60,-0.60,-0.55,-0.55,-0.50,-0.45,-0.40,-0.30,-0.25], // flight-to-quality bond rally
    inflate:[-1.30,-1.30,-1.20,-1.05,-0.85,-0.55,-0.30,-0.15, 0.00], // front-end slashed, long end pinned by QE (yield-curve control)
    diesel:[ 0.15, 0.15, 0.12, 0.10, 0.08, 0.20, 0.35, 0.45, 0.50], // sticky goods CPI, term premium up
+   debase:[ -0.10,-0.10,-0.08,-0.05,-0.03, 0.00, 0.00, 0.00, 0.00], // cap is already the slider; do not cut yields again
  };
  const sh = shifts[k] || shifts.base;
- const yp = yc.map((y,i) => +(y + sh[i]).toFixed(2));
+ let yp = yc.map((y,i) => +(y + sh[i]).toFixed(2));
+ if(k==='debase' && DEBASE_FC && DEBASE_FC.capMode==='breaks'){
+  yp[6]=+DEBASE_FC.yEff.toFixed(2);
+  yp[7]=+(DEBASE_FC.yEff+0.25).toFixed(2);
+  yp[8]=+(DEBASE_FC.yEff+0.45).toFixed(2);
+ }
  CH.yield.data.datasets[0].data=yc;CH.yield.data.datasets[1].data=yp;CH.yield.update('none');
 }
 
@@ -1797,7 +1901,12 @@ function updBars(k){
  ['FSLR','First Solar',         {bull:8,  bear:32,qe:18,stag:28,base:12,strong:2,   carry:-6, inflate:16, diesel:34}],
 ]; let h='';
  items.forEach(([t,nm,ret])=>{
-  const r=ret[k]||0;
+  let r=ret[k]||0;
+  if(k==='debase' && DEBASE_FC){
+    const map={FRO:'tankers',NEM:'miners',LMT:'defense',NVDA:'tech',JPM:'banks',IBIT:'btc',XLE:'energy',CEG:'nukes',GDX:'miners',KRE:'banks',UUP:'usd',FSLR:'power'};
+    const b=map[t];
+    if(b && DEBASE_FC[b]!=null) r=Math.round(DEBASE_FC[b]);
+  }
   const pct=Math.min(Math.abs(r)/90*100,100);
   const sign=r>=0?'+':'';
   const col=r>=0?'var(--ac3)':'var(--red)';
@@ -1831,9 +1940,332 @@ function updMbar(v,k){
   ['Diesel $'+v.dsl.toFixed(2), v.dsl<5.5],
   ['Crack $'+Math.round(v.crack), v.crack<28],
   ['Dist '+Math.round(v.dist)+'mm', v.dist>120],
+  ['M2 '+v.m2.toFixed(1)+'%', v.m2<6],
+  ['Buy $'+Math.round(v.bb)+'B', v.bb<40],
+  ['YCC '+(v.ycc<0.3?'OFF':v.ycc.toFixed(2)+'%'), v.ycc<0.5],
  ];
  document.getElementById('mbar').innerHTML=chips.map(([l,ok])=>{const c=ok?'var(--ac3)':'var(--red)';return'<div class="mch" style="color:'+c+';border-color:'+c+'">'+l+'</div>';}).join('');
 }
+
+// ── DEBASEMENT ENGINE ────────────────────────────────────────
+// Post-WW2 financial repression (1942–March 1951 Fed–Treasury Accord),
+// replayed with today's debt stock. Gold was fixed at $35 then; it is not now.
+// Outputs are mechanism results from the elasticities below, not a promise.
+let GOLD_PEG = false;
+let DEBASE_FC = null;
+
+function clampN(n, lo, hi){ return Math.max(lo, Math.min(hi, n)); }
+function fisherPct(nom, cpi){
+  return ((1 + nom/100) / (1 + cpi/100) - 1) * 100;
+}
+function fmtPct1(n){
+  if (n == null || !isFinite(n)) return '—';
+  const v = +n.toFixed(1);
+  return (v > 0 ? '+' : '') + v.toFixed(1) + '%';
+}
+function fmtUsd(n){
+  return '$' + Math.round(n).toLocaleString('en-US');
+}
+function fmtB(n){
+  const sign = n > 0 ? '+' : n < 0 ? '−' : '';
+  const a = Math.abs(n);
+  const body = a >= 1000 ? ('$' + (a/1000).toFixed(2) + 'T') : ('$' + Math.round(a) + 'B');
+  return sign + body;
+}
+function liveBase(){
+  const m = LIVE_MACRO || {};
+  return {
+    cpi: (m.cpi != null ? m.cpi : 42) / 10,
+    fed: (m.fed != null ? m.fed : 363) / 100,
+    dxy: (m.dxy != null ? m.dxy : 1013) / 10,
+    y10: (m.yield != null ? m.yield : 448) / 100,
+    m2:  (m.m2 != null ? m.m2 : 40) / 10
+  };
+}
+// Model rule, stated on the panel: each 1pp of CPI above the cap needs about
+// $25B/month of Fed+Treasury buying per $8T of debt rolling that year, and
+// QE willingness of 70+. Below that the cap is not funded (2022, not 1946).
+function capState(v, rollT){
+  const roll = rollT == null ? icNum('ic-roll', 8) : rollT;
+  if (!(v.ycc >= 0.5)) return {mode:'off', yEff:v.y10, need:0};
+  const gap = Math.max(0, v.cpi - v.ycc);
+  const need = gap * 25 * ((roll > 0 ? roll : 8) / 8);
+  const qeOk = v.qe >= 70;
+  if (v.bb >= need && qeOk) return {mode:'holds', yEff:Math.min(v.y10, v.ycc), need};
+  if (v.bb >= need * 0.55 && qeOk) return {mode:'strained', yEff:Math.min(v.y10, v.ycc) + 0.45, need};
+  return {mode:'breaks', yEff:Math.max(v.y10, v.cpi + 0.6), need};
+}
+function debaseLive(v){
+  const gap = (v.cpi || 0) - (v.fed || 0);
+  const capOn = (v.ycc || 0) >= 1 && (v.qe || 0) >= 70 && (v.y10 || 99) <= (v.ycc || 0) + 0.25;
+  return gap >= 2 && capOn && (v.m2 || 0) >= 6 && (v.dxy || 999) < 99;
+}
+function debtPath(v){
+  const cpi = v.cpi, fed = v.fed;
+  const debt = icNum('ic-debt', 39.8);
+  const dgdp = icNum('ic-dgdp', 122);
+  const roll = icNum('ic-roll', 8.0);
+  const oldc = icNum('ic-oldc', 2.4);
+  const grow = icNum('ic-grow', 2.2);
+  const defc = icNum('ic-def', 3.5);
+  const tgt  = icNum('ic-tgt', 90);
+  const yrs  = Math.max(1, Math.round(icNum('ic-yrs', 10)));
+  const share0 = clampN(icNum('ic-fedsh', 11) / 100, 0, 0.6);
+  const cap = capState(v, roll);
+  const marginal = cap.yEff;
+  const rollFrac = debt > 0 ? clampN(roll / debt, 0, 0.6) : 0.2;
+  const gdp = dgdp > 0 ? debt / (dgdp / 100) : debt;
+  const monetize = cap.mode === 'holds' || cap.mode === 'strained';
+  const buyT = Math.max(0, v.bb || 0) * 12 / 1000;
+  const extraIntB = roll * ((marginal - oldc) / 100) * (1 - share0) * 1000;
+  const liveY = (LIVE_MACRO.yield != null ? LIVE_MACRO.yield : 448) / 100;
+  const breakY = Math.max(liveY, cpi + 0.5);
+  const breakIntB = roll * ((breakY - oldc) / 100) * (1 - share0) * 1000;
+  let coupon = oldc, share = share0, d = dgdp / 100, yearsToTgt = null;
+  const rows = [];
+  for (let t = 1; t <= 40; t++){
+    coupon = coupon * (1 - rollFrac) + marginal * rollFrac;
+    if (monetize && debt > 0) share = Math.min(0.35, share + Math.min(0.02, buyT / debt));
+    const taxpayer = coupon * (1 - share);
+    const rReal = (taxpayer - cpi) / 100;
+    const gReal = grow / 100;
+    const den = Math.abs(1 + gReal) < 1e-9 ? 1 : (1 + gReal);
+    d = d * (1 + rReal) / den + defc / 100;
+    rows.push({t:t, d:d, taxpayer:taxpayer, rReal:rReal, share:share});
+    if (yearsToTgt === null && d <= tgt / 100) yearsToTgt = t;
+  }
+  const at = rows[Math.min(yrs, 40) - 1];
+  return {
+    debt:debt, dgdp:dgdp, roll:roll, oldc:oldc, grow:grow, defc:defc, tgt:tgt, yrs:yrs,
+    gdp:gdp, cpi:cpi, fed:fed, marginal:marginal, cap:cap,
+    extraIntB:extraIntB, breakIntB:breakIntB, breakY:breakY,
+    realPolicy:fed - cpi,
+    dH: at ? at.d : dgdp / 100,
+    yearsToTgt:yearsToTgt,
+    rReal1: rows[0] ? rows[0].rReal : 0,
+    rows:rows
+  };
+}
+function horizonWealth(y1, later, years, cpi){
+  let nom = 10000 * (1 + y1 / 100);
+  for (let i = 1; i < years; i++) nom *= (1 + later / 100);
+  const real = nom / Math.pow(1 + cpi / 100, years);
+  return {nom:nom, real:real, realPct:(real / 10000 - 1) * 100};
+}
+function debaseForecast(v){
+  const L = liveBase();
+  const M = debtPath(v);
+  const cap = M.cap;
+  const cpi = v.cpi;
+  const yrs = M.yrs;
+  const grow = M.grow;
+  const dRealPol = (v.fed - cpi) - (L.fed - L.cpi);
+  const dDxy = v.dxy - L.dxy;
+  const dM2 = (v.m2 || 0) - L.m2;
+  // Gold, year 1, versus the live baseline (not versus itself):
+  // ~7.5% per 1pp drop in the real policy rate (published range is about 5–10),
+  // ~1.05% per 1 DXY point, 0.7% per 1pp of extra M2. Damped so FX and real
+  // rates do not fully double-count. Steady state after year 1 is CPI + 1.5pp,
+  // not a repeat of the revaluation. 1970s 27%/yr is a different path (peg break
+  // plus two oil shocks) and is not used here.
+  let gold0 = 3 + (-7.5) * dRealPol + (-1.05) * dDxy + 0.7 * dM2;
+  let silver0 = gold0 * 1.25;
+  let miners0 = gold0 * 1.60;
+  let btc0 = gold0 * 1.05 + 0.12 * ((v.qe || 0) - 45);
+  const hair = cap.mode === 'breaks' ? 0.45 : cap.mode === 'strained' ? 0.80 : 1;
+  let gold = gold0 * hair, silver = silver0 * hair, miners = miners0 * hair, btc = btc0 * hair;
+  if (GOLD_PEG){ gold = 0; silver = 0; miners = 0; btc = 0; }
+  gold = clampN(gold, -25, 75);
+  silver = clampN(silver, -35, 95);
+  miners = clampN(miners, -40, 110);
+  btc = clampN(btc, -45, 100);
+  let oil = 1 + (-0.85) * dDxy + 0.20 * (cpi - L.cpi);
+  oil = clampN(oil, -30, 50);
+  let energy = clampN(oil * 1.25 + 2, -35, 55);
+  let tankers = clampN(oil * 0.45, -25, 30);
+  const dyCap = L.y10 - cap.yEff;
+  let spx = grow * 0.50 + cpi * 0.45 + Math.max(0, dyCap) * 2.6 + Math.min(0, dyCap) * 3.2;
+  spx = clampN(spx, -30, 30);
+  let tech = clampN(spx - 3, -40, 25);
+  let bond = -16.2 * (cap.yEff - L.y10) + L.y10;
+  bond = clampN(bond, -40, 35);
+  let bond10 = -8.5 * (cap.yEff - L.y10) + L.y10;
+  bond10 = clampN(bond10, -30, 28);
+  const cash = v.fed;
+  const usd = L.dxy ? (v.dxy / L.dxy - 1) * 100 : 0;
+  const liveReal10 = L.y10 - L.cpi;
+  const scenReal10 = cap.yEff - cpi;
+  let tips = cpi * 0.85 + 7 * (-(scenReal10 - liveReal10)) * 0.45;
+  tips = clampN(tips, -20, 32);
+  let housing = cpi * 0.70 + 1.5 + dyCap * 1.4;
+  housing = clampN(housing, -20, 28);
+  let reits = clampN(housing * 0.9, -25, 30);
+  let staples = clampN(3 + cpi * 0.50, -10, 20);
+  let pay = clampN(4 + cpi * 0.65, -10, 24);
+  let banks = clampN(3 + (cap.yEff - v.fed) * 3 + ((v.slr || 0) - 40) * 0.04, -30, 28);
+  let defense = clampN(3 + cpi * 0.25, -10, 18);
+  let nukes = clampN(cpi * 0.40 + 8, -10, 24);
+  let power = clampN(cpi * 0.30 + 6, -15, 22);
+  const laterGold = GOLD_PEG ? 0 : (cpi + 1.5);
+  const laterSpx = grow + cpi * 0.55;
+  const laterBond = cap.mode === 'holds' ? (v.ycc || cap.yEff) : cap.yEff;
+  const pegNote = GOLD_PEG ? ' Gold is pegged, so this line does not revalue.' : '';
+  const capNote = cap.mode === 'breaks'
+    ? ' Cap is not funded — long yields jump and the metals bid is cut (2022, not 1946).'
+    : cap.mode === 'strained'
+      ? ' Buying is only barely enough. Cap holds with a scar.'
+      : '';
+  function row(name, y1, later, why){
+    const h = horizonWealth(y1, later, yrs, cpi);
+    return {
+      name:name, y1:y1, real1:fisherPct(y1, cpi), later:later,
+      realH:h.realPct, wealth:h.real, why:why
+    };
+  }
+  const bondWhy = cap.mode === 'holds'
+    ? 'Year 1 is the rally into the cap. After that the coupon is the cap, and inflation taxes it. That is how bondholders paid for 1946–51.'
+    : 'Cap fails, so this is a price loss, not a peg. Real long yields rise.';
+  const metalWhy = GOLD_PEG
+    ? 'Bretton Woods: gold was $35 until 1971. The release valve was shut. Equities and houses did the work.'
+    : 'One-time revaluation when the real policy rate goes negative and the dollar falls. After year 1 it tracks inflation plus about 1.5pp — not 40% a year.';
+  const rows = [
+    row('Gold miners', miners, laterGold, 'Operating leverage on the gold revaluation, year 1 only. The steady state is the metal, not 1.6× forever.' + pegNote + capNote),
+    row('Silver', silver, laterGold, 'Higher beta than gold on the way in, same steady state after. More violent, same mechanism.' + pegNote),
+    row('Gold', gold, laterGold, metalWhy + capNote),
+    row('Bitcoin', btc, laterGold, GOLD_PEG ? 'No 1946 analogue. Zeroed while the gold peg is on.' : 'Liquidity asset with a wide error bar. Not a 1946 datapoint. Year 1 follows gold with a bit more beta; after that it only tracks inflation plus 1.5pp, and it can gap the other way.'),
+    row('TIPS', tips, cpi + 1, 'Principal tracks CPI. The year-1 bump is the real yield falling as the nominal cap meets higher inflation. A claim on dollars, so it trails gold once gold is free.'),
+    row('Housing', housing, cpi + 1.2, 'Rents reprice. A credible cap lowers the mortgage rate; a broken cap raises it. Post-war housing had a shortage and the GI Bill on top of this.'),
+    row('Energy equities', energy, cpi + 0.5, 'Weaker dollar lifts the commodity in year 1. After that it tracks inflation with a small real premium. This is not a Hormuz shock.'),
+    row('Long Treasury (20y+)', bond, laterBond, bondWhy),
+    row('S&P 500', spx, laterSpx, 'Up in dollars each year. In real terms this is about flat to slightly down if real growth stays near 2%. The 1950s bull needed closer to 4% real growth and a budget surplus, which the free-gold preset does not assume.'),
+    row('Payment networks', pay, cpi * 0.70 + 2, 'A toll on nominal spending. Inflation raises the ticket; the take rate stays. That defends purchasing power.'),
+    row('Pricing-power staples', staples, cpi + 0.2, 'They pass the price level through. That defends purchasing power. It does not multiply it.'),
+    row('Large banks', banks, v.fed + Math.max(0, cap.yEff - v.fed) * 0.5 + 1, 'A steeper curve and SLR help. They are not the hard-asset trade. A broken cap hits the bond book.'),
+    row('High-multiple tech', tech, laterSpx - 1.5, 'Still up in dollars if the cap holds, and a lag versus real assets. The discount-rate help is already in the multiple; the bid in this regime goes to things that cannot be printed.'),
+    row('10-year note', bond10, laterBond, 'Same cap math as the long bond, less duration. Year 1 can look fine. The hold period is the tax.'),
+    row('Cash / T-bills', cash, v.fed, 'You earn the pegged policy rate. Inflation is the tax. This is the funding source of the whole plan.'),
+    row('US dollar index', usd, 0, 'The year-1 decline versus the live dollar. It does not compound for a decade — a currency trend is not a coupon.')
+  ];
+  rows.sort(function(a, b){ return b.realH - a.realH; });
+  return {
+    gold:gold, silver:silver, miners:miners, btc:btc, oil:oil, energy:energy,
+    spx:spx, bond:bond, bond10:bond10, cash:cash, usd:usd, tips:tips,
+    staples:staples, pay:pay, tech:tech, banks:banks, reits:reits, housing:housing,
+    defense:defense, nukes:nukes, power:power, tankers:tankers,
+    rows:rows, cap:cap, path:M, cpi:cpi, yrs:yrs,
+    capMode:cap.mode, yEff:cap.yEff,
+    modelCpi: (v.m2 || 0) + icNum('ic-vel', 0.6) - grow
+  };
+}
+function debaseBucket(s){
+  const t = String((s && s.t) || '').toUpperCase();
+  const sec = String((s && s.sec) || '');
+  if (t === 'SLV' || t === 'PAAS' || t === 'AG' || t === 'SIL') return 'silver';
+  if (t === 'GLD') return 'gold';
+  if (t === 'IBIT') return 'btc';
+  if (t === 'TIP') return 'tips';
+  if (t === 'UUP') return 'usd';
+  if (t === 'TLT' || t === 'ZROZ') return 'bond';
+  if (t === 'IEF' || t === 'LQD') return 'bond10';
+  if (t === 'QQQ' || t === 'ARKK') return 'tech';
+  if (t === 'VNQ') return 'reits';
+  if (t === 'SCHD' || t === 'XLP') return 'staples';
+  if (['NEM','AEM','WPM','IAG','AGI','FNV','GOLD','KGC','GDX','GDXJ'].indexOf(t) >= 0) return 'miners';
+  if (['FRO','STNG','DHT','SBLK'].indexOf(t) >= 0) return 'tankers';
+  if (['XOM','CVX','COP','EOG','XLE','EQT','SLB','MPC','VLO','PSX','DINO','PBF','OXY','DBC'].indexOf(t) >= 0) return 'energy';
+  if (t === 'V' || t === 'MA') return 'pay';
+  if (['JPM','GS','BAC','KRE','MS','BLK'].indexOf(t) >= 0) return 'banks';
+  if (['LMT','RTX','NOC','GD','LHX'].indexOf(t) >= 0) return 'defense';
+  if (['CEG','VST','TLN','CCJ','URA','OKLO'].indexOf(t) >= 0) return 'nukes';
+  if (['FSLR','ENPH','NEE','GEV','PWR'].indexOf(t) >= 0) return 'power';
+  if (sec.indexOf('Basic Materials') >= 0) return 'miners';
+  if (sec.indexOf('Energy') >= 0) return 'energy';
+  if (sec.indexOf('Technology') >= 0 || sec.indexOf('Communication') >= 0) return 'tech';
+  if (sec.indexOf('Financial') >= 0) return 'banks';
+  if (sec.indexOf('Defensive') >= 0) return 'staples';
+  if (sec.indexOf('Real Estate') >= 0) return 'reits';
+  if (sec.indexOf('Utilities') >= 0) return 'nukes';
+  return 'spx';
+}
+function updDebase(v, k){
+  const box = document.getElementById('db-peg');
+  if (box) GOLD_PEG = !!box.checked;
+  const fc = debaseForecast(v);
+  DEBASE_FC = fc;
+  const lead = document.getElementById('db-lead');
+  const cards = document.getElementById('db-cards');
+  const table = document.getElementById('db-rank');
+  const flag = document.getElementById('db-flag');
+  if (!lead || !cards || !table) return;
+  const M = fc.path;
+  const pi = fc.modelCpi;
+  const gap = Math.abs(pi - v.cpi);
+  const winners = fc.rows.filter(function(r){ return r.realH > 0; }).slice(0, 3);
+  const names = winners.map(function(r){ return r.name; });
+  lead.innerHTML = names.length
+    ? ('Over <strong>' + M.yrs + ' years</strong>, purchasing power rises in <strong>' + names.join(', ') + '</strong>. Cash and the dollar pay for it. Year 1 can look different — long bonds rally if the cap is installed — and that rally is not the hold.')
+    : 'At these settings nothing on the list gains real purchasing power over the horizon. The cap, the print, or the peg is doing something the 1946 winners would not recognize.';
+  const capCol = fc.capMode === 'holds' ? 'var(--ac3)' : fc.capMode === 'strained' ? 'var(--gold)' : 'var(--red)';
+  const capTxt = fc.capMode === 'off' ? 'NO CAP' : fc.capMode === 'holds' ? 'CAP HOLDS' : fc.capMode === 'strained' ? 'CAP STRAINED' : 'CAP BREAKS';
+  const needTxt = fc.cap.need > 0 ? ('Needs ~$' + Math.round(fc.cap.need) + 'B/mo. You have $' + Math.round(v.bb) + 'B/mo.') : 'Set a yield cap above 0 to arm it.';
+  cards.innerHTML =
+    card('Model CPI (M2 + velocity − growth)', pi.toFixed(1) + '%',
+      'Quantity equation with velocity as an assumption, not a measured residual. Slider CPI is ' + v.cpi.toFixed(1) + '%.' + (gap > 1.2 ? ' They disagree by ' + gap.toFixed(1) + 'pp — asset paths use the slider, because that is the inflation in contracts. Lock them if you want one number.' : ' Locked to the slider.'),
+      gap > 1.2 ? 'var(--gold)' : 'var(--ac3)') +
+    card('Real policy rate', (fc.path.realPolicy >= 0 ? '+' : '') + fc.path.realPolicy.toFixed(2) + '%',
+      'Fed ' + v.fed.toFixed(2) + '% minus CPI ' + v.cpi.toFixed(1) + '%. 1947 was about −14% (0.375% bills, 14% CPI). This run is ' + (fc.path.realPolicy < -2 ? 'in that family, milder.' : 'not there yet.'),
+      fc.path.realPolicy < 0 ? 'var(--gold)' : 'var(--red)') +
+    card('Debt/GDP in ' + M.yrs + ' yrs', Math.round(M.dH * 100) + '%',
+      'From ' + Math.round(M.dgdp) + '%. Taxpayer real carry ' + (M.rReal1 * 100).toFixed(1) + '% vs real growth ' + M.grow.toFixed(1) + '%. ' + (M.yearsToTgt ? ('Hits ' + M.tgt + '% in ~' + M.yearsToTgt + ' yrs.') : ('Does not hit ' + M.tgt + '% inside 40 yrs — today\'s primary deficit is why this is slower than 1948.')),
+      M.dH < M.dgdp / 100 ? 'var(--ac3)' : 'var(--red)') +
+    card('Yield cap', capTxt, needTxt + ' Clearing 10Y in the model: ' + fc.yEff.toFixed(2) + '%.', capCol);
+  if (flag){
+    flag.style.display = (k === 'debase') ? 'block' : 'none';
+    flag.innerHTML = fc.capMode === 'breaks'
+      ? '&#9888; CAP BREAKS at this buyback. Metals are cut and bonds sell off. Raise the monthly buying, or this is not debasement.'
+      : GOLD_PEG
+        ? '&#128274; GOLD PEG ON. This is the actual 1946–51 asset map: bullion does not reprice. Houses, equities, and energy do the real work. Turn the peg off for the modern replay.'
+        : '&#9889; FREE GOLD. Same fiscal engine as 1946–51, with the $35 peg removed. That is the difference in what rises.';
+  }
+  const head = '<tr><th>Asset</th><th>12m nominal</th><th>12m real</th><th>' + M.yrs + 'y real</th><th>$10k real</th><th class="db-why">Why</th></tr>';
+  table.innerHTML = head + fc.rows.map(function(r){
+    const rc = r.realH >= 0 ? 'var(--ac3)' : 'var(--red)';
+    return '<tr><td class="nm">' + r.name + '</td><td>' + fmtPct1(r.y1) + '</td><td>' + fmtPct1(r.real1) + '</td><td style="color:' + rc + '">' + fmtPct1(r.realH) + '</td><td style="color:' + rc + '">' + fmtUsd(r.wealth) + '</td><td class="db-why">' + r.why + '</td></tr>';
+  }).join('');
+}
+function lockCpiToPrint(){
+  const v = gv();
+  const pi = (v.m2 || 0) + icNum('ic-vel', 0.6) - icNum('ic-grow', 2.2);
+  const clamped = clampN(pi, 0, 18);
+  const el = document.getElementById('sl-cpi');
+  if (el) el.value = Math.round(clamped * 10);
+  upd();
+}
+function load1946Peg(){
+  GOLD_PEG = true;
+  const peg = document.getElementById('db-peg');
+  if (peg) peg.checked = true;
+  const set = function(id, val){ const el = document.getElementById(id); if (el) el.value = val; };
+  set('sl-oil', 70); set('sl-fed', 50); set('sl-iran', 70); set('sl-cpi', 65);
+  set('sl-yield', 250); set('sl-y2', 75); set('sl-dxy', 975);
+  set('sl-qe', 100); set('sl-slr', 50); set('sl-boj', 25); set('sl-usdjpy', 1550);
+  set('sl-m2', 103); set('sl-bb', 200); set('sl-ycc', 250);
+  set('sl-dsl', 420); set('sl-crack', 18); set('sl-dist', 140);
+  const g = document.getElementById('ic-grow'); if (g) g.value = '4.0';
+  const d = document.getElementById('ic-def'); if (d) d.value = '-2.5';
+  const vel = document.getElementById('ic-vel'); if (vel) vel.value = '0.2';
+  upd();
+}
+function reloadFreeGold(){
+  GOLD_PEG = false;
+  const peg = document.getElementById('db-peg');
+  if (peg) peg.checked = false;
+  const btn = Array.prototype.find.call(document.querySelectorAll('.tab'), function(b){
+    return /Debasement/.test(b.textContent || '');
+  });
+  setScen('debase', btn || null);
+}
+
 
 // ── INFLATE-THE-DEBT CALCULATOR ENGINE ───────────────────────
 // Runs the financial-repression math the transcript describes, on live inputs.
@@ -1863,79 +2295,30 @@ function updInflate(v, k){
   const panel = document.getElementById('inflate-panel');
   if(!panel) return;
 
-  // ---- Inputs: live macro from sliders + editable fiscal assumptions ----
-  const cpi   = v.cpi;                 // inflation %  (live)
-  const fed   = v.fed;                 // policy rate % (live)
-  const y10   = v.y10;                 // 10Y yield %  (live)
-  const debt  = icNum('ic-debt', 39.8);   // $T
-  const dgdp  = icNum('ic-dgdp', 122);    // %
-  const roll  = icNum('ic-roll', 8.0);    // $T repricing in 12mo
-  const oldc  = icNum('ic-oldc', 2.4);    // old avg coupon %
-  const grow  = icNum('ic-grow', 2.0);    // real GDP growth %
-  const defc  = icNum('ic-def', 3.5);     // primary deficit % GDP
-  const tgt   = icNum('ic-tgt', 90);      // target debt/GDP %
-  const yrs   = Math.max(1, icNum('ic-yrs', 10));
-
-  const gdp = debt / (dgdp/100);       // implied $T GDP
-
-  // ---- CARD 1: Rollover interest shock ----
-  // Reprice `roll` T from old coupon to current market yield (use 10Y as the marginal cost).
-  const newRate   = y10;
-  const extraRate = Math.max(newRate - oldc, 0);
-  const extraInt  = roll * (extraRate/100);       // $T/yr of ADDED interest just from repricing
-  const extraIntB = extraInt * 1000;               // $B
-
-  // ---- CARD 2: Real policy rate (the repression gap) ----
-  const realRate = fed - cpi;                      // negative = repression
-  const realRate10 = y10 - cpi;                    // real 10Y
-
-  // ---- CARD 3: Years to inflate debt/GDP to target ----
-  // Debt/GDP dynamics: d_{t+1} = d_t * (1 + r_real) / (1 + g_real) + primaryDeficit
-  // Textbook discrete approximation of Δ(D/Y) ≈ (r−g)*D/Y + primary deficit.
-  // Under repression r_real<0, so the ratio falls even WITH a deficit if |r−g| is large enough.
-  // Effective nominal rate on stock ~ blends old + rolled; approximate with (oldc*0.7 + newRate*0.3).
-  const effNom  = oldc*0.7 + newRate*0.3;
-  const rReal   = (effNom - cpi)/100;              // real cost of carry on the whole stock
-  const gReal   = grow/100;
-  const prim    = defc/100;
-  // Textbook discrete debt/GDP: d_{t+1} = d_t * (1+r_real)/(1+g_real) + primary_deficit
-  const stepD = (x) => {
-    const den = 1 + gReal;
-    return x * (1 + rReal) / (Math.abs(den) < 1e-9 ? 1 : den) + prim;
-  };
-  let d = dgdp/100;
-  let yearsToTgt = null;
-  const path = [];
-  for(let t=1; t<=40; t++){
-    d = stepD(d);
-    path.push(d);
-    if(yearsToTgt===null && d <= tgt/100){ yearsToTgt = t; break; }
-  }
-  // Debt/GDP at the chosen horizon
-  let dH = dgdp/100;
-  for(let t=1; t<=yrs; t++){ dH = stepD(dH); }
-
-  // ---- Cumulative purchasing-power erosion over horizon ----
-  const cumInfl = Math.pow(1 + cpi/100, yrs) - 1;   // total price rise
-  const cashReal = Math.pow(1/(1+cpi/100), yrs);     // $1 cash real value after horizon
-
-  const fmtB = n => (Math.abs(n)>=1000?('$'+(n/1000).toFixed(2)+'T'):('$'+Math.round(n)+'B'));
-  const col = n => n>=0?'var(--ac3)':'var(--red)';
-
+  const M = debtPath(v);
+  const legacy = document.getElementById('ic-legacy');
+  if (legacy) legacy.style.display = (k === 'debase') ? 'none' : '';
+  const cpi = v.cpi;
+  const fed = v.fed;
+  const y10 = v.y10;
+  const yrs = M.yrs;
+  const cashReal = Math.pow(1 / (1 + cpi / 100), yrs);
+  const col = function(n){ return n >= 0 ? 'var(--ac3)' : 'var(--red)'; };
   const cards = document.getElementById('ic-cards');
+  const capWord = M.cap.mode === 'holds' ? 'cap holds' : M.cap.mode === 'strained' ? 'cap strained' : M.cap.mode === 'breaks' ? 'cap breaks' : 'no yield cap';
   cards.innerHTML =
-    card('Rollover interest shock',
-         '+'+fmtB(extraIntB)+'/yr',
-         'Repricing '+roll.toFixed(1)+'T from '+oldc.toFixed(1)+'% &rarr; '+newRate.toFixed(2)+'% adds this to the annual interest bill. On top of an already ~'+ (defc).toFixed(1) +'%-of-GDP primary deficit.',
-         'var(--red)') +
+    card('Rollover interest (' + capWord + ')',
+         fmtB(M.extraIntB) + '/yr',
+         'Repricing ' + M.roll.toFixed(1) + 'T from a ' + M.oldc.toFixed(1) + '% coupon onto ' + M.marginal.toFixed(2) + '%, after the Fed remits its share, on a $' + M.gdp.toFixed(1) + 'T economy. If the long end instead clears at ' + M.breakY.toFixed(2) + '%, the same wall costs ' + fmtB(M.breakIntB) + '/yr.',
+         M.extraIntB > 150 ? 'var(--red)' : 'var(--gold)') +
     card('Real policy rate',
-         (realRate>=0?'+':'')+realRate.toFixed(2)+'%',
-         'Fed '+fed.toFixed(2)+'% minus CPI '+cpi.toFixed(1)+'%. '+(realRate<0?'NEGATIVE &mdash; savers/bondholders are being taxed by inflation; this is the repression engine.':'POSITIVE &mdash; no repression yet; the Fed is still ahead of inflation.'),
-         col(realRate)) +
-    card('Debt/GDP in '+yrs+' yrs',
-         Math.round(dH*100)+'%',
-         'From '+Math.round(dgdp)+'% today at a '+(rReal*100>=0?'+':'')+(rReal*100).toFixed(1)+'% real cost of carry vs '+grow.toFixed(1)+'% growth. '+(yearsToTgt?('Hits '+tgt+'% target in ~'+yearsToTgt+' yrs.'):('Target '+tgt+'% not reached within 40 yrs at these inputs.')),
-         dH < dgdp/100 ? 'var(--ac3)' : 'var(--red)');
+         (M.realPolicy >= 0 ? '+' : '') + M.realPolicy.toFixed(2) + '%',
+         'Fed ' + fed.toFixed(2) + '% minus CPI ' + cpi.toFixed(1) + '%. ' + (M.realPolicy < 0 ? 'NEGATIVE — this is the repression engine. Bondholders and cash savers are taxed by inflation.' : 'POSITIVE — the Fed is still ahead of inflation. The debt is not being inflated away.'),
+         col(M.realPolicy)) +
+    card('Debt/GDP in ' + yrs + ' yrs',
+         Math.round(M.dH * 100) + '%',
+         'From ' + Math.round(M.dgdp) + '% . Taxpayer real carry ' + (M.rReal1 * 100).toFixed(1) + '% vs real growth ' + M.grow.toFixed(1) + '%, primary balance ' + (M.defc >= 0 ? '+' : '') + M.defc.toFixed(1) + '% of GDP. ' + (M.yearsToTgt ? ('Hits ' + M.tgt + '% in ~' + M.yearsToTgt + ' yrs.') : ('Target ' + M.tgt + '% is not reached within 40 yrs at these inputs.')),
+         M.dH < M.dgdp / 100 ? 'var(--ac3)' : 'var(--red)');
 
   // ---- Asset outcome grid: $10k over horizon, nominal vs real ----
   // Two selectable historical repression regimes (see setInflatePath / INFLATE_PATH).
@@ -1966,7 +2349,7 @@ function updInflate(v, k){
   }
   const base10k = 10000;
   const assetsEl = document.getElementById('ic-assets');
-  assetsEl.innerHTML = ASSETS.map(([nm,rate,c])=>{
+  if (assetsEl) assetsEl.innerHTML = ASSETS.map(([nm,rate,c])=>{
     const nominal = base10k * Math.pow(1+rate, yrs);
     const real    = nominal * cashReal;   // deflate by cumulative CPI
     const nomStr  = '$'+Math.round(nominal).toLocaleString();
@@ -2006,6 +2389,7 @@ function updTL(k){
   carry:[{a:1,l:'Now',e:'BOJ hawkish tilt'},{a:0,l:'Day 1',e:'BOJ shock hike'},{a:0,l:'Day 2-3',e:'Weak US data'},{a:0,l:'Wk 1',e:'USD/JPY breaks 150'},{a:0,l:'Wk 2-3',e:'Margin call cascade'},{a:0,l:'M+1',e:'Fed liquidity backstop'}],
   inflate:[{a:1,l:'Now',e:'$8T rollover wall'},{a:0,l:'Q3 2026',e:'30Y yield strains'},{a:0,l:'Q4 2026',e:'Fed caps long end'},{a:0,l:'2027',e:'Real rate goes -3%'},{a:0,l:'2027-30',e:'Gold/silver run'},{a:0,l:'5-8 yrs',e:'Debt/GDP inflated down'}],
   diesel:[{a:1,l:'Now',e:'Diesel $6.38 EIA'},{a:1,l:'Sep 21',e:'Record $6.53'},{a:0,l:'Oct 1',e:'Harvest + strike risk'},{a:0,l:'Nov',e:'Midterms + pump sign'},{a:0,l:'Dec',e:'$8 path 20-30%'},{a:0,l:'Winter',e:'Heating oil squeeze'}],
+  debase:[{a:1,l:'Now',e:'Rollover wall'},{a:0,l:'Q+1',e:'Buybacks scale'},{a:0,l:'Q+2',e:'10Y capped'},{a:0,l:'Year 1',e:'Gold revalues'},{a:0,l:'Years 2-N',e:'Real debt erodes'},{a:0,l:'Accord risk',e:'Cap breaks if buying stops'}],
  };
  const tl=TL[k]||TL.base;
  document.getElementById('tl').innerHTML=tl.map(i=>'<div class="tli"><div class="tld '+(i.a?'on':'')+'">'+( i.a?'✓':'○')+'</div><div class="tll">'+i.l+'</div><div class="tle">'+i.e+'</div></div>').join('');
@@ -2022,7 +2406,7 @@ function favored(arr,key){
  return (arr||[]).filter(s=>playbookRet(s,key)>0);
 }
 function engineKey(k){
- if(k==='inflate') return 'repress';
+ if(k==='inflate' || k==='debase') return 'repress';
  return k;
 }
 function scenarioScore(ticker, sc){
@@ -2141,9 +2525,17 @@ function setText(id, txt){
  const el=document.getElementById(id);
  if(el) el.textContent=txt;
 }
+let _updRAF=0;
+function scheduleUpd(){
+ if(_updRAF) return;
+ _updRAF=requestAnimationFrame(function(){ _updRAF=0; upd(); });
+}
 function upd(){
  Object.keys(CARD_STORE).forEach(k=>delete CARD_STORE[k]);
  const v=gv();
+ const _peg=document.getElementById('db-peg');
+ if(_peg) GOLD_PEG=!!_peg.checked;
+ DEBASE_FC=debaseForecast(v);
  const k=gkey(v);
  setText('v-oil','$'+v.oil);
  setText('v-fed',v.fed.toFixed(2)+'%');
@@ -2156,6 +2548,9 @@ function upd(){
  setText('v-usdjpy',v.usdjpy.toFixed(1));
  setText('v-qe',v.qe+'%');
  setText('v-slr',v.slr+'%');
+ setText('v-m2',v.m2.toFixed(1)+'%');
+ setText('v-bb','$'+Math.round(v.bb)+'B');
+ setText('v-ycc', v.ycc<0.3 ? 'OFF' : v.ycc.toFixed(2)+'%');
  setText('v-dsl','$'+v.dsl.toFixed(2));
  setText('v-crack','$'+Math.round(v.crack));
  setText('v-dist',String(Math.round(v.dist)));
@@ -2165,7 +2560,7 @@ function upd(){
  if(_cc) _cc.className='scard'+(v.crack>=36?' hot':'');
  const _dsc=document.getElementById('dist-card');
  if(_dsc) _dsc.className='scard'+(v.dist<=112?' tight':'');
- setText('live-scen',(WHATIF ? 'WHAT-IF: ' : 'LIVE: ')+k.toUpperCase());
+ setText('live-scen',(WHATIF ? 'WHAT-IF: ' : 'LIVE: ')+({debase:'DEBASEMENT'}[k]||k.toUpperCase()));
  const narr=document.getElementById('narr');
  if(narr) narr.innerHTML=NARRS[k]||NARRS.base;
  const al=document.getElementById('oil-alert');
@@ -2178,6 +2573,7 @@ function upd(){
  try{ updMbar(v,k); }catch(e){ console.warn('updMbar', e); }
  try{ updTL(k); }catch(e){ console.warn('updTL', e); }
  try{ updInflate(v,k); }catch(e){ console.warn('updInflate', e); }
+ try{ updDebase(v,k); }catch(e){ console.warn('updDebase', e); }
  try{ bldAngles(k); }catch(e){ console.warn('bldAngles', e); }
  try {
  mkGrid(favored(DB.gold,k),k,'g-gold');
@@ -2277,7 +2673,7 @@ function upd(){
 // ═══════════════════════════════════════════════════════════
 
 // ── Hardcoded baselines (June 23 2026 close / known values) ─
-const BASE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638};
+const BASE_MACRO = {oil:68, fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638, m2:40, bb:15, ycc:0};
 
 // Market-observable series that live data may overwrite. Judgment
 // sliders (iran, qe, slr, boj) stay under the user's control.
@@ -3051,9 +3447,9 @@ window.addEventListener('load',()=>{
   bldAngles();
   upd();          // render cards immediately — never wait for network
   // Inflate-$ calculator inputs recompute the panel live (without touching sliders)
-  ['ic-debt','ic-dgdp','ic-roll','ic-oldc','ic-grow','ic-def','ic-tgt','ic-yrs'].forEach(id=>{
+  ['ic-debt','ic-dgdp','ic-roll','ic-oldc','ic-grow','ic-def','ic-tgt','ic-yrs','ic-vel','ic-fedsh'].forEach(id=>{
     const el=document.getElementById(id);
-    if(el) el.addEventListener('input',()=>updInflate(gv(), gkey(gv())));
+    if(el) el.addEventListener('input',function(){ scheduleUpd(); });
   });
   doRefresh();    // then fetch live data in background; upd() called again when done
 });
@@ -3061,7 +3457,7 @@ window.addEventListener('load',()=>{
 window.rv          = rv;
 window.editVal     = editVal;
 window.MANUAL_SET  = MANUAL_SET;
-window.upd         = upd;         // oninput="upd()" on every slider
+window.upd         = upd;         // oninput="scheduleUpd()" on every slider
 window.setScen     = setScen;
 window.setLive     = setLive;
 window.doRefresh   = doRefresh;
