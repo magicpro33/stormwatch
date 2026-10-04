@@ -476,7 +476,17 @@ footer a:hover{color:var(--ac)}
   <div id="db-lead" style="font-size:12px;line-height:1.6;margin-bottom:10px"></div>
   <div class="ic-cards" id="db-cards"></div>
   <div style="overflow-x:auto"><table class="db-table" id="db-rank"></table></div>
-  <div style="font-size:10px;color:var(--mu);line-height:1.55;margin-bottom:8px">Velocity, the Fed&rsquo;s share of the debt, the deficit, and the horizon are the inputs in the calculator under this panel. 1946 had a primary surplus; the free-gold preset keeps today&rsquo;s deficit, which is why the ratio falls slower than it did then.</div>
+  <div style="font-size:10px;color:var(--mu);line-height:1.55;margin-bottom:14px">Velocity, the Fed&rsquo;s share of the debt, the deficit, and the horizon are the inputs in the calculator under this panel. 1946 had a primary surplus; the free-gold preset keeps today&rsquo;s deficit, which is why the ratio falls slower than it did then.</div>
+  <div class="sh"><span class="dot" style="background:var(--gold)"></span>HARD MONEY &mdash; the thing that cannot be printed</div>
+  <div class="scen-note">12-month nominal from the same model as the table. Bullion if you want the metal. Miners if you want the year-1 torque. With the $35 peg on, this sleeve goes flat and drops off — that is the 1946 result.</div>
+  <div class="sg" id="g-debase-metal"></div>
+  <div class="sh"><span class="dot" style="background:var(--ac2)"></span>REAL STUFF &mdash; copper, platinum, uranium, food</div>
+  <div class="sg" id="g-debase-real"></div>
+  <div class="sh"><span class="dot" style="background:var(--ac)"></span>THE CAP &mdash; houses, rents, pipes, and CPI-linked bonds</div>
+  <div class="scen-note">These win because the long rate is pinned under inflation. If the buyback is too small and the cap breaks, homebuilders and REITs come off this list.</div>
+  <div class="sg" id="g-debase-cap"></div>
+  <div class="sh"><span class="dot" style="background:var(--ac3)"></span>DOLLAR DOWN &mdash; foreign stocks, the spending toll, bitcoin</div>
+  <div class="sg" id="g-debase-fx"></div>
 </div>
 
 <div class="fp" id="inflate-panel" data-scen="inflate,debase">
@@ -1256,6 +1266,35 @@ hioil:[
   roic:'N/A',revy:'+6%',earny:'+9%',piotr:null,gc:1,mcap:'$45B',price:'$230',div:'2.0%',pe:'18',score:22,
   r:'C4ISR and munitions — US/NATO USD contracts, low overseas translation risk',
   desc:'L3Harris sells sensors, radios, and munitions mostly to the US and NATO. Strong dollar and geopolitical spend both flow through USD contracts.'},
+],
+// Expressions of the debasement rows. 12m nominal comes from debaseBucket, not from these base numbers.
+debaseWins:[
+ {t:'GLD',n:'SPDR Gold Trust',sec:'ETF',base:10,r:'Allocated gold. The release valve that was shut at $35 in 1946.'},
+ {t:'IAU',n:'iShares Gold Trust',sec:'ETF',base:10,r:'Same metal as GLD, lower fee. Own the bar, not the mine.'},
+ {t:'SLV',n:'iShares Silver Trust',sec:'ETF',base:12,r:'Silver. Higher beta than gold on the way in, same steady state after.'},
+ {t:'GDX',n:'VanEck Gold Miners',sec:'ETF',base:18,r:'Senior miners. Operating leverage on the gold revaluation, year 1 only.'},
+ {t:'GDXJ',n:'VanEck Junior Gold Miners',sec:'ETF',base:22,r:'Juniors. More torque than GDX, and more accidents. The high-beta sleeve.'},
+ {t:'SIL',n:'Global X Silver Miners',sec:'ETF',base:20,r:'Silver miners. Metal beta plus operating leverage.'},
+ {t:'SILJ',n:'Amplify Junior Silver Miners',sec:'ETF',base:24,r:'Junior silver. The widest error bar in the metals complex.'},
+ {t:'RGLD',n:'Royal Gold',sec:'Basic Materials',base:16,r:'Royalty. Gold exposure without operating a mine. Sits between GLD and GDX.'},
+ {t:'HL',n:'Hecla Mining',sec:'Basic Materials',base:18,r:'Primary silver producer. Levered to the silver revaluation.'},
+ {t:'FCX',n:'Freeport-McMoRan',sec:'Basic Materials',base:12,r:'Copper. Real metal, weaker-dollar bid, not a monetary peg.'},
+ {t:'COPX',n:'Global X Copper Miners',sec:'ETF',base:14,r:'Copper miners as a basket. Dollar down, stuff up.'},
+ {t:'PPLT',n:'abrdn Physical Platinum',sec:'ETF',base:10,r:'Platinum. Scarcer than gold, less central-bank demand. A real-asset cousin.'},
+ {t:'URA',n:'Global X Uranium ETF',sec:'ETF',base:12,r:'Uranium. A fuel you cannot print, contracted in a scarce market.'},
+ {t:'CCJ',n:'Cameco',sec:'Energy',base:12,r:'The Western uranium producer. Hard asset plus a real offtake book.'},
+ {t:'DBA',n:'Invesco Agriculture',sec:'ETF',base:8,r:'Grains and softs. Food is how debasement shows up in the basket.'},
+ {t:'MOO',n:'VanEck Agribusiness',sec:'ETF',base:8,r:'The companies that sell into that food inflation.'},
+ {t:'VNQ',n:'Vanguard Real Estate ETF',sec:'Real Estate',base:6,r:'REITs. Rents reprice. A funded yield cap is what makes the multiple work.'},
+ {t:'ITB',n:'iShares Home Construction',sec:'Real Estate',base:8,r:'Homebuilders. Capped mortgage rates plus nominal house prices.'},
+ {t:'DHI',n:'D.R. Horton',sec:'Real Estate',base:8,r:'Largest US builder. Volume plus price when the long rate is pinned.'},
+ {t:'EPD',n:'Enterprise Products',sec:'Energy',base:7,r:'Midstream. Tariffs that step up with inflation, not a bet on the oil spike.'},
+ {t:'TIP',n:'iShares TIPS',sec:'ETF',base:8,r:'Principal tracks CPI. The year-1 bump is the real yield falling into the cap.'},
+ {t:'LTPZ',n:'PIMCO 15+ Year TIPS',sec:'ETF',base:10,r:'Long TIPS. Same inflation accrual as TIP, more duration on the real-yield drop.'},
+ {t:'VXUS',n:'Vanguard Total International',sec:'ETF',base:6,r:'Stocks priced in other currencies. A falling dollar is the whole point.'},
+ {t:'EEM',n:'iShares Emerging Markets',sec:'ETF',base:6,r:'EM in USD. Wins when the dollar is the asset being debased, not when carry blows up.'},
+ {t:'V',n:'Visa',sec:'Financial Services',base:11,r:'A toll on nominal spending. Inflation raises the ticket.'},
+ {t:'IBIT',n:'iShares Bitcoin',sec:'ETF',base:10,r:'Fixed supply, wide error bar. Year 1 follows gold with more beta. Not a 1946 datapoint.'},
 ]
 };
 
@@ -1265,28 +1304,28 @@ const SCENS = {
  // dsl = diesel $/gal *100; crack = 3-2-1 $/bbl; dist = distillate MMbbl
  // m2 = M2 YoY *10 (40 = 4.0%); bb = Fed+Treasury buyback $B/month; ycc = 10Y cap *100 (0 = off)
  base:  {oil:68,  fed:363, iran:62, cpi:42, yield:448, y2:424, dxy:1013, qe:45, slr:40, boj:100, usdjpy:1638, dsl:520, crack:22, dist:128, m2:40, bb:15, ycc:0},
- bull:  {oil:58,  fed:275, iran:92, cpi:25, yield:330, y2:270, dxy:920,  qe:72, slr:82, boj:100, usdjpy:1580, dsl:380, crack:16, dist:145, m2:40, bb:15, ycc:0},
- bear:  {oil:105, fed:425, iran:5,  cpi:68, yield:510, y2:455, dxy:1065, qe:12, slr:12, boj:100, usdjpy:1680, dsl:780, crack:58, dist:92,  m2:45, bb:15, ycc:0},
- qe:    {oil:68,  fed:250, iran:75, cpi:28, yield:310, y2:210, dxy:900,  qe:95, slr:95, boj:75,  usdjpy:1720, dsl:480, crack:20, dist:132, m2:55, bb:40, ycc:0},
- stag:  {oil:115, fed:400, iran:0,  cpi:82, yield:615, y2:415, dxy:1065, qe:8,  slr:8 , boj:125, usdjpy:1500, dsl:820, crack:62, dist:88,  m2:50, bb:10, ycc:0},
- strong:{oil:72,  fed:425, iran:50, cpi:45, yield:500, y2:448, dxy:1100, qe:15, slr:30, boj:100, usdjpy:1720, dsl:500, crack:20, dist:130, m2:35, bb:10, ycc:0},
- carry: {oil:74,  fed:363, iran:55, cpi:42, yield:420, y2:390, dxy:960,  qe:35, slr:25, boj:175, usdjpy:1320, dsl:540, crack:24, dist:124, m2:40, bb:15, ycc:0},
- inflate:{oil:88, fed:250, iran:55, cpi:58, yield:430, y2:300, dxy:915,  qe:88, slr:80, boj:100, usdjpy:1720, dsl:620, crack:34, dist:118, m2:65, bb:40, ycc:0},
- diesel:{oil:88,  fed:400, iran:28, cpi:52, yield:490, y2:430, dxy:1030, qe:22, slr:22, boj:100, usdjpy:1600, dsl:638, crack:48, dist:108, m2:45, bb:15, ycc:0},
+ bull:  {oil:58,  fed:275, iran:92, cpi:25, yield:330, y2:270, dxy:920,  qe:72, slr:82, boj:100, usdjpy:1580, dsl:380, crack:16, dist:145, m2:55, bb:35, ycc:0},
+ bear:  {oil:105, fed:425, iran:5,  cpi:68, yield:510, y2:455, dxy:1065, qe:12, slr:12, boj:100, usdjpy:1680, dsl:780, crack:58, dist:92,  m2:40, bb:5,  ycc:0},
+ qe:    {oil:68,  fed:250, iran:75, cpi:28, yield:310, y2:210, dxy:900,  qe:95, slr:95, boj:75,  usdjpy:1720, dsl:480, crack:20, dist:132, m2:90, bb:80, ycc:0},
+ stag:  {oil:115, fed:400, iran:0,  cpi:82, yield:615, y2:415, dxy:1065, qe:8,  slr:8 , boj:125, usdjpy:1500, dsl:820, crack:62, dist:88,  m2:70, bb:5,  ycc:0},
+ strong:{oil:72,  fed:425, iran:50, cpi:45, yield:500, y2:448, dxy:1100, qe:15, slr:30, boj:100, usdjpy:1720, dsl:500, crack:20, dist:130, m2:25, bb:0,  ycc:0},
+ carry: {oil:74,  fed:363, iran:55, cpi:42, yield:420, y2:390, dxy:960,  qe:35, slr:25, boj:175, usdjpy:1320, dsl:540, crack:24, dist:124, m2:40, bb:10, ycc:0},
+ inflate:{oil:88, fed:250, iran:55, cpi:58, yield:430, y2:300, dxy:915,  qe:88, slr:80, boj:100, usdjpy:1720, dsl:620, crack:34, dist:118, m2:75, bb:60, ycc:0},
+ diesel:{oil:88,  fed:400, iran:28, cpi:52, yield:490, y2:430, dxy:1030, qe:22, slr:22, boj:100, usdjpy:1600, dsl:638, crack:48, dist:108, m2:42, bb:10, ycc:0},
  // Free-gold replay of 1946-51. CPI 6.4 = M2 8 + velocity 0.6 - real growth 2.2.
  // 10Y capped at 3.25. Buybacks $110B/mo defend it. Gold is not pegged.
  debase:{oil:78,  fed:200, iran:60, cpi:64, yield:325, y2:230, dxy:940,  qe:92, slr:70, boj:100, usdjpy:1520, dsl:560, crack:26, dist:122, m2:80, bb:110, ycc:325},
 };const NARRS = {
  base:'<strong>BASE CASE:</strong> Iran deal partially holds, oil settles $70-$80. Warsh stays hawkish through Q3, pivots Q4 as trimmed PCE data justifies cuts. Banks get SLR exemption in pipeline. Covert QE begins Q1 2027. Dollar weakens gradually. Markets chop sideways then rip higher late 2026.',
- bull:"<strong>BULL &mdash; DEAL WORKS:</strong> Iran signed, Strait opens, oil crashes to $60s. Warsh's new real-time PCE shows 2.4% inflation. He cuts 75bps. Banks lever into treasuries via SLR deregulation. Dollar drops hard. Every Groman signal turns green simultaneously. S&P rips 20%+. Gold, BTC, Banks, Tech all win at once.",
- bear:'<strong>BEAR &mdash; DEAL COLLAPSES:</strong> Israel escalates, Hormuz partially closes, oil spikes $100+. Warsh trapped &mdash; CPI re-accelerates to 6%+. Bond market revolts. 2Y hits 5.5%. S&P corrects 15-25% by Q4. Only energy tankers (FRO, STNG, DHT), gold miners, and commodities survive. New Fed chair -12% historical average in play.',
- qe:'<strong>QE MACHINE FIRES:</strong> SLR deregulation passes. Banks buy $800B+ in US treasuries using leverage. Warsh points to new real-time AI data showing 2.1% inflation. Cuts 100bps. Balance sheet technically shrinks but covert QE surges. Dollar collapses. Bitcoin hits new ATH. Gold $5,000+. Stocks rip nominally while real purchasing power quietly erodes.',
- stag:'<strong>STAGFLATION &mdash; 1970s REPLAY:</strong> Oil at $115, GDP stalls, CPI stuck at 6%+. Fed cannot cut (bond market revolt) or raise much further (debt load). Trapped. Real wages fall. This is the Volcker moment Warsh fears becoming. Only gold, energy, and consumer necessities provide real shelter. Bonds are the death trade.',
- strong:'<strong>&#x1F4AA; STRONG DOLLAR (Bretton Woods 2.0):</strong> Engineered global dollar shortage. DXY targeting 110. World chaos forces nations to spend on US goods and arms, requiring dollars. 27 countries sought emergency dollar access (World Bank June 2026). De-dollarization trade is DEAD. <strong style="color:var(--ac2)">WINNERS: Defense (LMT +30%), Regional Banks (KRE +20%), Small Caps (IWM +12%), UUP ETF (+18%).</strong> <strong style="color:var(--red)">AVOID: Gold (-15%), BTC (-30%), AAPL/KO/PG/MSFT (50-65% overseas revenue = EPS headwind).</strong>',
- carry:'<strong>&#x1F1EF;&#x1F1F5; YEN CARRY TRADE UNWIND:</strong> BOJ shock-hikes to 1.75% while a weak US jobs print rattles confidence -- the exact combination that crashed USD/JPY from 161 to 141.70 in three weeks in August 2024 (Nikkei -12.4% in a single day, its worst since 1987). Leveraged funds that borrowed cheap yen to buy US tech, BTC, and EM assets face margin calls and forced liquidation. <strong style="color:var(--ac3)">SAFE HAVENS: Yen itself (FXY +22%), long bonds (flight to quality +20%), gold miners (+18%).</strong> <strong style="color:var(--red)">CARRY-FUNDED LOSERS: Leveraged AI/tech (NVDA -35%), Bitcoin (-35%), Emerging Markets (-22%), Regional Banks funding stress (-20%).</strong>',
- inflate:'<strong>&#128176;&#128293; INFLATE THE DEBT AWAY (Fiscal Dominance):</strong> The rollover wall forces the Fed&#39;s hand: ~$8T of debt reprices in 12 months and total debt (~$39.8T, ~122% of GDP) can&#39;t be serviced at 4-5% for long. The exit chosen every time debt gets this big &mdash; not default, not austerity, but <strong>financial repression</strong>: hold policy rates BELOW inflation, cap the long end with covert QE, and let a ~3% negative real rate quietly erode the debt&#39;s real value (the exact 1946-1951 + 1970s playbook that took debt/GDP from 120% to 30%). <strong style="color:var(--ac2)">WINNERS: hard money &mdash; gold (GDX/NEM +30-40%), silver, BTC (+50%+), energy &amp; real assets, TIPS.</strong> <strong style="color:var(--red)">LOSERS: cash &amp; long nominal bonds (TLT/ZROZ real value bleeds), savers &amp; fixed salaries. Stocks rise nominally but ~flat in real terms (1970s).</strong> <em style="color:var(--mu)">Not a forecast or advice &mdash; a mechanism model. See the Inflate-$ calculator below for the exact repression math.</em>',
+ bull:"<strong>BULL &mdash; DEAL WORKS:</strong> Iran signed, Strait opens, oil crashes to $60s. Warsh's new real-time PCE shows 2.4% inflation. He cuts 75bps. Banks lever into treasuries via SLR deregulation. Money growth steps up to 5.5% and the buyback desk is a modest $35B/mo bid. There is no yield peg. Dollar drops hard. Every Groman signal turns green simultaneously. S&P rips 20%+. Gold, BTC, Banks, Tech all win at once.",
+ bear:'<strong>BEAR &mdash; DEAL COLLAPSES:</strong> Israel escalates, Hormuz partially closes, oil spikes $100+. Warsh trapped &mdash; CPI re-accelerates to 6%+. The buyback desk is shut ($5B/mo) and the yield cap stays off, so the bond market revolts. 2Y hits 5.5%. S&P corrects 15-25% by Q4. Only energy tankers (FRO, STNG, DHT), gold miners, and commodities survive. New Fed chair -12% historical average in play.',
+ qe:'<strong>QE MACHINE FIRES:</strong> SLR deregulation passes. Banks buy $800B+ in US treasuries using leverage. Warsh points to new real-time AI data showing 2.1% inflation. Cuts 100bps. M2 is running 9% and the Fed plus Treasury are buying $80B of debt a month. There is still no announced yield cap, which is what keeps this QE rather than debasement. Dollar collapses. Bitcoin hits new ATH. Gold $5,000+. Stocks rip nominally while real purchasing power quietly erodes.',
+ stag:'<strong>STAGFLATION &mdash; 1970s REPLAY:</strong> Oil at $115, GDP stalls, CPI stuck at 6%+. Money growth is already 7% and the yield cap is off, so the long end is free to gap. Fed cannot cut (bond market revolt) or raise much further (debt load). Trapped. Real wages fall. This is the Volcker moment Warsh fears becoming. Only gold, energy, and consumer necessities provide real shelter. Bonds are the death trade.',
+ strong:'<strong>&#x1F4AA; STRONG DOLLAR (Bretton Woods 2.0):</strong> Engineered global dollar shortage. M2 is drained to 2.5% and the buyback is zero. DXY targeting 110. World chaos forces nations to spend on US goods and arms, requiring dollars. 27 countries sought emergency dollar access (World Bank June 2026). De-dollarization trade is DEAD. <strong style="color:var(--ac2)">WINNERS: Defense (LMT +30%), Regional Banks (KRE +20%), Small Caps (IWM +12%), UUP ETF (+18%).</strong> <strong style="color:var(--red)">AVOID: Gold (-15%), BTC (-30%), AAPL/KO/PG/MSFT (50-65% overseas revenue = EPS headwind).</strong>',
+ carry:'<strong>&#x1F1EF;&#x1F1F5; YEN CARRY TRADE UNWIND:</strong> US money growth is left at 4% on purpose. This shock is the yen, not the Fed&#39;s balance sheet. BOJ shock-hikes to 1.75% while a weak US jobs print rattles confidence -- the exact combination that crashed USD/JPY from 161 to 141.70 in three weeks in August 2024 (Nikkei -12.4% in a single day, its worst since 1987). Leveraged funds that borrowed cheap yen to buy US tech, BTC, and EM assets face margin calls and forced liquidation. <strong style="color:var(--ac3)">SAFE HAVENS: Yen itself (FXY +22%), long bonds (flight to quality +20%), gold miners (+18%).</strong> <strong style="color:var(--red)">CARRY-FUNDED LOSERS: Leveraged AI/tech (NVDA -35%), Bitcoin (-35%), Emerging Markets (-22%), Regional Banks funding stress (-20%).</strong>',
+ inflate:'<strong>&#128176;&#128293; INFLATE THE DEBT AWAY (Fiscal Dominance):</strong> The rollover wall forces the Fed&#39;s hand: ~$8T of debt reprices in 12 months and total debt (~$39.8T, ~122% of GDP) can&#39;t be serviced at 4-5% for long. The exit chosen every time debt gets this big &mdash; not default, not austerity, but <strong>financial repression</strong>: hold policy rates BELOW inflation, support the long end with $60B/mo of buybacks and 7.5% money growth without announcing a peg, and let a ~3% negative real rate quietly erode the debt&#39;s real value (the exact 1946-1951 + 1970s playbook that took debt/GDP from 120% to 30%). <strong style="color:var(--ac2)">WINNERS: hard money &mdash; gold (GDX/NEM +30-40%), silver, BTC (+50%+), energy &amp; real assets, TIPS.</strong> <strong style="color:var(--red)">LOSERS: cash &amp; long nominal bonds (TLT/ZROZ real value bleeds), savers &amp; fixed salaries. Stocks rise nominally but ~flat in real terms (1970s).</strong> <em style="color:var(--mu)">Not a forecast or advice &mdash; a mechanism model. See the Inflate-$ calculator below for the exact repression math.</em>',
  debase:'<strong>&#128176; DEBASEMENT &mdash; PRINT AND BUY THE DEBT:</strong> The Fed caps the long bond and monetizes the rollover, the job it did from 1942 until the 1951 Accord. CPI on this tab is the quantity equation (money growth + velocity &minus; real growth), so the real policy rate is negative and the debt ratio erodes. <strong style="color:var(--ac3)">PURCHASING POWER RISES IN:</strong> gold, silver, and the miners &mdash; the release valve that was shut when gold was $35 &mdash; then housing, TIPS, and real assets. Stocks rise in dollars and roughly hold, or slightly slip, in real terms if real growth stays near 2%. <strong style="color:var(--red)">CASH AND THE DOLLAR PAY FOR IT.</strong> Long bonds can pop in year one as the cap is installed, then lose real value every year the coupon sits under inflation. If the buyback is too small the cap breaks, metals get cut, and bonds sell off. The table on this tab is the model. Not advice.',
- diesel:'<strong>&#9981; DIESEL CRISIS &mdash; THE PRODUCT IS THE SHOCK:</strong> EIA diesel ran a record-nominal print ($6.529 on Sep 21 2026, still $6.382 on Sep 28). Distillate stocks ~108 MMbbl, 13%+ below the 5-year. SPR (~287 MMbbl) is crude that still has to be cracked, shipped, and delivered. Russian refinery hits, Red Sea reroutes, US barrels leaving as exports, fall turnarounds, harvest, and winter heating oil all pull the same thin tank. <strong style="color:var(--ac2)">WINNERS: refiners (MPC/VLO/PSX &mdash; own the 3-2-1), product tankers, rail, nuclear, solar/storage/grid, staples with pass-through.</strong> <strong style="color:var(--red)">LOSERS: discretionary freight, high-burn EV, restaurants, furniture &mdash; the $8 path (20&ndash;30% by December) adds surcharges; the $10 tail (3&ndash;7%) parks 20&ndash;35% of marginal trucks.</strong> Midterms punish the gasoline sign; diesel is how it shows up in groceries six weeks later. <em style="color:var(--mu)">Not advice &mdash; a distillate-tightness playbook, distinct from a Hormuz crude spike.</em>'
+ diesel:'<strong>&#9981; DIESEL CRISIS &mdash; THE PRODUCT IS THE SHOCK:</strong> The Fed is not printing its way out of a fuel shortage (money growth stays near 4%, buybacks $10B/mo, no yield cap). EIA diesel ran a record-nominal print ($6.529 on Sep 21 2026, still $6.382 on Sep 28). Distillate stocks ~108 MMbbl, 13%+ below the 5-year. SPR (~287 MMbbl) is crude that still has to be cracked, shipped, and delivered. Russian refinery hits, Red Sea reroutes, US barrels leaving as exports, fall turnarounds, harvest, and winter heating oil all pull the same thin tank. <strong style="color:var(--ac2)">WINNERS: refiners (MPC/VLO/PSX &mdash; own the 3-2-1), product tankers, rail, nuclear, solar/storage/grid, staples with pass-through.</strong> <strong style="color:var(--red)">LOSERS: discretionary freight, high-burn EV, restaurants, furniture &mdash; the $8 path (20&ndash;30% by December) adds surcharges; the $10 tail (3&ndash;7%) parks 20&ndash;35% of marginal trucks.</strong> Midterms punish the gasoline sign; diesel is how it shows up in groceries six weeks later. <em style="color:var(--mu)">Not advice &mdash; a distillate-tightness playbook, distinct from a Hormuz crude spike.</em>'
 };
 const ANGLES = [
  {s:'BASE',c:'var(--ac)',t:'No Clear Driver — Quality Quietly Wins',b:'No single macro force is dominant. Size quality compounders (high ROIC, Piotroski 5+) and skip the narrative trades. Dump Top 20 here is almost pure business quality.',tks:['COST','V','MA','MSFT','JPM','SCHD']},
@@ -1522,9 +1561,43 @@ function liveRegimeKey(){
   } catch(_){ return 'base'; }
 }
 let _PB = null;
+// How far M2, the buyback, and an announced yield cap sit from the calm tape
+// (4% money growth, $15B/mo, cap off). Added on top of every preset except
+// Debasement, which already prices these three inside its own model.
+// Row is [per 1pp of M2, per $20B/mo of buybacks, per 1pp of CPI above a live cap].
+function leverNudge(v, bucket){
+  if (!v || !bucket) return 0;
+  const dm2 = (v.m2 || 0) - 4;
+  const dbb = ((v.bb || 0) - 15) / 20;
+  const capped = (v.ycc || 0) >= 1;
+  const gap = capped ? Math.max(0, (v.cpi || 0) - Math.min(v.y10 || 0, v.ycc)) : 0;
+  const S = {
+    gold:[1.2, 0.6, 2.2], silver:[1.5, 0.7, 2.4], miners:[1.8, 0.8, 2.6],
+    juniors:[2.1, 0.9, 2.8], silverMiners:[2.0, 0.9, 2.6], silverJuniors:[2.3, 1.0, 3.0],
+    royalty:[1.5, 0.7, 2.4], copper:[0.8, 0.3, 1.2], platinum:[1.0, 0.5, 1.8],
+    btc:[1.8, 1.1, 1.4], oil:[0.15, 0.05, 0.3], energy:[0.3, 0.1, 0.6],
+    spx:[0.35, 0.45, 0.2], tech:[0.55, 0.7, -0.4], bond:[0.2, 1.6, 3.2],
+    bond10:[0.15, 1.1, 2.2], cash:[0, 0, -0.4], usd:[-0.55, -0.35, -0.7],
+    tips:[0.4, 0.3, 1.6], staples:[0.15, 0.05, 0.3], pay:[0.25, 0.1, 0.5],
+    banks:[0.1, 0.8, 0.4], reits:[0.2, 0.9, 1.4], housing:[0.2, 0.7, 1.2],
+    homes:[0.25, 0.8, 1.3], defense:[0.05, 0.05, 0.1], nukes:[0.2, 0.15, 0.4],
+    power:[0.15, 0.1, 0.3], tankers:[0.05, 0, 0.1], ag:[0.3, 0.1, 0.5],
+    midstream:[0.2, 0.15, 0.6], foreign:[0.4, 0.3, 0.5], tipsLong:[0.5, 0.4, 2.2]
+  };
+  const row = S[bucket] || S.spx;
+  let n = row[0] * dm2 + row[1] * dbb + row[2] * gap;
+  if (n > 12) n = 12;
+  if (n < -12) n = -12;
+  return n;
+}
 function playbookRet(s, key){
   if (!s) return 0;
-  if (s[key] != null && isFinite(+s[key])) return +s[key];
+  const finish = function(raw){
+    if (key === 'debase') return Math.round(raw);
+    let v;
+    try { v = gv(); } catch (e) { return Math.round(raw); }
+    return Math.round(+raw + leverNudge(v, debaseBucket(s)));
+  };
   if (key === 'debase'){
     const b = debaseBucket(s);
     if (DEBASE_FC && b && DEBASE_FC[b] != null && isFinite(+DEBASE_FC[b])){
@@ -1539,30 +1612,31 @@ function playbookRet(s, key){
     }
     if (s.inflate != null) return +s.inflate;
   }
+  if (s[key] != null && isFinite(+s[key])) return finish(+s[key]);
   if (key === 'inflate' && s.inflate == null){
     const sec = String(s.sec || '');
-    if (sec.indexOf('Basic Materials') >= 0) return Math.round(+((s.qe != null ? s.qe : s.base) || 0) * 0.85);
-    if (sec.indexOf('Energy') >= 0) return Math.round(+((s.stag != null ? s.stag : s.base) || 0) * 0.7);
+    if (sec.indexOf('Basic Materials') >= 0) return finish(+((s.qe != null ? s.qe : s.base) || 0) * 0.85);
+    if (sec.indexOf('Energy') >= 0) return finish(+((s.stag != null ? s.stag : s.base) || 0) * 0.7);
   }
   if (key === 'diesel'){
     const stag = s.stag != null ? +s.stag : (s.base || 0);
     const t = String(s.t || '');
     const sec = String(s.sec || '');
-    if (['MPC','VLO','PSX','DINO','PBF'].includes(t)) return stag + 10;
+    if (['MPC','VLO','PSX','DINO','PBF'].includes(t)) return finish(stag + 10);
     if (['FSLR','ENPH','RUN','SEDG','NXT','ARRY','SHLS','CSIQ','TAN','ICLN','HASI','AMRC'].includes(t))
-      return Math.max(stag, 16) + 8;
+      return finish(Math.max(stag, 16) + 8);
     if (['CEG','TLN','OKLO','LEU','CCJ','URA','VST','NEE','AES'].includes(t))
-      return Math.max(stag, 12) + 6;
+      return finish(Math.max(stag, 12) + 6);
     if (['FLNC','EOSE','BE','GEV','MTZ','PWR','ETN','ORA','CWEN','BEPC'].includes(t))
-      return Math.max(stag, 10) + 8;
-    if (['UNP','NSC','CSX','STNG','FRO','DHT'].includes(t)) return Math.max(stag, 12) + 6;
-    if (sec.includes('Energy')) return stag + 6;
-    if (sec.includes('Utilit')) return stag + 4;
-    if (sec.includes('Cyclical') || sec.includes('Discretion')) return stag - 8;
-    if (sec.includes('Defensive')) return stag + 2;
-    return stag;
+      return finish(Math.max(stag, 10) + 8);
+    if (['UNP','NSC','CSX','STNG','FRO','DHT'].includes(t)) return finish(Math.max(stag, 12) + 6);
+    if (sec.includes('Energy')) return finish(stag + 6);
+    if (sec.includes('Utilit')) return finish(stag + 4);
+    if (sec.includes('Cyclical') || sec.includes('Discretion')) return finish(stag - 8);
+    if (sec.includes('Defensive')) return finish(stag + 2);
+    return finish(stag);
   }
-  return s.base || 0;
+  return finish(s.base || 0);
 }
 function playbookOf(t){
   if (!_PB){
@@ -1671,6 +1745,16 @@ function collapseAll(){
 function openModal(){}
 function closeModal(){collapseAll();}
 
+function paintDebase(arr, id, emptyMsg){
+ const rows = favored(arr, 'debase').slice().sort(function(a,b){ return playbookRet(b,'debase') - playbookRet(a,'debase'); });
+ const el = document.getElementById(id);
+ if (!el) return;
+ if (!rows.length){
+  el.innerHTML = '<div class="sr">'+(emptyMsg || 'Nothing in this sleeve is up on the current sliders.')+'</div>';
+  return;
+ }
+ mkGrid(rows, 'debase', id);
+}
 function mkGrid(arr,key,cid,cls){
  cls=cls||'sc';
  const el=document.getElementById(cid);
@@ -1802,6 +1886,9 @@ function updCharts(v,k){
  if(k==='debase' && DEBASE_FC){
   const end=1+DEBASE_FC.spx/100;
   proj=Array.from({length:12},function(_,i){return Math.round(spx0*(1+(end-1)*(i/11)));});
+ } else {
+  const n=leverNudge(v,'spx')/100;
+  proj=proj.map((p,i)=>Math.round(p*(1+n*(i/11))));
  }
  CH.spx.data.datasets[0].data=bull;CH.spx.data.datasets[1].data=proj;CH.spx.data.datasets[2].data=bear;CH.spx.update('none');
  const RET={
@@ -1827,6 +1914,9 @@ function updCharts(v,k){
  if(k==='debase' && DEBASE_FC){
   const f=DEBASE_FC;
   r=[Math.round(f.spx),Math.round(f.gold),Math.round(f.btc),Math.round(f.oil),Math.round(f.bond10),Math.round(f.usd)];
+ } else {
+  const bk=['spx','gold','btc','oil','bond10','usd'];
+  r=r.map((x,i)=>Math.round(x+leverNudge(v,bk[i])));
  }
  const _apt=document.getElementById('asset-pt');
  if(_apt) _apt.textContent=k==='debase'?'Asset class — 12m nominal vs live baseline':'Asset Class 12M Return (%)';
@@ -1849,7 +1939,15 @@ function updCharts(v,k){
  inflate:[60, 88, 58, 90, 55, 58, 78, 50],
  diesel: [38, 92, 52, 72, 78, 58, 28, 70],
  debase:[74, 82, 38, 90, 52, 48, 76, 62],
-}; CH.sector.data.datasets[0].data=SD[k]||SD.base;CH.sector.update('none');
+};
+ let sd=SD[k]||SD.base;
+ if(k!=='debase'){
+  const dm2=(v.m2||0)-4, dbb=((v.bb||0)-15)/20;
+  const gap=(v.ycc||0)>=1 ? Math.max(0,(v.cpi||0)-Math.min(v.y10||0,v.ycc)) : 0;
+  const add=[0.5*dm2+0.8*dbb, 0.35*dm2, 0.9*dm2+1.1*dbb-1.6*gap, 1.1*dm2+0.5*gap, 0.2*dm2, 0.1*dm2, 0.35*dm2+0.7*dbb+1.3*gap, 0.15*dm2];
+  sd=sd.map((x,i)=>Math.max(0,Math.min(100,Math.round(x+add[i]))));
+ }
+ CH.sector.data.datasets[0].data=sd;CH.sector.update('none');
  const y2   = v.y2 || (v.y10 - 0.26);
  const y10  = v.y10;
  const ycSp = y10 - y2;  // local yield curve spread (renamed to avoid redeclaring sp)
@@ -1879,6 +1977,13 @@ function updCharts(v,k){
   yp[6]=+DEBASE_FC.yEff.toFixed(2);
   yp[7]=+(DEBASE_FC.yEff+0.25).toFixed(2);
   yp[8]=+(DEBASE_FC.yEff+0.45).toFixed(2);
+ } else if((v.ycc||0)>=1){
+  const cap=capState(v);
+  if(cap.mode==='holds'||cap.mode==='strained'||cap.mode==='breaks'){
+   yp[6]=+cap.yEff.toFixed(2);
+   yp[7]=+(cap.yEff+0.25).toFixed(2);
+   yp[8]=+(cap.yEff+0.45).toFixed(2);
+  }
  }
  CH.yield.data.datasets[0].data=yc;CH.yield.data.datasets[1].data=yp;CH.yield.update('none');
 }
@@ -1901,11 +2006,13 @@ function updBars(k){
  ['FSLR','First Solar',         {bull:8,  bear:32,qe:18,stag:28,base:12,strong:2,   carry:-6, inflate:16, diesel:34}],
 ]; let h='';
  items.forEach(([t,nm,ret])=>{
+  const map={FRO:'tankers',NEM:'miners',LMT:'defense',NVDA:'tech',JPM:'banks',IBIT:'btc',XLE:'energy',CEG:'nukes',GDX:'miners',KRE:'banks',UUP:'usd',FSLR:'power'};
   let r=ret[k]||0;
   if(k==='debase' && DEBASE_FC){
-    const map={FRO:'tankers',NEM:'miners',LMT:'defense',NVDA:'tech',JPM:'banks',IBIT:'btc',XLE:'energy',CEG:'nukes',GDX:'miners',KRE:'banks',UUP:'usd',FSLR:'power'};
     const b=map[t];
     if(b && DEBASE_FC[b]!=null) r=Math.round(DEBASE_FC[b]);
+  } else {
+    r=Math.round(r+leverNudge(gv(), map[t]||'spx'));
   }
   const pct=Math.min(Math.abs(r)/90*100,100);
   const sign=r>=0?'+':'';
@@ -2152,6 +2259,17 @@ function debaseForecast(v){
     spx:spx, bond:bond, bond10:bond10, cash:cash, usd:usd, tips:tips,
     staples:staples, pay:pay, tech:tech, banks:banks, reits:reits, housing:housing,
     defense:defense, nukes:nukes, power:power, tankers:tankers,
+    juniors:clampN(miners * 1.22, -50, 130),
+    silverMiners:clampN(silver * 1.35, -50, 130),
+    silverJuniors:clampN(silver * 1.65, -55, 140),
+    royalty:clampN(gold * 1.35, -30, 85),
+    copper:clampN(gold * 0.45 + Math.max(oil, 0) * 0.8, -30, 50),
+    platinum:clampN(gold * 0.82, -30, 65),
+    ag:clampN(cpi * 0.8 + 3, -15, 24),
+    midstream:clampN(cpi * 0.5 + 6, -10, 22),
+    foreign:clampN(spx + Math.max(0, -usd) * 0.65, -30, 40),
+    homes:clampN(housing * 1.35, -30, 40),
+    tipsLong:clampN(tips * 1.45, -28, 48),
     rows:rows, cap:cap, path:M, cpi:cpi, yrs:yrs,
     capMode:cap.mode, yEff:cap.yEff,
     modelCpi: (v.m2 || 0) + icNum('ic-vel', 0.6) - grow
@@ -2160,8 +2278,19 @@ function debaseForecast(v){
 function debaseBucket(s){
   const t = String((s && s.t) || '').toUpperCase();
   const sec = String((s && s.sec) || '');
-  if (t === 'SLV' || t === 'PAAS' || t === 'AG' || t === 'SIL') return 'silver';
-  if (t === 'GLD') return 'gold';
+  if (t === 'SLV' || t === 'SIVR') return 'silver';
+  if (t === 'SILJ' || t === 'AG') return 'silverJuniors';
+  if (t === 'SIL' || t === 'HL' || t === 'CDE' || t === 'PAAS') return 'silverMiners';
+  if (t === 'GLD' || t === 'IAU' || t === 'BAR' || t === 'SGOL') return 'gold';
+  if (t === 'GDXJ' || t === 'RING') return 'juniors';
+  if (t === 'RGLD' || t === 'FNV' || t === 'WPM') return 'royalty';
+  if (t === 'FCX' || t === 'COPX' || t === 'SCCO') return 'copper';
+  if (t === 'PPLT') return 'platinum';
+  if (t === 'DBA' || t === 'MOO' || t === 'CORN') return 'ag';
+  if (t === 'EPD' || t === 'ET' || t === 'AMLP' || t === 'WES' || t === 'MPLX') return 'midstream';
+  if (t === 'VXUS' || t === 'EFA' || t === 'EEM' || t === 'VEA') return 'foreign';
+  if (t === 'ITB' || t === 'XHB' || t === 'DHI' || t === 'LEN' || t === 'PHM') return 'homes';
+  if (t === 'LTPZ') return 'tipsLong';
   if (t === 'IBIT') return 'btc';
   if (t === 'TIP') return 'tips';
   if (t === 'UUP') return 'usd';
@@ -2577,6 +2706,10 @@ function upd(){
  try{ bldAngles(k); }catch(e){ console.warn('bldAngles', e); }
  try {
  mkGrid(favored(DB.gold,k),k,'g-gold');
+ paintDebase(DB.debaseWins.filter(s=>['GLD','IAU','SLV','GDX','GDXJ','SIL','SILJ','RGLD','HL'].includes(s.t)), 'g-debase-metal', 'Gold peg is on. Bullion and miners do not reprice. That is what 1946 did.');
+ paintDebase(DB.debaseWins.filter(s=>['FCX','COPX','PPLT','URA','CCJ','DBA','MOO'].includes(s.t)), 'g-debase-real', 'Nothing in the real-stuff sleeve is up on these sliders.');
+ paintDebase(DB.debaseWins.filter(s=>['VNQ','ITB','DHI','EPD','TIP','LTPZ'].includes(s.t)), 'g-debase-cap', 'Cap is not funded, so houses, REITs, and the long TIPS bump are off.');
+ paintDebase(DB.debaseWins.filter(s=>['VXUS','EEM','V','IBIT'].includes(s.t)), 'g-debase-fx', 'Dollar is not the asset being debased on these sliders.');
  mkGrid(favored(DB.banks,k),k,'g-banks');
  mkGrid(favored(DB.tech,k),k,'g-tech');
  mkGrid(favored(DB.energy,k),k,'g-energy');
@@ -2713,6 +2846,11 @@ const BASE_PX = {
 
 function allTickers(){
   const s=new Set(Object.keys(BASE_PX));
+  Object.keys(DB).forEach(function(k){
+    const arr=DB[k];
+    if(!Array.isArray(arr)) return;
+    arr.forEach(function(row){ if(row&&row.t) s.add(String(row.t).toUpperCase()); });
+  });
   const MW=window.MW_MACRO;
   if(MW){
     Object.values(MW.scans||{}).forEach(p=>(p.rows||[]).forEach(r=>{
@@ -3457,7 +3595,11 @@ window.addEventListener('load',()=>{
 window.rv          = rv;
 window.editVal     = editVal;
 window.MANUAL_SET  = MANUAL_SET;
-window.upd         = upd;         // oninput="scheduleUpd()" on every slider
+window.upd         = upd;
+window.scheduleUpd = scheduleUpd; // oninput="scheduleUpd()" on every slider
+window.load1946Peg = load1946Peg;
+window.reloadFreeGold = reloadFreeGold;
+window.lockCpiToPrint = lockCpiToPrint;
 window.setScen     = setScen;
 window.setLive     = setLive;
 window.doRefresh   = doRefresh;
