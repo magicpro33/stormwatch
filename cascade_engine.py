@@ -1496,6 +1496,103 @@ def dump_fundamentals_all():
     return hit[1] if hit else {f: np.array([]) for f in FUND_FIELDS}
 
 
+def dump_catalyst_map() -> dict:
+    """Dump-fingerprint catalysts for every ticker. Cached on panel mtime.
+
+    Same tags TOP20 scores: 63-day breakout, volume shock, recent gap,
+    fresh MACD cross, squeeze setup.
+    """
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    try:
+        mt = float(_dump_mtime() or 0.0)
+    except Exception:
+        mt = 0.0
+    hit = _PANEL_CACHE.get("cat_map")
+    if hit and hit[0] == mt and isinstance(hit[1], dict):
+        return hit[1]
+    C = panel["c"]
+    T, N = C.shape
+    empty = {str(t).upper(): {"tags": "", "n": 0, "score": 0.0} for t in tickers}
+    if T < 64 or N == 0:
+        _PANEL_CACHE["cat_map"] = (mt, empty)
+        return empty
+    funds = dump_fundamentals_all()
+    V = np.nan_to_num(panel["v"])
+    px = C[-1]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mom63 = C[-6] / C[-64] - 1.0
+        rvol = V[-5:].mean(0) / np.where(V[-63:].mean(0) == 0, np.nan, V[-63:].mean(0))
+        brk = px >= np.nanmax(panel["h"][-63:-1], 0) * 0.999
+        ret1d = C[-1] / C[-2] - 1.0
+        vshock = (rvol >= 2.5) & (np.abs(ret1d) >= 0.04)
+        gaps = np.abs(panel["o"][-5:] / C[-6:-1] - 1.0)
+        gp = np.nanmax(gaps, 0) >= 0.03
+
+    def _ewm_axis0(a, span):
+        alpha = 2.0 / (span + 1.0)
+        out = np.empty(a.shape, dtype=np.float64)
+        x0 = np.asarray(a[0], dtype=np.float64)
+        out[0] = np.where(np.isfinite(x0), x0, 0.0)
+        om = 1.0 - alpha
+        for i in range(1, a.shape[0]):
+            xi = np.asarray(a[i], dtype=np.float64)
+            xi = np.where(np.isfinite(xi), xi, out[i - 1])
+            out[i] = alpha * xi + om * out[i - 1]
+        return out
+
+    e12 = _ewm_axis0(C, 12)
+    e26 = _ewm_axis0(C, 26)
+    macd = e12 - e26
+    sig = _ewm_axis0(macd, 9)
+    mb = macd > sig
+    fresh = mb[-1] & ~mb[-4]
+    short = funds.get("ShortPctFloat")
+    if short is None or len(np.asarray(short)) != N:
+        short = np.full(N, np.nan)
+    squeeze_setup = (np.nan_to_num(short) >= 0.15) & (np.nan_to_num(mom63) > 0)
+    cat = (0.35 * np.nan_to_num(brk) + 0.25 * np.nan_to_num(vshock)
+           + 0.20 * np.nan_to_num(gp) + 0.20 * np.nan_to_num(fresh))
+    out = {}
+    for k, t in enumerate(tickers):
+        tg = []
+        if bool(brk[k]):
+            tg.append("🚀 breakout")
+        if bool(vshock[k]):
+            tg.append("⚡ vol shock")
+        if bool(gp[k]):
+            tg.append("🕳 gap")
+        if bool(fresh[k]):
+            tg.append("📈 MACD cross")
+        if bool(squeeze_setup[k]):
+            tg.append("🩳 squeeze setup")
+        sc = float(cat[k]) if np.isfinite(cat[k]) else 0.0
+        out[str(t).upper()] = {"tags": " · ".join(tg), "n": len(tg), "score": sc}
+    _PANEL_CACHE["cat_map"] = (mt, out)
+    return out
+
+
+def apply_catalyst_rank(df, enabled: bool, ticker_col: str = "Ticker"):
+    """Add a Catalysts column and put names with more dump fingerprints first."""
+    if not enabled or df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    if ticker_col not in df.columns:
+        return df
+    try:
+        mapping = dump_catalyst_map()
+    except Exception:
+        return df
+    out = df.copy()
+    tks = [str(t).strip().upper() for t in out[ticker_col]]
+    out["Catalysts"] = [mapping.get(t, {}).get("tags", "") for t in tks]
+    out["_cat_n"] = [int(mapping.get(t, {}).get("n", 0) or 0) for t in tks]
+    out["_ord"] = np.arange(len(out))
+    out = out.sort_values(["_cat_n", "_ord"], ascending=[False, True])
+    out = out.drop(columns=["_cat_n", "_ord"]).reset_index(drop=True)
+    if "#" in out.columns:
+        out["#"] = list(range(1, len(out) + 1))
+    return out
+
+
 def dump_fundamentals(ticker: str) -> dict:
     """One stock's nightly-dump fundamentals (NaNs dropped)."""
     panel, tickers, sectors, mdv, dts = load_dump_panel()

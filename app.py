@@ -421,14 +421,39 @@ _hl, _ht = st.columns([1, 6], vertical_alignment="center")
 with _hl:
     _clickable_logo(140)
 with _ht:
-    _dump_line = _dump_header_line()
     st.markdown(
-        f"""
+        """
         <div style="padding:6px 0 2px;">
           <span style="font-size:30px;font-weight:700;">💰 Money Maker</span>
         </div>
-        <div style="color:#9aa8bd;font-size:12px;margin-bottom:10px;">{_dump_line}</div>
         """, unsafe_allow_html=True)
+    _dump_line = _dump_header_line()
+    _dl, _db = st.columns([5.4, 1.15], vertical_alignment="center")
+    _dl.markdown(
+        f'<div style="color:#9aa8bd;font-size:12px;margin:0 0 8px;">'
+        f"{_dump_line}</div>",
+        unsafe_allow_html=True)
+    if _db.button("Load stock info", key="hdr_load_dump",
+                  help="Download the latest nightly dump. Scanners and "
+                       "this header then use that file."):
+        with st.spinner("Loading latest nightly dump…"):
+            _new_dump = None
+            try:
+                _new_dump = ce.refresh_dump()
+            except Exception as _de:
+                log_exc("hdr_load_dump", _de)
+            st.cache_data.clear()
+        if _new_dump is not None:
+            try:
+                st.toast(f"Dump loaded · as of {pd.Timestamp(_new_dump).date()}")
+            except Exception:
+                pass
+        else:
+            try:
+                st.toast("Could not refresh the nightly dump")
+            except Exception:
+                pass
+        st.rerun()
 
 
 # ── data ─────────────────────────────────────────────────────────────
@@ -2194,6 +2219,8 @@ _HUB_KEEP_TOGGLES = {
     "forecast_all_toggle", "top20_flow",
     "apex_calm", "apex_rs",
     "ig_all_presets_mode",
+    "apex_use_cat", "poc_use_cat", "sw_use_cat",
+    "hs_use_cat", "kw_use_cat", "te_use_cat",
 }
 
 _HUB_KEEP_BUTTON_SUFFIXES = (
@@ -2225,6 +2252,7 @@ _HUB_KEEP_SKIP = {
 
 
 _HUB_BUTTON_KEYS = {
+    "hdr_load_dump",
     "hist_retry_err", "hist_retry_empty", "mw_refresh",
     "wl_refresh_prices", "wl_remove_selected", "wl_backup",
     "ig_scan", "ig_wl_add",
@@ -2261,7 +2289,7 @@ def _hub_keep_is_toggle(k: str) -> bool:
     """Bools that are real checkboxes / toggles — safe to persist."""
     if k in _HUB_KEEP_TOGGLES:
         return True
-    if "_tog_" in k or k.endswith(("_filter", "_toggle")):
+    if "_tog_" in k or k.endswith(("_filter", "_toggle", "_use_cat")):
         return True
     return False
 
@@ -2360,6 +2388,52 @@ def _section_bar(options, key):
 def _hub_pill():
     """Rounded contained block for Scan Hub controls."""
     return st.container(border=True)
+
+
+def _catalysts_section(key: str, pill: bool = True):
+    """Option to add dump-fingerprint catalysts to a scanner list."""
+    ctx = _hub_pill() if pill else st.container()
+    with ctx:
+        st.markdown("**Catalysts**")
+        on = st.toggle(
+            "Add Catalysts to the list and rank more-catalyst names higher",
+            key=f"{key}_use_cat",
+            help="Same dump fingerprints TOP20 uses: 63-day breakout, "
+                 "volume shock, recent gap, fresh MACD cross, squeeze setup. "
+                 "When on, the list gets a Catalysts column and names with "
+                 "more tags move up.",
+        )
+        if on:
+            st.caption("🚀 breakout · ⚡ vol shock · 🕳 gap · "
+                       "📈 MACD cross · 🩳 squeeze setup")
+    return bool(on)
+
+
+def _with_catalysts(df, on, ticker_col="Ticker"):
+    try:
+        return ce.apply_catalyst_rank(df, bool(on), ticker_col=ticker_col)
+    except Exception:
+        return df
+
+
+def _cat_col_cfg():
+    return st.column_config.Column(
+        width="large",
+        help="Dump fingerprints: 🚀 breakout · ⚡ vol shock · 🕳 gap · "
+             "📈 MACD cross · 🩳 squeeze setup. More tags rank higher "
+             "when Catalysts is on.",
+    )
+
+
+def _order_with_cat(order, df):
+    if df is None or "Catalysts" not in getattr(df, "columns", []):
+        return order
+    order = [c for c in (order or []) if c != "Catalysts"]
+    for after in ("Price", "Sector", "Ticker"):
+        if after in order:
+            i = order.index(after) + 1
+            return order[:i] + ["Catalysts"] + order[i:]
+    return ["Catalysts"] + order
 
 
 def _gauge():
@@ -4005,6 +4079,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
             _uni_n = None
 
         _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
+        _apex_cat = _catalysts_section("apex")
         _go = st.button("⚡ Run APEX scan", key="apex_go", type="primary", width="stretch")
         if _go:
             st.session_state["apex_run"] = True
@@ -4067,7 +4142,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                 _m3.metric("Median vol", f"{_res['Vol%'].median():.2f}%")
                 st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
 
-                _show = _res.copy()
+                _show = _with_catalysts(_res.copy(), _apex_cat)
                 _sel_ax = st.dataframe(
                     _show.style.format({
                         "Score": "{:.1f}", "Adj": "{:.1f}", "Macro": "{:.2f}",
@@ -4086,12 +4161,15 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                          else "", subset=["RS"]),
                     width="stretch", hide_index=True, height=620,
                     on_select="rerun", selection_mode="single-row", key="apex_table",
-                    column_order=["#", "Ticker", "Sector", "Score"]
-                                 + (["Macro", "Adj"] if "Adj" in _show.columns else [])
-                                 + ["Risk", "Vol%",
-                                  "RangePos", "ValueArea", "Regime", "RS", "Price",
-                                  "VAL", "POC", "VAH"],
+                    column_order=_order_with_cat(
+                        ["#", "Ticker", "Sector", "Score"]
+                        + (["Macro", "Adj"] if "Adj" in _show.columns else [])
+                        + ["Risk", "Vol%",
+                           "RangePos", "ValueArea", "Regime", "RS", "Price",
+                           "VAL", "POC", "VAH"],
+                        _show),
                     column_config={
+                        "Catalysts": _cat_col_cfg(),
                         "Score": st.column_config.Column(help="APEX conviction 0-100. Same number the indicator shows."),
                         "Risk": st.column_config.Column(help="Volatility state. CALM is the only one that passes the tested gate."),
                         "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
@@ -4440,6 +4518,7 @@ if _main == "Scan Hub" and _hub == "POC Future":
         _poc_sig = (tuple(_stage_pick or ["TRIGGERED"]), int(_poc_top),
                     int(_accum), float(_rng), int(_poc_fresh),
                     tuple(sorted(_sec_filter)) if _sec_filter else ())
+        _poc_cat = _catalysts_section("poc")
         if st.button("🎯 Scan for setups", type="primary", key="poc_go",
                      width="stretch"):
             st.session_state["poc_run"] = True
@@ -4481,6 +4560,7 @@ if _main == "Scan Hub" and _hub == "POC Future":
                     triggers — most bases never get swept, and most sweeps never
                     reclaim. The coiling list is the early-warning queue.</span></div>""",
                     unsafe_allow_html=True)
+                _pdf = _with_catalysts(_pdf, _poc_cat)
                 _psel = st.dataframe(
                     _pdf.style.format({
                         "Price": "${:,.2f}", "POC": "${:,.2f}", "ToPOC%": "{:+.1f}%",
@@ -4502,10 +4582,13 @@ if _main == "Scan Hub" and _hub == "POC Future":
                          if isinstance(v, (int, float)) else "", subset=["ExpR"]),
                     width="stretch", hide_index=True, height=620,
                     on_select="rerun", selection_mode="single-row", key="poc_table",
-                    column_order=["Ticker", "Sector", "Stage", "Price", "POC",
-                                  "ToPOC%", "Entry", "Stop", "Target",
-                                  "Win%", "ExpR"],
+                    column_order=_order_with_cat(
+                        ["Ticker", "Sector", "Stage", "Price", "POC",
+                         "ToPOC%", "Entry", "Stop", "Target",
+                         "Win%", "ExpR"],
+                        _pdf),
                     column_config={
+                        "Catalysts": _cat_col_cfg(),
                         "Stage": st.column_config.Column(help="TRIGGERED = POC reclaimed. SWEPT = lows taken, reclaim pending. COILING = range forming."),
                         "BarsAgo": st.column_config.Column(help="Sessions since the stage began. 0 = it happened on the latest bar."),
                         "POC": st.column_config.Column(help="Point of Control — where the coil traded the most volume. The entry level."),
@@ -4583,6 +4666,7 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                                   help="Last nightly-dump close.")
         _kw_top = _k3.selectbox("How many", [25, 50, 100, 200, 500],
                                 index=1, key="kw_top")
+        _kw_cat = _catalysts_section("kw", pill=False)
 
         if st.button("🔎 Search the dump", type="primary", key="kw_go",
                      width="stretch"):
@@ -4634,8 +4718,11 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                 f"${float(_ksnap.get('lo', _kw_lo)):,.2f}–"
                 f"${float(_ksnap.get('hi', _kw_hi)):,.2f}</span></div>")
             _kdf = _drop_blank_cols(_kdf)
-            _korder = [c for c in ["Ticker", "Name", "Sector", "Price",
-                                   "Where", "Snippet"] if c in _kdf.columns]
+            _kdf = _with_catalysts(_kdf, _kw_cat)
+            _korder = _order_with_cat(
+                [c for c in ["Ticker", "Name", "Sector", "Price",
+                             "Where", "Snippet"] if c in _kdf.columns],
+                _kdf)
             _ksel = st.dataframe(
                 _kdf.style.format(
                     {k: v for k, v in {"Price": "${:,.2f}"}.items()
@@ -4646,6 +4733,7 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                 key="kw_table",
                 column_order=_korder or None,
                 column_config={
+                    "Catalysts": _cat_col_cfg(),
                     "Name": st.column_config.Column(help="Dump company name."),
                     "Where": st.column_config.Column(
                         help="Name = ticker or company name. Summary = "
@@ -4693,6 +4781,7 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
             placeholder="greenland · drug prices · china · tariffs",
             help="Search the same live remarks. Returns the same word chart, "
                  "but only sources and words that mention this phrase.")
+        _te_cat = _catalysts_section("te", pill=False)
         _te_b1, _te_b2 = st.columns(2)
         if _te_b1.button("🔎 Scan speeches", type="primary", key="te_go",
                          width="stretch"):
@@ -4888,6 +4977,7 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                         return now / then - 1.0
                     _tdf["Current"] = _tdf.Ticker.map(_te_nowpx)
                     _tdf["Change"] = _tdf.Ticker.map(_te_chg)
+                    _tdf = _with_catalysts(_tdf, _te_cat)
                     _te_fmt = {k: v for k, v in {
                         "Price": "${:,.2f}", "Current": "${:,.2f}",
                         "Change": "{:+.1%}",
@@ -4903,11 +4993,14 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                         height=_fit_list_height(len(_tdf)),
                         on_select="rerun", selection_mode="single-row",
                         key="te_table",
-                        column_order=[c for c in [
-                            "Ticker", "Name", "Sector", "Price",
-                            "Current", "Change", "Where", "Snippet"]
-                                      if c in _tdf.columns] or None,
+                        column_order=_order_with_cat(
+                            [c for c in [
+                                "Ticker", "Name", "Sector", "Price",
+                                "Current", "Change", "Where", "Snippet"]
+                             if c in _tdf.columns],
+                            _tdf) or None,
                         column_config={
+                            "Catalysts": _cat_col_cfg(),
                             "Price": st.column_config.Column(
                                 help="Last close in the nightly dump."),
                             "Current": st.column_config.Column(

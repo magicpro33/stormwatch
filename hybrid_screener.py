@@ -987,6 +987,19 @@ def render_hybrid_screener() -> None:
         enabled[key] = bool(st.session_state.get(_k(f"tog_{key}"), False))
         weights[key] = float(st.session_state.get(_k(f"wt_{key}"), 0.0) or 0.0)
 
+    with st.container(border=True):
+        st.markdown("**Catalysts**")
+        use_cat = st.toggle(
+            "Add Catalysts to the list and rank more-catalyst names higher",
+            key=_k("use_cat"),
+            help="Same dump fingerprints TOP20 uses: 63-day breakout, "
+                 "volume shock, recent gap, fresh MACD cross, squeeze setup. "
+                 "When on, the list gets a Catalysts column and names with "
+                 "more tags move up.")
+        if use_cat:
+            st.caption("🚀 breakout · ⚡ vol shock · 🕳 gap · "
+                       "📈 MACD cross · 🩳 squeeze setup")
+
     run = st.button("🚀 Run Screener", type="primary", width="stretch", key=_k("run"))
 
     if run:
@@ -1026,6 +1039,11 @@ def render_hybrid_screener() -> None:
         st.session_state.pop(_k("inline"), None)
 
     display = st.session_state.get("_hs_display")
+    if use_cat and display is not None and not getattr(display, "empty", True):
+        try:
+            display = ce.apply_catalyst_rank(display, True)
+        except Exception:
+            pass
     diag = st.session_state.get("_hs_diag") or {}
     if display is None:
         st.info("Pick a preset or set your own weights, then click **Run Screener**.")
@@ -1095,7 +1113,7 @@ def render_hybrid_screener() -> None:
                             pass
 
     order = [c for c in [
-        "Ticker", "Sector", "Price", "First print", "Days listed",
+        "Ticker", "Sector", "Price", "Catalysts", "First print", "Days listed",
         "MarketCap", "P/E",
         "OwnerEarnings", "MA50", "RangeHigh", "RangeLow", "RangePos",
         "MFI_Signal", "Score", "Short % Float", "Days to Cover",

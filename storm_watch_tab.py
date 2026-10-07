@@ -599,6 +599,19 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         shakeout ≥ <b>{min_sh}/5</b>.</div>""",
         unsafe_allow_html=True)
 
+    with st.container(border=True):
+        st.markdown("**Catalysts**")
+        use_cat = st.toggle(
+            "Add Catalysts to the list and rank more-catalyst names higher",
+            key="sw_use_cat",
+            help="Same dump fingerprints TOP20 uses: 63-day breakout, "
+                 "volume shock, recent gap, fresh MACD cross, squeeze setup. "
+                 "When on, the list gets a Catalysts column and names with "
+                 "more tags move up.")
+        if use_cat:
+            st.caption("🚀 breakout · ⚡ vol shock · 🕳 gap · "
+                       "📈 MACD cross · 🩳 squeeze setup")
+
     b1, b2 = st.columns([2, 1])
     if b1.button("🚀 Scan shakeout coils", type="primary", key="sw_run",
                  width="stretch", help=HELP["scan"]):
@@ -650,6 +663,13 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             "show": show, "view": view, "ranked_n": ranked_n,
             "info": info, "bt": bt,
         }
+    if use_cat and mw:
+        try:
+            import cascade_engine as ce
+            show = ce.apply_catalyst_rank(show, True)
+            view = ce.apply_catalyst_rank(view, True)
+        except Exception:
+            pass
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("As of", info.get("as_of", "—"),
               help="Last session in the nightly dump used for this ranking.")
@@ -695,6 +715,11 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         styler, width="stretch", hide_index=True, height=min(740, 80 + 34 * len(show)),
         on_select="rerun", selection_mode="single-row", key="sw_table",
         column_config={
+            "Catalysts": st.column_config.Column(
+                width="large",
+                help="Dump fingerprints: 🚀 breakout · ⚡ vol shock · 🕳 gap · "
+                     "📈 MACD cross · 🩳 squeeze setup. More tags rank higher "
+                     "when Catalysts is on."),
             "StormScore": st.column_config.Column(help=HELP["score"]),
             "Shakeout": st.column_config.Column(help=HELP["min_shakeout"]),
             "Ret5": st.column_config.Column(help=HELP["ret5"]),
