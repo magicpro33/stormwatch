@@ -598,8 +598,10 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                  "EARNINGS, FDA, M&A, PARTNER, LEGAL, SQUEEZE, BREAKOUT, "
                  "GEO/MACRO, FED/RATES, EARN ↑, BIMODAL, DTC.")
         if use_cat:
-            st.caption("EARNINGS · FDA · M&A · PARTNER · LEGAL · SQUEEZE · "
-                       "BREAKOUT · GEO/MACRO · FED/RATES · EARN ↑ · BIMODAL · DTC")
+            st.caption("📊 EARNINGS · 💊 FDA · 🤝 M&A · 🔗 PARTNER · ⚖️ LEGAL · "
+                       "🩳 SQUEEZE · 🚀 BREAKOUT · 🌍 GEO/MACRO · 🏦 FED/RATES · "
+                       "📈 EARN ↑ · 🔶 BIMODAL · ⏱ DTC · ⚡ vol shock · 🕳 gap · "
+                       "📈 MACD")
 
     b1, b2 = st.columns([2, 1])
     if b1.button("🚀 Scan shakeout coils", type="primary", key="sw_run",

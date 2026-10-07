@@ -2407,8 +2407,10 @@ def _catalysts_section(key: str, pill: bool = True):
                  "more live tags rank higher.",
         )
         if on:
-            st.caption("EARNINGS · FDA · M&A · PARTNER · LEGAL · SQUEEZE · "
-                       "BREAKOUT · GEO/MACRO · FED/RATES · EARN ↑ · BIMODAL · DTC")
+            st.caption("📊 EARNINGS · 💊 FDA · 🤝 M&A · 🔗 PARTNER · ⚖️ LEGAL · "
+                       "🩳 SQUEEZE · 🚀 BREAKOUT · 🌍 GEO/MACRO · 🏦 FED/RATES · "
+                       "📈 EARN ↑ · 🔶 BIMODAL · ⏱ DTC · ⚡ vol shock · 🕳 gap · "
+                       "📈 MACD")
     return bool(on)
 
 

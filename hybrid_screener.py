@@ -996,8 +996,10 @@ def render_hybrid_screener() -> None:
                  "EARNINGS, FDA, M&A, PARTNER, LEGAL, SQUEEZE, BREAKOUT, "
                  "GEO/MACRO, FED/RATES, EARN ↑, BIMODAL, DTC.")
         if use_cat:
-            st.caption("EARNINGS · FDA · M&A · PARTNER · LEGAL · SQUEEZE · "
-                       "BREAKOUT · GEO/MACRO · FED/RATES · EARN ↑ · BIMODAL · DTC")
+            st.caption("📊 EARNINGS · 💊 FDA · 🤝 M&A · 🔗 PARTNER · ⚖️ LEGAL · "
+                       "🩳 SQUEEZE · 🚀 BREAKOUT · 🌍 GEO/MACRO · 🏦 FED/RATES · "
+                       "📈 EARN ↑ · 🔶 BIMODAL · ⏱ DTC · ⚡ vol shock · 🕳 gap · "
+                       "📈 MACD")
 
     run = st.button("🚀 Run Screener", type="primary", width="stretch", key=_k("run"))
 

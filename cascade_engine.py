@@ -1556,7 +1556,7 @@ def dump_catalyst_map() -> dict:
     for k, t in enumerate(tickers):
         tg = []
         if bool(brk[k]):
-            tg.append("🚀 breakout")
+            tg.append("🚀 BREAKOUT")
         if bool(vshock[k]):
             tg.append("⚡ vol shock")
         if bool(gp[k]):
@@ -1564,25 +1564,25 @@ def dump_catalyst_map() -> dict:
         if bool(fresh[k]):
             tg.append("📈 MACD cross")
         if bool(squeeze_setup[k]):
-            tg.append("SQUEEZE")
+            tg.append("🩳 SQUEEZE")
         dtc = funds.get("DaysToCover")
         try:
             dv = float(dtc[k]) if dtc is not None else float("nan")
         except Exception:
             dv = float("nan")
         if np.isfinite(dv) and dv >= 10:
-            tg.append("DTC 10d+")
+            tg.append("⏱ DTC 10d+")
         elif np.isfinite(dv) and dv >= 7:
-            tg.append("DTC 7d")
+            tg.append("⏱ DTC 7d")
         elif np.isfinite(dv) and dv >= 5:
-            tg.append("DTC 5d")
+            tg.append("⏱ DTC 5d")
         eg = funds.get("EarningsGrowth")
         try:
             ev = float(eg[k]) if eg is not None else float("nan")
         except Exception:
             ev = float("nan")
         if np.isfinite(ev) and ev >= 0.25:
-            tg.append("EARN ↑")
+            tg.append("📈 EARN ↑")
         sc = float(cat[k]) if np.isfinite(cat[k]) else 0.0
         out[str(t).upper()] = {"tags": " · ".join(tg), "n": len(tg), "score": sc}
     _PANEL_CACHE["cat_map"] = (mt, out)
@@ -1619,16 +1619,20 @@ def apply_catalyst_rank(df, enabled: bool, ticker_col: str = "Ticker"):
             if lab not in seen:
                 seen.append(lab)
         for lab in dump_tags:
-            if lab == "🚀 breakout":
-                lab = "BREAKOUT"
-            elif lab == "🩳 squeeze setup":
-                lab = "SQUEEZE"
+            if lab in ("🚀 breakout", "BREAKOUT"):
+                lab = "🚀 BREAKOUT"
+            elif lab in ("SQUEEZE", "🩳 squeeze setup"):
+                lab = "🩳 SQUEEZE"
+            elif lab == "EARN ↑":
+                lab = "📈 EARN ↑"
+            elif lab.startswith("DTC"):
+                lab = "⏱ " + lab
             if lab and lab not in seen:
                 seen.append(lab)
         on_types = set(nd.get("on") or [])
         if any(c in on_types for c in ("fda", "legal", "buyout", "earnings")):
-            if "BIMODAL" not in seen:
-                seen.append("BIMODAL")
+            if BIMODAL_LABEL not in seen:
+                seen.append(BIMODAL_LABEL)
         rank_n = len(seen)
         for ctype in nd.get("filtered") or []:
             lab = IGNITION_CAT_LABELS.get(ctype, ctype.upper())
@@ -4494,11 +4498,12 @@ CATALYST_EMOJI = {"earnings": "📊", "fda": "💊", "legal": "⚖️", "buyout"
                   "partnership": "🔗", "squeeze": "🩳", "breakout": "🚀",
                   "geopolitical": "🌍", "rate": "🏦", "earn_growth": "📈"}
 IGNITION_CAT_LABELS = {
-    "earnings": "EARNINGS", "fda": "FDA", "buyout": "M&A",
-    "partnership": "PARTNER", "legal": "LEGAL", "squeeze": "SQUEEZE",
-    "breakout": "BREAKOUT", "geopolitical": "GEO/MACRO", "rate": "FED/RATES",
-    "earn_growth": "EARN ↑",
+    "earnings": "📊 EARNINGS", "fda": "💊 FDA", "buyout": "🤝 M&A",
+    "partnership": "🔗 PARTNER", "legal": "⚖️ LEGAL", "squeeze": "🩳 SQUEEZE",
+    "breakout": "🚀 BREAKOUT", "geopolitical": "🌍 GEO/MACRO",
+    "rate": "🏦 FED/RATES", "earn_growth": "📈 EARN ↑",
 }
+BIMODAL_LABEL = "🔶 BIMODAL"
 
 
 def news_catalyst_detail(tickers: list, sectors: dict | None = None) -> dict:
