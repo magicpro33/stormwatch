@@ -1564,7 +1564,25 @@ def dump_catalyst_map() -> dict:
         if bool(fresh[k]):
             tg.append("📈 MACD cross")
         if bool(squeeze_setup[k]):
-            tg.append("🩳 squeeze setup")
+            tg.append("SQUEEZE")
+        dtc = funds.get("DaysToCover")
+        try:
+            dv = float(dtc[k]) if dtc is not None else float("nan")
+        except Exception:
+            dv = float("nan")
+        if np.isfinite(dv) and dv >= 10:
+            tg.append("DTC 10d+")
+        elif np.isfinite(dv) and dv >= 7:
+            tg.append("DTC 7d")
+        elif np.isfinite(dv) and dv >= 5:
+            tg.append("DTC 5d")
+        eg = funds.get("EarningsGrowth")
+        try:
+            ev = float(eg[k]) if eg is not None else float("nan")
+        except Exception:
+            ev = float("nan")
+        if np.isfinite(ev) and ev >= 0.25:
+            tg.append("EARN ↑")
         sc = float(cat[k]) if np.isfinite(cat[k]) else 0.0
         out[str(t).upper()] = {"tags": " · ".join(tg), "n": len(tg), "score": sc}
     _PANEL_CACHE["cat_map"] = (mt, out)
@@ -1572,7 +1590,7 @@ def dump_catalyst_map() -> dict:
 
 
 def apply_catalyst_rank(df, enabled: bool, ticker_col: str = "Ticker"):
-    """Add a Catalysts column and put names with more dump fingerprints first."""
+    """Add Ignition + dump catalyst tags and put more-catalyst names first."""
     if not enabled or df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return df
     if ticker_col not in df.columns:
@@ -1580,11 +1598,48 @@ def apply_catalyst_rank(df, enabled: bool, ticker_col: str = "Ticker"):
     try:
         mapping = dump_catalyst_map()
     except Exception:
-        return df
+        mapping = {}
+    tks = [str(t).strip().upper() for t in df[ticker_col]]
+    secs = {}
+    if "Sector" in df.columns:
+        secs = {str(t).strip().upper(): str(s or "")
+                for t, s in zip(df[ticker_col], df["Sector"])}
+    try:
+        news = news_catalyst_detail(tks, secs)
+    except Exception:
+        news = {}
+    labels = []
+    counts = []
+    for tk in tks:
+        seen = []
+        dump_tags = [x.strip() for x in str((mapping.get(tk) or {}).get("tags") or "").split(" · ") if x.strip()]
+        nd = news.get(tk) or {}
+        for ctype in nd.get("on") or []:
+            lab = IGNITION_CAT_LABELS.get(ctype, ctype.upper())
+            if lab not in seen:
+                seen.append(lab)
+        for lab in dump_tags:
+            if lab == "🚀 breakout":
+                lab = "BREAKOUT"
+            elif lab == "🩳 squeeze setup":
+                lab = "SQUEEZE"
+            if lab and lab not in seen:
+                seen.append(lab)
+        on_types = set(nd.get("on") or [])
+        if any(c in on_types for c in ("fda", "legal", "buyout", "earnings")):
+            if "BIMODAL" not in seen:
+                seen.append("BIMODAL")
+        rank_n = len(seen)
+        for ctype in nd.get("filtered") or []:
+            lab = IGNITION_CAT_LABELS.get(ctype, ctype.upper())
+            mark = f"{lab} (filtered)"
+            if mark not in seen and lab not in seen:
+                seen.append(mark)
+        labels.append(" · ".join(seen))
+        counts.append(rank_n)
     out = df.copy()
-    tks = [str(t).strip().upper() for t in out[ticker_col]]
-    out["Catalysts"] = [mapping.get(t, {}).get("tags", "") for t in tks]
-    out["_cat_n"] = [int(mapping.get(t, {}).get("n", 0) or 0) for t in tks]
+    out["Catalysts"] = labels
+    out["_cat_n"] = counts
     out["_ord"] = np.arange(len(out))
     out = out.sort_values(["_cat_n", "_ord"], ascending=[False, True])
     out = out.drop(columns=["_cat_n", "_ord"]).reset_index(drop=True)
@@ -4438,10 +4493,16 @@ CATALYST_SECTOR_WHITELIST = {
 CATALYST_EMOJI = {"earnings": "📊", "fda": "💊", "legal": "⚖️", "buyout": "🤝",
                   "partnership": "🔗", "squeeze": "🩳", "breakout": "🚀",
                   "geopolitical": "🌍", "rate": "🏦", "earn_growth": "📈"}
+IGNITION_CAT_LABELS = {
+    "earnings": "EARNINGS", "fda": "FDA", "buyout": "M&A",
+    "partnership": "PARTNER", "legal": "LEGAL", "squeeze": "SQUEEZE",
+    "breakout": "BREAKOUT", "geopolitical": "GEO/MACRO", "rate": "FED/RATES",
+    "earn_growth": "EARN ↑",
+}
 
 
-def news_catalysts(tickers: list, sectors: dict | None = None) -> dict:
-    "IGNITION's news-keyword catalyst tags for a SHORTLIST (min-hit + sector rules)."
+def news_catalyst_detail(tickers: list, sectors: dict | None = None) -> dict:
+    """Per-ticker Ignition news tags + filtered (sector/threshold) hits."""
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     sectors = sectors or {}
     out = {}
@@ -4449,7 +4510,10 @@ def news_catalysts(tickers: list, sectors: dict | None = None) -> dict:
         import yfinance as yf
     except Exception:
         return out
-    for tk in tickers:
+    for raw in tickers:
+        tk = str(raw or "").strip().upper()
+        if not tk:
+            continue
         try:
             arts = yf.Ticker(tk).news or []
         except Exception:
@@ -4457,17 +4521,30 @@ def news_catalysts(tickers: list, sectors: dict | None = None) -> dict:
         blob = " ".join(
             f"{(a.get('content') or a).get('title','')} {(a.get('content') or a).get('summary','')}"
             for a in arts[:12]).lower()
-        if not blob.strip():
-            continue
-        sec = (sectors.get(tk) or "").lower()
-        tags = []
+        sec = str(sectors.get(tk) or sectors.get(raw) or "").lower()
+        on, filtered = [], []
         for ctype, words in CATALYST_KEYWORDS.items():
-            wl = CATALYST_SECTOR_WHITELIST.get(ctype)
-            if wl is not None and sec and not any(w in sec for w in wl):
+            hits = sum(1 for w in words if w in blob)
+            if hits <= 0:
                 continue
-            hits = sum(blob.count(w) > 0 for w in words)
-            if hits >= CATALYST_MIN_HITS[ctype]:
-                tags.append(f"{CATALYST_EMOJI[ctype]} {ctype}")
+            wl = CATALYST_SECTOR_WHITELIST.get(ctype)
+            gated = wl is not None and sec and not any(w in sec for w in wl)
+            if hits >= CATALYST_MIN_HITS.get(ctype, 1) and not gated:
+                on.append(ctype)
+            else:
+                filtered.append(ctype)
+        if on or filtered:
+            out[tk] = {"on": on, "filtered": filtered}
+    return out
+
+
+def news_catalysts(tickers: list, sectors: dict | None = None) -> dict:
+    "IGNITION's news-keyword catalyst tags for a SHORTLIST (min-hit + sector rules)."
+    detail = news_catalyst_detail(tickers, sectors)
+    out = {}
+    for tk, d in detail.items():
+        tags = [f"{CATALYST_EMOJI.get(c, '')} {c}".strip()
+                for c in (d.get("on") or [])]
         if tags:
             out[tk] = " · ".join(tags[:4])
     return out

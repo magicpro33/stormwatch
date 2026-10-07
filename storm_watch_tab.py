@@ -469,11 +469,6 @@ def _draw_chart(tk: str):
 def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                            render_detail=None):
     st.subheader("🌩 Shakeout coils")
-    st.caption(
-        "Names coiling at range lows after a short-term shakeout — the setup that "
-        "preceded upside in the held-out half of the nightly dump. Nothing ranks "
-        "until you hit Scan. Research tool, not investment advice."
-    )
 
     mw = _in_mw()
     mode = st.radio(
@@ -577,11 +572,6 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         n_show = fc2.selectbox(
             "How many stocks", list(range(8, 44, 4)),
             index=1, key="sw_n_show", help=HELP["n_show"])
-    else:
-        st.caption(
-            f"Basic defaults: shakeout ≥ {BASIC_MIN_SHAKEOUT}/5 · top {BASIC_N_SHOW} · "
-            "auto macro lens · every sector. Switch to Advanced to change them."
-        )
 
     # recipe line
     if mw:
@@ -604,13 +594,12 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         use_cat = st.toggle(
             "Add Catalysts to the list and rank more-catalyst names higher",
             key="sw_use_cat",
-            help="Same dump fingerprints TOP20 uses: 63-day breakout, "
-                 "volume shock, recent gap, fresh MACD cross, squeeze setup. "
-                 "When on, the list gets a Catalysts column and names with "
-                 "more tags move up.")
+            help="Same Ignition Fuel catalysts as the scanner cards: "
+                 "EARNINGS, FDA, M&A, PARTNER, LEGAL, SQUEEZE, BREAKOUT, "
+                 "GEO/MACRO, FED/RATES, EARN ↑, BIMODAL, DTC.")
         if use_cat:
-            st.caption("🚀 breakout · ⚡ vol shock · 🕳 gap · "
-                       "📈 MACD cross · 🩳 squeeze setup")
+            st.caption("EARNINGS · FDA · M&A · PARTNER · LEGAL · SQUEEZE · "
+                       "BREAKOUT · GEO/MACRO · FED/RATES · EARN ↑ · BIMODAL · DTC")
 
     b1, b2 = st.columns([2, 1])
     if b1.button("🚀 Scan shakeout coils", type="primary", key="sw_run",
@@ -666,8 +655,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     if use_cat and mw:
         try:
             import cascade_engine as ce
-            show = ce.apply_catalyst_rank(show, True)
-            view = ce.apply_catalyst_rank(view, True)
+            with st.spinner("Reading catalyst signals…"):
+                show = ce.apply_catalyst_rank(show, True)
+                view = ce.apply_catalyst_rank(view, True)
         except Exception:
             pass
     c1, c2, c3, c4 = st.columns(4)
@@ -717,9 +707,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         column_config={
             "Catalysts": st.column_config.Column(
                 width="large",
-                help="Dump fingerprints: 🚀 breakout · ⚡ vol shock · 🕳 gap · "
-                     "📈 MACD cross · 🩳 squeeze setup. More tags rank higher "
-                     "when Catalysts is on."),
+                help="Ignition Fuel catalysts: EARNINGS, FDA, M&A, PARTNER, "
+                     "LEGAL, SQUEEZE, BREAKOUT, GEO/MACRO, FED/RATES, EARN ↑, "
+                     "BIMODAL, DTC. (filtered) = sector or keyword gate."),
             "StormScore": st.column_config.Column(help=HELP["score"]),
             "Shakeout": st.column_config.Column(help=HELP["min_shakeout"]),
             "Ret5": st.column_config.Column(help=HELP["ret5"]),

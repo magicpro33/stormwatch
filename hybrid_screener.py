@@ -992,13 +992,12 @@ def render_hybrid_screener() -> None:
         use_cat = st.toggle(
             "Add Catalysts to the list and rank more-catalyst names higher",
             key=_k("use_cat"),
-            help="Same dump fingerprints TOP20 uses: 63-day breakout, "
-                 "volume shock, recent gap, fresh MACD cross, squeeze setup. "
-                 "When on, the list gets a Catalysts column and names with "
-                 "more tags move up.")
+            help="Same Ignition Fuel catalysts as the scanner cards: "
+                 "EARNINGS, FDA, M&A, PARTNER, LEGAL, SQUEEZE, BREAKOUT, "
+                 "GEO/MACRO, FED/RATES, EARN ↑, BIMODAL, DTC.")
         if use_cat:
-            st.caption("🚀 breakout · ⚡ vol shock · 🕳 gap · "
-                       "📈 MACD cross · 🩳 squeeze setup")
+            st.caption("EARNINGS · FDA · M&A · PARTNER · LEGAL · SQUEEZE · "
+                       "BREAKOUT · GEO/MACRO · FED/RATES · EARN ↑ · BIMODAL · DTC")
 
     run = st.button("🚀 Run Screener", type="primary", width="stretch", key=_k("run"))
 
@@ -1041,7 +1040,8 @@ def render_hybrid_screener() -> None:
     display = st.session_state.get("_hs_display")
     if use_cat and display is not None and not getattr(display, "empty", True):
         try:
-            display = ce.apply_catalyst_rank(display, True)
+            with st.spinner("Reading catalyst signals…"):
+                display = ce.apply_catalyst_rank(display, True)
         except Exception:
             pass
     diag = st.session_state.get("_hs_diag") or {}

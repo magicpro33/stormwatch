@@ -428,9 +428,10 @@ with _ht:
         </div>
         """, unsafe_allow_html=True)
     _dump_line = _dump_header_line()
-    _dl, _db = st.columns([5.4, 1.15], vertical_alignment="center")
+    _dl, _db, _ = st.columns([4.4, 1.15, 2.5], gap="small",
+                             vertical_alignment="center")
     _dl.markdown(
-        f'<div style="color:#9aa8bd;font-size:12px;margin:0 0 8px;">'
+        f'<div style="color:#9aa8bd;font-size:12px;margin:0;">'
         f"{_dump_line}</div>",
         unsafe_allow_html=True)
     if _db.button("Load stock info", key="hdr_load_dump",
@@ -2398,20 +2399,25 @@ def _catalysts_section(key: str, pill: bool = True):
         on = st.toggle(
             "Add Catalysts to the list and rank more-catalyst names higher",
             key=f"{key}_use_cat",
-            help="Same dump fingerprints TOP20 uses: 63-day breakout, "
-                 "volume shock, recent gap, fresh MACD cross, squeeze setup. "
-                 "When on, the list gets a Catalysts column and names with "
-                 "more tags move up.",
+            help="Uses the same Ignition Fuel catalysts as the scanner cards: "
+                 "EARNINGS, FDA, M&A, PARTNER, LEGAL, SQUEEZE, BREAKOUT, "
+                 "GEO/MACRO, FED/RATES, EARN ↑, BIMODAL, DTC, plus dump "
+                 "fingerprints (vol shock, gap, MACD). Sector-gated and "
+                 "keyword-threshold tags show as (filtered). Names with "
+                 "more live tags rank higher.",
         )
         if on:
-            st.caption("🚀 breakout · ⚡ vol shock · 🕳 gap · "
-                       "📈 MACD cross · 🩳 squeeze setup")
+            st.caption("EARNINGS · FDA · M&A · PARTNER · LEGAL · SQUEEZE · "
+                       "BREAKOUT · GEO/MACRO · FED/RATES · EARN ↑ · BIMODAL · DTC")
     return bool(on)
 
 
 def _with_catalysts(df, on, ticker_col="Ticker"):
+    if not on:
+        return df
     try:
-        return ce.apply_catalyst_rank(df, bool(on), ticker_col=ticker_col)
+        with st.spinner("Reading catalyst signals…"):
+            return ce.apply_catalyst_rank(df, True, ticker_col=ticker_col)
     except Exception:
         return df
 
@@ -2419,9 +2425,10 @@ def _with_catalysts(df, on, ticker_col="Ticker"):
 def _cat_col_cfg():
     return st.column_config.Column(
         width="large",
-        help="Dump fingerprints: 🚀 breakout · ⚡ vol shock · 🕳 gap · "
-             "📈 MACD cross · 🩳 squeeze setup. More tags rank higher "
-             "when Catalysts is on.",
+        help="Ignition Fuel catalysts: EARNINGS, FDA, M&A, PARTNER, LEGAL, "
+             "SQUEEZE, BREAKOUT, GEO/MACRO, FED/RATES, EARN ↑, BIMODAL, DTC. "
+             "Filtered = sector whitelist or keyword threshold blocked it. "
+             "More live tags rank higher.",
     )
 
 
