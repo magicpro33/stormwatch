@@ -1623,7 +1623,8 @@ def dump_catalyst_map() -> dict:
     T, N = C.shape
     empty = {str(t).upper(): {"tags": "", "n": 0, "score": 0.0} for t in tickers}
     if T < 64 or N == 0:
-        _PANEL_CACHE["cat_map"] = (mt, empty)
+        # Do not cache an empty map — a thin/partial dump should retry
+        # once the full panel is on disk.
         return empty
     funds = dump_fundamentals_all()
     V = np.nan_to_num(panel["v"])
@@ -3301,18 +3302,23 @@ ANALYZER_INFO_MAP = {
 
 
 def fetch_analyzer(ticker: str):
-    """IGNITION Stock Analyzer data chain, ported: Alpaca history first,
-    yfinance for history fallback + fundamentals + EPS, nightly dump for
-    anything still missing. Returns (info, hist, eps_history, eps_forward)."""
+    """Stock Analyzer data chain: nightly dump first, then Alpaca keys,
+    then yfinance for remaining history, fundamentals, and EPS.
+    Returns (info, hist, eps_history, eps_forward)."""
     ticker = str(ticker).strip().upper()
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     _issues, info = [], {}
 
-    # ── Step 1: price history — Alpaca → yfinance → dump ────────────
-    hist = _alpaca_ohlcv(ticker)
-    hist_src = "alpaca" if len(hist) >= 50 else None
-    if hist_src is None:
-        hist = pd.DataFrame()
+    # ── Step 1: price history — dump → Alpaca → yfinance ────────────
+    hist = pd.DataFrame()
+    hist_src = None
+    d = dump_ohlcv(ticker)
+    if d is not None and not d.empty and len(d) >= 50:
+        hist, hist_src = d, "dump"
+    if hist.empty:
+        h_a = _alpaca_ohlcv(ticker)
+        if h_a is not None and len(h_a) >= 50:
+            hist, hist_src = h_a, "alpaca"
     tk = None
     try:
         import yfinance as yf
@@ -3330,10 +3336,10 @@ def fetch_analyzer(ticker: str):
             pass
     if hist.empty:
         d = dump_ohlcv(ticker)
-        if not d.empty:
+        if d is not None and not d.empty:
             hist, hist_src = d, "dump"
     if hist.empty:
-        _issues.append("price history: no bars from Alpaca, Yahoo, or the nightly dump")
+        _issues.append("price history: no bars from the nightly dump, Alpaca, or Yahoo")
 
     # ── Step 2: fundamentals — cached pack first, live only if needed ─
     _pack = dump_analyzer_pack(ticker)

@@ -2013,8 +2013,8 @@ def render_ignition_scanner_tab():
         disabled=all_presets_mode,
         key="ig_source",
         help="Preset / Custom: scan a hand-picked sector list. "
-             "Nightly Screener Top 10: uses your nightly dump to pre-rank candidates. "
-             "Disabled when Scan ALL presets is on.",
+             "Scan over 5000 stocks: nightly dump pre-ranks the whole universe, "
+             "then live-scans the top candidates. Disabled when Scan ALL presets is on.",
     )
 
     screener_mode = False

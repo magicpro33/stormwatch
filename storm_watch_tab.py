@@ -658,8 +658,13 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             with st.spinner("Reading catalyst signals…"):
                 show = ce.apply_catalyst_rank(show, True)
                 view = ce.apply_catalyst_rank(view, True)
-        except Exception:
-            pass
+        except Exception as _ce:
+            try:
+                from mw_log import log_exc as _log_exc
+                _log_exc("shakeout_catalysts", _ce)
+            except Exception:
+                pass
+            st.caption("Catalysts unavailable for this list — dump or news feed failed.")
     try:
         import cascade_engine as ce
         show = ce.stamp_rank(show)

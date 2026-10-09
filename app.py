@@ -1285,7 +1285,7 @@ def render_business_summary(info: dict, tk: str) -> None:
 
 def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                             key_prefix: str = "az"):
-    """The IGNITION Stock Analyzer, ported: Alpaca → yfinance → dump chain,
+    """The IGNITION Stock Analyzer: dump → Alpaca → yfinance chain,
     three-column deep dive.
 
     key_prefix keeps widget keys unique when this block is drawn from more
@@ -1959,7 +1959,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     if df is None or df.empty:
         df = ce.dump_ohlcv(tk)
         src_label = "nightly dump"
-        if df.empty and tk in closes.columns:
+        if df.empty and closes is not None and tk in getattr(closes, "columns", []):
             df = pd.DataFrame({"Close": closes[tk].dropna()})
             src_label = "node history"
     if df.empty:
@@ -2435,8 +2435,9 @@ def _with_catalysts(df, on, ticker_col="Ticker"):
         try:
             with st.spinner("Reading catalyst signals…"):
                 df = ce.apply_catalyst_rank(df, True, ticker_col=ticker_col)
-        except Exception:
-            pass
+        except Exception as e:
+            log_exc("catalysts", e)
+            st.caption("Catalysts unavailable for this list — dump or news feed failed.")
     return _with_rank(df)
 
 
@@ -2797,8 +2798,9 @@ def _require_closes():
         if st.button("🔄 Retry download", type="primary", key="hist_retry_empty"):
             st.cache_data.clear()
             st.rerun()
-        st.caption("The cascade map, screeners and stock lookup all need market "
-                   "history. Use **Macro Sim** in the bar above — it runs in the browser.")
+        st.caption("The Cascade Map needs this node history. Dump scanners "
+                   "(Scan Hub) and Stock Lookup can still run from the nightly dump "
+                   "and Alpaca. Use **Macro Sim** — it runs in the browser.")
         st.stop()
     closes, asof = c, str(c.index[-1].date())
     return closes, asof
@@ -2856,6 +2858,19 @@ def _dump_asof_key() -> str:
         return "" if d is None else str(pd.Timestamp(d).date())
     except Exception:
         return ""
+
+
+def _try_closes_for_scan():
+    """Dump scanners keep working when Alpaca/Yahoo node history is down."""
+    c, a = _try_closes()
+    if not a:
+        a = _dump_asof_key()
+    if c is None or getattr(c, "empty", False):
+        st.caption(
+            "Live node history is offline. Dump-based scans still run. "
+            "Macro lens and auto-regime stay off until Alpaca or Yahoo recover."
+        )
+    return c, a
 
 
 def flow_window_picker(prefix: str, compact: bool = False):
@@ -3228,7 +3243,7 @@ if _main == "Cascade Map" and _map == "Market Weather":
 
 # ── 🔎 stock lookup ──────────────────────────────────────────────────
 if _main == "Stock Lookup":
-    closes, asof = _require_closes()
+    closes, asof = _try_closes_for_scan()
     st.caption("Search any stock in the 5,700-name nightly universe. The "
                "outlook is an ANALOG forecast: what actually happened next to "
                "every (stock, day) in the data that looked like this one does "
@@ -3250,7 +3265,7 @@ if _main == "Stock Lookup":
 
     tk = st.session_state.get("lk_tk")
     if tk:
-        # full data chain FIRST: Alpaca -> yfinance -> nightly dump.
+        # full data chain FIRST: nightly dump -> Alpaca -> yfinance.
         # Any symbol either of them knows gets the complete analysis.
         _info, df_tk, _eh, _ef = _analyzer(tk, asof)
         if (df_tk is None or df_tk.empty) and tk in closes.columns:
@@ -3264,8 +3279,8 @@ if _main == "Stock Lookup":
                                df=df_tk, src_label=_hs, info=_info)
 
         if df_tk is None or df_tk.empty:
-            st.error(f"No price history found for **{tk}** from Alpaca, Yahoo, "
-                     "or the nightly dump — double-check the symbol "
+            st.error(f"No price history found for **{tk}** from the nightly dump, "
+                     "Alpaca, or Yahoo — double-check the symbol "
                      "(e.g. BRK-B not BRK.B, BTC-USD for crypto).")
         else:
             try:
@@ -3533,7 +3548,7 @@ if _main == "Scan Hub" and _hub == "Ignition Scanner":
 # ── 🌩 shakeout coils (pre-move scan, backtested on the nightly dump) ──
 if _main == "Scan Hub" and _hub == "ShakeOut":
     _hub_keep_restore("sw", ("sw_",))
-    closes, asof = _require_closes()
+    closes, asof = _try_closes_for_scan()
     GAUGE = _gauge()
     if _SW_ERR is not None or render_storm_watch_tab is None:
         st.error(f"Shakeout tab failed to load: {_SW_ERR}")
@@ -3549,7 +3564,7 @@ if _main == "Scan Hub" and _hub == "ShakeOut":
 # ── 🏆 top 20 mega screener ──────────────────────────────────────────
 if _main == "Scan Hub" and _hub == "TOP20":
     _hub_keep_restore("top20", ("top20_", "t20_", "forecast_all_toggle"))
-    closes, asof = _require_closes()
+    closes, asof = _try_closes_for_scan()
     GAUGE = _gauge()
     st.caption("One screener, four brains: IGNITION technicals + the macro "
                "simulator's quality DNA + the cascade engine's wave tailwind "
@@ -3839,6 +3854,11 @@ if _main == "Scan Hub" and _hub == "TOP20":
             st.session_state["top20_run_secs"] = _secs_key
             st.session_state.pop("t20_live", None)
             st.session_state.pop("top20_snap", None)
+        if not st.session_state.get("top20_go"):
+            st.info("Hit **Run scan** to build the ranked list. Nothing is fetched until then.")
+        elif st.session_state.get("top20_mode") != _method:
+            st.info("You changed how stocks are ranked. The list below is the previous "
+                    "scan. Hit **Run scan** to rebuild.")
         if _t20_ready and _b2.button(
                 "📡 Live prices", key="top20_live", width="stretch",
                 help="Pull live prices for the stocks currently listed — "
@@ -4241,7 +4261,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
 # ── ⚡ APEX FLOW screener ────────────────────────────────────────────
 if _main == "Scan Hub" and _hub == "Apex Flow":
     _hub_keep_restore("apex", ("apex_",))
-    closes, asof = _require_closes()
+    closes, asof = _try_closes_for_scan()
     GAUGE = _gauge()
     if _APEX_ERR:
         # NOTE: never st.stop() inside a tab — Streamlit halts the WHOLE script,
@@ -4421,6 +4441,12 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
 
         _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
         _apex_cat = _catalysts_section("apex")
+        _apex_sig = (
+            str(_tf), _sec_key, float(_min_score), int(_top_n),
+            bool(_require_calm), bool(_apply_rs), float(_min_price),
+            float(_min_dv), bool(_meta["validated"]),
+            int(_uni_n) if _uni_n is not None else 0,
+        )
         _go = st.button("⚡ Run APEX scan", key="apex_go", type="primary", width="stretch")
         if _go:
             st.session_state["apex_run"] = True
@@ -4435,6 +4461,8 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                 _src = _asnap.get("src", "")
                 if _res is None:
                     _res = pd.DataFrame()
+                if _asnap.get("sig") != _apex_sig:
+                    st.info("Filters changed since this list. Hit **Run APEX scan** to refresh.")
             else:
                 try:
                     with st.spinner(f"Scoring on {_tf} bars…"):
@@ -4464,6 +4492,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                     "df": _res.copy() if isinstance(_res, pd.DataFrame) else pd.DataFrame(),
                     "src": _src,
                     "tf": _tf,
+                    "sig": _apex_sig,
                 }
 
             if _res is None or _res.empty:
@@ -4526,6 +4555,8 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                                    "text/csv", key="apex_csv")
                 _scan_hub_pick_and_show(_sel_ax, _show, "apex_inline", "apexaz",
                                        source="Apex Flow")
+        else:
+            st.info("Hit **Run APEX scan** to build the list. Nothing is fetched until then.")
 
         if _advanced:
             with st.expander("❓ How APEX FLOW scores a stock"):
@@ -4870,6 +4901,8 @@ if _main == "Scan Hub" and _hub == "POC Future":
                 _pdf = _psnap.get("df")
                 if _pdf is None:
                     _pdf = pd.DataFrame()
+                if st.session_state.get("poc_run_sig") != _poc_sig:
+                    st.info("Filters changed since this list. Hit **Scan for setups** to refresh.")
             else:
                 import json as _pj
                 try:
@@ -4881,6 +4914,7 @@ if _main == "Scan Hub" and _hub == "POC Future":
                     _pdf = pd.DataFrame(); st.error(f"Scan failed: {_perr}")
                 st.session_state["poc_snap"] = {
                     "df": _pdf.copy() if isinstance(_pdf, pd.DataFrame) else pd.DataFrame(),
+                    "sig": _poc_sig,
                 }
             if _pdf is None or _pdf.empty:
                 st.info("No setups match right now. Widen the stages, loosen the "
@@ -4945,6 +4979,8 @@ if _main == "Scan Hub" and _hub == "POC Future":
                            f"the Win% column.")
                 _scan_hub_pick_and_show(_psel, _pdf, "poc_inline", "pocaz",
                                        source="POC Future")
+        else:
+            st.info("Hit **Scan for setups** to build the list. Nothing is fetched until then.")
 
         if not _poc_basic:
             with st.expander("❓ What this is, and what the testing actually showed"):
@@ -4983,7 +5019,7 @@ if _main == "Scan Hub" and _hub == "POC Future":
 # ── 🔎 Key Word Search — dump name + business-summary search ─────────
 if _main == "Scan Hub" and _hub == "Key Word Search":
     _hub_keep_restore("kw", ("kw_",))
-    closes, asof = _require_closes()
+    closes, asof = _try_closes_for_scan()
     st.markdown("### 🔎 Key Word Search — name and business summary")
     st.caption("Search the nightly dump for a word or phrase in the company "
                "name and the stored business summary. Set a price range, "
@@ -5015,11 +5051,16 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
             st.session_state.pop("kw_inline_tk", None)
 
     if st.session_state.get("kw_run"):
+        _kw_sig = (str(_kw_q or "").strip(), float(_kw_lo), float(_kw_hi), int(_kw_top))
         _ksnap = st.session_state.get("kw_snap") or {}
         if "df" in _ksnap:
             _kdf = _ksnap.get("df")
             if _kdf is None:
                 _kdf = pd.DataFrame()
+            _stored = (_ksnap.get("query"), _ksnap.get("lo"),
+                       _ksnap.get("hi"), _ksnap.get("top", _kw_top))
+            if _stored != _kw_sig:
+                st.info("Search settings changed. Hit **Search the dump** to refresh.")
         else:
             _q = str(_kw_q or "").strip()
             if not _q:
@@ -5038,6 +5079,7 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                 else pd.DataFrame(),
                 "query": str(_kw_q or "").strip(),
                 "lo": float(_kw_lo), "hi": float(_kw_hi),
+                "top": int(_kw_top),
             }
             _ksnap = st.session_state["kw_snap"]
         if _kdf is None or _kdf.empty:
@@ -5090,6 +5132,8 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
             st.caption("👆 Tap a row to load the full Stock Lookup below the list.")
             _scan_hub_pick_and_show(_ksel, _kdf, "kw_inline", "kwaz",
                                    source="Key Word Search", full_lookup=True)
+    else:
+        st.info("Type a keyword and hit **Search the dump**. Nothing is fetched until then.")
 
     _hub_keep_save("kw", ("kw_",))
 
@@ -5097,7 +5141,7 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
 # ── 🇺🇸 Trump Effect — speech keywords → market tells ───────────────
 if _main == "Scan Hub" and _hub == "Trump Effect":
     _hub_keep_restore("te", ("te_",))
-    closes, asof = _require_closes()
+    closes, asof = _try_closes_for_scan()
     st.markdown("### 🇺🇸 Trump Effect — what he keeps saying")
     st.caption(
         "Live White House remarks and news (same-day posts), with GovInfo "
@@ -5657,6 +5701,7 @@ if _main == "Cascade Map" and _map == "Cascade Validation Lab":
 
 # ── 📖 guide: every wave, every term, every key ──────────────────────
 if _main == "Cascade Map" and _map == "Guide":
+    _try_closes()
     _cats = {"core": "🏛 Core Indices", "sector": "🏭 Sectors",
              "theme": "🎯 Themes & Industries", "factor": "🧬 Factors",
              "breadth": "📊 Breadth", "country": "🌍 Countries",
@@ -5795,14 +5840,15 @@ if _main == "Cascade Map" and _map == "Guide":
     st.divider()
     st.markdown("### ⚙️ How the data flows")
     st.markdown(
-        f"- **Stock Lookup chain:** Alpaca (live) → Yahoo → nightly dump — the "
-        "source badges on every lookup show which fed the screen.\n"
+        f"- **Stock Lookup chain:** nightly dump → Alpaca keys → yfinance — the "
+        "source badges on every lookup show which fed the screen. Live 1-min "
+        "bars stay Alpaca then Yahoo (the dump is daily-only).\n"
         "- **Node history:** Alpaca batch + Yahoo gap-fill, cached ~1h; the 🔄 "
         "button on the Cascade Map forces a fresh pull (and keeps your old data "
         "if the feeds fail).\n"
         "- **Nightly dump:** ~5,700 stocks with OHLCV + fundamentals from your "
-        "scan pipeline — refreshes once a day and powers the Top 20, Felix, "
-        "analog library, and fastest-followers.\n"
+        "scan pipeline — first source for daily history, catalysts, and Scan Hub. "
+        "Refreshes once a day.\n"
         f"- **Versions:** engine v{getattr(ce, 'ENGINE_VERSION', '?')} — app and "
         "engine check each other at startup, so a half-deployed update fails "
         "loudly instead of mysteriously.")

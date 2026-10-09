@@ -1,8 +1,8 @@
 # UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(2, 39, 0, 0),
-    prodvers=(2, 39, 0, 0),
+    filevers=(2, 42, 0, 0),
+    prodvers=(2, 42, 0, 0),
     mask=0x3F,
     flags=0x0,
     OS=0x40004,
@@ -17,12 +17,12 @@ VSVersionInfo(
         [
           StringStruct("CompanyName", "AI Upscale"),
           StringStruct("FileDescription", "Money Maker"),
-          StringStruct("FileVersion", "2.40.0"),
+          StringStruct("FileVersion", "2.42.0"),
           StringStruct("InternalName", "MoneyWeather"),
           StringStruct("LegalCopyright", "Copyright (c) AI Upscale. Research tool. Not investment advice."),
           StringStruct("OriginalFilename", "MoneyWeather.exe"),
           StringStruct("ProductName", "Money Maker"),
-          StringStruct("ProductVersion", "2.40.0"),
+          StringStruct("ProductVersion", "2.42.0"),
         ]
       )
     ]),

@@ -1,7 +1,7 @@
 """Hybrid Screener — the magicpro33/stock filter suite, on the nightly dump.
 
 Filters, metric weights, and presets are the same ones the standalone Hybrid
-Stock Screener uses. Screening runs against the dump Money Weather already
+Stock Screener uses. Screening runs against the dump Money Maker already
 downloads (no live yfinance scan). Price / MA50 / range width are refreshed
 from the dump panel so the range lookback slider is honest.
 """
@@ -849,6 +849,8 @@ def render_hybrid_screener() -> None:
         for col, (key, label, help_) in zip(presets, _preset_btns):
             if col.button(label, width="stretch", key=_k(f"preset_{key}"), help=help_):
                 _apply_preset(key)
+                st.session_state.pop("_hs_display", None)
+                st.rerun()
 
     with st.expander("⚙️ Filters", expanded=True):
         r1 = st.columns([1.2, 1, 1, 1])
