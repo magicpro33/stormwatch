@@ -2499,16 +2499,19 @@ def _render_signed_catalysts(tk: str, sector: str = "") -> None:
     if not tk:
         return
     try:
-        with st.spinner("Reading catalysts…"):
-            pack = ce.ticker_catalysts(tk, sector)
+        with st.spinner("Deep-searching catalysts…"):
+            fn = getattr(ce, "lookup_catalysts", None) or ce.ticker_catalysts
+            pack = fn(tk, sector)
     except Exception as e:
         st.caption(f"Catalysts unavailable: {e}")
         return
     up, down, other = pack.get("up") or "", pack.get("down") or "", pack.get("other") or ""
     score = int(pack.get("score") or 0)
     st.markdown("##### Catalysts")
+    st.caption("Deep search: dump tape and fundamentals, Yahoo news, earnings "
+               "calendar, analyst actions, and insiders. Split ▲ Up vs ▼ Down.")
     if not (up or down or other):
-        st.caption("No dump or news catalysts firing on this name.")
+        st.caption("No catalysts firing after the deep search.")
         return
 
     def _pills(text, color, border, bg):
@@ -2537,11 +2540,21 @@ def _render_signed_catalysts(tk: str, sector: str = "") -> None:
         f"<div style='color:{RED};font-weight:800;font-size:11px;letter-spacing:1px;"
         f"text-transform:uppercase;margin-bottom:8px'>▼ Down</div>"
         f"{_pills(down, RED, '#a03535', '#220d0d')}</div></div>"
-        + (f"<div style='margin:0 0 8px'>{_pills(other, ACCENT, '#c47d0e', '#221800')}</div>"
+        + (f"<div style='background:#0c1829;border:1px solid {ACCENT};border-radius:10px;"
+           f"padding:10px 12px;margin:0 0 8px'>"
+           f"<div style='color:{ACCENT};font-weight:800;font-size:11px;letter-spacing:1px;"
+           f"text-transform:uppercase;margin-bottom:8px'>▲▼ Either way</div>"
+           f"{_pills(other, ACCENT, '#c47d0e', '#221800')}</div>"
            if other else "")
         + f"<div style='color:{DIM};font-size:12px;margin-bottom:8px'>"
-        f"Net score <b style='color:{sc_col}'>{score:+d}</b></div>"
+        f"Net signed score <b style='color:{sc_col}'>{score:+d}</b> "
+        f"(extras show, score 0)</div>"
     )
+    ev = pack.get("evidence") or []
+    if ev:
+        with st.expander("What the deep search found", expanded=False):
+            for line in ev[:12]:
+                st.caption(str(line))
 
 
 def _help_card(title, blurb, body, use=""):
@@ -2728,7 +2741,9 @@ def _render_scan_hub_help():
                "by net score — not by how many tags a name has. Positive "
                "scores float up; negative scores sink. Tape flags are read "
                "from the dump; M&A, FDA, DEAL, LEGAL, and OFFERING come "
-               "from headlines on the listed names.")
+               "from headlines on the listed names. Stock Lookup runs a "
+               "deeper search (calendar, upgrades, insiders, more news) and "
+               "still splits every hit ▲ Up vs ▼ Down.")
     meanings = {
         "washout":  "New 63-day low. In this sample, washed-out names bounced.",
         "earn_up":  "Dump earnings growth at least 25%.",

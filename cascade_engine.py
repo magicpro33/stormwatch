@@ -20,7 +20,7 @@ import os
 import io
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 try:
     from mw_paths import data_dir as _mw_data_dir
@@ -1530,12 +1530,15 @@ def _cat_tag(key: str) -> str:
     return f"{m['icon']} {m['label']}"
 
 
-def assemble_catalysts(dump_keys=None, news=None) -> dict:
+def assemble_catalysts(dump_keys=None, news=None, metrics=None,
+                       news_map=None) -> dict:
     """Merge dump flags + news into up/down groups and a net score."""
+    M = metrics or CATALYST_METRICS
+    nmap = news_map or NEWS_TO_CATALYST
     keys = list(dump_keys or [])
     nd = news or {}
     for ctype in nd.get("on") or []:
-        cid = NEWS_TO_CATALYST.get(ctype)
+        cid = nmap.get(ctype, ctype if ctype in M else None)
         if cid and cid not in keys:
             keys.append(cid)
     on_types = set(nd.get("on") or [])
@@ -1544,13 +1547,13 @@ def assemble_catalysts(dump_keys=None, news=None) -> dict:
             keys.append("bimodal")
     filtered = []
     for ctype in nd.get("filtered") or []:
-        cid = NEWS_TO_CATALYST.get(ctype)
+        cid = nmap.get(ctype, ctype if ctype in M else None)
         if cid and cid not in keys and cid not in filtered:
             filtered.append(cid)
     up, down, other = [], [], []
 
     def _put(cid, extra=""):
-        m = CATALYST_METRICS.get(cid)
+        m = M.get(cid)
         if not m:
             return
         tag = f"{m['icon']} {m['label']}{extra}"
@@ -1565,8 +1568,7 @@ def assemble_catalysts(dump_keys=None, news=None) -> dict:
         _put(cid)
     for cid in filtered:
         _put(cid, " (filtered)")
-    score = int(sum(CATALYST_METRICS[c]["value"] for c in keys
-                    if c in CATALYST_METRICS))
+    score = int(sum(M[c]["value"] for c in keys if c in M))
     up_s, down_s, other_s = " · ".join(up), " · ".join(down), " · ".join(other)
     parts = []
     if up_s:
@@ -1607,6 +1609,385 @@ def ticker_catalysts(ticker: str, sector: str | None = None,
         except Exception:
             news = {}
     return assemble_catalysts(dump_keys, news.get(tk))
+
+
+# Lookup-only extras. value 0 so scanner ranking is unchanged.
+LOOKUP_EXTRA_METRICS = {
+    "upgrade":      {"icon": "⬆️", "label": "UPGRADE",     "side": "up",   "value": 0},
+    "target_up":    {"icon": "🎯", "label": "TARGET ↑",    "side": "up",   "value": 0},
+    "insider_buy":  {"icon": "🕵️", "label": "INSIDER BUY", "side": "up",   "value": 0},
+    "buyback":      {"icon": "♻️", "label": "BUYBACK",     "side": "up",   "value": 0},
+    "div_hike":     {"icon": "💵", "label": "DIV ↑",       "side": "up",   "value": 0},
+    "guide_up":     {"icon": "📣", "label": "GUIDE ↑",     "side": "up",   "value": 0},
+    "contract":     {"icon": "📜", "label": "CONTRACT",    "side": "up",   "value": 0},
+    "index_add":    {"icon": "📌", "label": "INDEX ADD",   "side": "up",   "value": 0},
+    "activist":     {"icon": "📢", "label": "ACTIVIST",    "side": "up",   "value": 0},
+    "golden":       {"icon": "✨", "label": "GOLDEN X",    "side": "up",   "value": 0},
+    "oversold":     {"icon": "🌊", "label": "OVERSOLD",    "side": "up",   "value": 0},
+    "gap_down":     {"icon": "📉", "label": "GAP DOWN",    "side": "down", "value": 0},
+    "downgrade":    {"icon": "⬇️", "label": "DOWNGRADE",   "side": "down", "value": 0},
+    "target_dn":    {"icon": "🎯", "label": "TARGET ↓",    "side": "down", "value": 0},
+    "insider_sell": {"icon": "🚪", "label": "INSIDER SELL","side": "down", "value": 0},
+    "div_cut":      {"icon": "✂️", "label": "DIV CUT",     "side": "down", "value": 0},
+    "guide_dn":     {"icon": "📣", "label": "GUIDE ↓",     "side": "down", "value": 0},
+    "miss":         {"icon": "❌", "label": "MISS",        "side": "down", "value": 0},
+    "fda_fail":     {"icon": "🚫", "label": "FDA FAIL",    "side": "down", "value": 0},
+    "resign":       {"icon": "👤", "label": "RESIGN",      "side": "down", "value": 0},
+    "halt":         {"icon": "🛑", "label": "HALT",        "side": "down", "value": 0},
+    "bankrupt":     {"icon": "💀", "label": "DISTRESS",    "side": "down", "value": 0},
+    "death_x":      {"icon": "✖️", "label": "DEATH X",     "side": "down", "value": 0},
+    "stretched":    {"icon": "🔥", "label": "STRETCHED",   "side": "down", "value": 0},
+    "dtc":          {"icon": "⏳", "label": "DTC HIGH",    "side": "down", "value": 0},
+    "earn_soon":    {"icon": "📅", "label": "EARNINGS",    "side": "both", "value": 0},
+    "geo":          {"icon": "🌍", "label": "GEO/MACRO",   "side": "both", "value": 0},
+    "rate":         {"icon": "🏦", "label": "FED/RATES",   "side": "both", "value": 0},
+}
+LOOKUP_CATALYST_METRICS = {**CATALYST_METRICS, **LOOKUP_EXTRA_METRICS}
+LOOKUP_NEWS_MAP = {
+    **NEWS_TO_CATALYST,
+    "earnings": "earn_soon", "geopolitical": "geo", "rate": "rate",
+    "upgrade": "upgrade", "downgrade": "downgrade",
+    "guide_up": "guide_up", "guide_dn": "guide_dn",
+    "buyback": "buyback", "div_hike": "div_hike", "div_cut": "div_cut",
+    "contract": "contract", "index_add": "index_add", "activist": "activist",
+    "miss": "miss", "fda_fail": "fda_fail", "resign": "resign",
+    "halt": "halt", "bankrupt": "bankrupt", "deal": "deal",
+}
+
+# Phrase buckets for Lookup deep search. Noisy single words (oil, china, fed)
+# are avoided; phrases have to look like an event.
+_LOOKUP_NEWS_BUCKETS = {
+    "buyout":     (["acquisition", "acquire", "merger", "takeover", "buyout",
+                    "going private", "lbo", "strategic review"], 2),
+    "fda":        (["fda approval", "fda clears", "fda granted", "pdufa",
+                    "phase 3", "phase iii"], 1),
+    "fda_fail":   (["clinical hold", "complete response letter", "fda rejection",
+                    "crl ", "trial failed", "missed endpoint"], 1),
+    "deal":       (["partnership", "joint venture", "licensing deal",
+                    "supply agreement", "collaboration"], 1),
+    "legal":      (["class action", "sec investigation", "doj ", "lawsuit",
+                    "subpoena", "antitrust"], 2),
+    "offering":   (["secondary offering", "share offering", "atm offering",
+                    "registered direct", "public offering", "dilution"], 1),
+    "squeeze":    (["short squeeze", "short covering", "most shorted"], 1),
+    "breakout":   (["52-week high", "all-time high", "record high", "breakout"], 1),
+    "earn_up":    (["earnings beat", "beat estimates", "record earnings",
+                    "eps beat", "tops estimates"], 1),
+    "miss":       (["earnings miss", "missed estimates", "revenue miss",
+                    "misses estimates", "falls short"], 1),
+    "upgrade":    (["upgraded to", "upgrade to buy", "raised to overweight",
+                    "initiated at buy", "raises rating"], 1),
+    "downgrade":  (["downgraded to", "downgrade to sell", "cut to underweight",
+                    "initiated at sell", "lowers rating"], 1),
+    "guide_up":   (["raises guidance", "raised guidance", "boosts outlook",
+                    "guidance above", "raises forecast"], 1),
+    "guide_dn":   (["cuts guidance", "lowered guidance", "guidance cut",
+                    "withdraws guidance", "cuts outlook"], 1),
+    "buyback":    (["share repurchase", "share buyback", "repurchase program",
+                    "tender offer"], 1),
+    "div_hike":   (["raises dividend", "dividend increase", "special dividend",
+                    "hikes dividend"], 1),
+    "div_cut":    (["cuts dividend", "suspends dividend", "slashes dividend",
+                    "omits dividend"], 1),
+    "contract":   (["awarded contract", "wins contract", "defense contract",
+                    "selected as", "purchase order"], 1),
+    "index_add":  (["added to the s&p", "s&p 500 add", "index inclusion",
+                    "joins the nasdaq", "russell add"], 1),
+    "activist":   (["13d", "activist investor", "schedule 13d", "stake in"], 1),
+    "resign":     (["ceo resigns", "cfo resigns", "steps down", "terminated as",
+                    "leaves as ceo"], 1),
+    "halt":       (["trading halt", "halted for news", "circuit breaker"], 1),
+    "bankrupt":   (["chapter 11", "bankruptcy", "going concern", "defaults on"], 1),
+    "geo":        (["tariff", "sanction", "export ban", "trade war"], 2),
+    "rate":       (["rate hike", "rate cut", "fomc", "fed holds"], 2),
+    "earn_soon":  (["earnings", "reports q1", "reports q2", "reports q3",
+                    "reports q4", "quarterly results"], 1),
+}
+
+
+def _lookup_text_hits(blob: str) -> list:
+    """Catalyst ids whose phrases hit `blob` (already lowercased)."""
+    if not blob:
+        return []
+    out = []
+    for cid, (words, need) in _LOOKUP_NEWS_BUCKETS.items():
+        hits = sum(1 for w in words if w in blob)
+        if hits >= need:
+            out.append(cid)
+    if "fda_fail" in out and "fda" in out:
+        out = [c for c in out if c != "fda"]
+    if "downgrade" in out and "upgrade" in out:
+        out = [c for c in out if c != "upgrade"]
+    if "guide_dn" in out and "guide_up" in out:
+        out = [c for c in out if c != "guide_up"]
+    if "div_cut" in out and "div_hike" in out:
+        out = [c for c in out if c != "div_hike"]
+    if "miss" in out and "earn_up" in out:
+        out = [c for c in out if c != "earn_up"]
+    return out
+
+
+def _yf_news_blob(ticker_obj, n=40) -> str:
+    parts = []
+    try:
+        news = ticker_obj.news or []
+    except Exception:
+        news = []
+    for item in news[:n]:
+        content = item.get("content", item) if isinstance(item, dict) else {}
+        if not isinstance(content, dict):
+            content = {}
+        title = content.get("title") or item.get("title") or ""
+        summary = content.get("summary") or item.get("summary") or ""
+        parts.append(f"{title} {summary}")
+    return " ".join(parts).lower()
+
+
+def _lookup_dump_keys(ticker: str) -> list:
+    """Tape + fundamental flags for one name, including Lookup extras."""
+    keys = []
+    try:
+        mapping = dump_catalyst_map() or {}
+        keys.extend(list((mapping.get(ticker) or {}).get("keys") or []))
+    except Exception:
+        pass
+    try:
+        fund = dump_fundamentals(ticker) or {}
+    except Exception:
+        fund = {}
+    gc = fund.get("GoldenCross")
+    if gc is not None and float(gc) > 0:
+        keys.append("golden")
+    dtc = fund.get("DaysToCover")
+    if dtc is not None and float(dtc) >= 7:
+        keys.append("dtc")
+    try:
+        ohlc = dump_ohlcv(ticker)
+    except Exception:
+        ohlc = pd.DataFrame()
+    if ohlc is not None and not ohlc.empty and len(ohlc) >= 22:
+        cl = ohlc["Close"].astype(float)
+        op = ohlc["Open"].astype(float) if "Open" in ohlc.columns else cl
+        with np.errstate(invalid="ignore", divide="ignore"):
+            if len(cl) >= 2 and float(cl.iloc[-2]) > 0:
+                gap = float(op.iloc[-1]) / float(cl.iloc[-2]) - 1.0
+                if gap <= -0.03 and "gap_down" not in keys:
+                    keys.append("gap_down")
+            delta = cl.diff()
+            gain = delta.clip(lower=0)
+            loss = (-delta.clip(upper=0))
+            ag = gain.rolling(14).mean()
+            al = loss.rolling(14).mean()
+            rs = ag / al.replace(0, np.nan)
+            rsi = 100 - (100 / (1 + rs))
+            last_rsi = float(rsi.iloc[-1]) if np.isfinite(rsi.iloc[-1]) else None
+            if last_rsi is not None and last_rsi <= 30:
+                keys.append("oversold")
+            elif last_rsi is not None and last_rsi >= 75:
+                keys.append("stretched")
+            if len(cl) >= 200:
+                ma50 = float(cl.tail(50).mean())
+                ma200 = float(cl.tail(200).mean())
+                prev50 = float(cl.iloc[-51:-1].mean()) if len(cl) >= 51 else ma50
+                prev200 = float(cl.iloc[-201:-1].mean()) if len(cl) >= 201 else ma200
+                if ma50 > ma200 and prev50 <= prev200:
+                    keys.append("golden")
+                elif ma50 < ma200 and prev50 >= prev200:
+                    keys.append("death_x")
+    try:
+        rec = (_dump_records_cache() or {}).get(ticker) or {}
+        blob_bits = []
+        for k, v in rec.items():
+            lk = str(k).lower()
+            if any(p in lk for p in ("headline", "news", "catalyst", "event", "note")):
+                if isinstance(v, str) and len(v) > 8:
+                    blob_bits.append(v)
+        rec_hits = _lookup_text_hits(" ".join(blob_bits).lower())
+        keys.extend(rec_hits)
+    except Exception:
+        pass
+    # unique, keep order
+    seen, out = set(), []
+    for k in keys:
+        if k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out
+
+
+def _lookup_live_keys(ticker: str, sector: str) -> tuple:
+    """Yahoo news, calendar, analyst actions, insiders, targets."""
+    keys, evidence = [], []
+    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+    try:
+        import yfinance as yf
+        tobj = yf.Ticker(ticker)
+    except Exception:
+        return keys, evidence
+
+    blob = _yf_news_blob(tobj, 40)
+    for cid in _lookup_text_hits(blob):
+        keys.append(cid)
+        evidence.append(f"{LOOKUP_CATALYST_METRICS.get(cid, {}).get('label', cid)} — Yahoo headline")
+
+    try:
+        news_d = news_catalyst_detail([ticker], {ticker: sector}) or {}
+        for ctype in (news_d.get(ticker) or {}).get("on") or []:
+            cid = LOOKUP_NEWS_MAP.get(ctype)
+            if cid:
+                keys.append(cid)
+    except Exception:
+        pass
+
+    info = {}
+    try:
+        info = tobj.info or {}
+    except Exception:
+        info = {}
+
+    try:
+        px = float(info.get("currentPrice") or info.get("regularMarketPrice")
+                   or info.get("previousClose") or 0)
+        am = float(info.get("targetMeanPrice") or 0)
+        if px > 0 and am > 0:
+            upside = (am - px) / px
+            if upside >= 0.15:
+                keys.append("target_up")
+                evidence.append(f"TARGET ↑ — consensus {upside:.0%} above last")
+            elif upside <= -0.05:
+                keys.append("target_dn")
+                evidence.append(f"TARGET ↓ — trading {abs(upside):.0%} above target")
+    except Exception:
+        pass
+
+    try:
+        cal = tobj.calendar
+        ed = None
+        if isinstance(cal, dict):
+            ed = cal.get("Earnings Date") or cal.get("earningsDate")
+            if isinstance(ed, (list, tuple)):
+                ed = ed[0] if ed else None
+        elif isinstance(cal, pd.DataFrame) and not cal.empty:
+            for lbl in ("Earnings Date", "earningsDate"):
+                if lbl in cal.index:
+                    ed = cal.loc[lbl].iloc[0]
+                    break
+        ed_dt = pd.to_datetime(ed, errors="coerce", utc=True)
+        if pd.notna(ed_dt):
+            days = (ed_dt.date() - datetime.now(timezone.utc).date()).days
+            if -1 <= days <= 7:
+                keys.append("earn_soon")
+                evidence.append(f"EARNINGS — {days}d to print")
+            if -1 <= days <= 3:
+                keys.append("bimodal")
+    except Exception:
+        pass
+
+    try:
+        rec = getattr(tobj, "upgrades_downgrades", None)
+        if rec is None:
+            rec = getattr(tobj, "recommendations", None)
+        if rec is not None and hasattr(rec, "empty") and not rec.empty:
+            df = rec.copy()
+            if not isinstance(df.index, pd.RangeIndex):
+                df = df.reset_index()
+            date_col = None
+            for c in df.columns:
+                if str(c).lower() in ("date", "gradingdate", "epochgrade"):
+                    date_col = c
+                    break
+            if date_col is not None:
+                df[date_col] = pd.to_datetime(df[date_col], errors="coerce", utc=True)
+                cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=45)
+                df = df[df[date_col] >= cutoff]
+            act_col = None
+            for c in df.columns:
+                if str(c).lower() in ("action", "toGrade", "tograde", "grade"):
+                    act_col = c
+                    break
+            blob_r = " ".join(str(v).lower() for v in df[act_col].tolist()[:20]) if act_col else ""
+            blob_r += " " + " ".join(df.astype(str).head(20).fillna("").values.flatten().tolist()).lower()
+            if any(w in blob_r for w in ("upgrade", "upgraded", "overweight", "outperform", "buy")):
+                keys.append("upgrade")
+                evidence.append("UPGRADE — analyst action in last 45d")
+            if any(w in blob_r for w in ("downgrade", "downgraded", "underweight", "underperform", "sell")):
+                keys.append("downgrade")
+                evidence.append("DOWNGRADE — analyst action in last 45d")
+    except Exception:
+        pass
+
+    try:
+        ins = getattr(tobj, "insider_transactions", None)
+        if ins is not None and len(ins) > 0:
+            ins = ins.copy()
+            date_col = None
+            for c in ["Start Date", "startDate", "Date"]:
+                if c in ins.columns:
+                    date_col = c
+                    break
+            if date_col is not None:
+                ins[date_col] = pd.to_datetime(ins[date_col], errors="coerce")
+                ins = ins[ins[date_col] >= (pd.Timestamp.now() - pd.Timedelta(days=90))]
+            text_col = "Text" if "Text" in ins.columns else None
+            val_col = "Value" if "Value" in ins.columns else None
+            net = 0.0
+            for _, row in ins.iterrows():
+                txt = str(row.get(text_col, "")).lower() if text_col else ""
+                tr = str(row.get("Transaction", "")).lower()
+                val = row.get(val_col, 0) if val_col else 0
+                try:
+                    val = float(val) if pd.notna(val) else 0.0
+                except Exception:
+                    val = 0.0
+                is_buy = ("purchase" in txt) or ("buy" in tr) or ("purchase" in tr)
+                is_sell = ("sale" in txt) or ("sell" in tr) or ("sale" in tr)
+                if is_buy:
+                    net += abs(val)
+                elif is_sell:
+                    net -= abs(val)
+            if net >= 100_000:
+                keys.append("insider_buy")
+                evidence.append(f"INSIDER BUY — net ${net:,.0f} / 90d")
+            elif net <= -1_000_000:
+                keys.append("insider_sell")
+                evidence.append(f"INSIDER SELL — net ${net:,.0f} / 90d")
+    except Exception:
+        pass
+
+    seen, out = set(), []
+    for k in keys:
+        if k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out, evidence
+
+
+def lookup_catalysts(ticker: str, sector: str | None = None) -> dict:
+    """Deep catalyst search for Stock Lookup: dump + live Yahoo layers."""
+    tk = str(ticker or "").strip().upper()
+    empty = assemble_catalysts(metrics=LOOKUP_CATALYST_METRICS,
+                               news_map=LOOKUP_NEWS_MAP)
+    if not tk:
+        return empty
+    sec = str(sector or "").strip()
+    if not sec:
+        try:
+            sec = str((dump_fundamentals(tk) or {}).get("Sector") or "")
+        except Exception:
+            sec = ""
+    dump_keys = _lookup_dump_keys(tk)
+    live_keys, evidence = _lookup_live_keys(tk, sec)
+    keys = []
+    seen = set()
+    for k in dump_keys + live_keys:
+        if k not in seen:
+            seen.add(k)
+            keys.append(k)
+    pack = assemble_catalysts(keys, metrics=LOOKUP_CATALYST_METRICS,
+                              news_map=LOOKUP_NEWS_MAP)
+    pack["evidence"] = evidence
+    pack["deep"] = True
+    return pack
 
 
 def dump_catalyst_map() -> dict:
