@@ -660,6 +660,16 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                 view = ce.apply_catalyst_rank(view, True)
         except Exception:
             pass
+    try:
+        import cascade_engine as ce
+        show = ce.stamp_rank(show)
+        view = ce.stamp_rank(view)
+    except Exception:
+        if show is not None and not getattr(show, "empty", True):
+            show = show.copy()
+            if "#" in show.columns:
+                show = show.drop(columns=["#"])
+            show.insert(0, "#", list(range(1, len(show) + 1)))
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("As of", info.get("as_of", "—"),
               help="Last session in the nightly dump used for this ranking.")
@@ -705,6 +715,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         styler, width="stretch", hide_index=True, height=min(740, 80 + 34 * len(show)),
         on_select="rerun", selection_mode="single-row", key="sw_table",
         column_config={
+            "#": st.column_config.NumberColumn(
+                "#", width="small", format="%d",
+                help="Scan rank. 1 is first on this list. Click the header to sort."),
             "Catalysts": st.column_config.Column(
                 width="large",
                 help="Signed catalysts. Up: 💥 WASH OUT, 📈 EARN ↑, 🚀 BREAKOUT, "

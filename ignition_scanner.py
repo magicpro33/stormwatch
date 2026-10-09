@@ -3011,12 +3011,19 @@ def render_ignition_scanner_tab():
                 "Signals": ", ".join(r["reasons"][:5]),
             })
         df = pd.DataFrame(rows)
+        if not df.empty:
+            if "#" in df.columns:
+                df = df.drop(columns=["#"])
+            df.insert(0, "#", list(range(1, len(df) + 1)))
         if not show_all_cols:
-            keep = ["Ticker", "Score", "NightlyRank", "Ignition", "Fuel"]
+            keep = ["#", "Ticker", "Score", "NightlyRank", "Ignition", "Fuel"]
             df = df[[c for c in keep if c in df.columns]]
             if "NightlyRank" in df.columns and df["NightlyRank"].isna().all():
                 df = df.drop(columns=["NightlyRank"])
         col_cfg = {
+            "#": st.column_config.NumberColumn(
+                "#", width="small", format="%d",
+                help="Scan rank. 1 is first on this list. Click the header to sort."),
             "Score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%.0f", help=HELP["Score"]),
             "Ignition": st.column_config.ProgressColumn("Ignition", min_value=0, max_value=100, format="%.0f", help=HELP["Ignition"]),
             "Fuel": st.column_config.ProgressColumn("Fuel", min_value=0, max_value=100, format="%.0f", help=HELP["Fuel"]),

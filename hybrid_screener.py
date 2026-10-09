@@ -1044,6 +1044,8 @@ def render_hybrid_screener() -> None:
                 display = ce.apply_catalyst_rank(display, True)
         except Exception:
             pass
+    if display is not None and not getattr(display, "empty", True):
+        display = ce.stamp_rank(display)
     diag = st.session_state.get("_hs_diag") or {}
     if display is None:
         st.info("Pick a preset or set your own weights, then click **Run Screener**.")
@@ -1113,19 +1115,23 @@ def render_hybrid_screener() -> None:
                             pass
 
     order = [c for c in [
-        "Ticker", "Sector", "Price", "Catalysts", "First print", "Days listed",
+        "#", "Ticker", "Sector", "Price", "Catalysts", "First print", "Days listed",
         "MarketCap", "P/E",
         "OwnerEarnings", "MA50", "RangeHigh", "RangeLow", "RangePos",
         "MFI_Signal", "Score", "Short % Float", "Days to Cover",
         "Div Yield", "Div Rate",
     ] if c in display.columns]
     _cat_cfg = {
-        "Catalysts": st.column_config.Column(
+        "#": st.column_config.NumberColumn(
+            "#", width="small", format="%d",
+            help="Scan rank. 1 is first on this list. Click the header to sort."),
+    }
+    if "Catalysts" in display.columns:
+        _cat_cfg["Catalysts"] = st.column_config.Column(
             width="large",
             help="Signed catalysts. Up: 💥 WASH OUT, 📈 EARN ↑, 🚀 BREAKOUT, "
                  "🤝 M&A, 💊 FDA, 🔗 DEAL. Down: 🩸 SELL OFF, 🎈 GAP UP, "
-                 "💸 OFFERING, ⚖️ LEGAL, 🩳 SQUEEZE. Ranked by net score."),
-    } if "Catalysts" in display.columns else {}
+                 "💸 OFFERING, ⚖️ LEGAL, 🩳 SQUEEZE. Ranked by net score.")
     try:
         styled = display.style.map(_color_score, subset=["Score"]) if "Score" in display.columns else display
         _tsel = st.dataframe(

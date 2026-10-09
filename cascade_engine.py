@@ -1622,8 +1622,17 @@ def apply_catalyst_rank(df, enabled: bool, ticker_col: str = "Ticker"):
     out["_ord"] = np.arange(len(out))
     out = out.sort_values(["_cat_n", "_ord"], ascending=[False, True])
     out = out.drop(columns=["_cat_n", "_ord"]).reset_index(drop=True)
-    if "#" in out.columns:
-        out["#"] = list(range(1, len(out) + 1))
+    return stamp_rank(out)
+
+
+def stamp_rank(df, col: str = "#"):
+    """Number the current row order 1…n so the list can be sorted by rank."""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    out = df.copy()
+    if col in out.columns:
+        out = out.drop(columns=[col])
+    out.insert(0, col, np.arange(1, len(out) + 1))
     return out
 
 

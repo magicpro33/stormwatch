@@ -2412,14 +2412,24 @@ def _catalysts_section(key: str, pill: bool = True):
     return bool(on)
 
 
-def _with_catalysts(df, on, ticker_col="Ticker"):
-    if not on:
-        return df
+def _with_rank(df):
+    """Stamp a 1-based rank on the current list order."""
     try:
-        with st.spinner("Reading catalyst signals…"):
-            return ce.apply_catalyst_rank(df, True, ticker_col=ticker_col)
+        return ce.stamp_rank(df)
     except Exception:
         return df
+
+
+def _with_catalysts(df, on, ticker_col="Ticker"):
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    if on:
+        try:
+            with st.spinner("Reading catalyst signals…"):
+                df = ce.apply_catalyst_rank(df, True, ticker_col=ticker_col)
+        except Exception:
+            pass
+    return _with_rank(df)
 
 
 def _cat_col_cfg():
@@ -2431,15 +2441,30 @@ def _cat_col_cfg():
     )
 
 
+def _rank_col_cfg():
+    return st.column_config.NumberColumn(
+        "#", width="small", format="%d",
+        help="Scan rank. 1 is first on this list. Click the header to sort.")
+
+
 def _order_with_cat(order, df):
-    if df is None or "Catalysts" not in getattr(df, "columns", []):
-        return order
-    order = [c for c in (order or []) if c != "Catalysts"]
-    for after in ("Price", "Sector", "Ticker"):
-        if after in order:
-            i = order.index(after) + 1
-            return order[:i] + ["Catalysts"] + order[i:]
-    return ["Catalysts"] + order
+    order = list(order or [])
+    cols = getattr(df, "columns", [])
+    if df is not None and "Catalysts" in cols:
+        order = [c for c in order if c != "Catalysts"]
+        placed = False
+        for after in ("Price", "Sector", "Ticker"):
+            if after in order:
+                i = order.index(after) + 1
+                order = order[:i] + ["Catalysts"] + order[i:]
+                placed = True
+                break
+        if not placed:
+            order = ["Catalysts"] + order
+    if df is not None and "#" in cols:
+        order = [c for c in order if c != "#"]
+        order = ["#"] + order
+    return order
 
 
 def _help_card(title, blurb, body, use=""):
@@ -3826,6 +3851,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _fc = fc20.copy()
             _fc, _lmeta = _apply_live(_fc)
             _live_banner(_lmeta)
+            _fc = _with_rank(_fc)
             _fcsel = st.dataframe(
                 _fc.style.format(_live_fmt(_fc, {
                     "Price": "${:,.2f}", "OddsUp": "{:.0f}%",
@@ -3838,10 +3864,13 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 .map(lambda v: _css_sign(v) if isinstance(v,(int,float)) else "", subset=["Typical"]),
                 width="stretch", hide_index=True, height=740,
                 on_select="rerun", selection_mode="single-row", key="forecast_table",
-                column_order=(["Ticker", "Sector", "Price"]
-                              + (["Live", "Chg%", "Src"] if "Live" in _fc.columns else [])
-                              + ["OddsUp", "Typical"]),
+                column_order=_order_with_cat(
+                    ["Ticker", "Sector", "Price"]
+                    + (["Live", "Chg%", "Src"] if "Live" in _fc.columns else [])
+                    + ["OddsUp", "Typical"],
+                    _fc),
                 column_config={
+                    "#": _rank_col_cfg(),
                     "OddsUp": st.column_config.Column(help="Share of analog look-alike cases that finished HIGHER after 21 sessions. This is what the preset ranks by."),
                     "Typical": st.column_config.Column(help="Median analog outcome — the middle-of-the-pack result. Breaks ties on odds."),
                     "PopOdds": st.column_config.Column(help="Share of analogs that popped +15% or more."),
@@ -3886,6 +3915,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 unsafe_allow_html=True)
             _m20, _lmeta = _apply_live(_m20)
             _live_banner(_lmeta)
+            _m20 = _with_rank(_m20)
             # Fit / MacroFit / Quality / Data stay in the frame (they drive the
             # ranking and the styling) but are hidden from the display
             _mcols = (["Ticker", "Sector", "Price"]
@@ -3905,8 +3935,10 @@ if _main == "Scan Hub" and _hub == "TOP20":
                                 else f"color:{DIM}"), subset=["Data"]),
                 width="stretch", hide_index=True, height=740,
                 on_select="rerun", selection_mode="single-row", key="macro_table",
-                column_order=[c for c in _mcols if c in _m20.columns],
+                column_order=_order_with_cat(
+                    [c for c in _mcols if c in _m20.columns], _m20),
                 column_config={
+                    "#": _rank_col_cfg(),
                     "Fit": st.column_config.Column(help="Quality score multiplied by this sector's multiplier under the chosen scenario."),
                     "MacroFit": st.column_config.Column(help="The scenario's sector multiplier. Above 1.00 = a sector this regime favours."),
                     "Quality": st.column_config.Column(help="Composite of ROIC, owner-earnings yield, Piotroski, ROIC trend and growth. Missing inputs rank at the bottom."),
@@ -3944,6 +3976,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _f = f20.copy()
             _f, _lmeta = _apply_live(_f)
             _live_banner(_lmeta)
+            _f = _with_rank(_f)
             _fsel = st.dataframe(
                 _f.style.format(_live_fmt(_f, {
                     "Price": "${:,.2f}", "Felix": "{:.1f}",
@@ -3961,11 +3994,14 @@ if _main == "Scan Hub" and _hub == "TOP20":
                                       else f"color:{DIM}")), subset=["Data"]),
                 width="stretch", hide_index=True, height=740,
                 on_select="rerun", selection_mode="single-row", key="felix_table",
-                column_order=(["Ticker", "Sector", "Price"]
-                              + (["Live", "Chg%", "Src"] if "Live" in _f.columns else [])
-                              + ["ROIC", "OE Yield", "Piotroski", "ROIC Trend",
-                                 "P/E", "RevGrowth"]),
+                column_order=_order_with_cat(
+                    ["Ticker", "Sector", "Price"]
+                    + (["Live", "Chg%", "Src"] if "Live" in _f.columns else [])
+                    + ["ROIC", "OE Yield", "Piotroski", "ROIC Trend",
+                       "P/E", "RevGrowth"],
+                    _f),
                 column_config={
+                    "#": _rank_col_cfg(),
                     "Felix": st.column_config.Column(help="Weighted checklist score, mirroring the screener preset exactly: ROIC x5, OE Yield x4, Piotroski x4, ROIC Trend x2, growth x1 each — percentile-ranked, P/E-gated."),
                     "Tests": st.column_config.Column(help="How many of the four measurable quality bars this stock clears. A missing input can never pass a test."),
                     "Data": st.column_config.Column(help="How many of the 6 Felix inputs (ROIC, OE yield, Piotroski, ROIC trend, revenue growth, earnings growth) this stock actually has. Missing inputs rank at the BOTTOM, never as average."),
@@ -4015,6 +4051,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 _t["Catalysts"] = [
                     " · ".join(x for x in (_t.Catalysts.iloc[i], _nt.get(tkr, "")) if x)
                     for i, tkr in enumerate(_t.Ticker)]
+            _t = _with_rank(_t)
             _sel20 = st.dataframe(
                 _t.style.format(_live_fmt(_t, {
                     "Price": "${:,.2f}", "Score": "{:.1f}", "Tech": "{:.0f}",
@@ -4032,11 +4069,14 @@ if _main == "Scan Hub" and _hub == "TOP20":
                                       else f"color:{DIM}")), subset=["Data"]),
                 width="stretch", hide_index=True, height=740,
                 on_select="rerun", selection_mode="single-row", key="top20_table",
-                column_order=(["Ticker", "Sector", "Price"]
-                              + (["Live", "Chg%", "Src"] if "Live" in _t.columns else [])
-                              + ["Data", "Piotroski", "RevGrowth", "RVOL",
-                                 "RangePos", "Catalysts"]),
+                column_order=_order_with_cat(
+                    ["Ticker", "Sector", "Price"]
+                    + (["Live", "Chg%", "Src"] if "Live" in _t.columns else [])
+                    + ["Data", "Piotroski", "RevGrowth", "RVOL",
+                       "RangePos", "Catalysts"],
+                    _t),
                 column_config={
+                    "#": _rank_col_cfg(),
                     "Score": st.column_config.Column(help="Combined score: 42% technicals + 23% quality + 29% cascade tailwind + 6% catalysts, multiplied by the macro-regime sector fit."),
                     "Tech": st.column_config.Column(help="IGNITION technical percentile: momentum, range position, relative volume, trend, RSI sweet spot, MACD."),
                     "Quality": st.column_config.Column(help="Macro-simulator quality DNA: Piotroski, golden cross, ROIC, revenue & earnings growth."),
@@ -4390,6 +4430,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                            "VAL", "POC", "VAH"],
                         _show),
                     column_config={
+                        "#": _rank_col_cfg(),
                         "Catalysts": _cat_col_cfg(),
                         "Score": st.column_config.Column(help="APEX conviction 0-100. Same number the indicator shows."),
                         "Risk": st.column_config.Column(help="Volatility state. CALM is the only one that passes the tested gate."),
@@ -4809,6 +4850,7 @@ if _main == "Scan Hub" and _hub == "POC Future":
                          "Win%", "ExpR"],
                         _pdf),
                     column_config={
+                        "#": _rank_col_cfg(),
                         "Catalysts": _cat_col_cfg(),
                         "Stage": st.column_config.Column(help="TRIGGERED = POC reclaimed. SWEPT = lows taken, reclaim pending. COILING = range forming."),
                         "BarsAgo": st.column_config.Column(help="Sessions since the stage began. 0 = it happened on the latest bar."),
@@ -4954,6 +4996,7 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                 key="kw_table",
                 column_order=_korder or None,
                 column_config={
+                    "#": _rank_col_cfg(),
                     "Catalysts": _cat_col_cfg(),
                     "Name": st.column_config.Column(help="Dump company name."),
                     "Where": st.column_config.Column(
@@ -5221,6 +5264,7 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                              if c in _tdf.columns],
                             _tdf) or None,
                         column_config={
+                            "#": _rank_col_cfg(),
                             "Catalysts": _cat_col_cfg(),
                             "Price": st.column_config.Column(
                                 help="Last close in the nightly dump."),
