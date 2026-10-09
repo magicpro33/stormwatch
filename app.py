@@ -4404,17 +4404,16 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                 st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
 
                 _show = _with_catalysts(_res.copy(), _apex_cat)
+                _ax_hide = {"Data", "Score", "Risk"}
+                _ax_view = _show.drop(columns=[c for c in _ax_hide if c in _show.columns])
                 _sel_ax = st.dataframe(
-                    _show.style.format({
-                        "Score": "{:.1f}", "Adj": "{:.1f}", "Macro": "{:.2f}",
-                        "Price": "${:,.2f}", "Vol%": "{:.2f}%",
-                        "RangePos": "{:.0f}%", "RS": "{:+.2f}%",
-                        "POC": "${:,.2f}", "VAL": "${:,.2f}", "VAH": "${:,.2f}"}, na_rep="—")
-                    .map(lambda v: f"color:{ACCENT};font-weight:700"
-                         if isinstance(v, (int, float)) and v >= 85 else "", subset=["Score"])
-                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "CALM"
-                                    else (f"color:{RED};font-weight:600" if v == "HIGH"
-                                          else "color:#d0b040")), subset=["Risk"])
+                    _ax_view.style.format({
+                        k: v for k, v in {
+                            "Adj": "{:.1f}", "Macro": "{:.2f}",
+                            "Price": "${:,.2f}", "Vol%": "{:.2f}%",
+                            "RangePos": "{:.0f}%", "RS": "{:+.2f}%",
+                            "POC": "${:,.2f}", "VAL": "${:,.2f}", "VAH": "${:,.2f}",
+                        }.items() if k in _ax_view.columns}, na_rep="—")
                     .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "BELOW VALUE"
                                     else (f"color:{DIM}" if v == "IN VALUE"
                                           else "color:#b565f3")), subset=["ValueArea"])
@@ -4423,17 +4422,15 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                     width="stretch", hide_index=True, height=620,
                     on_select="rerun", selection_mode="single-row", key="apex_table",
                     column_order=_order_with_cat(
-                        ["#", "Ticker", "Sector", "Score"]
-                        + (["Macro", "Adj"] if "Adj" in _show.columns else [])
-                        + ["Risk", "Vol%",
+                        ["#", "Ticker", "Sector"]
+                        + (["Macro", "Adj"] if "Adj" in _ax_view.columns else [])
+                        + ["Vol%",
                            "RangePos", "ValueArea", "Regime", "RS", "Price",
                            "VAL", "POC", "VAH"],
-                        _show),
+                        _ax_view),
                     column_config={
                         "#": _rank_col_cfg(),
                         "Catalysts": _cat_col_cfg(),
-                        "Score": st.column_config.Column(help="APEX conviction 0-100. Same number the indicator shows."),
-                        "Risk": st.column_config.Column(help="Volatility state. CALM is the only one that passes the tested gate."),
                         "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
                         "RangePos": st.column_config.Column(help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
                         "ValueArea": st.column_config.Column(help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
