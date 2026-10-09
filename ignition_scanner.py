@@ -24,7 +24,7 @@ conditions all fire at once, the ticker is flagged IGNITING and logged
 to the alert feed with a timestamp.
 
 Run:  streamlit run ignition_scanner.py
-Data: Yahoo Finance via yfinance (free, ~15 min delayed on some feeds).
+Data: nightly dump first, then Alpaca API keys, then yfinance.
 """
 
 import time
@@ -884,12 +884,35 @@ def _bars_ok(df, n):
     return df is not None and len(df) >= n
 
 
+def _dump_daily_bars(ticker: str, n: int = 120):
+    """Daily OHLCV from the nightly dump panel. None if the dump isn't loaded."""
+    try:
+        import cascade_engine as ce
+        d = ce.dump_ohlcv(ticker)
+        if d is None or d.empty:
+            return None
+        d = d.tail(int(n))
+        return d if len(d) else None
+    except Exception:
+        return None
+
+
+def _finite_num(v):
+    try:
+        if v is None or (isinstance(v, str) and not str(v).strip()):
+            return None
+        x = float(v)
+        return x if np.isfinite(x) else None
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=55, show_spinner=False)
 def fetch_intraday(ticker: str):
     """1-minute bars for today plus 5-minute bars for ~5 days.
-    Tries Alpaca (real-time) first when keys are configured, but validates the
-    result: thin tickers can come back nearly empty on the free IEX feed, so
-    anything insufficient falls back to Yahoo, and the better source wins."""
+    Dump is daily-only, so live bars are Alpaca (when keys are set) then Yahoo.
+    Thin tickers can come back nearly empty on the free IEX feed, so anything
+    insufficient falls back to Yahoo, and the better source wins."""
     m1_a = m5_a = None
     _ak = alpaca_keys()
     if _ak:
@@ -929,8 +952,13 @@ def fetch_intraday(ticker: str):
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_daily(ticker: str):
     """~3 months of daily bars for the RVOL baseline and previous close.
-    Tries Alpaca first when keys are configured, validates, falls back to
-    Yahoo, and keeps whichever source has more history."""
+
+    Order: nightly dump, then Alpaca keys, then Yahoo. Dump is preferred
+    because it already has the full panel; API/Yahoo only fill gaps.
+    """
+    d_d = _dump_daily_bars(ticker, 120)
+    if _bars_ok(d_d, 21):
+        return d_d
     d_a = None
     _ak = alpaca_keys()
     if _ak:
@@ -949,9 +977,9 @@ def fetch_daily(ticker: str):
         d_y = None
     if _bars_ok(d_y, 21):
         return d_y
-    a_n = len(d_a) if d_a is not None else 0
-    y_n = len(d_y) if d_y is not None else 0
-    return d_a if a_n >= y_n else d_y
+    cands = [(len(x) if x is not None else 0, x) for x in (d_d, d_a, d_y)]
+    cands.sort(key=lambda t: t[0], reverse=True)
+    return cands[0][1]
 
 
 # ----------------------------------------------------------------------------
@@ -1096,6 +1124,93 @@ def load_screener_dump(url: str) -> pd.DataFrame:
     return df
 
 
+def _row_pick(row, *keys):
+    """First usable value from a dump Series/dict under any of the given keys."""
+    if row is None:
+        return None
+    for k in keys:
+        v = None
+        try:
+            if isinstance(row, dict):
+                v = row.get(k)
+            elif hasattr(row, "index") and k in row.index:
+                v = row[k]
+            elif hasattr(row, "get"):
+                v = row.get(k)
+        except Exception:
+            v = None
+        if v is None:
+            continue
+        try:
+            if isinstance(v, float) and not np.isfinite(v):
+                continue
+            if pd.isna(v):
+                continue
+        except Exception:
+            pass
+        if isinstance(v, str) and not v.strip():
+            continue
+        return v
+    return None
+
+
+def _dump_seed(ticker: str) -> dict:
+    """Fundamentals + 52-week high from the nightly dump. Empty if dump isn't loaded."""
+    seed = {}
+    try:
+        import cascade_engine as ce
+        fund = ce.dump_fundamentals(ticker) or {}
+        spf = _finite_num(fund.get("ShortPctFloat"))
+        if spf is not None:
+            seed["short_pct_float"] = spf if spf <= 1.5 else spf / 100.0
+        dtc = _finite_num(fund.get("DaysToCover"))
+        if dtc is not None:
+            seed["days_to_cover"] = round(dtc, 1)
+        eg = _finite_num(fund.get("EarningsGrowth"))
+        if eg is not None:
+            seed["_dump_earn_growth"] = eg
+        if fund.get("Sector"):
+            seed["sector"] = str(fund["Sector"])
+        ohlc = ce.dump_ohlcv(ticker)
+        if ohlc is not None and not ohlc.empty and "High" in ohlc.columns:
+            hi = _finite_num(ohlc["High"].tail(252).max())
+            if hi is not None:
+                seed["high_52w"] = hi
+    except Exception:
+        pass
+    try:
+        dump = load_screener_dump(SCREENER_URL_DEFAULT)
+        sym = str(ticker).strip().upper()
+        if dump is not None and not dump.empty and sym in dump.index:
+            row = dump.loc[sym]
+            name = _row_pick(row, "name", "shortName", "company", "Company")
+            if name:
+                seed["name"] = str(name)
+            flt = _finite_num(_row_pick(row, "float_shares", "floatShares", "float"))
+            if flt is not None:
+                seed["float_shares"] = flt
+            tgt = _finite_num(_row_pick(row, "target_mean", "targetMeanPrice", "target"))
+            if tgt is not None:
+                seed["target_mean"] = tgt
+            if not seed.get("sector"):
+                sec = _row_pick(row, "sector", "Sector")
+                if sec:
+                    seed["sector"] = str(sec)
+            if seed.get("short_pct_float") is None:
+                spf = _finite_num(_row_pick(row, "short_pct_float", "shortPercentOfFloat",
+                                           "shortpctfloat"))
+                if spf is not None:
+                    seed["short_pct_float"] = spf if spf <= 1.5 else spf / 100.0
+            if seed.get("days_to_cover") is None:
+                dtc = _finite_num(_row_pick(row, "days_to_cover", "short_ratio",
+                                           "daystocover", "DaysToCover"))
+                if dtc is not None:
+                    seed["days_to_cover"] = round(dtc, 1)
+    except Exception:
+        pass
+    return seed
+
+
 @st.cache_data(ttl=86400, show_spinner="Building today's watchlist from nightly dump...")
 def screener_watchlist(url: str, pool_size: int, min_price: float, day_key: str):
     """Pin the candidate watchlist ONCE per calendar day from the nightly dump.
@@ -1196,7 +1311,11 @@ def sector_allows(catalyst: str, sector: str) -> bool:
 def fetch_fuel(ticker: str) -> dict:
     """Slow-moving 'primed to move' data: short interest, float,
     insider transactions, news, 52-week levels, earnings date,
-    sector, institutional ownership, and full catalyst detection."""
+    sector, institutional ownership, and full catalyst detection.
+
+    Fundamentals: nightly dump first, then yfinance for remaining holes.
+    News, insiders, and the earnings calendar stay on yfinance (dump has none).
+    """
     out = {
         # existing
         "short_pct_float": None, "float_shares": None,
@@ -1216,38 +1335,53 @@ def fetch_fuel(ticker: str) -> dict:
         "earnings_surprise": None,    # last quarter EPS beat vs estimates (%)
         "data_issues": [],            # reasons any data could not be fetched
     }
+    seed = _dump_seed(ticker)
+    for k in ("short_pct_float", "float_shares", "high_52w", "name",
+              "target_mean", "days_to_cover", "sector"):
+        v = seed.get(k)
+        if v not in (None, "") and out.get(k) in (None, ""):
+            out[k] = v
     try:
         tk = _yf(lambda: yf.Ticker(ticker))
         info = {}
         try:
             info = _yf(lambda: tk.info or {})
             if not info or len(info) < 3:
-                out["data_issues"].append(
-                    "fundamentals: yfinance returned empty (rate-limited or unknown symbol)")
+                if out.get("short_pct_float") is None and not out.get("sector"):
+                    out["data_issues"].append(
+                        "fundamentals: yfinance returned empty (rate-limited or unknown symbol)")
         except Exception as _ie:
             info = {}
             _msg = str(_ie)[:80]
-            if "404" in _msg or "Not Found" in _msg:
-                out["data_issues"].append(
-                    "fundamentals: not available (ETF/fund or delisted symbol)")
-            elif "429" in _msg or "rate" in _msg.lower():
-                out["data_issues"].append(
-                    "fundamentals: yfinance rate limit hit — retry in a few seconds")
-            else:
-                out["data_issues"].append(f"fundamentals: {_msg}")
+            if out.get("short_pct_float") is None and not out.get("sector"):
+                if "404" in _msg or "Not Found" in _msg:
+                    out["data_issues"].append(
+                        "fundamentals: not available (ETF/fund or delisted symbol)")
+                elif "429" in _msg or "rate" in _msg.lower():
+                    out["data_issues"].append(
+                        "fundamentals: yfinance rate limit hit — retry in a few seconds")
+                else:
+                    out["data_issues"].append(f"fundamentals: {_msg}")
 
-        out["short_pct_float"] = info.get("shortPercentOfFloat")
-        out["float_shares"] = info.get("floatShares")
-        out["high_52w"] = info.get("fiftyTwoWeekHigh")
-        out["name"] = info.get("shortName") or ticker
-        out["target_mean"] = info.get("targetMeanPrice")
-        out["sector"] = info.get("sector") or ""
+        if out["short_pct_float"] is None:
+            out["short_pct_float"] = info.get("shortPercentOfFloat")
+        if out["float_shares"] is None:
+            out["float_shares"] = info.get("floatShares")
+        if out["high_52w"] is None:
+            out["high_52w"] = info.get("fiftyTwoWeekHigh")
+        if not out.get("name") or out.get("name") == ticker:
+            out["name"] = info.get("shortName") or out.get("name") or ticker
+        if out["target_mean"] is None:
+            out["target_mean"] = info.get("targetMeanPrice")
+        if not out.get("sector"):
+            out["sector"] = info.get("sector") or ""
 
         # Days to cover (short interest / avg daily volume)
-        shares_short = info.get("sharesShort")
-        avg_vol = info.get("averageVolume") or info.get("averageDailyVolume10Day")
-        if shares_short and avg_vol and avg_vol > 0:
-            out["days_to_cover"] = round(shares_short / avg_vol, 1)
+        if out["days_to_cover"] is None:
+            shares_short = info.get("sharesShort")
+            avg_vol = info.get("averageVolume") or info.get("averageDailyVolume10Day")
+            if shares_short and avg_vol and avg_vol > 0:
+                out["days_to_cover"] = round(shares_short / avg_vol, 1)
 
         # Institutional ownership
         inst = info.get("heldPercentInstitutions")
@@ -1352,7 +1486,9 @@ def fetch_fuel(ticker: str) -> dict:
             # exceeds 25%. Adds 2 keyword hits so tag fires on fundamentals
             # alone even without a matching news headline.
             try:
-                _eg  = float(info.get("earningsGrowth") or 0.0)
+                _eg  = float(info.get("earningsGrowth") or seed.get("_dump_earn_growth") or 0.0)
+                if abs(_eg) > 1:
+                    _eg = _eg / 100.0
                 _esp = float(info.get("earningsSurprise") or info.get("earningsSurprisePercent") or 0.0)
                 if abs(_esp) > 5: _esp = _esp / 100.0  # pct → fraction
                 if _esp >= 0.10 or _eg >= 0.25:
@@ -1373,6 +1509,20 @@ def fetch_fuel(ticker: str) -> dict:
                 c for c, h in cat_hits.items()
                 if h > 0 and c not in out["catalyst_tags"]
             ]
+        except Exception:
+            pass
+
+        # Dump-backed EARN ↑ if news/yfinance did not fire it
+        try:
+            _eg = seed.get("_dump_earn_growth")
+            if _eg is not None:
+                _eg = float(_eg)
+                if abs(_eg) > 1:
+                    _eg = _eg / 100.0
+                tags = list(out.get("catalyst_tags") or [])
+                if "earn_growth" not in tags and _eg >= 0.25:
+                    tags.append("earn_growth")
+                    out["catalyst_tags"] = tags
         except Exception:
             pass
 
@@ -2396,55 +2546,10 @@ def render_ignition_scanner_tab():
         """Fetch full analyst data for the Stock Analyzer section.
 
         Data priority chain:
-          1. Alpaca daily bars for price history (real-time, if keys configured)
-          2. yfinance for fundamentals, info fields, and history fallback
-          3. Nightly scan dump (stock_data.json.gz) for any fields still missing
+          1. Nightly dump for daily history and fundamentals
+          2. Alpaca API keys for daily history if the dump is thin
+          3. yfinance last — remaining history, news-adjacent fields, EPS
         """
-        # ── Step 1: Price history — Alpaca first, Yahoo fallback ─────────
-        hist = pd.DataFrame()
-        _ak = alpaca_keys()
-        if _ak:
-            try:
-                k, s = _ak
-                start = (datetime.now(timezone.utc) - timedelta(days=400)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                h_alp = _alpaca_bars(ticker, "1Day", start, k, s)
-                if h_alp is not None and len(h_alp) >= 50:
-                    hist = h_alp
-            except Exception:
-                pass
-
-        # Yahoo fallback for history
-        tk = _yf(lambda: yf.Ticker(ticker))
-        if hist.empty:
-            try:
-                h = _yf(lambda: tk.history(period="1y", interval="1d"))
-                if h is not None and not h.empty:
-                    if isinstance(h.columns, pd.MultiIndex):
-                        h.columns = h.columns.get_level_values(0)
-                    hist = h
-            except Exception:
-                pass
-
-        # ── Step 2: Fundamentals from yfinance ───────────────────────────
-        info = {}
-        _issues = []
-        if hist.empty:
-            _issues.append("price history: no bars from Alpaca or Yahoo (new listing, delisted, or feed outage)")
-        try:
-            info = _yf(lambda: tk.info or {})
-            if not info or len(info) < 3:
-                _issues.append("fundamentals: yfinance returned empty (rate-limited or symbol has no profile)")
-        except Exception as _ie:
-            _msg = str(_ie)[:80]
-            if "404" in _msg or "Not Found" in _msg:
-                _issues.append("fundamentals: not published for this symbol (ETFs/funds have no fundamentals)")
-            elif "429" in _msg or "rate" in _msg.lower():
-                _issues.append("fundamentals: yfinance rate limit — wait a few seconds and press Refresh")
-            else:
-                _issues.append(f"fundamentals: {_msg}")
-
-        # ── Step 3: Nightly scan dump fallback for missing fields ────────
-        # Fields we want that yfinance often omits for smaller/thinner tickers
         SCAN_FIELD_MAP = {
             # scan dump key → info key we'd populate
             "rsi":            "_scan_rsi",
@@ -2473,24 +2578,103 @@ def render_ignition_scanner_tab():
             "target_low":     "targetLowPrice",
             "target_high":    "targetHighPrice",
         }
-        # Fields we still need after yfinance
-        missing = [ik for ik in SCAN_FIELD_MAP.values()
-                   if not ik.startswith("_scan_") and not info.get(ik)]
-        if missing:
+
+        # ── Step 1: Price history — dump, then Alpaca, then Yahoo ────────
+        hist = pd.DataFrame()
+        hist_src = ""
+        h_d = _dump_daily_bars(ticker, 400)
+        if h_d is not None and len(h_d) >= 50:
+            hist = h_d
+            hist_src = "dump"
+        _ak = alpaca_keys()
+        if hist.empty and _ak:
             try:
-                dump = load_screener_dump(SCREENER_URL_DEFAULT)
-                sym = ticker.upper()
-                if sym in dump.index:
-                    row = dump.loc[sym]
-                    for scan_key, info_key in SCAN_FIELD_MAP.items():
-                        val = row.get(scan_key) if hasattr(row, "get") else (
-                            row[scan_key] if scan_key in row.index else None
-                        )
-                        if val is not None and (info_key.startswith("_scan_") or not info.get(info_key)):
-                            info[info_key] = val
-                    info["_from_scan_dump"] = True
+                k, s = _ak
+                start = (datetime.now(timezone.utc) - timedelta(days=400)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                h_alp = _alpaca_bars(ticker, "1Day", start, k, s)
+                if h_alp is not None and len(h_alp) >= 50:
+                    hist = h_alp
+                    hist_src = "alpaca"
             except Exception:
                 pass
+
+        tk = _yf(lambda: yf.Ticker(ticker))
+        if hist.empty:
+            try:
+                h = _yf(lambda: tk.history(period="1y", interval="1d"))
+                if h is not None and not h.empty:
+                    if isinstance(h.columns, pd.MultiIndex):
+                        h.columns = h.columns.get_level_values(0)
+                    hist = h
+                    hist_src = "yahoo"
+            except Exception:
+                pass
+
+        # ── Step 2: Fundamentals — dump first, yfinance fills holes ──────
+        info = {}
+        _issues = []
+        if hist.empty:
+            _issues.append("price history: no bars from dump, Alpaca, or Yahoo (new listing, delisted, or feed outage)")
+        _dump_filled = False
+        try:
+            dump = load_screener_dump(SCREENER_URL_DEFAULT)
+            sym = str(ticker).upper()
+            if dump is not None and not dump.empty and sym in dump.index:
+                row = dump.loc[sym]
+                for scan_key, info_key in SCAN_FIELD_MAP.items():
+                    val = row.get(scan_key) if hasattr(row, "get") else (
+                        row[scan_key] if scan_key in row.index else None
+                    )
+                    if val is not None and (info_key.startswith("_scan_") or not info.get(info_key)):
+                        info[info_key] = val
+                        _dump_filled = True
+        except Exception:
+            pass
+        try:
+            import cascade_engine as ce
+            dfund = ce.dump_fundamentals(ticker) or {}
+            _dfund_map = {
+                "ShortPctFloat": "shortPercentOfFloat",
+                "DaysToCover": "shortRatio",
+                "P/E": "trailingPE",
+                "RevenueGrowth": "revenueGrowth",
+                "EarningsGrowth": "earningsGrowth",
+                "MarketCap": "marketCap",
+            }
+            for src, dst in _dfund_map.items():
+                v = _finite_num(dfund.get(src))
+                if v is not None and not info.get(dst):
+                    info[dst] = v
+                    _dump_filled = True
+            if dfund.get("Sector") and not info.get("sector"):
+                info["sector"] = dfund["Sector"]
+                _dump_filled = True
+        except Exception:
+            pass
+
+        try:
+            yinfo = _yf(lambda: tk.info or {})
+            if not yinfo or len(yinfo) < 3:
+                if not info:
+                    _issues.append("fundamentals: yfinance returned empty (rate-limited or symbol has no profile)")
+            for k, v in (yinfo or {}).items():
+                if v in (None, "", []):
+                    continue
+                if not info.get(k):
+                    info[k] = v
+        except Exception as _ie:
+            if not info:
+                _msg = str(_ie)[:80]
+                if "404" in _msg or "Not Found" in _msg:
+                    _issues.append("fundamentals: not published for this symbol (ETFs/funds have no fundamentals)")
+                elif "429" in _msg or "rate" in _msg.lower():
+                    _issues.append("fundamentals: yfinance rate limit — wait a few seconds and press Refresh")
+                else:
+                    _issues.append(f"fundamentals: {_msg}")
+
+        info["_hist_source"] = hist_src
+        if _dump_filled:
+            info["_from_scan_dump"] = True
 
         # ── Step 4: Quarterly EPS history (actual vs estimate) ───────────
         # Returns a list of dicts: [{quarter, actual, estimate, surprise_pct}, ...]
@@ -2645,30 +2829,38 @@ def render_ignition_scanner_tab():
             ("IGNITING badge", "Orange badge on the ticker when all four live conditions confirm at once on a flat/up tape: RVOL >=2x, volume surge >=2x, positive velocity, new HOD or VWAP reclaim.", "orange border pulse"),
             ("GAP REV badge", "Teal badge. Same four conditions fire but stock is down 4%+ or gapped down 4%+ — bounce in a selloff. Tradable but higher failure rate than clean ignition.", "teal border"),
             ("Price tile", "Current price in amber, change % in green (up) or red (down). Alpaca real-time when API keys set, else Yahoo Finance.", "amber = current"),
-            ("Target tile", "Analyst consensus mean price target. Green = 10%+ upside, amber = 0-10%, red = trading above target. Sourced from yfinance or nightly dump fallback.", "color = upside"),
+            ("Target tile", "Analyst consensus mean price target. Green = 10%+ upside, amber = 0-10%, red = trading above target. Nightly dump first, then yfinance.", "color = upside"),
             ("RVOL tile", "Relative Volume vs 20-day average. Amber = 3x+ explosive, yellow = 1.5x+ high, grey = normal/low. Plain-English label: explosive / high / normal / low.", "3x+ = explosive"),
-            ("Catalyst pills", "Colored clickable badges below the tiles. Each opens the most relevant source for that catalyst. See Catalyst signals section.", "tap to research"),
+            ("Catalyst pills", "Colored clickable badges below the tiles. Up catalysts are green, down are red. See the Up / Down catalyst sections.", "tap to research"),
         ]),
-        ("Catalyst signals - inside Fuel score", "#f5a623", [
-            ("Earnings", "Days until next earnings. 0-2 days = binary event, peak score +30. Score decays with distance.", "0-2d = peak score"),
-            ("FDA", "Healthcare/Pharma/Biotech only. Requires 2+ FDA-specific keywords. Sector-gated to prevent false positives on unrelated stocks like hotels.", "sector-gated, 2 hits"),
-            ("M&A / Buyout", "Any sector. Requires 2+ M&A keywords to avoid single-word false positives. Links to Google News.", "2 hits required"),
-            ("Partnership", "Any sector. Requires 2+ partnership keywords — single words like agreement are too common alone.", "2 hits required"),
-            ("Legal", "Any sector. Requires 2+ legal keywords to confirm a real litigation event.", "2 hits required"),
-            ("Squeeze", "Any sector. 1 specific squeeze keyword sufficient — precise terms. Backed by DTC gauge. Links to Finviz.", "1 hit, see DTC"),
-            ("Breakout", "Any sector. 1 keyword sufficient — 52-week high and breakout terms are unambiguous. Links to Finviz chart.", "1 hit"),
-            ("Geopolitical", "Energy, Materials, Defense, Industrials, Semis only. Requires 2+ keywords — oil or china alone appears too broadly.", "sector-gated, 2 hits"),
-            ("Rate", "Financials, Banks, REITs, Utilities, Insurance only. Requires 2+ keywords — fed/inflation appear in nearly every article.", "sector-gated, 2 hits"),
-            ("BIMODAL", "Binary event within 3 days (earnings, FDA, legal) = elevated volatility expected. Catalyst score multiplied 1.25x. Amber BIMODAL badge on card.", "1.25x multiplier"),
-            ("DTC", "Days to Cover gauge: shares short / avg daily volume. Red = 10d+ extreme, amber = 7-10d high, yellow = 5-7d moderate. Links to Finviz.", "10d+ = extreme"),
-            ("Filtered", "Catalysts detected but blocked by sector whitelist or keyword threshold appear struck-through in the Stock Analyzer, showing what was caught and why it was removed.", "transparency"),
-            ("EARN ↑", "Fires when last quarter beat analyst estimates by 10%+ OR YoY earnings growth exceeds 25%, confirmed by at least 1 news keyword. Universal — all sectors. Worth 20 pts in Fuel score. Links to Yahoo Finance financials.", "10% beat or 25% YoY growth"),
+        ("Catalysts ▲ Up — historically helped the next move", "#3fbf7f", [
+            ("💥 WASH OUT", "Price just flushed. Mean-reversion helper. Dump flag. Signed rank +8.", "+8"),
+            ("📈 EARN ↑", "Last quarter beat estimates by 10%+ or YoY earnings growth exceeds 25%. Dump snapshot + news. Signed rank +4. Also worth 20 pts inside Fuel.", "+4"),
+            ("🚀 BREAKOUT", "New high / 52-week high / resistance broken. Dump flag or 1 news keyword. Signed rank +3.", "+3"),
+            ("🤝 M&A", "Acquisition, merger, buyout, going-private. 2+ news keywords. Signed rank +6.", "+6"),
+            ("💊 FDA", "Healthcare / pharma / biotech only. 2+ FDA keywords (approval, PDUFA, trial). Signed rank +5.", "+5"),
+            ("🔗 DEAL", "Partnership, contract, collaboration, licensing. 2+ keywords (agreement alone is not enough). Signed rank +3.", "+3"),
+            ("Earnings (days)", "Days until the next print. 0–2 days = binary event, Fuel catalyst sub-score +30. Decays with distance. Not a signed dump rank.", "0–2d Fuel peak"),
+        ]),
+        ("Catalysts ▼ Down — historically hurt the next move", "#e05252", [
+            ("🩸 SELL OFF", "Hard down day. Continuation risk, not a washout bounce. Dump flag. Signed rank -12.", "-12"),
+            ("🎈 GAP UP", "Opened strong; that pop often faded in the sample. Dump flag. Signed rank -8.", "-8"),
+            ("💸 OFFERING", "Share offering / dilution / ATM / registered direct. Dump + news. Signed rank -8.", "-8"),
+            ("⚖️ LEGAL", "Lawsuit, settlement, SEC/DOJ. 2+ legal keywords. Signed rank -5.", "-5"),
+            ("🩳 SQUEEZE", "Crowded short. Lagged in the sample year. Dump short% + news. Signed rank -3. Fuel still treats high short% as squeeze fuel.", "-3"),
+            ("GEO/MACRO", "Tariff / war / supply-chain headlines. Energy, materials, defense, industrials, semis only. Shown on cards, not used in signed ranking.", "not ranked"),
+            ("FED/RATES", "Fed / FOMC / CPI headlines. Financials, REITs, utilities, insurance only. Shown on cards, not used in signed ranking.", "not ranked"),
+            ("DTC", "Days to Cover: shares short / avg daily volume. Red = 10d+ extreme, amber = 7–10d, yellow = 5–7d. Crowding gauge next to Squeeze.", "10d+ = extreme"),
+        ]),
+        ("Catalysts ▲▼ Either way", "#f5a623", [
+            ("🔶 BIMODAL", "Earnings, FDA, legal, or M&A overlapping inside a few days. Volatility both ways. Signed rank 0. Fuel multiplies the catalyst sub-score 1.25x. Amber badge on the card.", "score 0"),
+            ("Filtered", "Tags caught by keywords then blocked by sector whitelist or hit threshold. Struck-through in Stock Analyzer so you can see what was dropped.", "transparency"),
         ]),
         ("The scores", "#ffffff", [
             ("Score", "Overall grade 0-100: 60% Ignition + 40% Fuel. Displayed as the arc gauge sweep and center number on every card.", "arc gauge = score"),
             ("Ignition", "Is money flowing in RIGHT NOW? Rebuilt from live bars every scan. RVOL 25%, surge 15%, velocity 15%, acceleration 10%, VWAP 10%, HOD 10%, RSI5 7.5%, MACD 7.5%.", "live, every scan"),
             ("Fuel", "Is this stock READY to make a big move? Updates hourly. Short float 18%, insider buying 18%, news/sentiment 18%, catalyst score 26%, float 8%, 52W position 12%.", "hourly update"),
-            ("Catalyst Score", "Sub-score inside Fuel (26% weight). FDA event +25, M&A +25, earnings imminent +30, DTC 10d+ +15, partnership +15, legal +10, squeeze news +10, breakout +8, geo +6, rate +5. Bimodal multiplier 1.25x.", "26% of Fuel"),
+            ("Catalyst Score", "Two layers. Cards/tables rank by signed dump+news score (Up minus Down: WASH OUT +8 … SELL OFF −12). Fuel still uses its own 0–100 sub-score (26% of Fuel): FDA +25, M&A +25, earnings imminent +30, DTC 10d+ +15, DEAL +15, legal +10, squeeze news +10, breakout +8. BIMODAL ×1.25.", "signed + Fuel"),
             ("NightlyRank", "How the stock scored in last night's screener dump. Used in Nightly Screener mode to pick the candidate pool.", "pool selection"),
         ]),
         ("Live ignition signals - 60% of Score", "#f5a623", [
@@ -2694,10 +2886,10 @@ def render_ignition_scanner_tab():
             ("Direction check", "Gap calculated from first bar open vs yesterday close. High RVOL on a -17% earnings flush is a completely different trade than high RVOL on a +3% day.", "-4% threshold"),
         ]),
         ("Data source chain", "#b0c8e8", [
-            ("Alpaca API", "Real-time price history (1-min, 5-min, daily bars) via IEX feed. Powers live Ignition signals and Stock Analyzer history. Set ALPACA_API_KEY + ALPACA_SECRET_KEY in Streamlit secrets.", "fastest, real-time"),
-            ("yfinance", "Yahoo Finance fallback for price history when Alpaca has insufficient bars. Primary source for fundamentals: P/E, margins, analyst targets, short interest, insider transactions, news.", "15 min delay"),
-            ("Nightly dump", "stock_data.json.gz from magicpro33/stock pipeline. Third-tier fallback for missing fundamental fields. Also powers Nightly Screener pre-ranking mode.", "nightly fallback"),
-            ("Data source badge", "Below Stock Analyzer header: green = Alpaca active, grey = Yahoo history, amber = nightly dump filled missing fields.", "badge shows source"),
+            ("1. Nightly dump", "First source for daily history, RVOL baseline, short interest, float, 52-week high, targets, sector, and dump-backed catalysts. Same panel as Nightly Screener.", "preferred daily"),
+            ("2. Alpaca API", "Second source when the dump is thin. Real-time 1-min and 5-min bars (the dump has no intraday). Set ALPACA_API_KEY + ALPACA_SECRET_KEY in Streamlit secrets.", "live bars"),
+            ("3. yfinance", "Last source. Fills remaining daily bars and fundamentals. Only source for news, insiders, and the earnings calendar.", "last + news"),
+            ("Data source badge", "Below Stock Analyzer header: amber = dump history, green = Alpaca, grey = Yahoo. A second amber badge appears when dump filled fields on top of live history.", "badge shows source"),
         ]),
         ("Watchlist modes", "#d0b040", [
             ("Sector presets", "8 sector watchlists from your Webull list: Precious Metals, Energy/Uranium, Defense/Space, Semis/Tech, Quantum/AI/Biotech, Industrials, Income/ETFs, Critical Minerals. Random sector on first app load.", "random on startup"),
@@ -3307,13 +3499,15 @@ def render_ignition_scanner_tab():
 
         # Data source badge
         src_parts = []
-        _ak_present = alpaca_keys() is not None
-        if _ak_present and not hist.empty:
+        hist_src = info.get("_hist_source") or ""
+        if hist_src == "dump":
+            src_parts.append("<span style='font-family:Space Mono,monospace;font-size:10px;color:#d0b040;border:1px solid #907020;border-radius:3px;padding:1px 7px'>Nightly dump history</span>")
+        elif hist_src == "alpaca":
             src_parts.append("<span style='font-family:Space Mono,monospace;font-size:10px;color:#4dd880;border:1px solid #1e6b35;border-radius:3px;padding:1px 7px'>Alpaca history</span>")
         else:
             src_parts.append("<span style='font-family:Space Mono,monospace;font-size:10px;color:#7a9ab8;border:1px solid #1e3a5f;border-radius:3px;padding:1px 7px'>Yahoo history</span>")
-        if info.get("_from_scan_dump"):
-            src_parts.append("<span style='font-family:Space Mono,monospace;font-size:10px;color:#d0b040;border:1px solid #907020;border-radius:3px;padding:1px 7px'>nightly dump fallback</span>")
+        if info.get("_from_scan_dump") and hist_src != "dump":
+            src_parts.append("<span style='font-family:Space Mono,monospace;font-size:10px;color:#d0b040;border:1px solid #907020;border-radius:3px;padding:1px 7px'>nightly dump fields</span>")
         st.markdown("<div style='margin:0 0 10px;display:flex;gap:6px;flex-wrap:wrap'>" + "".join(src_parts) + "</div>", unsafe_allow_html=True)
         st.markdown("<hr style='border-color:#1e3a5f;margin:12px 0'>", unsafe_allow_html=True)
 
