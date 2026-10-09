@@ -2524,7 +2524,9 @@ def _render_signed_catalysts(tk: str, sector: str = "") -> None:
     score = int(pack.get("score") or 0)
     st.markdown("##### Catalysts")
     st.caption("Deep search: dump tape and fundamentals, Yahoo news, earnings "
-               "calendar, analyst actions, and insiders. Split ▲ Up vs ▼ Down.")
+               "calendar, analyst actions, and insiders. ▲ Up historically helped "
+               "the next move. ▼ Down historically hurt it. A short note sits "
+               "under each tag that is firing.")
     if not (up or down or other):
         st.caption("No catalysts firing after the deep search.")
         return
@@ -2541,6 +2543,31 @@ def _render_signed_catalysts(tk: str, sector: str = "") -> None:
                 f"color:{color}'>{_esc(part)}</span>")
         return "".join(bits)
 
+    meanings = getattr(ce, "CATALYST_MEANINGS", {}) or {}
+    metrics = getattr(ce, "LOOKUP_CATALYST_METRICS", None) or ce.CATALYST_METRICS
+    firing = list(pack.get("keys") or []) + list(pack.get("filtered") or [])
+
+    def _notes(side, color):
+        rows = []
+        seen = set()
+        for cid in firing:
+            if cid in seen:
+                continue
+            seen.add(cid)
+            m = metrics.get(cid) or {}
+            if m.get("side") != side:
+                continue
+            note = meanings.get(cid) or ""
+            if not note:
+                continue
+            lab = f"{m.get('icon', '')} {m.get('label', cid)}".strip()
+            rows.append(
+                f"<div style='font-size:12px;color:{DIM};line-height:1.4;"
+                f"margin:5px 0 0'>"
+                f"<span style='color:{color};font-weight:700'>{_esc(lab)}</span>"
+                f" — {_esc(note)}</div>")
+        return "".join(rows)
+
     sc_col = GREEN if score > 0 else (RED if score < 0 else DIM)
     _md_html(
         f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;"
@@ -2549,17 +2576,20 @@ def _render_signed_catalysts(tk: str, sector: str = "") -> None:
         f"padding:10px 12px'>"
         f"<div style='color:{GREEN};font-weight:800;font-size:11px;letter-spacing:1px;"
         f"text-transform:uppercase;margin-bottom:8px'>▲ Up</div>"
-        f"{_pills(up, GREEN, '#1e6b35', '#0d2215')}</div>"
+        f"{_pills(up, GREEN, '#1e6b35', '#0d2215')}"
+        f"{_notes('up', GREEN)}</div>"
         f"<div style='background:#0c1829;border:1px solid {RED};border-radius:10px;"
         f"padding:10px 12px'>"
         f"<div style='color:{RED};font-weight:800;font-size:11px;letter-spacing:1px;"
         f"text-transform:uppercase;margin-bottom:8px'>▼ Down</div>"
-        f"{_pills(down, RED, '#a03535', '#220d0d')}</div></div>"
+        f"{_pills(down, RED, '#a03535', '#220d0d')}"
+        f"{_notes('down', RED)}</div></div>"
         + (f"<div style='background:#0c1829;border:1px solid {ACCENT};border-radius:10px;"
            f"padding:10px 12px;margin:0 0 8px'>"
            f"<div style='color:{ACCENT};font-weight:800;font-size:11px;letter-spacing:1px;"
            f"text-transform:uppercase;margin-bottom:8px'>▲▼ Either way</div>"
-           f"{_pills(other, ACCENT, '#c47d0e', '#221800')}</div>"
+           f"{_pills(other, ACCENT, '#c47d0e', '#221800')}"
+           f"{_notes('both', ACCENT)}</div>"
            if other else "")
         + f"<div style='color:{DIM};font-size:12px;margin-bottom:8px'>"
         f"Net signed score <b style='color:{sc_col}'>{score:+d}</b> "
