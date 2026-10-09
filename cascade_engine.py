@@ -1496,12 +1496,38 @@ def dump_fundamentals_all():
     return hit[1] if hit else {f: np.array([]) for f in FUND_FIELDS}
 
 
-def dump_catalyst_map() -> dict:
-    """Dump-fingerprint catalysts for every ticker. Cached on panel mtime.
+# Big movers only. Values = 5d excess vs liquid universe on
+# stock_data.json.gz (2025-08-13 → 2026-10-08, walk-forward, step 5d).
+# WASH OUT / SELL OFF / GAP UP / BREAKOUT are causal price flags.
+# EARN ↑ / SQUEEZE use the dump's latest fundamental snapshot.
+CATALYST_METRICS = {
+    "washout":  {"icon": "💥", "label": "WASH OUT", "side": "up",   "value": 8},
+    "earn_up":  {"icon": "📈", "label": "EARN ↑",   "side": "up",   "value": 4},
+    "breakout": {"icon": "🚀", "label": "BREAKOUT", "side": "up",   "value": 3},
+    "buyout":   {"icon": "🤝", "label": "M&A",      "side": "up",   "value": 6},
+    "fda":      {"icon": "💊", "label": "FDA",      "side": "up",   "value": 5},
+    "deal":     {"icon": "🔗", "label": "DEAL",     "side": "up",   "value": 3},
+    "selloff":  {"icon": "🩸", "label": "SELL OFF", "side": "down", "value": -12},
+    "gap_up":   {"icon": "🎈", "label": "GAP UP",   "side": "down", "value": -8},
+    "offering": {"icon": "💸", "label": "OFFERING", "side": "down", "value": -8},
+    "legal":    {"icon": "⚖️", "label": "LEGAL",    "side": "down", "value": -5},
+    "squeeze":  {"icon": "🩳", "label": "SQUEEZE",  "side": "down", "value": -3},
+    "bimodal":  {"icon": "🔶", "label": "BIMODAL",  "side": "both", "value": 0},
+}
+NEWS_TO_CATALYST = {
+    "buyout": "buyout", "fda": "fda", "partnership": "deal",
+    "legal": "legal", "offering": "offering", "earn_growth": "earn_up",
+    "squeeze": "squeeze", "breakout": "breakout",
+}
 
-    Same tags TOP20 scores: 63-day breakout, volume shock, recent gap,
-    fresh MACD cross, squeeze setup.
-    """
+
+def _cat_tag(key: str) -> str:
+    m = CATALYST_METRICS[key]
+    return f"{m['icon']} {m['label']}"
+
+
+def dump_catalyst_map() -> dict:
+    """Signed dump catalysts for every ticker. Cached on panel mtime."""
     panel, tickers, sectors, mdv, dts = load_dump_panel()
     try:
         mt = float(_dump_mtime() or 0.0)
@@ -1523,74 +1549,34 @@ def dump_catalyst_map() -> dict:
         mom63 = C[-6] / C[-64] - 1.0
         rvol = V[-5:].mean(0) / np.where(V[-63:].mean(0) == 0, np.nan, V[-63:].mean(0))
         brk = px >= np.nanmax(panel["h"][-63:-1], 0) * 0.999
+        wash = px <= np.nanmin(panel["l"][-63:-1], 0) * 1.001
         ret1d = C[-1] / C[-2] - 1.0
-        vshock = (rvol >= 2.5) & (np.abs(ret1d) >= 0.04)
-        gaps = np.abs(panel["o"][-5:] / C[-6:-1] - 1.0)
-        gp = np.nanmax(gaps, 0) >= 0.03
-
-    def _ewm_axis0(a, span):
-        alpha = 2.0 / (span + 1.0)
-        out = np.empty(a.shape, dtype=np.float64)
-        x0 = np.asarray(a[0], dtype=np.float64)
-        out[0] = np.where(np.isfinite(x0), x0, 0.0)
-        om = 1.0 - alpha
-        for i in range(1, a.shape[0]):
-            xi = np.asarray(a[i], dtype=np.float64)
-            xi = np.where(np.isfinite(xi), xi, out[i - 1])
-            out[i] = alpha * xi + om * out[i - 1]
-        return out
-
-    e12 = _ewm_axis0(C, 12)
-    e26 = _ewm_axis0(C, 26)
-    macd = e12 - e26
-    sig = _ewm_axis0(macd, 9)
-    mb = macd > sig
-    fresh = mb[-1] & ~mb[-4]
+        selloff = (rvol >= 2.5) & (ret1d <= -0.04)
+        gap_up = (panel["o"][-1] / C[-2] - 1.0) >= 0.03
     short = funds.get("ShortPctFloat")
     if short is None or len(np.asarray(short)) != N:
         short = np.full(N, np.nan)
-    squeeze_setup = (np.nan_to_num(short) >= 0.15) & (np.nan_to_num(mom63) > 0)
-    cat = (0.35 * np.nan_to_num(brk) + 0.25 * np.nan_to_num(vshock)
-           + 0.20 * np.nan_to_num(gp) + 0.20 * np.nan_to_num(fresh))
+    squeeze = (np.nan_to_num(short) >= 0.15) & (np.nan_to_num(mom63) > 0)
+    eg = funds.get("EarningsGrowth")
+    if eg is None or len(np.asarray(eg)) != N:
+        eg = np.full(N, np.nan)
+    earn = np.isfinite(eg) & (eg >= 0.25)
+    flags = {
+        "washout": wash, "earn_up": earn, "breakout": brk,
+        "selloff": selloff, "gap_up": gap_up, "squeeze": squeeze,
+    }
     out = {}
     for k, t in enumerate(tickers):
-        tg = []
-        if bool(brk[k]):
-            tg.append("🚀 BREAKOUT")
-        if bool(vshock[k]):
-            tg.append("⚡ vol shock")
-        if bool(gp[k]):
-            tg.append("🕳 gap")
-        if bool(fresh[k]):
-            tg.append("📈 MACD cross")
-        if bool(squeeze_setup[k]):
-            tg.append("🩳 SQUEEZE")
-        dtc = funds.get("DaysToCover")
-        try:
-            dv = float(dtc[k]) if dtc is not None else float("nan")
-        except Exception:
-            dv = float("nan")
-        if np.isfinite(dv) and dv >= 10:
-            tg.append("⏱ DTC 10d+")
-        elif np.isfinite(dv) and dv >= 7:
-            tg.append("⏱ DTC 7d")
-        elif np.isfinite(dv) and dv >= 5:
-            tg.append("⏱ DTC 5d")
-        eg = funds.get("EarningsGrowth")
-        try:
-            ev = float(eg[k]) if eg is not None else float("nan")
-        except Exception:
-            ev = float("nan")
-        if np.isfinite(ev) and ev >= 0.25:
-            tg.append("📈 EARN ↑")
-        sc = float(cat[k]) if np.isfinite(cat[k]) else 0.0
-        out[str(t).upper()] = {"tags": " · ".join(tg), "n": len(tg), "score": sc}
+        keys = [cid for cid, arr in flags.items() if bool(arr[k])]
+        tg = [_cat_tag(cid) for cid in keys]
+        sc = float(sum(CATALYST_METRICS[cid]["value"] for cid in keys))
+        out[str(t).upper()] = {"tags": " · ".join(tg), "n": len(keys), "score": sc, "keys": keys}
     _PANEL_CACHE["cat_map"] = (mt, out)
     return out
 
 
 def apply_catalyst_rank(df, enabled: bool, ticker_col: str = "Ticker"):
-    """Add Ignition + dump catalyst tags and put more-catalyst names first."""
+    """Tag lists with signed dump+news catalysts and rank by net score."""
     if not enabled or df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return df
     if ticker_col not in df.columns:
@@ -1608,42 +1594,31 @@ def apply_catalyst_rank(df, enabled: bool, ticker_col: str = "Ticker"):
         news = news_catalyst_detail(tks, secs)
     except Exception:
         news = {}
-    labels = []
-    counts = []
+    labels, scores = [], []
     for tk in tks:
-        seen = []
-        dump_tags = [x.strip() for x in str((mapping.get(tk) or {}).get("tags") or "").split(" · ") if x.strip()]
+        keys = list((mapping.get(tk) or {}).get("keys") or [])
         nd = news.get(tk) or {}
         for ctype in nd.get("on") or []:
-            lab = IGNITION_CAT_LABELS.get(ctype, ctype.upper())
-            if lab not in seen:
-                seen.append(lab)
-        for lab in dump_tags:
-            if lab in ("🚀 breakout", "BREAKOUT"):
-                lab = "🚀 BREAKOUT"
-            elif lab in ("SQUEEZE", "🩳 squeeze setup"):
-                lab = "🩳 SQUEEZE"
-            elif lab == "EARN ↑":
-                lab = "📈 EARN ↑"
-            elif lab.startswith("DTC"):
-                lab = "⏱ " + lab
-            if lab and lab not in seen:
-                seen.append(lab)
+            cid = NEWS_TO_CATALYST.get(ctype)
+            if cid and cid not in keys:
+                keys.append(cid)
         on_types = set(nd.get("on") or [])
         if any(c in on_types for c in ("fda", "legal", "buyout", "earnings")):
-            if BIMODAL_LABEL not in seen:
-                seen.append(BIMODAL_LABEL)
-        rank_n = len(seen)
+            if "bimodal" not in keys:
+                keys.append("bimodal")
+        seen = [_cat_tag(cid) for cid in keys if cid in CATALYST_METRICS]
+        sc = int(sum(CATALYST_METRICS[cid]["value"] for cid in keys
+                     if cid in CATALYST_METRICS))
         for ctype in nd.get("filtered") or []:
-            lab = IGNITION_CAT_LABELS.get(ctype, ctype.upper())
-            mark = f"{lab} (filtered)"
-            if mark not in seen and lab not in seen:
-                seen.append(mark)
+            cid = NEWS_TO_CATALYST.get(ctype)
+            if not cid or cid in keys:
+                continue
+            seen.append(f"{_cat_tag(cid)} (filtered)")
         labels.append(" · ".join(seen))
-        counts.append(rank_n)
+        scores.append(sc)
     out = df.copy()
     out["Catalysts"] = labels
-    out["_cat_n"] = counts
+    out["_cat_n"] = scores
     out["_ord"] = np.arange(len(out))
     out = out.sort_values(["_cat_n", "_ord"], ascending=[False, True])
     out = out.drop(columns=["_cat_n", "_ord"]).reset_index(drop=True)
@@ -4253,27 +4228,31 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
     tech = (0.30 * _pct(mom63) + 0.22 * _pct(rangepos) + 0.18 * _pct(np.minimum(rvol, 5))
             + 0.10 * above50 + 0.10 * rsi_sweet + 0.10 * macd_bull)
 
-    # ── catalyst pillar: data fingerprints of IGNITION's catalyst types ──
-    # (walk-forward validated on the nightly dump: adding this at 0.15x the
-    #  tech weight lifted top-20 excess from +2.78% to +3.58%/21d, 69% hit,
-    #  positive in both honesty halves)
-    brk = px >= np.nanmax(panel["h"][-63:-1], 0) * 0.999            # breakout
+    # ── catalyst pillar: signed dump flags (walk-forward on the gz dump) ──
+    # WASH OUT +0.9%/5d, SELL OFF −3.0%/5d, GAP UP −1.2%/5d, BREAKOUT +0.6%/21d
+    brk = px >= np.nanmax(panel["h"][-63:-1], 0) * 0.999
+    wash = px <= np.nanmin(panel["l"][-63:-1], 0) * 1.001
     ret1d = C[-1] / C[-2] - 1.0
-    vshock = (rvol >= 2.5) & (np.abs(ret1d) >= 0.04)                # volume shock
-    gaps = np.abs(panel["o"][-5:] / C[-6:-1] - 1.0)
-    gp = np.nanmax(gaps, 0) >= 0.03                                  # recent gap
-    fresh = mb[-1] & ~mb[-4]                                         # fresh MACD cross
+    selloff = (rvol >= 2.5) & (ret1d <= -0.04)
+    gap_up = (panel["o"][-1] / C[-2] - 1.0) >= 0.03
     squeeze_setup = (np.nan_to_num(funds["ShortPctFloat"]) >= 0.15) & (mom63 > 0)
-    cat = (0.35 * np.nan_to_num(brk) + 0.25 * np.nan_to_num(vshock)
-           + 0.20 * np.nan_to_num(gp) + 0.20 * np.nan_to_num(fresh))
+    earn_up = np.isfinite(funds["EarningsGrowth"]) & (funds["EarningsGrowth"] >= 0.25)
+    cat_raw = (CATALYST_METRICS["washout"]["value"] * wash.astype(float)
+               + CATALYST_METRICS["earn_up"]["value"] * earn_up.astype(float)
+               + CATALYST_METRICS["breakout"]["value"] * brk.astype(float)
+               + CATALYST_METRICS["selloff"]["value"] * selloff.astype(float)
+               + CATALYST_METRICS["gap_up"]["value"] * gap_up.astype(float)
+               + CATALYST_METRICS["squeeze"]["value"] * squeeze_setup.astype(float))
+    cat = _pct(cat_raw)
     cat_tags = []
     for k in range(N):
         tg = []
-        if brk[k]: tg.append("🚀 breakout")
-        if vshock[k]: tg.append("⚡ vol shock")
-        if gp[k]: tg.append("🕳 gap")
-        if fresh[k]: tg.append("📈 MACD cross")
-        if squeeze_setup[k]: tg.append("🩳 squeeze setup")
+        if wash[k]: tg.append(_cat_tag("washout"))
+        if earn_up[k]: tg.append(_cat_tag("earn_up"))
+        if brk[k]: tg.append(_cat_tag("breakout"))
+        if selloff[k]: tg.append(_cat_tag("selloff"))
+        if gap_up[k]: tg.append(_cat_tag("gap_up"))
+        if squeeze_setup[k]: tg.append(_cat_tag("squeeze"))
         cat_tags.append(" · ".join(tg))
     cat_tags = np.array(cat_tags, dtype=object)
 
@@ -4483,9 +4462,13 @@ CATALYST_KEYWORDS = {
     "earn_growth": ["record earnings", "earnings growth", "eps growth", "profit surge",
                     "earnings beat", "record profit", "blowout quarter", "record quarter",
                     "beat estimates", "exceeded expectations", "top-line beat"],
+    "offering": ["secondary offering", "share offering", "atm offering", "dilution",
+                 "registered direct", "priced offering", "public offering",
+                 "equity raise", "sold shares", "issues shares"],
 }
 CATALYST_MIN_HITS = {"earnings": 1, "fda": 2, "legal": 2, "buyout": 2, "partnership": 2,
-                     "squeeze": 1, "breakout": 1, "geopolitical": 2, "rate": 2, "earn_growth": 1}
+                     "squeeze": 1, "breakout": 1, "geopolitical": 2, "rate": 2,
+                     "earn_growth": 1, "offering": 2}
 CATALYST_SECTOR_WHITELIST = {
     "fda": ["health", "pharma", "biotech", "drug", "life science", "medical",
             "clinical", "therapeut", "diagnostic", "biolog", "genomic"],
@@ -4496,12 +4479,14 @@ CATALYST_SECTOR_WHITELIST = {
 }
 CATALYST_EMOJI = {"earnings": "📊", "fda": "💊", "legal": "⚖️", "buyout": "🤝",
                   "partnership": "🔗", "squeeze": "🩳", "breakout": "🚀",
-                  "geopolitical": "🌍", "rate": "🏦", "earn_growth": "📈"}
+                  "geopolitical": "🌍", "rate": "🏦", "earn_growth": "📈",
+                  "offering": "💸"}
 IGNITION_CAT_LABELS = {
     "earnings": "📊 EARNINGS", "fda": "💊 FDA", "buyout": "🤝 M&A",
-    "partnership": "🔗 PARTNER", "legal": "⚖️ LEGAL", "squeeze": "🩳 SQUEEZE",
+    "partnership": "🔗 DEAL", "legal": "⚖️ LEGAL", "squeeze": "🩳 SQUEEZE",
     "breakout": "🚀 BREAKOUT", "geopolitical": "🌍 GEO/MACRO",
     "rate": "🏦 FED/RATES", "earn_growth": "📈 EARN ↑",
+    "offering": "💸 OFFERING",
 }
 BIMODAL_LABEL = "🔶 BIMODAL"
 
@@ -4544,14 +4529,18 @@ def news_catalyst_detail(tickers: list, sectors: dict | None = None) -> dict:
 
 
 def news_catalysts(tickers: list, sectors: dict | None = None) -> dict:
-    "IGNITION's news-keyword catalyst tags for a SHORTLIST (min-hit + sector rules)."
+    "News tags for a SHORTLIST, mapped onto the signed catalyst set."
     detail = news_catalyst_detail(tickers, sectors)
     out = {}
     for tk, d in detail.items():
-        tags = [f"{CATALYST_EMOJI.get(c, '')} {c}".strip()
-                for c in (d.get("on") or [])]
+        seen, tags = [], []
+        for c in (d.get("on") or []):
+            cid = NEWS_TO_CATALYST.get(c)
+            if cid and cid not in seen:
+                seen.append(cid)
+                tags.append(_cat_tag(cid))
         if tags:
-            out[tk] = " · ".join(tags[:4])
+            out[tk] = " · ".join(tags[:6])
     return out
 
 

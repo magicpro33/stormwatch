@@ -990,16 +990,14 @@ def render_hybrid_screener() -> None:
     with st.container(border=True):
         st.markdown("**Catalysts**")
         use_cat = st.toggle(
-            "Add Catalysts to the list and rank more-catalyst names higher",
+            "Add Catalysts to the list and rank by net up/down score",
             key=_k("use_cat"),
-            help="Same Ignition Fuel catalysts as the scanner cards: "
-                 "EARNINGS, FDA, M&A, PARTNER, LEGAL, SQUEEZE, BREAKOUT, "
-                 "GEO/MACRO, FED/RATES, EARN ↑, BIMODAL, DTC.")
+            help="Dump-backed tape flags plus news. Ranked by signed score.")
         if use_cat:
-            st.caption("📊 EARNINGS · 💊 FDA · 🤝 M&A · 🔗 PARTNER · ⚖️ LEGAL · "
-                       "🩳 SQUEEZE · 🚀 BREAKOUT · 🌍 GEO/MACRO · 🏦 FED/RATES · "
-                       "📈 EARN ↑ · 🔶 BIMODAL · ⏱ DTC · ⚡ vol shock · 🕳 gap · "
-                       "📈 MACD")
+            st.caption("Up 💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
+                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3   ·   "
+                       "Down 🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
+                       "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
 
     run = st.button("🚀 Run Screener", type="primary", width="stretch", key=_k("run"))
 
@@ -1121,17 +1119,26 @@ def render_hybrid_screener() -> None:
         "MFI_Signal", "Score", "Short % Float", "Days to Cover",
         "Div Yield", "Div Rate",
     ] if c in display.columns]
+    _cat_cfg = {
+        "Catalysts": st.column_config.Column(
+            width="large",
+            help="Signed catalysts. Up: 💥 WASH OUT, 📈 EARN ↑, 🚀 BREAKOUT, "
+                 "🤝 M&A, 💊 FDA, 🔗 DEAL. Down: 🩸 SELL OFF, 🎈 GAP UP, "
+                 "💸 OFFERING, ⚖️ LEGAL, 🩳 SQUEEZE. Ranked by net score."),
+    } if "Catalysts" in display.columns else {}
     try:
         styled = display.style.map(_color_score, subset=["Score"]) if "Score" in display.columns else display
         _tsel = st.dataframe(
             styled, width="stretch", height=560, column_order=order or None,
             hide_index=True, on_select="rerun", selection_mode="single-row",
-            key=_k("chart_table"))
+            key=_k("chart_table"),
+            column_config=_cat_cfg if _cat_cfg else None)
     except Exception:
         _tsel = st.dataframe(
             display, width="stretch", height=560, column_order=order or None,
             hide_index=True, on_select="rerun", selection_mode="single-row",
-            key=_k("chart_table"))
+            key=_k("chart_table"),
+            column_config=_cat_cfg if _cat_cfg else None)
 
     # Clicking a row in the table above is the same "select to add" gesture
     # the other scanner tabs use — tag it to the watchlist and hand it to

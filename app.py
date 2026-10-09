@@ -2392,25 +2392,23 @@ def _hub_pill():
 
 
 def _catalysts_section(key: str, pill: bool = True):
-    """Option to add dump-fingerprint catalysts to a scanner list."""
+    """Option to add signed dump+news catalysts to a scanner list."""
     ctx = _hub_pill() if pill else st.container()
     with ctx:
         st.markdown("**Catalysts**")
         on = st.toggle(
-            "Add Catalysts to the list and rank more-catalyst names higher",
+            "Add Catalysts to the list and rank by net up/down score",
             key=f"{key}_use_cat",
-            help="Uses the same Ignition Fuel catalysts as the scanner cards: "
-                 "EARNINGS, FDA, M&A, PARTNER, LEGAL, SQUEEZE, BREAKOUT, "
-                 "GEO/MACRO, FED/RATES, EARN ↑, BIMODAL, DTC, plus dump "
-                 "fingerprints (vol shock, gap, MACD). Sector-gated and "
-                 "keyword-threshold tags show as (filtered). Names with "
-                 "more live tags rank higher.",
+            help="Dump-backed tape flags plus news for the listed names. "
+                 "Up: wash-out at 63d lows, earn growth, breakout, M&A, FDA, deal. "
+                 "Down: volume selloff, gap-up fade, offering, legal, squeeze. "
+                 "Ranked by signed score, not tag count.",
         )
         if on:
-            st.caption("📊 EARNINGS · 💊 FDA · 🤝 M&A · 🔗 PARTNER · ⚖️ LEGAL · "
-                       "🩳 SQUEEZE · 🚀 BREAKOUT · 🌍 GEO/MACRO · 🏦 FED/RATES · "
-                       "📈 EARN ↑ · 🔶 BIMODAL · ⏱ DTC · ⚡ vol shock · 🕳 gap · "
-                       "📈 MACD")
+            st.caption("Up 💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
+                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3   ·   "
+                       "Down 🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
+                       "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
     return bool(on)
 
 
@@ -2427,10 +2425,9 @@ def _with_catalysts(df, on, ticker_col="Ticker"):
 def _cat_col_cfg():
     return st.column_config.Column(
         width="large",
-        help="Ignition Fuel catalysts: EARNINGS, FDA, M&A, PARTNER, LEGAL, "
-             "SQUEEZE, BREAKOUT, GEO/MACRO, FED/RATES, EARN ↑, BIMODAL, DTC. "
-             "Filtered = sector whitelist or keyword threshold blocked it. "
-             "More live tags rank higher.",
+        help="Signed catalysts. Up: 💥 WASH OUT, 📈 EARN ↑, 🚀 BREAKOUT, "
+             "🤝 M&A, 💊 FDA, 🔗 DEAL. Down: 🩸 SELL OFF, 🎈 GAP UP, "
+             "💸 OFFERING, ⚖️ LEGAL, 🩳 SQUEEZE. Ranked by net score.",
     )
 
 
@@ -3834,11 +3831,11 @@ if _main == "Scan Hub" and _hub == "TOP20":
                              "name. 5/5 = fully known."),
                     "Catalysts": st.column_config.Column(
                         width="large",
-                        help="Two layers: data fingerprints scanned across all 5,700 stocks "
-                             "(🚀 breakout · ⚡ volume shock · 🕳 gap · 📈 fresh MACD cross · "
-                             "🩳 squeeze setup), plus IGNITION's news-keyword catalysts "
-                             "(📊💊⚖️🤝🔗🌍🏦) fetched for these finalists. The data layer is "
-                             "scored (backtested); squeeze setup and news tags are informational."),
+                        help="Signed dump-backed flags plus news on the final 20. "
+                             "Up: 💥 WASH OUT +8, 📈 EARN ↑ +4, 🚀 BREAKOUT +3, "
+                             "🤝 M&A +6, 💊 FDA +5, 🔗 DEAL +3. "
+                             "Down: 🩸 SELL OFF −12, 🎈 GAP UP −8, 💸 OFFERING −8, "
+                             "⚖️ LEGAL −5, 🩳 SQUEEZE −3."),
                 })
             st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                        "Scores refresh with the nightly dump; the tailwind and regime "
@@ -3854,26 +3851,19 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
                 border-radius:10px;padding:12px 16px;margin-top:6px;">
                 <div style="color:{ACCENT};font-size:11px;letter-spacing:1px;text-transform:uppercase;margin:4px 0 2px;">
-                  Data fingerprints — scanned across all 5,700 stocks (scored)</div>
-                {_krow("🚀 breakout", "closed at a new 63-day high — momentum entering fresh territory")}
-                {_krow("⚡ vol shock", "2.5x+ normal volume with a 4%+ move — 'something just happened', whatever the news was")}
-                {_krow("🕳 gap", "opened 3%+ away from the prior close within the last 5 sessions — an overnight repricing")}
-                {_krow("📈 MACD cross", "momentum flipped bullish within the last 3 sessions — fresh, not stale")}
-                {_krow("🩳 squeeze setup", "15%+ of the float sold short while price is RISING — fuel for a forced-covering rally (shown, not scored)")}
+                  Up — dump-backed (walk-forward on the nightly gz)</div>
+                {_krow("💥 WASH OUT +8", "new 63-day low — mean-reversion (+0.9% / 5d, +1.5% / 21d)")}
+                {_krow("📈 EARN ↑ +4", "dump earnings growth ≥ 25% (+0.4% / 5d, +1.5% / 21d)")}
+                {_krow("🚀 BREAKOUT +3", "close at a 63-day high (+0.6% / 21d)")}
+                {_krow("🤝 M&amp;A +6 / 💊 FDA +5 / 🔗 DEAL +3", "news on the finalists (not dump-timed)")}
                 <div style="color:{ACCENT};font-size:11px;letter-spacing:1px;text-transform:uppercase;margin:8px 0 2px;">
-                  News catalysts — IGNITION keyword scan on the final 20 (informational)</div>
-                {_krow("📊 earnings", "results, guidance, or EPS coverage in recent headlines")}
-                {_krow("📈 earn_growth", "record-quarter / beat-estimates language — the strongest earnings flavor")}
-                {_krow("💊 fda", "trial, approval, or regulatory news (healthcare names only)")}
-                {_krow("⚖️ legal", "lawsuit, settlement, or investigation coverage")}
-                {_krow("🤝 buyout", "M&amp;A, takeover, or strategic-review chatter")}
-                {_krow("🔗 partnership", "deals, contracts, joint ventures, licensing")}
-                {_krow("🩳 squeeze", "short-interest coverage in the news itself")}
-                {_krow("🌍 geopolitical", "tariffs, sanctions, defense, supply chains (relevant sectors only)")}
-                {_krow("🏦 rate", "Fed / rates / inflation coverage (rate-sensitive sectors only)")}
+                  Down — dump-backed</div>
+                {_krow("🩸 SELL OFF −12", "2.5x volume and a 4%+ down day (−3.0% / 5d, −5.3% / 21d)")}
+                {_krow("🎈 GAP UP −8", "opened 3%+ through prior close — the chase fades (−1.2% / 5d)")}
+                {_krow("💸 OFFERING −8 / ⚖️ LEGAL −5", "dilution or litigation in the news")}
+                {_krow("🩳 SQUEEZE −3", "15%+ short while price is already up — crowded, lagged")}
                 <div style="color:{DIM};font-size:11px;margin-top:6px;">
-                  Data fingerprints feed the score (backtested: +3.58% vs +2.78% excess without them).
-                  News tags and squeeze setup are context only — read them, don't count them.</div>
+                  Tape flags are scored across the whole dump. News tags are fetched for the final 20.</div>
                 </div>""", unsafe_allow_html=True)
             with st.expander("❓ How the Top 20 is chosen"):
                 st.markdown(
@@ -3884,14 +3874,12 @@ if _main == "Scan Hub" and _hub == "TOP20":
                     "volume, above-50MA, RSI sweet spot (45-65), MACD bull cross.\n"
                     "- **Quality (23%)** — the macro simulator's stock-picking DNA: "
                     "Piotroski, golden cross, ROIC, revenue and earnings growth.\n"
-                    "- **Catalysts (backtested add-on)** — data fingerprints of "
-                    "IGNITION's catalyst types: 63-day breakouts, volume shocks "
-                    "(2.5x RVOL + 4% move), recent gaps, fresh MACD crosses. "
-                    "Walk-forward validated on the nightly dump: adding this pillar "
-                    "lifted top-20 excess from **+2.78% to +3.58% per 21 sessions** "
-                    "(69% weekly hit rate, positive in both honesty halves). News-"
-                    "keyword tags (earnings/FDA/buyout/…) are fetched for the final "
-                    "20 with IGNITION's min-hit and sector-whitelist rules.\n"
+                    "- **Catalysts (signed, dump-backed)** — wash-out at 63-day lows "
+                    "(+), earn growth (+), breakout (+), volume selloff (−), "
+                    "gap-up fade (−), crowded squeeze (−). Weights are 5-day "
+                    "excess vs the liquid universe on the nightly gz "
+                    "(2025-08 → 2026-10). News M&A / FDA / deal / legal / "
+                    "offering tags are fetched for the final 20.\n"
                     "- **Tailwind (29%)** — the cascade engine: for every node wave "
                     "firing right now, each stock's historical lagged response, summed. "
                     "Stocks the current waves are already traveling toward score high.\n"
@@ -5379,7 +5367,7 @@ if _main == "Cascade Map" and _map == "Guide":
         ("ROIC / ROCE", "Return on invested capital / capital employed — how much profit each dollar in the business generates. Felix's favorite lenses; 15%+ is elite."),
         ("OE Yield", "Owner-earnings yield — real cash generated relative to price."),
         ("Yen carry trade", "The world's funding trade: borrow at Japan's ~0% rates, buy risk assets globally. A surging yen margin-calls all of it at once — the Cascade Sentinels tab watches for the unwind signature (yen ▲ + QQQ/BTC ▼ + VIX ▲ together), and a confirmed unwind forces the regime to Shock."),
-        ("Catalysts (scored vs shown)", "Data fingerprints (breakout, vol shock, gap, fresh MACD) are backtested and scored. News tags and squeeze setup are context only — read them, don't count them."),
+        ("Catalysts", "Signed dump-backed flags plus news. Up: WASH OUT, EARN ↑, BREAKOUT, M&A, FDA, DEAL. Down: SELL OFF, GAP UP, OFFERING, LEGAL, SQUEEZE. Ranked by net score, not tag count."),
     ]:
         st.markdown(f"- **{term}** — {defn}")
 
@@ -5423,7 +5411,7 @@ if _main == "Cascade Map" and _map == "Guide":
         "real data, out of sample:\n\n"
         "| Layer | Verdict |\n|---|---|\n"
         "| Sector money flow (Top 20 filter + tilt) | ✅ **+3.41% excess / 21 sessions**, 60% hit, positive in both halves. Cold sectors underperform, so the signal is directional. |\n"
-        "| Catalyst fingerprints | ✅ Lifted top-20 excess **+2.78% → +3.58%** as a 0.15x modifier. Worthless alone (−0.16%). |\n"
+        "| Signed catalysts | Walk-forward on the nightly gz (Aug 2025–Oct 2026): **WASH OUT +0.93%/5d**, **SELL OFF −2.98%/5d**, **GAP UP fade −1.24%/5d**, BREAKOUT +0.61%/21d. News M&A/FDA/offering are not dump-timed. |\n"
         "| Analog forecast (Stock Lookup / Best Odds) | ✅ Distributional, not directional — it reports what look-alikes actually did, on 300+ cases minimum. |\n"
         "| APEX FLOW daily | ✅ 60.2% win rate vs 50.7% baseline on 984 held-out tickers. Intraday is **unvalidated**. |\n"
         "| Cascade edges / storm tracks | ❌ **No out-of-sample skill.** 49% directional accuracy over 52 windows on 804 sessions × 91 nodes — a coin flip at every threshold tested. |\n"

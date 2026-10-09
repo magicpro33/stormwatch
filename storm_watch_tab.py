@@ -592,16 +592,14 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     with st.container(border=True):
         st.markdown("**Catalysts**")
         use_cat = st.toggle(
-            "Add Catalysts to the list and rank more-catalyst names higher",
+            "Add Catalysts to the list and rank by net up/down score",
             key="sw_use_cat",
-            help="Same Ignition Fuel catalysts as the scanner cards: "
-                 "EARNINGS, FDA, M&A, PARTNER, LEGAL, SQUEEZE, BREAKOUT, "
-                 "GEO/MACRO, FED/RATES, EARN ↑, BIMODAL, DTC.")
+            help="Dump-backed tape flags plus news. Ranked by signed score.")
         if use_cat:
-            st.caption("📊 EARNINGS · 💊 FDA · 🤝 M&A · 🔗 PARTNER · ⚖️ LEGAL · "
-                       "🩳 SQUEEZE · 🚀 BREAKOUT · 🌍 GEO/MACRO · 🏦 FED/RATES · "
-                       "📈 EARN ↑ · 🔶 BIMODAL · ⏱ DTC · ⚡ vol shock · 🕳 gap · "
-                       "📈 MACD")
+            st.caption("Up 💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
+                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3   ·   "
+                       "Down 🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
+                       "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
 
     b1, b2 = st.columns([2, 1])
     if b1.button("🚀 Scan shakeout coils", type="primary", key="sw_run",
@@ -709,9 +707,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         column_config={
             "Catalysts": st.column_config.Column(
                 width="large",
-                help="Ignition Fuel catalysts: EARNINGS, FDA, M&A, PARTNER, "
-                     "LEGAL, SQUEEZE, BREAKOUT, GEO/MACRO, FED/RATES, EARN ↑, "
-                     "BIMODAL, DTC. (filtered) = sector or keyword gate."),
+                help="Signed catalysts. Up: 💥 WASH OUT, 📈 EARN ↑, 🚀 BREAKOUT, "
+                     "🤝 M&A, 💊 FDA, 🔗 DEAL. Down: 🩸 SELL OFF, 🎈 GAP UP, "
+                     "💸 OFFERING, ⚖️ LEGAL, 🩳 SQUEEZE."),
             "StormScore": st.column_config.Column(help=HELP["score"]),
             "Shakeout": st.column_config.Column(help=HELP["min_shakeout"]),
             "Ret5": st.column_config.Column(help=HELP["ret5"]),
