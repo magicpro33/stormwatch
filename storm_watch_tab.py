@@ -596,9 +596,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             key="sw_use_cat",
             help="Dump-backed tape flags plus news. Ranked by signed score.")
         if use_cat:
-            st.caption("Up 💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
-                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3   ·   "
-                       "Down 🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
+            st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
+                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
+            st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
                        "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
 
     b1, b2 = st.columns([2, 1])
@@ -718,11 +718,12 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             "#": st.column_config.NumberColumn(
                 "#", width="small", format="%d",
                 help="Scan rank. 1 is first on this list. Click the header to sort."),
-            "Catalysts": st.column_config.Column(
-                width="large",
-                help="Signed catalysts. Up: 💥 WASH OUT, 📈 EARN ↑, 🚀 BREAKOUT, "
-                     "🤝 M&A, 💊 FDA, 🔗 DEAL. Down: 🩸 SELL OFF, 🎈 GAP UP, "
-                     "💸 OFFERING, ⚖️ LEGAL, 🩳 SQUEEZE."),
+            "▲ Up": st.column_config.Column(
+                "▲ Up", width="medium",
+                help="Up catalysts — historically helped the next move."),
+            "▼ Down": st.column_config.Column(
+                "▼ Down", width="medium",
+                help="Down catalysts — historically hurt the next move."),
             "StormScore": st.column_config.Column(help=HELP["score"]),
             "Shakeout": st.column_config.Column(help=HELP["min_shakeout"]),
             "Ret5": st.column_config.Column(help=HELP["ret5"]),

@@ -659,44 +659,54 @@ def build_catalyst_tags_html(ticker: str, cat_tags: list, bimodal: bool,
 
 
 def render_catalyst_signals(ticker: str) -> None:
-    """IGNITION catalyst pills for a single ticker (Stock Lookup, etc.)."""
+    """Dump-backed up/down catalysts for a single ticker (Stock Lookup, etc.)."""
     tk = str(ticker or "").strip().upper()
     if not tk:
         return
-    st.markdown(CATALYST_SIGNAL_CSS, unsafe_allow_html=True)
-    st.markdown("##### Catalysts Detected")
+    st.markdown("##### Catalysts")
+    pack = {}
     try:
-        with st.spinner("Scanning catalysts…"):
-            fuel = fetch_fuel(tk) or {}
+        import cascade_engine as _ce
+        with st.spinner("Reading catalysts…"):
+            pack = _ce.ticker_catalysts(tk) or {}
     except Exception as e:
-        st.caption(f"Catalyst scan unavailable: {e}")
+        st.caption(f"Catalysts unavailable: {e}")
         return
-    cat_tags = fuel.get("catalyst_tags") or []
-    bimodal = bool(fuel.get("bimodal_event"))
-    dtc_val = fuel.get("days_to_cover")
-    ed = fuel.get("earnings_days")
-    cat_html = build_catalyst_tags_html(tk, cat_tags, bimodal, dtc_val, ed)
-    suppressed = fuel.get("catalyst_suppressed") or []
-    for s in suppressed:
-        cat_html += (
-            f"<span style='font-family:Space Mono,monospace;font-size:10px;"
-            f"color:#7a9ab8;border:1px dashed #1e3a5f;border-radius:4px;"
-            f"padding:1px 6px;margin:2px 3px 2px 0;text-decoration:line-through;"
-            f"display:inline-block'>{str(s).upper()}</span>"
-        )
-    headline = str(fuel.get("latest_headline") or "").strip()
-    if headline:
-        cat_html += (
-            f"<div style='margin-top:8px;font-size:12px;color:#9aa8bd'>"
-            f"{headline}</div>"
-        )
-    if cat_html:
-        st.markdown(cat_html, unsafe_allow_html=True)
-    else:
-        st.caption("No catalyst tags firing on this name right now.")
-    issues = fuel.get("data_issues") or []
-    if issues:
-        st.caption(" · ".join(str(x) for x in issues[:2]))
+    up, down, other = pack.get("up") or "", pack.get("down") or "", pack.get("other") or ""
+    score = int(pack.get("score") or 0)
+    if not (up or down or other):
+        st.caption("No dump or news catalysts firing on this name.")
+        return
+
+    def _pills(text, color, border, bg):
+        if not text:
+            return "<span style='color:#9aa8bd;font-size:13px'>None</span>"
+        bits = []
+        for part in text.split(" · "):
+            bits.append(
+                f"<span style='display:inline-block;font-family:Space Mono,monospace;"
+                f"font-size:12px;font-weight:700;padding:3px 10px;border-radius:6px;"
+                f"margin:0 6px 6px 0;background:{bg};border:1px solid {border};"
+                f"color:{color}'>{part}</span>")
+        return "".join(bits)
+
+    sc_col = "#3fbf7f" if score > 0 else ("#e05252" if score < 0 else "#9aa8bd")
+    html = (
+        "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:6px 0 8px'>"
+        "<div style='background:#0c1829;border:1px solid #3fbf7f;border-radius:10px;padding:10px 12px'>"
+        "<div style='color:#3fbf7f;font-weight:800;font-size:11px;letter-spacing:1px;"
+        "text-transform:uppercase;margin-bottom:8px'>▲ Up</div>"
+        f"{_pills(up, '#3fbf7f', '#1e6b35', '#0d2215')}</div>"
+        "<div style='background:#0c1829;border:1px solid #e05252;border-radius:10px;padding:10px 12px'>"
+        "<div style='color:#e05252;font-weight:800;font-size:11px;letter-spacing:1px;"
+        "text-transform:uppercase;margin-bottom:8px'>▼ Down</div>"
+        f"{_pills(down, '#e05252', '#a03535', '#220d0d')}</div></div>"
+    )
+    if other:
+        html += f"<div style='margin:0 0 8px'>{_pills(other, '#E87722', '#c47d0e', '#221800')}</div>"
+    html += (f"<div style='color:#9aa8bd;font-size:12px;margin-bottom:8px'>"
+             f"Net score <b style='color:{sc_col}'>{score:+d}</b></div>")
+    st.markdown(html, unsafe_allow_html=True)
 
 
 # ----------------------------------------------------------------------------

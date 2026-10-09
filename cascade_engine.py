@@ -1521,9 +1521,92 @@ NEWS_TO_CATALYST = {
 }
 
 
+CAT_UP_COL = "▲ Up"
+CAT_DOWN_COL = "▼ Down"
+
+
 def _cat_tag(key: str) -> str:
     m = CATALYST_METRICS[key]
     return f"{m['icon']} {m['label']}"
+
+
+def assemble_catalysts(dump_keys=None, news=None) -> dict:
+    """Merge dump flags + news into up/down groups and a net score."""
+    keys = list(dump_keys or [])
+    nd = news or {}
+    for ctype in nd.get("on") or []:
+        cid = NEWS_TO_CATALYST.get(ctype)
+        if cid and cid not in keys:
+            keys.append(cid)
+    on_types = set(nd.get("on") or [])
+    if any(c in on_types for c in ("fda", "legal", "buyout", "earnings")):
+        if "bimodal" not in keys:
+            keys.append("bimodal")
+    filtered = []
+    for ctype in nd.get("filtered") or []:
+        cid = NEWS_TO_CATALYST.get(ctype)
+        if cid and cid not in keys and cid not in filtered:
+            filtered.append(cid)
+    up, down, other = [], [], []
+
+    def _put(cid, extra=""):
+        m = CATALYST_METRICS.get(cid)
+        if not m:
+            return
+        tag = f"{m['icon']} {m['label']}{extra}"
+        if m["side"] == "up":
+            up.append(tag)
+        elif m["side"] == "down":
+            down.append(tag)
+        else:
+            other.append(tag)
+
+    for cid in keys:
+        _put(cid)
+    for cid in filtered:
+        _put(cid, " (filtered)")
+    score = int(sum(CATALYST_METRICS[c]["value"] for c in keys
+                    if c in CATALYST_METRICS))
+    up_s, down_s, other_s = " · ".join(up), " · ".join(down), " · ".join(other)
+    parts = []
+    if up_s:
+        parts.append(f"▲ {up_s}")
+    if down_s:
+        parts.append(f"▼ {down_s}")
+    if other_s:
+        parts.append(other_s)
+    return {
+        "keys": keys, "filtered": filtered, "score": score,
+        "up": up_s, "down": down_s, "other": other_s,
+        "text": "   |   ".join(parts),
+    }
+
+
+def ticker_catalysts(ticker: str, sector: str | None = None,
+                     fetch_news: bool = True) -> dict:
+    """Signed dump + news catalysts for one ticker (Stock Lookup / detail)."""
+    tk = str(ticker or "").strip().upper()
+    empty = assemble_catalysts()
+    if not tk:
+        return empty
+    try:
+        mapping = dump_catalyst_map()
+    except Exception:
+        mapping = {}
+    dump_keys = list((mapping.get(tk) or {}).get("keys") or [])
+    sec = str(sector or "").strip()
+    if not sec:
+        try:
+            sec = str((dump_fundamentals(tk) or {}).get("Sector") or "")
+        except Exception:
+            sec = ""
+    news = {}
+    if fetch_news:
+        try:
+            news = news_catalyst_detail([tk], {tk: sec}) or {}
+        except Exception:
+            news = {}
+    return assemble_catalysts(dump_keys, news.get(tk))
 
 
 def dump_catalyst_map() -> dict:
@@ -1568,9 +1651,11 @@ def dump_catalyst_map() -> dict:
     out = {}
     for k, t in enumerate(tickers):
         keys = [cid for cid, arr in flags.items() if bool(arr[k])]
-        tg = [_cat_tag(cid) for cid in keys]
-        sc = float(sum(CATALYST_METRICS[cid]["value"] for cid in keys))
-        out[str(t).upper()] = {"tags": " · ".join(tg), "n": len(keys), "score": sc, "keys": keys}
+        pack = assemble_catalysts(keys)
+        out[str(t).upper()] = {
+            "tags": pack["text"], "n": len(keys), "score": pack["score"],
+            "keys": keys, "up": pack["up"], "down": pack["down"],
+        }
     _PANEL_CACHE["cat_map"] = (mt, out)
     return out
 
@@ -1594,30 +1679,18 @@ def apply_catalyst_rank(df, enabled: bool, ticker_col: str = "Ticker"):
         news = news_catalyst_detail(tks, secs)
     except Exception:
         news = {}
-    labels, scores = [], []
+    ups, downs, scores = [], [], []
     for tk in tks:
-        keys = list((mapping.get(tk) or {}).get("keys") or [])
-        nd = news.get(tk) or {}
-        for ctype in nd.get("on") or []:
-            cid = NEWS_TO_CATALYST.get(ctype)
-            if cid and cid not in keys:
-                keys.append(cid)
-        on_types = set(nd.get("on") or [])
-        if any(c in on_types for c in ("fda", "legal", "buyout", "earnings")):
-            if "bimodal" not in keys:
-                keys.append("bimodal")
-        seen = [_cat_tag(cid) for cid in keys if cid in CATALYST_METRICS]
-        sc = int(sum(CATALYST_METRICS[cid]["value"] for cid in keys
-                     if cid in CATALYST_METRICS))
-        for ctype in nd.get("filtered") or []:
-            cid = NEWS_TO_CATALYST.get(ctype)
-            if not cid or cid in keys:
-                continue
-            seen.append(f"{_cat_tag(cid)} (filtered)")
-        labels.append(" · ".join(seen))
-        scores.append(sc)
+        pack = assemble_catalysts(
+            (mapping.get(tk) or {}).get("keys"), news.get(tk))
+        ups.append(pack["up"])
+        downs.append(pack["down"])
+        scores.append(pack["score"])
     out = df.copy()
-    out["Catalysts"] = labels
+    if "Catalysts" in out.columns:
+        out = out.drop(columns=["Catalysts"])
+    out[CAT_UP_COL] = ups
+    out[CAT_DOWN_COL] = downs
     out["_cat_n"] = scores
     out["_ord"] = np.arange(len(out))
     out = out.sort_values(["_cat_n", "_ord"], ascending=[False, True])
@@ -1807,7 +1880,11 @@ def drop_blank_columns(df: pd.DataFrame) -> pd.DataFrame:
         return df
     keep = []
     blank = {"", "nan", "none", "nat", "—", "-", "n/a", "na"}
+    always = {CAT_UP_COL, CAT_DOWN_COL, "#"}
     for c in df.columns:
+        if c in always:
+            keep.append(c)
+            continue
         s = df[c]
         if s.isna().all():
             continue
@@ -4253,17 +4330,20 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
                + CATALYST_METRICS["gap_up"]["value"] * gap_up.astype(float)
                + CATALYST_METRICS["squeeze"]["value"] * squeeze_setup.astype(float))
     cat = _pct(cat_raw)
-    cat_tags = []
+    cat_up, cat_down = [], []
     for k in range(N):
-        tg = []
-        if wash[k]: tg.append(_cat_tag("washout"))
-        if earn_up[k]: tg.append(_cat_tag("earn_up"))
-        if brk[k]: tg.append(_cat_tag("breakout"))
-        if selloff[k]: tg.append(_cat_tag("selloff"))
-        if gap_up[k]: tg.append(_cat_tag("gap_up"))
-        if squeeze_setup[k]: tg.append(_cat_tag("squeeze"))
-        cat_tags.append(" · ".join(tg))
-    cat_tags = np.array(cat_tags, dtype=object)
+        keys = []
+        if wash[k]: keys.append("washout")
+        if earn_up[k]: keys.append("earn_up")
+        if brk[k]: keys.append("breakout")
+        if selloff[k]: keys.append("selloff")
+        if gap_up[k]: keys.append("gap_up")
+        if squeeze_setup[k]: keys.append("squeeze")
+        pack = assemble_catalysts(keys)
+        cat_up.append(pack["up"])
+        cat_down.append(pack["down"])
+    cat_up = np.array(cat_up, dtype=object)
+    cat_down = np.array(cat_down, dtype=object)
 
     # ── pillar 2: quality DNA (macro-simulator scoring philosophy) ───
     # UNKNOWN IS NOT AVERAGE. Previously a missing ROIC became 0.0 and was
@@ -4433,7 +4513,8 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
         "SecFlow": np.round(flow_pct[order] * 100, 0),
         "Data": [f"{h}/5" for h in _have[order]],
         "Missing": _missing_names[order],
-        "Catalysts": cat_tags[order],
+        CAT_UP_COL: cat_up[order],
+        CAT_DOWN_COL: cat_down[order],
     })
     regime["hot_nodes"] = used_nodes
     regime["n_sectors"] = int(df.Sector.nunique()) if not df.empty else 0
@@ -4542,14 +4623,9 @@ def news_catalysts(tickers: list, sectors: dict | None = None) -> dict:
     detail = news_catalyst_detail(tickers, sectors)
     out = {}
     for tk, d in detail.items():
-        seen, tags = [], []
-        for c in (d.get("on") or []):
-            cid = NEWS_TO_CATALYST.get(c)
-            if cid and cid not in seen:
-                seen.append(cid)
-                tags.append(_cat_tag(cid))
-        if tags:
-            out[tk] = " · ".join(tags[:6])
+        pack = assemble_catalysts(news=d)
+        if pack["text"]:
+            out[tk] = pack["text"]
     return out
 
 
@@ -4696,9 +4772,11 @@ def forecast_scan(node_closes: pd.DataFrame, F=None, R=None, pressure_gauge=None
     odds = forecast_all(min_n=min_n, only_tickers=list(base.Ticker))
     if odds.empty:
         return odds, regime
-    cat = dict(zip(base.Ticker, base.get("Catalysts", pd.Series(dtype=object))))
     odds = odds.copy()
-    odds["Catalysts"] = [cat.get(t, "") for t in odds.Ticker]
+    up_map = dict(zip(base.Ticker, base.get(CAT_UP_COL, pd.Series(dtype=object))))
+    dn_map = dict(zip(base.Ticker, base.get(CAT_DOWN_COL, pd.Series(dtype=object))))
+    odds[CAT_UP_COL] = [up_map.get(t, "") for t in odds.Ticker]
+    odds[CAT_DOWN_COL] = [dn_map.get(t, "") for t in odds.Ticker]
     odds = odds.sort_values(["OddsUp", "Typical"], ascending=False).head(top)
     return odds.reset_index(drop=True), regime
 

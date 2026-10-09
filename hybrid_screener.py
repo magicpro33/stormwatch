@@ -994,9 +994,9 @@ def render_hybrid_screener() -> None:
             key=_k("use_cat"),
             help="Dump-backed tape flags plus news. Ranked by signed score.")
         if use_cat:
-            st.caption("Up 💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
-                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3   ·   "
-                       "Down 🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
+            st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
+                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
+            st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
                        "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
 
     run = st.button("🚀 Run Screener", type="primary", width="stretch", key=_k("run"))
@@ -1115,7 +1115,9 @@ def render_hybrid_screener() -> None:
                             pass
 
     order = [c for c in [
-        "#", "Ticker", "Sector", "Price", "Catalysts", "First print", "Days listed",
+        "#", "Ticker", "Sector", "Price",
+        getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "CAT_DOWN_COL", "▼ Down"),
+        "First print", "Days listed",
         "MarketCap", "P/E",
         "OwnerEarnings", "MA50", "RangeHigh", "RangeLow", "RangePos",
         "MFI_Signal", "Score", "Short % Float", "Days to Cover",
@@ -1126,12 +1128,15 @@ def render_hybrid_screener() -> None:
             "#", width="small", format="%d",
             help="Scan rank. 1 is first on this list. Click the header to sort."),
     }
-    if "Catalysts" in display.columns:
-        _cat_cfg["Catalysts"] = st.column_config.Column(
-            width="large",
-            help="Signed catalysts. Up: 💥 WASH OUT, 📈 EARN ↑, 🚀 BREAKOUT, "
-                 "🤝 M&A, 💊 FDA, 🔗 DEAL. Down: 🩸 SELL OFF, 🎈 GAP UP, "
-                 "💸 OFFERING, ⚖️ LEGAL, 🩳 SQUEEZE. Ranked by net score.")
+    _up, _dn = getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "CAT_DOWN_COL", "▼ Down")
+    if _up in display.columns:
+        _cat_cfg[_up] = st.column_config.Column(
+            _up, width="medium",
+            help="Up catalysts — historically helped the next move.")
+    if _dn in display.columns:
+        _cat_cfg[_dn] = st.column_config.Column(
+            _dn, width="medium",
+            help="Down catalysts — historically hurt the next move.")
     try:
         styled = display.style.map(_color_score, subset=["Score"]) if "Score" in display.columns else display
         _tsel = st.dataframe(

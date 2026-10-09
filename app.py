@@ -2065,8 +2065,7 @@ def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
     render_ticker_analysis(tk, closes, state_key=state_key, closable=False,
                            df=df_tk, src_label=_hs, info=_info)
     try:
-        if render_catalyst_signals:
-            render_catalyst_signals(tk)
+        _render_signed_catalysts(tk, str((_info or {}).get("sector") or ""))
     except Exception as _cse:
         st.caption(f"Catalyst signals unavailable: {_cse}")
     if df_tk is None or df_tk.empty:
@@ -2104,6 +2103,15 @@ def _render_scan_hub_detail(tk: str, state_key: str, az_prefix: str,
         return
     st.divider()
     render_ticker_analysis(tk, closes, state_key=state_key, closable=closable)
+    try:
+        _sec = ""
+        try:
+            _sec = str((ce.dump_fundamentals(tk) or {}).get("Sector") or "")
+        except Exception:
+            _sec = ""
+        _render_signed_catalysts(tk, _sec)
+    except Exception as _cse:
+        st.caption(f"Catalyst signals unavailable: {_cse}")
     try:
         render_ignition_analyzer(tk, closes, key_prefix=az_prefix)
     except Exception as _ae:
@@ -2405,9 +2413,9 @@ def _catalysts_section(key: str, pill: bool = True):
                  "Ranked by signed score, not tag count.",
         )
         if on:
-            st.caption("Up 💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
-                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3   ·   "
-                       "Down 🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
+            st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
+                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
+            st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
                        "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
     return bool(on)
 
@@ -2432,13 +2440,19 @@ def _with_catalysts(df, on, ticker_col="Ticker"):
     return _with_rank(df)
 
 
-def _cat_col_cfg():
-    return st.column_config.Column(
-        width="large",
-        help="Signed catalysts. Up: 💥 WASH OUT, 📈 EARN ↑, 🚀 BREAKOUT, "
-             "🤝 M&A, 💊 FDA, 🔗 DEAL. Down: 🩸 SELL OFF, 🎈 GAP UP, "
-             "💸 OFFERING, ⚖️ LEGAL, 🩳 SQUEEZE. Ranked by net score.",
-    )
+def _cat_col_cfgs():
+    up = getattr(ce, "CAT_UP_COL", "▲ Up")
+    down = getattr(ce, "CAT_DOWN_COL", "▼ Down")
+    return {
+        up: st.column_config.Column(
+            up, width="medium",
+            help="Up catalysts — historically helped the next move: "
+                 "💥 WASH OUT, 📈 EARN ↑, 🚀 BREAKOUT, 🤝 M&A, 💊 FDA, 🔗 DEAL."),
+        down: st.column_config.Column(
+            down, width="medium",
+            help="Down catalysts — historically hurt the next move: "
+                 "🩸 SELL OFF, 🎈 GAP UP, 💸 OFFERING, ⚖️ LEGAL, 🩳 SQUEEZE."),
+    }
 
 
 def _rank_col_cfg():
@@ -2447,24 +2461,86 @@ def _rank_col_cfg():
         help="Scan rank. 1 is first on this list. Click the header to sort.")
 
 
+def _cat_cols(df):
+    cols = getattr(df, "columns", [])
+    names = []
+    for c in (getattr(ce, "CAT_UP_COL", "▲ Up"),
+              getattr(ce, "CAT_DOWN_COL", "▼ Down"),
+              "Catalysts"):
+        if c in cols and c not in names:
+            names.append(c)
+    return names
+
+
 def _order_with_cat(order, df):
     order = list(order or [])
-    cols = getattr(df, "columns", [])
-    if df is not None and "Catalysts" in cols:
-        order = [c for c in order if c != "Catalysts"]
+    cat_cols = _cat_cols(df)
+    if cat_cols:
+        order = [c for c in order if c not in cat_cols]
         placed = False
         for after in ("Price", "Sector", "Ticker"):
             if after in order:
                 i = order.index(after) + 1
-                order = order[:i] + ["Catalysts"] + order[i:]
+                order = order[:i] + cat_cols + order[i:]
                 placed = True
                 break
         if not placed:
-            order = ["Catalysts"] + order
-    if df is not None and "#" in cols:
+            order = cat_cols + order
+    if df is not None and "#" in getattr(df, "columns", []):
         order = [c for c in order if c != "#"]
         order = ["#"] + order
     return order
+
+
+def _render_signed_catalysts(tk: str, sector: str = "") -> None:
+    """Up/Down catalyst cards for Stock Lookup and scan-hub detail."""
+    tk = str(tk or "").strip().upper()
+    if not tk:
+        return
+    try:
+        with st.spinner("Reading catalysts…"):
+            pack = ce.ticker_catalysts(tk, sector)
+    except Exception as e:
+        st.caption(f"Catalysts unavailable: {e}")
+        return
+    up, down, other = pack.get("up") or "", pack.get("down") or "", pack.get("other") or ""
+    score = int(pack.get("score") or 0)
+    st.markdown("##### Catalysts")
+    if not (up or down or other):
+        st.caption("No dump or news catalysts firing on this name.")
+        return
+
+    def _pills(text, color, border, bg):
+        if not text:
+            return f"<span style='color:{DIM};font-size:13px'>None</span>"
+        bits = []
+        for part in text.split(" · "):
+            bits.append(
+                f"<span style='display:inline-block;font-family:Space Mono,monospace;"
+                f"font-size:12px;font-weight:700;padding:3px 10px;border-radius:6px;"
+                f"margin:0 6px 6px 0;background:{bg};border:1px solid {border};"
+                f"color:{color}'>{_esc(part)}</span>")
+        return "".join(bits)
+
+    sc_col = GREEN if score > 0 else (RED if score < 0 else DIM)
+    _md_html(
+        f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;"
+        f"margin:6px 0 8px'>"
+        f"<div style='background:#0c1829;border:1px solid {GREEN};border-radius:10px;"
+        f"padding:10px 12px'>"
+        f"<div style='color:{GREEN};font-weight:800;font-size:11px;letter-spacing:1px;"
+        f"text-transform:uppercase;margin-bottom:8px'>▲ Up</div>"
+        f"{_pills(up, GREEN, '#1e6b35', '#0d2215')}</div>"
+        f"<div style='background:#0c1829;border:1px solid {RED};border-radius:10px;"
+        f"padding:10px 12px'>"
+        f"<div style='color:{RED};font-weight:800;font-size:11px;letter-spacing:1px;"
+        f"text-transform:uppercase;margin-bottom:8px'>▼ Down</div>"
+        f"{_pills(down, RED, '#a03535', '#220d0d')}</div></div>"
+        + (f"<div style='margin:0 0 8px'>{_pills(other, ACCENT, '#c47d0e', '#221800')}</div>"
+           if other else "")
+        + f"<div style='color:{DIM};font-size:12px;margin-bottom:8px'>"
+        f"Net score <b style='color:{sc_col}'>{score:+d}</b></div>"
+    )
 
 
 def _help_card(title, blurb, body, use=""):
@@ -3209,8 +3285,7 @@ if _main == "Stock Lookup":
             st.caption(f"⭐ {tk} is on your watchlist · {_tag}")
 
         try:
-            if render_catalyst_signals:
-                render_catalyst_signals(tk)
+            _render_signed_catalysts(tk, str((_info or {}).get("sector") or ""))
         except Exception as _cse:
             st.caption(f"Catalyst signals unavailable: {_cse}")
 
@@ -3871,6 +3946,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                     _fc),
                 column_config={
                     "#": _rank_col_cfg(),
+                    **_cat_col_cfgs(),
                     "OddsUp": st.column_config.Column(help="Share of analog look-alike cases that finished HIGHER after 21 sessions. This is what the preset ranks by."),
                     "Typical": st.column_config.Column(help="Median analog outcome — the middle-of-the-pack result. Breaks ties on odds."),
                     "PopOdds": st.column_config.Column(help="Share of analogs that popped +15% or more."),
@@ -4040,17 +4116,27 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _t = t20.copy()
             _t, _lmeta = _apply_live(_t)
             _live_banner(_lmeta)
-            # IGNITION news-keyword catalysts, fetched for the FINAL 20 only
+            # News overlay on dump flags for the FINAL 20 only
             try:
-                import json as _json
-                _nt = _news_tags(tuple(_t.Ticker),
-                                 _json.dumps(dict(zip(_t.Ticker, _t.Sector))))
+                _nd = ce.news_catalyst_detail(
+                    list(_t.Ticker), dict(zip(_t.Ticker, _t.Sector)))
             except Exception:
-                _nt = {}
-            if _nt:
-                _t["Catalysts"] = [
-                    " · ".join(x for x in (_t.Catalysts.iloc[i], _nt.get(tkr, "")) if x)
-                    for i, tkr in enumerate(_t.Ticker)]
+                _nd = {}
+            try:
+                _cmap = ce.dump_catalyst_map()
+            except Exception:
+                _cmap = {}
+            _ups, _dns = [], []
+            for tkr in _t.Ticker:
+                tk = str(tkr).strip().upper()
+                pack = ce.assemble_catalysts(
+                    (_cmap.get(tk) or {}).get("keys"), _nd.get(tk))
+                _ups.append(pack["up"])
+                _dns.append(pack["down"])
+            _t[ce.CAT_UP_COL] = _ups
+            _t[ce.CAT_DOWN_COL] = _dns
+            if "Catalysts" in _t.columns:
+                _t = _t.drop(columns=["Catalysts"])
             _t = _with_rank(_t)
             _sel20 = st.dataframe(
                 _t.style.format(_live_fmt(_t, {
@@ -4073,10 +4159,11 @@ if _main == "Scan Hub" and _hub == "TOP20":
                     ["Ticker", "Sector", "Price"]
                     + (["Live", "Chg%", "Src"] if "Live" in _t.columns else [])
                     + ["Data", "Piotroski", "RevGrowth", "RVOL",
-                       "RangePos", "Catalysts"],
+                       "RangePos"],
                     _t),
                 column_config={
                     "#": _rank_col_cfg(),
+                    **_cat_col_cfgs(),
                     "Score": st.column_config.Column(help="Combined score: 42% technicals + 23% quality + 29% cascade tailwind + 6% catalysts, multiplied by the macro-regime sector fit."),
                     "Tech": st.column_config.Column(help="IGNITION technical percentile: momentum, range position, relative volume, trend, RSI sweet spot, MACD."),
                     "Quality": st.column_config.Column(help="Macro-simulator quality DNA: Piotroski, golden cross, ROIC, revenue & earnings growth."),
@@ -4093,13 +4180,6 @@ if _main == "Scan Hub" and _hub == "TOP20":
                              "at the BOTTOM, never as average — but a low count "
                              "still means the Quality pillar knows less about this "
                              "name. 5/5 = fully known."),
-                    "Catalysts": st.column_config.Column(
-                        width="large",
-                        help="Signed dump-backed flags plus news on the final 20. "
-                             "Up: 💥 WASH OUT +8, 📈 EARN ↑ +4, 🚀 BREAKOUT +3, "
-                             "🤝 M&A +6, 💊 FDA +5, 🔗 DEAL +3. "
-                             "Down: 🩸 SELL OFF −12, 🎈 GAP UP −8, 💸 OFFERING −8, "
-                             "⚖️ LEGAL −5, 🩳 SQUEEZE −3."),
                 })
             st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                        "Scores refresh with the nightly dump; the tailwind and regime "
@@ -4430,7 +4510,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                         _ax_view),
                     column_config={
                         "#": _rank_col_cfg(),
-                        "Catalysts": _cat_col_cfg(),
+                        **_cat_col_cfgs(),
                         "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
                         "RangePos": st.column_config.Column(help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
                         "ValueArea": st.column_config.Column(help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
@@ -4848,7 +4928,7 @@ if _main == "Scan Hub" and _hub == "POC Future":
                         _pdf),
                     column_config={
                         "#": _rank_col_cfg(),
-                        "Catalysts": _cat_col_cfg(),
+                        **_cat_col_cfgs(),
                         "Stage": st.column_config.Column(help="TRIGGERED = POC reclaimed. SWEPT = lows taken, reclaim pending. COILING = range forming."),
                         "BarsAgo": st.column_config.Column(help="Sessions since the stage began. 0 = it happened on the latest bar."),
                         "POC": st.column_config.Column(help="Point of Control — where the coil traded the most volume. The entry level."),
@@ -4994,7 +5074,7 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                 column_order=_korder or None,
                 column_config={
                     "#": _rank_col_cfg(),
-                    "Catalysts": _cat_col_cfg(),
+                    **_cat_col_cfgs(),
                     "Name": st.column_config.Column(help="Dump company name."),
                     "Where": st.column_config.Column(
                         help="Name = ticker or company name. Summary = "
@@ -5262,7 +5342,7 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                             _tdf) or None,
                         column_config={
                             "#": _rank_col_cfg(),
-                            "Catalysts": _cat_col_cfg(),
+                            **_cat_col_cfgs(),
                             "Price": st.column_config.Column(
                                 help="Last close in the nightly dump."),
                             "Current": st.column_config.Column(
