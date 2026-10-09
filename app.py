@@ -510,6 +510,12 @@ def _analyzer(tk: str, asof: str, ver: str = ce.ENGINE_VERSION):
     return ce.fetch_analyzer(tk)
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _lookup_news(tk: str, name: str = ""):
+    """Yahoo + Google News RSS headlines, tagged up/down."""
+    return ce.fetch_lookup_news(tk, name)
+
+
 @st.cache_data(ttl=900, show_spinner="Fetching company profile…")
 def _yf_info(tk: str) -> dict:
     """Live Yahoo profile — same pull as IGNITION's Analyze a Stock tab.
@@ -2068,6 +2074,11 @@ def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
         _render_signed_catalysts(tk, str((_info or {}).get("sector") or ""))
     except Exception as _cse:
         st.caption(f"Catalyst signals unavailable: {_cse}")
+    try:
+        _render_lookup_news(tk, str((_info or {}).get("shortName")
+                                    or (_info or {}).get("longName") or ""))
+    except Exception as _nse:
+        st.caption(f"News unavailable: {_nse}")
     if df_tk is None or df_tk.empty:
         st.error(f"No price history found for **{tk}** from Alpaca, Yahoo, "
                  "or the nightly dump.")
@@ -2112,6 +2123,10 @@ def _render_scan_hub_detail(tk: str, state_key: str, az_prefix: str,
         _render_signed_catalysts(tk, _sec)
     except Exception as _cse:
         st.caption(f"Catalyst signals unavailable: {_cse}")
+    try:
+        _render_lookup_news(tk)
+    except Exception as _nse:
+        st.caption(f"News unavailable: {_nse}")
     try:
         render_ignition_analyzer(tk, closes, key_prefix=az_prefix)
     except Exception as _ae:
@@ -2555,6 +2570,92 @@ def _render_signed_catalysts(tk: str, sector: str = "") -> None:
         with st.expander("What the deep search found", expanded=False):
             for line in ev[:12]:
                 st.caption(str(line))
+
+
+def _news_when(raw) -> str:
+    ts = pd.to_datetime(raw, errors="coerce", utc=True)
+    if pd.isna(ts):
+        return ""
+    hours = (pd.Timestamp.now(tz="UTC") - ts).total_seconds() / 3600.0
+    if hours < 1:
+        return "just now"
+    if hours < 24:
+        return f"{int(hours)}h ago"
+    return f"{int(hours / 24)}d ago"
+
+
+def _news_items_html(items, color, border, bg, badge, empty):
+    if not items:
+        return f"<div style='color:{DIM};font-size:13px'>{_esc(empty)}</div>"
+    rows = []
+    for it in items[:12]:
+        title = _esc(it.get("title") or "")
+        url = str(it.get("url") or "").strip()
+        if url:
+            head = (f"<a href='{_esc(url)}' target='_blank' rel='noopener noreferrer' "
+                    f"style='color:#F6F4E9;text-decoration:none;font-weight:700'>"
+                    f"{title}</a>")
+        else:
+            head = f"<span style='color:#F6F4E9;font-weight:700'>{title}</span>"
+        meta = " · ".join(x for x in (
+            _esc(it.get("source") or ""),
+            _esc(_news_when(it.get("published"))),
+        ) if x)
+        rows.append(
+            f"<div style='padding:8px 0;border-bottom:1px solid #1d2b40'>"
+            f"<div style='display:flex;gap:8px;align-items:flex-start'>"
+            f"<span style='flex:0 0 auto;font-size:10px;font-weight:800;letter-spacing:.6px;"
+            f"color:{color};border:1px solid {border};background:{bg};border-radius:4px;"
+            f"padding:2px 6px;margin-top:2px'>{_esc(badge)}</span>"
+            f"<div style='flex:1;font-size:13.5px;line-height:1.4'>{head}"
+            f"<div style='color:{DIM};font-size:11px;margin-top:3px'>{meta}</div>"
+            f"</div></div></div>"
+        )
+    return "".join(rows)
+
+
+def _render_lookup_news(tk: str, name: str = "") -> None:
+    """Positive vs negative web headlines for Stock Lookup."""
+    tk = str(tk or "").strip().upper()
+    if not tk:
+        return
+    st.markdown("##### News")
+    st.caption("Web search across Yahoo News, Yahoo RSS, and Google News. "
+               "Every headline is marked positive, negative, mixed, or unmarked.")
+    try:
+        with st.spinner("Searching the web for headlines…"):
+            items = _lookup_news(tk, name or "") or []
+    except Exception as e:
+        st.caption(f"News unavailable: {e}")
+        return
+    if not items:
+        st.caption("No headlines returned. Yahoo or Google News may be rate-limiting.")
+        return
+    pos = [x for x in items if x.get("side") == "up"]
+    neg = [x for x in items if x.get("side") == "down"]
+    other = [x for x in items if x.get("side") not in ("up", "down")]
+    c1, c2 = st.columns(2)
+    with c1:
+        _md_html(
+            f"<div style='background:#0c1829;border:1px solid {GREEN};border-radius:10px;"
+            f"padding:10px 12px;margin-bottom:8px'>"
+            f"<div style='color:{GREEN};font-weight:800;font-size:11px;letter-spacing:1px;"
+            f"text-transform:uppercase;margin-bottom:6px'>Positive news · {len(pos)}</div>"
+            f"{_news_items_html(pos, GREEN, '#1e6b35', '#0d2215', 'POS', 'No positive headlines.')}"
+            f"</div>"
+        )
+    with c2:
+        _md_html(
+            f"<div style='background:#0c1829;border:1px solid {RED};border-radius:10px;"
+            f"padding:10px 12px;margin-bottom:8px'>"
+            f"<div style='color:{RED};font-weight:800;font-size:11px;letter-spacing:1px;"
+            f"text-transform:uppercase;margin-bottom:6px'>Negative news · {len(neg)}</div>"
+            f"{_news_items_html(neg, RED, '#a03535', '#220d0d', 'NEG', 'No negative headlines.')}"
+            f"</div>"
+        )
+    if other:
+        with st.expander(f"Mixed / unmarked · {len(other)}", expanded=False):
+            _md_html(_news_items_html(other, ACCENT, "#c47d0e", "#221800", "MIX", "None."))
 
 
 def _help_card(title, blurb, body, use=""):
@@ -3318,6 +3419,11 @@ if _main == "Stock Lookup":
             _render_signed_catalysts(tk, str((_info or {}).get("sector") or ""))
         except Exception as _cse:
             st.caption(f"Catalyst signals unavailable: {_cse}")
+        try:
+            _render_lookup_news(tk, str((_info or {}).get("shortName")
+                                        or (_info or {}).get("longName") or ""))
+        except Exception as _nse:
+            st.caption(f"News unavailable: {_nse}")
 
         # ── IGNITION Stock Analyzer (ported) — full fundamental deep dive ──
         st.divider()

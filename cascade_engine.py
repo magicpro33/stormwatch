@@ -1990,6 +1990,192 @@ def lookup_catalysts(ticker: str, sector: str | None = None) -> dict:
     return pack
 
 
+_NEWS_POS = (
+    "beat", "beats", "surge", "soars", "rallies", "jumps", "record",
+    "upgrade", "upgraded", "raises", "raised", "boosts", "outperform",
+    "buy rating", "overweight", "contract", "award", "awarded",
+    "partnership", "approval", "approved", "cleared", "buyback",
+    "repurchase", "acquisition", "acquire", "merger", "takeover",
+    "breakthrough", "expands", "wins", "won", "guidance raised",
+    "raises guidance", "exceeded", "top-line", "profit surge",
+    "positive results", "positive data", "fda approved", "milestone",
+    "selected", "chosen", "patent", "blowout", "beat estimates",
+    "initiates buy", "price target raised", "strong buy",
+)
+_NEWS_NEG = (
+    "miss", "misses", "missed", "plunge", "plunges", "tumbles", "slides",
+    "slumps", "crash", "downgrade", "downgraded", "cuts", "cut to",
+    "underperform", "sell rating", "underweight", "offering", "dilution",
+    "lawsuit", "sued", "investigation", "recall", "halts", "halted",
+    "delay", "delayed", "bankruptcy", "warning", "resigns", "steps down",
+    "rejected", "fda rejection", "clinical hold", "adverse", "fraud",
+    "subpoena", "default", "going concern", "lowered guidance",
+    "cuts guidance", "missed estimates", "profit warning", "layoffs",
+    "probe", "restatement", "short seller", "downgrade to",
+)
+
+
+def _news_tone(text: str) -> tuple:
+    """Return ('up'|'down'|'mixed'|'neutral', pos_hits, neg_hits)."""
+    blob = (text or "").lower()
+    pos = sum(1 for w in _NEWS_POS if w in blob)
+    neg = sum(1 for w in _NEWS_NEG if w in blob)
+    if pos > neg:
+        return "up", pos, neg
+    if neg > pos:
+        return "down", pos, neg
+    if pos and pos == neg:
+        return "mixed", pos, neg
+    return "neutral", pos, neg
+
+
+def _norm_headline(title: str) -> str:
+    t = re.sub(r"\s+", " ", str(title or "").strip().lower())
+    t = re.sub(r"[^a-z0-9 $%]+", "", t)
+    return t[:160]
+
+
+def _rss_items(url: str, source: str, timeout: int = 8) -> list:
+    import xml.etree.ElementTree as ET
+    import html as _html
+    out = []
+    try:
+        r = requests.get(
+            url, timeout=timeout, allow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 MoneyMaker/2.42",
+                     "Accept": "application/rss+xml, application/xml, text/xml"},
+        )
+        r.raise_for_status()
+        root = ET.fromstring(r.content)
+    except Exception as e:
+        _log_exc(f"lookup_news_rss:{source}", e)
+        return out
+    for node in root.iter():
+        tag = node.tag.lower().rsplit("}", 1)[-1]
+        if tag not in ("item", "entry"):
+            continue
+        rec = {}
+        for child in list(node):
+            ctag = child.tag.lower().rsplit("}", 1)[-1]
+            rec[ctag] = (child.text or "") if child.text else rec.get(ctag, "")
+            if ctag == "link" and not rec.get("href"):
+                rec["href"] = child.attrib.get("href") or rec.get("link") or ""
+            if ctag == "source" and child.text:
+                rec["rss_source"] = child.text
+        title = _html.unescape(rec.get("title") or "").strip()
+        if not title:
+            continue
+        link = (rec.get("href") or rec.get("link") or rec.get("id") or "").strip()
+        summary = _html.unescape(re.sub("<[^>]+>", " ", rec.get("description")
+                                        or rec.get("summary") or "")).strip()
+        published = rec.get("pubdate") or rec.get("published") or rec.get("updated") or ""
+        out.append({
+            "title": title, "url": link, "summary": summary[:280],
+            "source": rec.get("rss_source") or source, "published": published,
+        })
+    return out
+
+
+def _yf_news_items(ticker: str) -> list:
+    out = []
+    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+    try:
+        import yfinance as yf
+        arts = yf.Ticker(ticker).news or []
+    except Exception as e:
+        _log_exc("lookup_news_yf", e)
+        return out
+    for item in arts[:40]:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content") if isinstance(item.get("content"), dict) else item
+        title = (content.get("title") or item.get("title") or "").strip()
+        if not title:
+            continue
+        url = ""
+        for key in ("canonicalUrl", "clickThroughUrl", "link"):
+            val = content.get(key) or item.get(key)
+            if isinstance(val, dict):
+                url = val.get("url") or ""
+            elif isinstance(val, str):
+                url = val
+            if url:
+                break
+        provider = ""
+        prov = content.get("provider") or item.get("publisher") or {}
+        if isinstance(prov, dict):
+            provider = prov.get("displayName") or prov.get("name") or ""
+        else:
+            provider = str(prov or "")
+        published = (content.get("pubDate") or content.get("displayTime")
+                     or item.get("providerPublishTime") or "")
+        if isinstance(published, (int, float)):
+            try:
+                published = datetime.fromtimestamp(published, tz=timezone.utc).isoformat()
+            except Exception:
+                published = str(published)
+        summary = (content.get("summary") or content.get("description") or "")[:280]
+        out.append({
+            "title": title, "url": url, "summary": summary,
+            "source": provider or "Yahoo", "published": str(published or ""),
+        })
+    return out
+
+
+def fetch_lookup_news(ticker: str, name: str = "") -> list:
+    """Web headlines for Stock Lookup: Yahoo news + Yahoo RSS + Google News RSS.
+
+    Each item is marked up / down / mixed / neutral from headline tone.
+    """
+    from urllib.parse import quote_plus
+    tk = str(ticker or "").strip().upper()
+    if not tk:
+        return []
+    name = str(name or "").strip()
+    q = f'{tk} stock' if not name else f'"{tk}" OR "{name}" stock'
+    urls = [
+        ("Yahoo RSS",
+         f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={quote_plus(tk)}"
+         f"&region=US&lang=en-US"),
+        ("Google News",
+         f"https://news.google.com/rss/search?q={quote_plus(q)}"
+         f"&hl=en-US&gl=US&ceid=US:en"),
+    ]
+    raw = list(_yf_news_items(tk))
+    for src, url in urls:
+        raw.extend(_rss_items(url, src))
+    seen, items = set(), []
+    tkl = tk.lower()
+    namel = name.lower() if len(name) >= 4 else ""
+    for art in raw:
+        title = str(art.get("title") or "").strip()
+        key = _norm_headline(title)
+        if not key or key in seen:
+            continue
+        src = str(art.get("source") or "")
+        blob = f"{title} {art.get('summary') or ''}"
+        about = (tkl in blob.lower() or f"${tkl}" in blob.lower()
+                 or (namel and namel in blob.lower())
+                 or "yahoo" in src.lower())
+        if not about:
+            continue
+        seen.add(key)
+        side, pos, neg = _news_tone(blob)
+        items.append({
+            "title": title,
+            "url": str(art.get("url") or ""),
+            "summary": str(art.get("summary") or ""),
+            "source": str(art.get("source") or "Web"),
+            "published": str(art.get("published") or ""),
+            "side": side,
+            "pos": int(pos),
+            "neg": int(neg),
+        })
+    order = {"up": 0, "down": 1, "mixed": 2, "neutral": 3}
+    items.sort(key=lambda a: (order.get(a["side"], 9), -a["pos"] - a["neg"]))
+    return items[:48]
+
+
 def dump_catalyst_map() -> dict:
     """Signed dump catalysts for every ticker. Cached on panel mtime."""
     panel, tickers, sectors, mdv, dts = load_dump_panel()
