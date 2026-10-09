@@ -1836,17 +1836,15 @@ def render_ignition_scanner_tab():
                     unsafe_allow_html=True,
                 )
         if "ig_last_results" not in st.session_state:
-            st.caption("Hit **Scan** to run. Nothing is fetched until then.")
+            st.markdown(
+                "<div style='padding:6px 0;font-family:Space Mono,monospace;"
+                "font-size:13px;font-weight:700;color:#39FF14;"
+                "text-shadow:0 0 8px rgba(57,255,20,0.65)'>"
+                "Hit Scan to run. Nothing is fetched until then.</div>",
+                unsafe_allow_html=True,
+            )
 
     ig_progress_slot = st.empty()
-
-    # ── Top-N results slider (defined here — used by all watchlist modes) ──
-    top_n = st.slider(
-        "Results to show", 5, 30, 10,
-        key="ig_top_n",
-        help="How many stocks to display after the scan, ranked by Score. "
-             "Set to 5 for the hottest only, 30 for a full board.",
-    )
 
     # ── Scan ALL presets toggle ──────────────────────────────────────────
     all_presets_mode = st.toggle(
@@ -1870,6 +1868,9 @@ def render_ignition_scanner_tab():
     )
 
     screener_mode = False
+    screener_url = SCREENER_URL_DEFAULT
+    pool_size = 40
+    min_price = 1.0
     if all_presets_mode:
         # Build deduplicated mega-list across all 8 presets, excluding ETFs
         seen, all_combined = set(), []
@@ -1881,19 +1882,10 @@ def render_ignition_scanner_tab():
         tickers = all_combined
         st.caption(
             f"ALL PRESETS: {len(tickers)} stocks across "
-            f"{len(PRESETS)} sectors (ETFs excluded). "
-            f"Top {top_n} shown after scan."
+            f"{len(PRESETS)} sectors (ETFs excluded)."
         )
     elif source == "Scan over 5000 stocks":
         screener_mode = True
-        screener_url = st.text_input("Dump URL", value=SCREENER_URL_DEFAULT,
-                                     key="ig_screener_url")
-        pool_size = st.slider(
-            "Candidate pool (pre-ranked from dump)", 20, 80, 40,
-            key="ig_pool_size",
-            help="The whole dump is pre-ranked by its own nightly signals; the top "
-                 "N candidates get the live ignition scan.",
-        )
         min_price = st.number_input(
             "Min price filter", value=1.0, step=0.5,
             key="ig_min_price",
@@ -1926,14 +1918,28 @@ def render_ignition_scanner_tab():
         else:
             tickers = [t.strip().upper() for t in PRESETS[preset].split(",") if t.strip()]
 
-    st.markdown("---")
-    alert_threshold = st.slider(
-        "Alert score threshold", 40, 95, 65,
-        key="ig_alert_th",
-        help="A ticker is flagged the first time its overall Score crosses this "
-             "line each day. IGNITING flags fire regardless of this threshold "
-             "when all live conditions confirm at once.",
-    )
+    with st.container(border=True):
+        st.markdown("**Scan settings**")
+        top_n = st.slider(
+            "Results to show", 5, 30, 10,
+            key="ig_top_n",
+            help="How many stocks to display after the scan, ranked by Score. "
+                 "Set to 5 for the hottest only, 30 for a full board.",
+        )
+        alert_threshold = st.slider(
+            "Alert score threshold", 40, 95, 65,
+            key="ig_alert_th",
+            help="A ticker is flagged the first time its overall Score crosses this "
+                 "line each day. IGNITING flags fire regardless of this threshold "
+                 "when all live conditions confirm at once.",
+        )
+        if screener_mode:
+            pool_size = st.slider(
+                "Candidate pool (pre-ranked from dump)", 20, 80, 40,
+                key="ig_pool_size",
+                help="The whole dump is pre-ranked by its own nightly signals; the top "
+                     "N candidates get the live ignition scan.",
+            )
     view_mode = "Compact (phone)"
     show_all_cols = False
     popup_alerts_on = False
@@ -1955,12 +1961,8 @@ def render_ignition_scanner_tab():
                 )
                 st.session_state["ig_screener_pre"] = candidates
                 st.caption(
-                    f"Watchlist pinned for {day_key} from dump "
-                    f"({meta['n_tickers']} tickers, {meta['n_fields']} fields). "
-                    f"Pool: {len(tickers)}."
+                    f"Watchlist pinned for {day_key}. Pool: {len(tickers)}."
                 )
-                with st.expander("Detected dump fields"):
-                    st.write(", ".join(meta["fields"]))
             except Exception as e:
                 st.error(f"Could not load nightly dump: {e}")
                 tickers = []
