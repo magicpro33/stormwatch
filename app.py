@@ -2442,6 +2442,230 @@ def _order_with_cat(order, df):
     return ["Catalysts"] + order
 
 
+def _help_card(title, blurb, body, use=""):
+    extra = ""
+    if use:
+        extra = (f"<div style='margin-top:8px;font-size:12.5px;color:{ACCENT}'>"
+                 f"<b>Use when</b> · {_esc(use)}</div>")
+    _md_html(
+        f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+        f"border-left:4px solid {ACCENT};border-radius:12px;"
+        f"padding:12px 16px;margin:0 0 10px'>"
+        f"<div style='font-weight:800;font-size:16px;letter-spacing:.2px'>"
+        f"{_esc(title)}</div>"
+        f"<div style='color:{ACCENT};font-size:13px;font-weight:650;"
+        f"margin:4px 0 8px'>{_esc(blurb)}</div>"
+        f"<div style='color:{DIM};font-size:13.5px;line-height:1.55'>"
+        f"{_esc(body)}</div>{extra}</div>"
+    )
+
+
+def _help_key_row(icon, name, score, meaning, side="up"):
+    col = GREEN if side == "up" else (RED if side == "down" else DIM)
+    sign = f"{int(score):+d}"
+    _md_html(
+        f"<div style='display:flex;gap:12px;align-items:flex-start;"
+        f"background:#0c1829;border:1px solid #1d2b40;border-radius:10px;"
+        f"padding:10px 12px;margin:0 0 8px'>"
+        f"<div style='font-size:22px;line-height:1;min-width:28px'>{_esc(icon)}</div>"
+        f"<div style='flex:1'>"
+        f"<div style='display:flex;gap:10px;align-items:baseline;flex-wrap:wrap'>"
+        f"<span style='font-weight:800;font-size:14px'>{_esc(name)}</span>"
+        f"<span style='color:{col};font-weight:800;font-family:Space Mono,monospace;"
+        f"font-size:13px'>{_esc(sign)}</span>"
+        f"</div>"
+        f"<div style='color:{DIM};font-size:13px;line-height:1.5;margin-top:3px'>"
+        f"{_esc(meaning)}</div></div></div>"
+    )
+
+
+def _render_scan_hub_help():
+    st.markdown("### Help")
+    st.caption("A short map of Scan Hub: what each scanner is for, what a "
+               "macro lens does, and what the catalyst icons mean.")
+    sec = st.radio(
+        "Jump to", ["Scanners", "Lenses", "Catalysts"],
+        horizontal=True, key="hub_help_sec")
+
+    if sec == "Scanners":
+        st.markdown("#### Scanners")
+        st.caption("Each tab hunts a different setup. Tap a row on any list "
+                   "to open the chart and company profile under it.")
+        _help_card(
+            "🏆 TOP20",
+            "Ranks the whole nightly dump — about 5,700 names.",
+            "Four engines, one list. Cascade Score mixes technicals, quality, "
+            "and cascade-wave tailwind. Best Odds ranks analog bounce chances. "
+            "Felix is balance-sheet quality only. Macro-only ranks scenario fit "
+            "with no flow. A macro lens then tilts the order toward that "
+            "regime's winning sectors.",
+            "You want a cross-market shortlist, not a single pattern.")
+        _help_card(
+            "⚡ Apex Flow",
+            "The same 0–100 conviction score as the TradingView APEX script.",
+            "Scores risk, range position, value-area structure, trend regime, "
+            "and trend quality. It ranks setups that are less likely to blow "
+            "up — not the names with the biggest expected gain. Daily bars "
+            "are the validated timeframe. A macro lens re-orders the list; "
+            "it does not change the APEX score.",
+            "You already trade APEX on the chart and want the same gate on the dump.")
+        _help_card(
+            "🎯 POC Future",
+            "Coil, stop-sweep, reclaim the point of control — long only.",
+            "Looks for a tight accumulation range, a wick that hunts stops "
+            "beyond it, then a close back through the volume-profile POC. "
+            "You can watch a coil before it sweeps, or catch the reclaim "
+            "after. Shorts failed every test, so this scanner does not list them.",
+            "You want a spring from a defined range, not a trend chase.")
+        _help_card(
+            "🌩 ShakeOut",
+            "Washout coils sitting on range lows.",
+            "Finds names that already sold off a bit, sit in the lower part "
+            "of the 63-day range, with RSI washed out and volatility "
+            "compressed — a coil after the shake, not strength. Macro lens "
+            "and hot-sector filters are optional.",
+            "You want mean-reversion candidates, not breakouts.")
+        _help_card(
+            "📊 Hybrid Screener",
+            "The dump filter suite with named presets.",
+            "Same metrics as the standalone hybrid screener: ROIC, owner-earnings "
+            "yield, Piotroski, volume, range position, and more. Presets jump "
+            "you to Clean Setup, Felix quality, short-squeeze, range-low, "
+            "volume, breakout, insider, or recent IPO. Toggle factors and "
+            "weights in Advanced.",
+            "You want to build or reuse a fundamental + tape checklist.")
+        _help_card(
+            "🔥 Ignition Scanner",
+            "Live names in the money zone.",
+            "A live scan (not dump-only) for ignition fuel: relative volume, "
+            "velocity, VWAP, and live news catalysts. Hit Scan — nothing "
+            "fetches until then. Its catalyst pills are the live news set; "
+            "the dump signed tags live on the other scanners.",
+            "You want what is moving right now, not yesterday's close.")
+        _help_card(
+            "🔎 Key Word Search",
+            "Search company names and business summaries.",
+            "Type a word or phrase (lithium, REIT, rare earth). The dump is "
+            "searched case-insensitive, then filtered by price. Tap a row "
+            "for the full lookup under the list.",
+            "You have a theme and need names that actually mention it.")
+        _help_card(
+            "🇺🇸 Trump Effect",
+            "What the speeches keep saying — then the names that match.",
+            "Reads live White House remarks (GovInfo as archive). Flags "
+            "market-signal words (tariffs, oil, chips…) and repeated topics. "
+            "Tap a word to search the dump for companies that mention it.",
+            "You want policy-talk mapped onto tickers, not a technical scan.")
+        return
+
+    if sec == "Lenses":
+        st.markdown("#### Macro lenses")
+        st.caption("A lens is a sector tilt laid on top of a ranking. It "
+                   "re-orders names that already passed the scanner. It does "
+                   "not change quality scores, analog odds, or APEX gates.")
+        _md_html(
+            f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;"
+            f"margin:0 0 14px'>"
+            f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+            f"border-radius:10px;padding:10px 12px'>"
+            f"<div style='font-weight:800'>🚫 Off</div>"
+            f"<div style='color:{DIM};font-size:13px;margin-top:4px'>"
+            f"No sector tilt. Pure scanner score.</div></div>"
+            f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+            f"border-radius:10px;padding:10px 12px'>"
+            f"<div style='font-weight:800'>📡 Auto</div>"
+            f"<div style='color:{DIM};font-size:13px;margin-top:4px'>"
+            f"Uses the regime the app detects live from oil, dollar, VIX, "
+            f"and the pressure gauge.</div></div></div>"
+        )
+        st.caption("Pick a named lens as a what-if. Full playbooks live on "
+                   "Cascade Map → Lenses.")
+        _order = list(getattr(ce, "LENS_ORDER", []) or [])
+        for extra in ("carry", "diesel"):
+            if extra in getattr(ce, "REGIME_NAMES", {}) and extra not in _order:
+                _order.append(extra)
+        cards = getattr(ce, "REGIME_CARDS", {}) or {}
+        names = getattr(ce, "REGIME_NAMES", {}) or {}
+        labels = getattr(ce, "REGIME_LABELS", {}) or {}
+        extra_ll = {
+            "carry": ("Gold and defensives",
+                      "High-beta, crypto-adjacent, yen-funded risk"),
+            "diesel": ("Refiners and alt energy",
+                       "Fuel-cost victims and long-haul discretionary"),
+        }
+        cols = st.columns(2)
+        for i, key in enumerate(_order):
+            cd = cards.get(key) or {}
+            title = cd.get("name") or str(names.get(key, key)).lstrip()
+            emoji = cd.get("emoji") or ""
+            if not emoji and str(names.get(key, "")).strip():
+                emoji = str(names.get(key)).split(" ", 1)[0]
+            thesis = cd.get("thesis") or labels.get(key, "")
+            leads = cd.get("leads") or extra_ll.get(key, ("", ""))[0]
+            lags = cd.get("lags") or extra_ll.get(key, ("", ""))[1]
+            with cols[i % 2]:
+                lead_html = (
+                    f"<div style='color:{GREEN};font-size:12px;margin-top:8px'>"
+                    f"<b>Leads</b> · {_esc(leads)}</div>" if leads else "")
+                lag_html = (
+                    f"<div style='color:{RED};font-size:12px;margin-top:4px'>"
+                    f"<b>Lags</b> · {_esc(lags)}</div>" if lags else "")
+                _md_html(
+                    f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+                    f"border-radius:12px;padding:12px 14px;margin:0 0 10px'>"
+                    f"<div style='font-weight:800;font-size:15px'>"
+                    f"{_esc(emoji)} {_esc(title)}</div>"
+                    f"<div style='color:{DIM};font-size:13px;line-height:1.5;"
+                    f"margin-top:6px'>{_esc(thesis)}</div>"
+                    f"{lead_html}{lag_html}</div>"
+                )
+        return
+
+    st.markdown("#### Catalysts")
+    st.caption("Turn on Add Catalysts on a scanner to tag the list and rank "
+               "by net score — not by how many tags a name has. Positive "
+               "scores float up; negative scores sink. Tape flags are read "
+               "from the dump; M&A, FDA, DEAL, LEGAL, and OFFERING come "
+               "from headlines on the listed names.")
+    meanings = {
+        "washout":  "New 63-day low. In this sample, washed-out names bounced.",
+        "earn_up":  "Dump earnings growth at least 25%.",
+        "breakout": "Close at a fresh 63-day high.",
+        "buyout":   "Merger, takeover, or sale-process news.",
+        "fda":      "Trial, approval, or FDA news (healthcare names).",
+        "deal":     "Partnership, contract, or joint-venture news.",
+        "selloff":  "2.5× volume and a 4%+ down day. Pressure usually continues.",
+        "gap_up":   "Opened 3%+ through the prior close. The chase often fades.",
+        "offering": "Share sale / dilution in the news.",
+        "legal":    "Lawsuit, settlement, or investigation headlines.",
+        "squeeze":  "Short interest ≥ 15% while price is already up — crowded.",
+        "bimodal":  "FDA, legal, M&A, or earnings overlapping. Shown, score 0.",
+    }
+    metrics = getattr(ce, "CATALYST_METRICS", {}) or {}
+    up = [(k, m) for k, m in metrics.items() if m.get("side") == "up"]
+    down = [(k, m) for k, m in metrics.items() if m.get("side") == "down"]
+    both = [(k, m) for k, m in metrics.items() if m.get("side") == "both"]
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Up — historically helped the next move**")
+        for k, m in up:
+            _help_key_row(m.get("icon", ""), m.get("label", k),
+                          m.get("value", 0), meanings.get(k, ""), "up")
+    with c2:
+        st.markdown("**Down — historically hurt the next move**")
+        for k, m in down:
+            _help_key_row(m.get("icon", ""), m.get("label", k),
+                          m.get("value", 0), meanings.get(k, ""), "down")
+    if both:
+        st.markdown("**Shown, not scored**")
+        for k, m in both:
+            _help_key_row(m.get("icon", ""), m.get("label", k),
+                          m.get("value", 0), meanings.get(k, ""), "both")
+    st.caption("Ignition Scanner uses its own live news pills. The signed "
+               "set above is what the other Scan Hub lists add when the "
+               "Catalysts toggle is on.")
+
+
 def _gauge():
     """Pressure gauge on demand — not on every first paint."""
     try:
@@ -2493,7 +2717,7 @@ def _try_closes():
 
 _MAIN = ["Scan Hub", "Stock Lookup", "Crypto Copycat", "Macro Sim", "Cascade Map"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
-        "Ignition Scanner", "Key Word Search", "Trump Effect"]
+        "Ignition Scanner", "Key Word Search", "Trump Effect", "Help"]
 _MAP = ["Market Weather", "Cascade Pressure", "Cascade Sentinels", "Forced Flows",
         "Cascade Validation Lab", "Lenses", "Guide"]
 if st.session_state.get("mw_hub") == "Key Word":
@@ -5027,6 +5251,11 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                     })
 
     _hub_keep_save("te", ("te_",))
+
+
+# ── ❓ scan hub help ─────────────────────────────────────────────────
+if _main == "Scan Hub" and _hub == "Help":
+    _render_scan_hub_help()
 
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
