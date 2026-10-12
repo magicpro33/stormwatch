@@ -2244,7 +2244,7 @@ _HUB_KEEP_TOGGLES = {
     "apex_calm", "apex_rs",
     "ig_all_presets_mode",
     "apex_use_cat", "poc_use_cat", "sw_use_cat",
-    "hs_use_cat", "kw_use_cat", "te_use_cat",
+    "hs_use_cat", "kw_use_cat", "te_use_cat", "top20_use_cat",
 }
 
 _HUB_KEEP_BUTTON_SUFFIXES = (
@@ -3991,6 +3991,8 @@ if _main == "Scan Hub" and _hub == "TOP20":
             f"{f', limited to {len(_sec_filter)} sectors ({_t_lbl})' if (_sec_filter and _method != 'felix') else ''}."
             f"</div>")
 
+        _t20_cat = _catalysts_section("top20", pill=False)
+
         _t20_ready = bool(st.session_state.get("top20_go")
                           and (st.session_state.get("t20_inline")
                                or st.session_state.get("t20_inline_tk")))
@@ -4097,7 +4099,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _fc = fc20.copy()
             _fc, _lmeta = _apply_live(_fc)
             _live_banner(_lmeta)
-            _fc = _with_rank(_fc)
+            _fc = _with_catalysts(_fc, _t20_cat)
             _fcsel = st.dataframe(
                 _fc.style.format(_live_fmt(_fc, {
                     "Price": "${:,.2f}", "OddsUp": "{:.0f}%",
@@ -4162,7 +4164,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 unsafe_allow_html=True)
             _m20, _lmeta = _apply_live(_m20)
             _live_banner(_lmeta)
-            _m20 = _with_rank(_m20)
+            _m20 = _with_catalysts(_m20, _t20_cat)
             # Fit / MacroFit / Quality / Data stay in the frame (they drive the
             # ranking and the styling) but are hidden from the display
             _mcols = (["Ticker", "Sector", "Price"]
@@ -4223,7 +4225,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _f = f20.copy()
             _f, _lmeta = _apply_live(_f)
             _live_banner(_lmeta)
-            _f = _with_rank(_f)
+            _f = _with_catalysts(_f, _t20_cat)
             _fsel = st.dataframe(
                 _f.style.format(_live_fmt(_f, {
                     "Price": "${:,.2f}", "Felix": "{:.1f}",
@@ -4287,28 +4289,11 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _t = t20.copy()
             _t, _lmeta = _apply_live(_t)
             _live_banner(_lmeta)
-            # News overlay on dump flags for the FINAL 20 only
-            try:
-                _nd = ce.news_catalyst_detail(
-                    list(_t.Ticker), dict(zip(_t.Ticker, _t.Sector)))
-            except Exception:
-                _nd = {}
-            try:
-                _cmap = ce.dump_catalyst_map()
-            except Exception:
-                _cmap = {}
-            _ups, _dns = [], []
-            for tkr in _t.Ticker:
-                tk = str(tkr).strip().upper()
-                pack = ce.assemble_catalysts(
-                    (_cmap.get(tk) or {}).get("keys"), _nd.get(tk))
-                _ups.append(pack["up"])
-                _dns.append(pack["down"])
-            _t[ce.CAT_UP_COL] = _ups
-            _t[ce.CAT_DOWN_COL] = _dns
-            if "Catalysts" in _t.columns:
-                _t = _t.drop(columns=["Catalysts"])
-            _t = _with_rank(_t)
+            for _cc in (getattr(ce, "CAT_UP_COL", "▲ Up"),
+                        getattr(ce, "CAT_DOWN_COL", "▼ Down"), "Catalysts"):
+                if _cc in _t.columns:
+                    _t = _t.drop(columns=[_cc])
+            _t = _with_catalysts(_t, _t20_cat)
             _sel20 = st.dataframe(
                 _t.style.format(_live_fmt(_t, {
                     "Price": "${:,.2f}", "Score": "{:.1f}", "Tech": "{:.0f}",
@@ -4362,24 +4347,25 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 return (f"<div style='display:flex;gap:8px;font-size:12px;line-height:1.9;'>"
                         f"<span style='min-width:118px;font-weight:600;'>{tag}</span>"
                         f"<span style='color:{DIM};'>{desc}</span></div>")
-            with st.expander("🔑 Catalyst key", expanded=False):
-                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-radius:10px;padding:12px 16px;margin-top:6px;">
-                <div style="color:{ACCENT};font-size:11px;letter-spacing:1px;text-transform:uppercase;margin:4px 0 2px;">
-                  Up — dump-backed (walk-forward on the nightly gz)</div>
-                {_krow("💥 WASH OUT +8", "new 63-day low — mean-reversion (+0.9% / 5d, +1.5% / 21d)")}
-                {_krow("📈 EARN ↑ +4", "dump earnings growth ≥ 25% (+0.4% / 5d, +1.5% / 21d)")}
-                {_krow("🚀 BREAKOUT +3", "close at a 63-day high (+0.6% / 21d)")}
-                {_krow("🤝 M&amp;A +6 / 💊 FDA +5 / 🔗 DEAL +3", "news on the finalists (not dump-timed)")}
-                <div style="color:{ACCENT};font-size:11px;letter-spacing:1px;text-transform:uppercase;margin:8px 0 2px;">
-                  Down — dump-backed</div>
-                {_krow("🩸 SELL OFF −12", "2.5x volume and a 4%+ down day (−3.0% / 5d, −5.3% / 21d)")}
-                {_krow("🎈 GAP UP −8", "opened 3%+ through prior close — the chase fades (−1.2% / 5d)")}
-                {_krow("💸 OFFERING −8 / ⚖️ LEGAL −5", "dilution or litigation in the news")}
-                {_krow("🩳 SQUEEZE −3", "15%+ short while price is already up — crowded, lagged")}
-                <div style="color:{DIM};font-size:11px;margin-top:6px;">
-                  Tape flags are scored across the whole dump. News tags are fetched for the final 20.</div>
-                </div>""", unsafe_allow_html=True)
+            if _t20_cat:
+                with st.expander("🔑 Catalyst key", expanded=False):
+                    st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-radius:10px;padding:12px 16px;margin-top:6px;">
+                    <div style="color:{ACCENT};font-size:11px;letter-spacing:1px;text-transform:uppercase;margin:4px 0 2px;">
+                      Up — dump-backed (walk-forward on the nightly gz)</div>
+                    {_krow("💥 WASH OUT +8", "new 63-day low — mean-reversion (+0.9% / 5d, +1.5% / 21d)")}
+                    {_krow("📈 EARN ↑ +4", "dump earnings growth ≥ 25% (+0.4% / 5d, +1.5% / 21d)")}
+                    {_krow("🚀 BREAKOUT +3", "close at a 63-day high (+0.6% / 21d)")}
+                    {_krow("🤝 M&amp;A +6 / 💊 FDA +5 / 🔗 DEAL +3", "news on the finalists (not dump-timed)")}
+                    <div style="color:{ACCENT};font-size:11px;letter-spacing:1px;text-transform:uppercase;margin:8px 0 2px;">
+                      Down — dump-backed</div>
+                    {_krow("🩸 SELL OFF −12", "2.5x volume and a 4%+ down day (−3.0% / 5d, −5.3% / 21d)")}
+                    {_krow("🎈 GAP UP −8", "opened 3%+ through prior close — the chase fades (−1.2% / 5d)")}
+                    {_krow("💸 OFFERING −8 / ⚖️ LEGAL −5", "dilution or litigation in the news")}
+                    {_krow("🩳 SQUEEZE −3", "15%+ short while price is already up — crowded, lagged")}
+                    <div style="color:{DIM};font-size:11px;margin-top:6px;">
+                      Tape flags are scored across the whole dump. News tags are fetched for the final 20.</div>
+                    </div>""", unsafe_allow_html=True)
             with st.expander("❓ How the Top 20 is chosen"):
                 st.markdown(
                     "- **Universe:** every tradeable stock in the nightly dump — all "
