@@ -1,0 +1,654 @@
+"""Dividend Calender — dump-backed capture calendar and income calculator.
+
+Reads the nightly dump Stormwatch already has (no GitHub fetch, no yfinance
+on first paint). Calendar = last NYSE trading day before ex-date (T+1).
+"""
+from __future__ import annotations
+
+import calendar as cal_mod
+import datetime
+import gzip
+import html as html_mod
+import json
+import os
+
+import numpy as np
+import pandas as pd
+import streamlit as st
+
+try:
+    from mw_paths import data_dir as _mw_data_dir
+except Exception:
+    def _mw_data_dir() -> str:
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+ACCENT = "#E87722"
+GREEN = "#3fbf7f"
+RED = "#e05252"
+DIM = "#9aa8bd"
+INK = "#F6F4E9"
+NAVY = "#0c1829"
+STEEL = "#1a4060"
+LINE = "#3d6a94"
+
+_STOCK_GZ = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "stock", "data", "stock_data.json.gz",
+)
+_HOL = {}
+
+
+def _esc(s) -> str:
+    return html_mod.escape("" if s is None else str(s), quote=True)
+
+
+def _html(markup: str) -> None:
+    if hasattr(st, "html"):
+        st.html(markup)
+    else:
+        st.markdown(markup.replace("$", "&#36;"), unsafe_allow_html=True)
+
+
+def _css() -> None:
+    _html(
+        f"""<style>
+.dc-sub{{color:{DIM};font-size:13px;margin:-4px 0 10px}}
+.dc-badge{{background:{NAVY};border:1px solid {LINE};border-left:4px solid {ACCENT};
+  border-radius:10px;padding:8px 14px;margin:6px 0 12px;font-size:13px;color:{INK}}}
+.dc-grid{{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;margin-top:8px}}
+.dc-hdr{{text-align:center;font-size:11px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:{DIM};padding:4px 0}}
+.dc-day{{background:{NAVY};border:1px solid {LINE};border-radius:8px;min-height:86px;padding:7px 6px}}
+.dc-day.today{{border:2px solid {ACCENT}}}
+.dc-day.empty{{background:transparent;border:none;min-height:0}}
+.dc-num{{font-size:11px;font-weight:600;color:{DIM};margin-bottom:4px}}
+.dc-day.today .dc-num{{color:{ACCENT};font-weight:800}}
+.dc-chip{{display:block;border-radius:4px;padding:2px 5px;margin-bottom:3px;
+  font-size:11px;font-weight:700;font-family:ui-monospace,monospace;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid}}
+.dc-t1{{background:rgba(63,191,127,.16);color:{GREEN};border-color:{GREEN}}}
+.dc-t2{{background:rgba(63,191,127,.10);color:#6fd49a;border-color:#6fd49a}}
+.dc-t3{{background:rgba(232,119,34,.14);color:{ACCENT};border-color:{ACCENT}}}
+.dc-t4{{background:rgba(232,119,34,.08);color:#f0a05a;border-color:#f0a05a}}
+.dc-t5{{background:rgba(224,82,82,.12);color:{RED};border-color:{RED}}}
+.dc-leg{{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px}}
+.dc-leg span{{padding:2px 10px;border-radius:4px;font-size:11px;font-weight:700;color:{INK}}}
+.dc-month{{text-align:center;font-size:20px;font-weight:800;color:{INK};margin:4px 0}}
+.dc-calc{{background:{NAVY};border:1px solid {LINE};border-radius:10px;padding:16px 18px}}
+.dc-res{{background:#081325;border:1px solid {LINE};border-left:4px solid {GREEN};
+  border-radius:10px;padding:14px 16px}}
+.dc-row{{display:flex;justify-content:space-between;align-items:baseline;
+  padding:6px 0;border-bottom:1px solid #1d2b40}}
+.dc-row:last-child{{border-bottom:none}}
+.dc-lbl{{font-size:13px;color:{DIM}}}
+.dc-val{{font-family:ui-monospace,monospace;font-size:15px;font-weight:700;color:{INK}}}
+.dc-val.big{{font-size:20px;color:{GREEN}}}
+.dc-buy{{background:{RED};color:{INK};padding:2px 8px;border-radius:4px;
+  font-size:11px;font-weight:800}}
+.dc-tmr{{background:{GREEN};color:#081325;padding:2px 8px;border-radius:4px;
+  font-size:11px;font-weight:800}}
+</style>"""
+    )
+
+
+def safe_date(v):
+    if v is None:
+        return None
+    if isinstance(v, datetime.datetime):
+        return v.date()
+    if isinstance(v, datetime.date):
+        return v
+    try:
+        if pd.isna(v):
+            return None
+    except Exception:
+        pass
+    try:
+        ts = pd.to_datetime(v, errors="coerce")
+        if ts is not pd.NaT and not pd.isna(ts):
+            return ts.date()
+    except Exception:
+        return None
+    return None
+
+
+def _epoch_to_date(ts):
+    try:
+        ts = float(ts)
+    except (TypeError, ValueError):
+        return None
+    if ts < 1e9:
+        return None
+    try:
+        return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).date()
+    except Exception:
+        return None
+
+
+def _parse_ex_date(ex_ts):
+    if not ex_ts:
+        return None
+    try:
+        ts = float(ex_ts)
+        if ts > 1e9:
+            return _epoch_to_date(ts)
+    except (TypeError, ValueError):
+        pass
+    return safe_date(ex_ts)
+
+
+def _easter(y):
+    a, b, c = y % 19, y // 100, y % 100
+    d, e, f = b // 4, b % 4, (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    return datetime.date(y, (h + l - 7 * m + 114) // 31, ((h + l - 7 * m + 114) % 31) + 1)
+
+
+def _nth_weekday(y, month, weekday, n):
+    d = datetime.date(y, month, 1)
+    return d + datetime.timedelta(days=(weekday - d.weekday()) % 7 + 7 * (n - 1))
+
+
+def _last_weekday(y, month, weekday):
+    nxt = datetime.date(y + 1, 1, 1) if month == 12 else datetime.date(y, month + 1, 1)
+    d = nxt - datetime.timedelta(days=1)
+    while d.weekday() != weekday:
+        d -= datetime.timedelta(days=1)
+    return d
+
+
+def _holidays(y):
+    if y in _HOL:
+        return _HOL[y]
+
+    def obs(d):
+        if d.weekday() == 5:
+            return d - datetime.timedelta(days=1)
+        if d.weekday() == 6:
+            return d + datetime.timedelta(days=1)
+        return d
+
+    hs = {
+        obs(datetime.date(y, 1, 1)),
+        _nth_weekday(y, 1, 0, 3),
+        _nth_weekday(y, 2, 0, 3),
+        _easter(y) - datetime.timedelta(days=2),
+        _last_weekday(y, 5, 0),
+        obs(datetime.date(y, 6, 19)),
+        obs(datetime.date(y, 7, 4)),
+        _nth_weekday(y, 9, 0, 1),
+        _nth_weekday(y, 11, 3, 4),
+        obs(datetime.date(y, 12, 25)),
+    }
+    _HOL[y] = hs
+    return hs
+
+
+def _prev_trading_day(d):
+    if d is None:
+        return None
+    d = d - datetime.timedelta(days=1)
+    for _ in range(10):
+        if d.weekday() < 5 and d not in _holidays(d.year):
+            return d
+        d -= datetime.timedelta(days=1)
+    return d
+
+
+def _in_buy_window(bd, start, end):
+    d = safe_date(bd)
+    return d is not None and start <= d <= end
+
+
+def _freq_to_pays(freq_label):
+    f = (freq_label or "").lower()
+    if "month" in f:
+        return 12
+    if "semi" in f:
+        return 2
+    if "annual" in f:
+        return 1
+    return 4
+
+
+def _tier(y):
+    if y >= 8:
+        return "dc-t1"
+    if y >= 6:
+        return "dc-t2"
+    if y >= 4:
+        return "dc-t3"
+    if y >= 2.5:
+        return "dc-t4"
+    return "dc-t5"
+
+
+def _gz_paths():
+    paths = [
+        os.path.join(_mw_data_dir(), "stock_data.json.gz"),
+        os.path.normpath(_STOCK_GZ),
+        os.path.join(os.path.expanduser("~"), "Documents", "GitHub",
+                     "stock", "data", "stock_data.json.gz"),
+    ]
+    seen, out = set(), []
+    for p in paths:
+        if p and p not in seen and os.path.exists(p):
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def _fresh_gz():
+    """Newest local dump by mtime — Stormwatch cache first, then the stock repo."""
+    found = _gz_paths()
+    if not found:
+        return None, 0.0
+    path = max(found, key=os.path.getmtime)
+    return path, os.path.getmtime(path)
+
+
+def _div_cache_paths(mtime: float):
+    root = _mw_data_dir()
+    tag = str(int(mtime))
+    return (os.path.join(root, f"div_cal_{tag}.parquet"),
+            os.path.join(root, "div_cal_stamp.txt"))
+
+
+def _rows_from_gz(path: str) -> list:
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        raw = json.load(f)
+    rows = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        tk = str(item.get("Ticker") or "").upper()
+        if not tk:
+            continue
+        try:
+            yp = float(item.get("DividendYieldPct") or 0)
+        except (TypeError, ValueError):
+            continue
+        if yp <= 0 or yp > 50:
+            continue
+        try:
+            dr = float(item.get("DividendRate") or 0) or None
+        except (TypeError, ValueError):
+            dr = None
+        try:
+            pr = float(item.get("DividendPayoutRatio") or 0) or None
+            if pr is not None and (pr < 0 or pr > 500):
+                pr = None
+        except (TypeError, ValueError):
+            pr = None
+        try:
+            px = float(item.get("Price") or 0) or None
+        except (TypeError, ValueError):
+            px = None
+        rows.append({
+            "ticker": tk,
+            "sector": item.get("Sector") or "Unknown",
+            "price": px,
+            "yield_pct": round(yp, 2),
+            "div_rate": dr,
+            "monthly_pay": round(dr / 12, 4) if dr else None,
+            "payout": pr,
+            "frequency": item.get("DividendFrequency") or "—",
+            "ex_date": _parse_ex_date(item.get("ExDividendDate")),
+        })
+    return rows
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _load_dividend_df(stamp: str) -> pd.DataFrame:
+    path, mt = _fresh_gz()
+    if not path:
+        return pd.DataFrame()
+    pq, stamp_p = _div_cache_paths(mt)
+    if os.path.exists(pq):
+        try:
+            df = pd.read_parquet(pq)
+            if "ex_date" in df.columns:
+                df["ex_date"] = df["ex_date"].map(safe_date)
+            return df
+        except Exception:
+            pass
+    rows = _rows_from_gz(path)
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows).sort_values("yield_pct", ascending=False)
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    df = df.reset_index(drop=True)
+    try:
+        save = df.copy()
+        save["ex_date"] = pd.to_datetime(save["ex_date"])
+        save.to_parquet(pq, index=False)
+        for old in os.listdir(_mw_data_dir()):
+            if old.startswith("div_cal_") and old.endswith(".parquet") and old != os.path.basename(pq):
+                try:
+                    os.remove(os.path.join(_mw_data_dir(), old))
+                except OSError:
+                    pass
+        with open(stamp_p, "w", encoding="ascii") as f:
+            f.write(stamp)
+    except Exception:
+        pass
+    return df
+
+
+def _dump_stamp() -> str:
+    path, mt = _fresh_gz()
+    return f"{int(mt)}" if path else "none"
+
+
+def _render_calendar(df, year, month):
+    today = datetime.date.today()
+    day_map = {}
+    for row in df.itertuples(index=False):
+        bd = safe_date(getattr(row, "buy_date", None))
+        if bd and bd.year == year and bd.month == month:
+            day_map.setdefault(bd.day, []).append(row)
+    parts = ['<div class="dc-grid">']
+    for d in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"):
+        parts.append(f'<div class="dc-hdr">{d}</div>')
+    for week in cal_mod.monthcalendar(year, month):
+        for day in week:
+            if day == 0:
+                parts.append('<div class="dc-day empty"></div>')
+                continue
+            is_td = year == today.year and month == today.month and day == today.day
+            parts.append(f'<div class="{"dc-day today" if is_td else "dc-day"}">')
+            parts.append(f'<div class="dc-num">{day}</div>')
+            for row in day_map.get(day, []):
+                t = _tier(row.yield_pct)
+                ex = safe_date(row.ex_date)
+                mp = row.monthly_pay
+                px = row.price or 0
+                tip = (
+                    f"BUY {row.ticker} before {ex} | Yield: {row.yield_pct}% | "
+                    f"Monthly: ${mp:.4f}" if mp else
+                    f"BUY {row.ticker} before {ex} | Yield: {row.yield_pct}%"
+                ) + f" | Price: ${px:.2f}"
+                parts.append(
+                    f'<span class="dc-chip {t}" title="{_esc(tip)}">'
+                    f"{_esc(row.ticker)} {row.yield_pct}%</span>"
+                )
+            parts.append("</div>")
+    parts.append("</div>")
+    _html("".join(parts))
+
+
+def _calc_from_row(row) -> dict:
+    return {
+        "ticker": row["ticker"],
+        "price": float(row.get("price") or 0),
+        "yield_pct": float(row["yield_pct"]),
+        "div_rate": float(row.get("div_rate") or 0),
+        "monthly_pay": row.get("monthly_pay"),
+        "frequency": row.get("frequency") or "—",
+        "payout": row.get("payout"),
+        "sector": row.get("sector") or "Unknown",
+    }
+
+
+def render_dividend_calendar_tab():
+    _css()
+    st.markdown("**Dividend Calender**")
+    st.markdown(
+        '<div class="dc-sub">Last trading day before ex-date (T+1). '
+        "Highest yield first. Dump only — nothing is fetched until you ask.</div>",
+        unsafe_allow_html=True,
+    )
+
+    stamp = _dump_stamp()
+    with st.spinner("Reading dividend names from the dump…"):
+        df_all = _load_dividend_df(stamp)
+    if df_all.empty:
+        st.info("No dividend names in the nightly dump. Load stock info in the header first.")
+        return
+
+    today = datetime.date.today()
+    if "dc_cy" not in st.session_state:
+        st.session_state["dc_cy"] = today.year
+    if "dc_cm" not in st.session_state:
+        st.session_state["dc_cm"] = today.month
+
+    with st.container(border=True):
+        st.markdown("**Filters**")
+        f1, f2, f3 = st.columns(3)
+        min_y = f1.slider("Min yield (%)", 0.0, 25.0, 0.0, 0.5, key="dc_min_y")
+        max_y = f2.slider("Max yield (%)", 5.0, 50.0, 25.0, 1.0, key="dc_max_y")
+        days = f3.slider("Days ahead", 30, 180, 90, key="dc_days")
+        f4, f5, f6 = st.columns(3)
+        max_px = f4.number_input("Max price ($)", min_value=1, max_value=100_000,
+                                 value=1000, step=1, key="dc_max_px")
+        freq = f5.selectbox("Frequency",
+                            ["All", "Monthly", "Quarterly", "Semi-Annual", "Annual"],
+                            key="dc_freq")
+        secs = ["All sectors"] + sorted(
+            s for s in df_all["sector"].dropna().unique().tolist() if s)
+        sector = f6.selectbox("Sector", secs, key="dc_sec")
+
+    df = df_all[
+        (df_all["yield_pct"] >= min_y)
+        & (df_all["yield_pct"] <= max_y)
+        & (df_all["price"].fillna(0) <= max_px)
+    ].copy()
+    if freq != "All":
+        df = df[df["frequency"].str.contains(freq, case=False, na=False)]
+    if sector != "All sectors":
+        df = df[df["sector"] == sector]
+
+    df["buy_date"] = df["ex_date"].map(lambda d: _prev_trading_day(safe_date(d)))
+    cutoff = today + datetime.timedelta(days=int(days))
+    df_cal = df[df["buy_date"].map(lambda bd: _in_buy_window(bd, today, cutoff))].copy()
+    df_cal = df_cal.sort_values("yield_pct", ascending=False)
+
+    n_ex = int(df["ex_date"].notna().sum())
+    _html(
+        f'<div class="dc-badge">{len(df_all):,} dividend stocks in the dump · '
+        f"{n_ex:,} with ex-dates in this filter · {len(df_cal):,} buy signals "
+        f"in the next {int(days)} days</div>"
+    )
+
+    tab_cal, tab_calc = st.tabs(["Calendar", "Calculator"])
+
+    with tab_cal:
+        df_sorted = (
+            df_cal.sort_values(["buy_date", "yield_pct"], ascending=[True, False])
+            .reset_index(drop=True) if not df_cal.empty else df_cal
+        )
+        nxt = df_sorted.iloc[0] if not df_cal.empty else None
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Buy signals ahead", len(df_cal))
+        avg = (df_cal["yield_pct"].mean() if not df_cal.empty
+               else (df["yield_pct"].mean() if not df.empty else np.nan))
+        c2.metric("Avg yield", f"{avg:.1f}%" if np.isfinite(avg) else "—")
+        hi_src = df_cal if not df_cal.empty else df
+        if not hi_src.empty:
+            top = hi_src.sort_values("yield_pct", ascending=False).iloc[0]
+            c3.metric("Highest yield", f"{top['yield_pct']:.1f}%", delta=str(top["ticker"]))
+        else:
+            c3.metric("Highest yield", "—")
+        nd = safe_date(nxt["buy_date"]) if nxt is not None else None
+        c4.metric("Next buy date", nd.strftime("%b %d") if nd else "—",
+                  delta=str(nxt["ticker"]) if nxt is not None else "")
+
+        cp, cc, cn = st.columns([1, 5, 1])
+        with cp:
+            if st.button("Prev", key="dc_prev", width="stretch"):
+                if st.session_state["dc_cm"] == 1:
+                    st.session_state["dc_cy"] -= 1
+                    st.session_state["dc_cm"] = 12
+                else:
+                    st.session_state["dc_cm"] -= 1
+                st.rerun()
+        with cn:
+            if st.button("Next", key="dc_next", width="stretch"):
+                if st.session_state["dc_cm"] == 12:
+                    st.session_state["dc_cy"] += 1
+                    st.session_state["dc_cm"] = 1
+                else:
+                    st.session_state["dc_cm"] += 1
+                st.rerun()
+        with cc:
+            _html(
+                f'<div class="dc-month">{cal_mod.month_name[st.session_state["dc_cm"]]} '
+                f'{st.session_state["dc_cy"]}</div>'
+            )
+        _html(
+            '<div class="dc-leg">'
+            f'<span style="background:{GREEN}">8%+</span>'
+            '<span style="background:#2d8a58">6%+</span>'
+            f'<span style="background:{ACCENT}">4%+</span>'
+            '<span style="background:#b86a20">2.5%+</span>'
+            f'<span style="background:{RED}">below 2.5%</span>'
+            "</div>"
+        )
+        _render_calendar(df_cal, st.session_state["dc_cy"], st.session_state["dc_cm"])
+
+        with st.expander("How dividend capture works"):
+            st.markdown(
+                "- The price typically drops by about the dividend on the ex-date. "
+                "It is a transfer from share price to cash, not free money.\n"
+                "- Last day to buy is the previous **trading** day (T+1 settlement).\n"
+                "- Qualified-dividend tax treatment needs a 60-day hold in the "
+                "121-day window around the ex-date. Immediate capture is usually "
+                "ordinary income plus a short-term gain or loss.\n"
+                "- Yields above ~12% often mean a cut, return of capital, or a "
+                "collapsed price. Costs and the ex-date gap usually eat a pure capture."
+            )
+
+        st.markdown("**Upcoming buy signals — ranked by yield**")
+        if df_cal.empty:
+            if df.empty:
+                st.info("No dividend stocks match these filters.")
+            else:
+                st.info(f"No buy signals in the next {int(days)} days. "
+                        "Widen the window or check that the dump has ex-dates.")
+                show = df.sort_values("yield_pct", ascending=False).head(200)
+                st.dataframe(
+                    show[["ticker", "sector", "yield_pct", "div_rate",
+                          "monthly_pay", "payout", "frequency", "price", "ex_date"]]
+                    .rename(columns=_COLS),
+                    width="stretch", hide_index=True, height=420,
+                )
+        else:
+            show = df_sorted.copy()
+            show["days_away"] = show["buy_date"].map(
+                lambda bd: (safe_date(bd) - today).days if safe_date(bd) else 0)
+            tbl = show[["ticker", "sector", "yield_pct", "div_rate", "monthly_pay",
+                        "payout", "frequency", "price", "buy_date", "ex_date",
+                        "days_away"]].rename(columns={**_COLS, "days_away": "Days"})
+            st.dataframe(tbl, width="stretch", hide_index=True, height=440)
+
+        with st.expander(f"Full filtered universe — {len(df):,} of {len(df_all):,}"):
+            st.dataframe(
+                df[["ticker", "sector", "yield_pct", "div_rate", "monthly_pay",
+                    "payout", "frequency", "price", "ex_date", "buy_date"]]
+                .rename(columns=_COLS),
+                width="stretch", hide_index=True, height=360,
+            )
+
+    with tab_calc:
+        st.markdown("**Dividend income calculator**")
+        mode = st.radio("Stock source", ["Pick from the list", "Enter a ticker"],
+                        horizontal=True, key="dc_calc_mode")
+        info = None
+        if mode == "Pick from the list":
+            src = df_cal if not df_cal.empty else df
+            if src.empty:
+                st.warning("No dividend stocks match the filters.")
+            else:
+                src = src.sort_values("yield_pct", ascending=False).head(400)
+                opts = [f"{r.ticker}  —  {r.yield_pct}%  |  {r.frequency}"
+                        for r in src.itertuples(index=False)]
+                sel = st.selectbox("Select stock", opts, key="dc_calc_sel")
+                tk = sel.split("  —  ")[0].strip()
+                row = src[src["ticker"] == tk].iloc[0]
+                info = _calc_from_row(row)
+        else:
+            ctk = st.text_input("Ticker", placeholder="ET, EPD, DOC",
+                                key="dc_calc_tk").strip().upper()
+            if ctk:
+                hit = df_all[df_all["ticker"] == ctk]
+                if not hit.empty:
+                    info = _calc_from_row(hit.iloc[0])
+                else:
+                    st.warning(f"{ctk} is not a dividend stock in the nightly dump.")
+
+        if info and info.get("price", 0) > 0:
+            left, right = st.columns(2)
+            with left:
+                _html(
+                    f'<div class="dc-calc"><b>{_esc(info["ticker"])}</b> — '
+                    f'{_esc(info["sector"])}<br>'
+                    f'Yield <b>{info["yield_pct"]}%</b> · '
+                    f'Price <b>${info["price"]:.2f}</b> · '
+                    f'{_esc(info["frequency"])}</div>'
+                )
+                inv = st.number_input("Investment ($)", min_value=1.0,
+                                      max_value=10_000_000.0, value=1000.0,
+                                      step=100.0, format="%.2f", key="dc_inv")
+            with right:
+                px = info["price"]
+                dr = info["div_rate"] or 0
+                shrs = inv / px if px > 0 else 0
+                annd = shrs * dr
+                mthd = annd / 12
+                n = _freq_to_pays(info["frequency"])
+                spay = annd / n if n else annd
+                slbl = {12: "Per monthly payment", 4: "Per quarterly payment",
+                        2: "Per semi-annual payment", 1: "Per annual payment"}[n]
+                _html(
+                    '<div class="dc-res">'
+                    f'<div class="dc-row"><span class="dc-lbl">Shares</span>'
+                    f'<span class="dc-val">{shrs:.4f}</span></div>'
+                    f'<div class="dc-row"><span class="dc-lbl">{_esc(slbl)}</span>'
+                    f'<span class="dc-val">${spay:.2f}</span></div>'
+                    f'<div class="dc-row"><span class="dc-lbl">Monthly income</span>'
+                    f'<span class="dc-val">${mthd:.2f}</span></div>'
+                    f'<div class="dc-row"><span class="dc-lbl">Annual income</span>'
+                    f'<span class="dc-val big">${annd:.2f}</span></div>'
+                    f'<div class="dc-row"><span class="dc-lbl">Yield</span>'
+                    f'<span class="dc-val">{info["yield_pct"]}%</span></div>'
+                    f'<div class="dc-row"><span class="dc-lbl">Weekly income</span>'
+                    f'<span class="dc-val">${annd / 52:.2f}</span></div>'
+                    "</div>"
+                )
+            st.markdown("**Holding-period projections**")
+            proj = pd.DataFrame([
+                {"Hold": f"{m} month" + ("s" if m > 1 else ""),
+                 "Total dividends": f"${mthd * m:.2f}",
+                 "Return": f"{(mthd * m / inv) * 100:.2f}%",
+                 "Monthly income": f"${mthd:.2f}"}
+                for m in (1, 3, 6, 12, 24, 36, 60)
+            ])
+            st.dataframe(proj, width="stretch", hide_index=True)
+            st.markdown("**Cumulative dividends over 12 months**")
+            chart = pd.DataFrame(
+                {"Cumulative dividends ($)": [mthd * m for m in range(1, 13)]},
+                index=pd.Index(range(1, 13), name="Month"),
+            )
+            st.line_chart(chart, color=ACCENT)
+        elif info:
+            st.warning("No usable price on this name.")
+
+
+_COLS = {
+    "ticker": "Ticker",
+    "sector": "Sector",
+    "yield_pct": "Yield %",
+    "div_rate": "Div/Share",
+    "monthly_pay": "Monthly/Share",
+    "payout": "Payout %",
+    "frequency": "Frequency",
+    "price": "Price",
+    "ex_date": "Ex-Date",
+    "buy_date": "Buy Before",
+}

@@ -130,6 +130,13 @@ try:
 except Exception as _cce:
     render_crypto_copycat_tab, _CC_ERR = None, _cce
 
+try:
+    _dc = _load_local_mod("dividend_calendar")
+    render_dividend_calendar_tab = _dc.render_dividend_calendar_tab
+    _DC_ERR = None
+except Exception as _dce:
+    render_dividend_calendar_tab, _DC_ERR = None, _dce
+
 REQUIRED_ENGINE = "2.43"
 st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
@@ -2982,7 +2989,8 @@ def _try_closes():
     return closes, asof
 
 
-_MAIN = ["Scan Hub", "Stock Lookup", "Crypto Copycat", "Macro Sim", "Cascade Map"]
+_MAIN = ["Scan Hub", "Stock Lookup", "Dividend Calender", "Crypto Copycat",
+         "Macro Sim", "Cascade Map"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
         "Ignition Scanner", "Key Word Search", "Trump Effect", "Help"]
 _MAP = ["Market Weather", "Cascade Pressure", "Cascade Sentinels", "Forced Flows",
@@ -4751,6 +4759,12 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                     "Research tool. Probability tilts, not prophecy. Not investment advice.")
 
     _hub_keep_save("apex", ("apex_",))
+
+if _main == "Dividend Calender":
+    if _DC_ERR is not None or render_dividend_calendar_tab is None:
+        st.error(f"Dividend Calender failed to load: {_DC_ERR}")
+    else:
+        render_dividend_calendar_tab()
 
 if _main == "Crypto Copycat":
     if _CC_ERR is not None or render_crypto_copycat_tab is None:
