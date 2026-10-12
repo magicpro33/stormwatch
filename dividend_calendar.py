@@ -96,6 +96,7 @@ def _css() -> None:
 .dc-stbl tbody td{{padding:10px;border-bottom:1px solid #1d2b40;font-size:13px;color:{INK};background:{NAVY}}}
 .dc-stbl tbody tr:last-child td{{border-bottom:none}}
 .dc-stbl tbody tr.dc-trow:hover td{{background:{STEEL}}}
+.dc-stbl tbody tr.dc-sel td{{background:#214c70;border-left:3px solid {ACCENT}}}
 .dc-tk{{font-family:ui-monospace,monospace;font-weight:800;color:{INK}}}
 .dc-sec{{font-size:12px;color:{DIM}}}
 .dc-tdn{{font-family:ui-monospace,monospace;color:{INK}}}
@@ -130,8 +131,9 @@ def _ycolor(y):
     return RED
 
 
-def _render_dividend_table(df_show, today, show_buy_cols=True):
+def _render_dividend_table(df_show, today, show_buy_cols=True, selected=None):
     rows_html = []
+    sel = str(selected).upper() if selected else ""
     for row in df_show.to_dict("records"):
         yc = _ycolor(row["yield_pct"])
         bd = safe_date(row.get("buy_date"))
@@ -164,8 +166,9 @@ def _render_dividend_table(df_show, today, show_buy_cols=True):
                 f'<td class="dc-dt">{ex_str}</td>'
                 f'<td class="dc-cd">{cd}</td>'
             )
+        is_sel = str(row.get("ticker") or "").upper() == sel
         rows_html.append(
-            '<tr class="dc-trow">'
+            f'<tr class="dc-trow{" dc-sel" if is_sel else ""}">'
             f'<td class="dc-tk">{_esc(row["ticker"])}</td>'
             f'<td class="dc-sec">{_esc(row["sector"])}</td>'
             f'<td><span class="dc-yb" style="--yc:{yc}">{row["yield_pct"]}%</span></td>'
@@ -491,55 +494,6 @@ def _calc_from_row(row) -> dict:
     }
 
 
-def _fmt_date(v):
-    d = safe_date(v)
-    return d.strftime("%b %d, %Y") if d else "—"
-
-
-def _ranked_display(src, today, show_buy_cols=True) -> pd.DataFrame:
-    out = pd.DataFrame({
-        "Ticker": src["ticker"].values,
-        "Sector": src["sector"].values,
-        "Yield %": src["yield_pct"].values,
-        "Div/Share": src["div_rate"].values,
-        "Monthly/Share": src["monthly_pay"].values,
-        "Payout %": src["payout"].values,
-        "Frequency": src["frequency"].values,
-        "Price": src["price"].values,
-    })
-    if show_buy_cols:
-        days, flags = [], []
-        for bd in src["buy_date"]:
-            d = safe_date(bd)
-            da = (d - today).days if d else None
-            days.append(da)
-            if da == 0:
-                flags.append("BUY TODAY")
-            elif da == 1:
-                flags.append("BUY TOMORROW")
-            elif da is None:
-                flags.append("—")
-            else:
-                flags.append(f"{da}d")
-        out["Buy Before"] = [_fmt_date(v) for v in src["buy_date"]]
-        out["Ex-Date"] = [_fmt_date(v) for v in src["ex_date"]]
-        out["Countdown"] = flags
-    return out
-
-
-def _pick_row(sel, src):
-    try:
-        rows = list(sel.selection.rows or [])
-    except Exception:
-        return None
-    if not rows:
-        return None
-    i = int(rows[0])
-    if i < 0 or i >= len(src):
-        return None
-    return src.iloc[i]
-
-
 def _render_calc_panel(info: dict, key: str = "dc_inv") -> None:
     if not info or not info.get("price", 0):
         if info:
@@ -594,33 +548,31 @@ def _render_calc_panel(info: dict, key: str = "dc_inv") -> None:
 
 
 def _yield_list_and_calc(src, today, *, show_buy_cols, table_key, inv_key):
-    """Clickable ranked list; selected row opens the calculator under it."""
-    disp = _ranked_display(src.reset_index(drop=True), today, show_buy_cols)
-    src = src.reset_index(drop=True)
-    sel = st.dataframe(
-        disp,
-        width="stretch",
-        hide_index=True,
-        height=min(440, 80 + 35 * max(len(disp), 1)),
-        on_select="rerun",
-        selection_mode="single-row",
-        key=table_key,
-        column_config={
-            "Yield %": st.column_config.NumberColumn(format="%.2f"),
-            "Div/Share": st.column_config.NumberColumn(format="$%.4f"),
-            "Monthly/Share": st.column_config.NumberColumn(format="$%.4f"),
-            "Payout %": st.column_config.NumberColumn(format="%.0f%%"),
-            "Price": st.column_config.NumberColumn(format="$%.2f"),
-            "Countdown": st.column_config.Column(width="medium"),
-        },
+    """Original ranked table, plus a ticker pick that loads the calculator under it."""
+    src = src.reset_index(drop=True).copy()
+    if show_buy_cols and "days_away" not in src.columns:
+        src["days_away"] = [
+            (safe_date(bd) - today).days if safe_date(bd) else None
+            for bd in src["buy_date"]
+        ]
+    tickers = [str(t) for t in src["ticker"].tolist()]
+    pick = st.session_state.get("dc_pick")
+    if pick not in tickers:
+        pick = None
+    _render_dividend_table(src, today, show_buy_cols, selected=pick)
+    opts = ["— select a stock —"] + tickers
+    chosen = st.selectbox(
+        "Load calculator for",
+        opts,
+        index=opts.index(pick) if pick in opts else 0,
+        key=f"{table_key}_sel",
     )
-    picked = _pick_row(sel, src)
-    if picked is None:
-        st.caption("Click a row to load the calculator under this list.")
+    if chosen == "— select a stock —":
         return
-    st.session_state["dc_pick"] = str(picked["ticker"])
-    st.markdown(f"**Calculator — {picked['ticker']}**")
-    _render_calc_panel(_calc_from_row(picked), key=inv_key)
+    st.session_state["dc_pick"] = chosen
+    row = src[src["ticker"] == chosen].iloc[0]
+    st.markdown(f"**Calculator — {chosen}**")
+    _render_calc_panel(_calc_from_row(row), key=inv_key)
 
 
 def render_dividend_calendar_tab():
