@@ -277,7 +277,8 @@ def scan_daily(min_price: float = 5.0, min_dollar_vol: float = 5e6,
                min_score: float = 0.0, top: int = 50,
                apply_rs: bool = True,
                only_sectors: list | None = None,
-               macro_tilts: dict | None = None) -> pd.DataFrame:
+               macro_tilts: dict | None = None,
+               macro_confirm: float = 1.0) -> pd.DataFrame:
     """Score the entire dump universe on daily bars.
 
     `only_sectors` restricts the universe to those sectors. It is applied
@@ -313,13 +314,14 @@ def scan_daily(min_price: float = 5.0, min_dollar_vol: float = 5e6,
     if only_sectors:
         df = df[df["Sector"].isin(list(only_sectors))]
     return _finalize(df, require_calm, min_score, top, apply_rs,
-                     macro_tilts=macro_tilts)
+                     macro_tilts=macro_tilts, macro_confirm=macro_confirm)
 
 
 def _finalize(df: pd.DataFrame, require_calm: bool, min_score: float,
               top: int, apply_rs: bool = True,
               guard_illiquid: bool = True,
-              macro_tilts: dict | None = None) -> pd.DataFrame:
+              macro_tilts: dict | None = None,
+              macro_confirm: float = 1.0) -> pd.DataFrame:
     """Apply the validated gates, then optionally RE-RANK by macro fit.
 
     The macro lens deliberately never touches `Score`. That number is the
@@ -342,7 +344,22 @@ def _finalize(df: pd.DataFrame, require_calm: bool, min_score: float,
         df = df[df["_risk_state"] == 2]
     df = df[df["Score"] >= min_score]
     if macro_tilts:
-        df["Macro"] = df["Sector"].map(lambda s: macro_tilts.get(str(s), 1.0))
+        import cascade_engine as ce
+        reg = next((k for k, v in ce.SECTOR_TILTS.items() if v is macro_tilts), None)
+        if reg and hasattr(ce, "lens_multipliers"):
+            try:
+                dump_i = ce.dump_industries()
+                _, tks, *_rest = ce.load_dump_panel()
+                imap = {str(t): i for i, t in enumerate(tks)}
+                inds = [dump_i[imap[t]] if t in imap else ""
+                        for t in df.Ticker.astype(str)]
+            except Exception:
+                inds = [""] * len(df)
+            df["Macro"] = np.round(
+                ce.lens_multipliers(reg, df.Sector.astype(str).tolist(),
+                                    inds, macro_confirm), 2)
+        else:
+            df["Macro"] = df["Sector"].map(lambda s: macro_tilts.get(str(s), 1.0))
         df["Adj"] = (df["Score"] * df["Macro"]).round(1)
         df = df.sort_values(["Adj", "Score"], ascending=False)
     else:
@@ -397,7 +414,8 @@ def scan_intraday(timeframe: str, universe: list, rs_band: float = 3.0,
                   require_calm: bool = True, min_score: float = 0.0,
                   top: int = 50, sectors: dict | None = None,
                   apply_rs: bool = True,
-                  macro_tilts: dict | None = None) -> pd.DataFrame:
+                  macro_tilts: dict | None = None,
+                  macro_confirm: float = 1.0) -> pd.DataFrame:
     """Score a shortlisted universe on an intraday timeframe via Alpaca."""
     meta = TIMEFRAMES[timeframe]
     start = (date.today() - timedelta(days=meta["lookback_days"])).isoformat()
@@ -431,7 +449,7 @@ def scan_intraday(timeframe: str, universe: list, rs_band: float = 3.0,
     df.insert(1, "Sector", [(sectors or {}).get(s, "—") for s in names])
     df["DollarVol"] = np.nan
     return _finalize(df, require_calm, min_score, top, apply_rs,
-                     macro_tilts=macro_tilts)
+                     macro_tilts=macro_tilts, macro_confirm=macro_confirm)
 
 
 def liquid_universe(n: int = 300, min_price: float = 5.0,

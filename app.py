@@ -130,7 +130,7 @@ try:
 except Exception as _cce:
     render_crypto_copycat_tab, _CC_ERR = None, _cce
 
-REQUIRED_ENGINE = "2.42"
+REQUIRED_ENGINE = "2.43"
 st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -325,11 +325,11 @@ HELP = {
         "live Yahoo profile the IGNITION Analyze tab uses. Description and "
         "governance scores are not ratings — they do not change the analog "
         "forecast or the analyzer scores.",
-    "macro_lens": "A playbook overlaid on a ranking. Off = no sector tilt. "
-        "Auto = the regime the app detects live. A named lens re-orders names "
-        "toward that scenario's winners — it does not change quality scores, "
-        "analog odds, or APEX gates. Full win/lose playbooks live in the "
-        "Lenses tab.",
+    "macro_lens": "A playbook overlaid on a ranking. Off = no tilt. "
+        "Auto = the live regime, shrunk when the tape does not confirm the "
+        "lead sector. A named lens applies the full sector + industry book "
+        "— it does not change quality scores, analog odds, or APEX gates. "
+        "Full win/lose playbooks live in the Lenses tab.",
 }
 
 CREATOR_NAME = "AIupscale"
@@ -822,6 +822,22 @@ def render_lens_playbook(cd: dict, regkey: str | None = None, *, full: bool = Tr
                 f"<br>{chips}</div>", unsafe_allow_html=True)
         elif regkey == "base":
             st.caption("No sector multipliers — ranking is the raw score.")
+        ind_tilts = (getattr(ce, "INDUSTRY_TILTS", {}) or {}).get(regkey) or {}
+        if ind_tilts:
+            _irows = sorted(ind_tilts.items(), key=lambda kv: -kv[1])
+            ichips = " ".join(
+                f"<span style='display:inline-block;background:#0c1829;border:1px solid "
+                f"#1d2b40;border-radius:6px;padding:3px 9px;margin:2px;font-size:12px'>"
+                f"{_esc(ind)} {_tilt_chip(m)}</span>"
+                for ind, m in _irows)
+            st.markdown(
+                f"<div style='margin-top:8px'><span style='color:{DIM};font-size:12px;"
+                f"letter-spacing:1px;text-transform:uppercase'>Industry overlays "
+                f"(on top of GICS)</span><br>{ichips}</div>",
+                unsafe_allow_html=True)
+            st.caption("Gold vs chemicals are both Materials. E&P vs refiners are "
+                       "both Energy. The industry layer splits those. Auto shrinks "
+                       "the whole book when the live tape does not confirm the lead.")
     st.caption(f"Live trigger: pick this when {cd.get('trigger', '—')}.")
 
 
@@ -2806,9 +2822,11 @@ def _render_scan_hub_help():
 
     if sec == "Lenses":
         st.markdown("#### Macro lenses")
-        st.caption("A lens is a sector tilt laid on top of a ranking. It "
-                   "re-orders names that already passed the scanner. It does "
-                   "not change quality scores, analog odds, or APEX gates.")
+        st.caption("A lens is a sector + industry tilt laid on top of a ranking. It "
+                   "re-orders names that already passed the scanner. Auto shrinks "
+                   "the book when the trigger fired but the lead sector is not "
+                   "confirming. It does not change quality scores, analog odds, "
+                   "or APEX gates.")
         _md_html(
             f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;"
             f"margin:0 0 14px'>"
@@ -4284,7 +4302,8 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
                 <span style="font-weight:700;">{'🎛 Scenario override' if _override else '📡 Detected regime'}: {reg['label']}</span><br>
                 <span style="color:{DIM};font-size:12px;">Detected from: {' · '.join(reg['drivers'])}
-                {('· hot waves: ' + ', '.join(reg['hot_nodes'][:5])) if reg.get('hot_nodes') else '· no waves firing (tailwind pillar neutral)'}</span>
+                {('· hot waves: ' + ', '.join(reg['hot_nodes'][:5])) if reg.get('hot_nodes') else '· no waves firing (tailwind pillar neutral)'}
+                {(' · tape confirm ' + f"{float(reg['confirm']):.0%}") if reg.get('confirm') is not None and _apply_macro and not _override else ''}</span>
                 </div>""", unsafe_allow_html=True)
             _t = t20.copy()
             _t, _lmeta = _apply_live(_t)
@@ -4477,6 +4496,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                          "the CALM/RS gates — it only re-orders the names that already "
                          "passed them.")
                 _ax_lens = _ax_opts.get(_ax_lens_label)
+                _ax_confirm = 1.0
                 if _ax_lens == "off":
                     _ax_tilts = None
                     _ax_regkey = None
@@ -4484,8 +4504,10 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                     _ax_regkey = _ax_lens
                     if _ax_regkey is None:
                         try:
-                            _ax_regkey = ce.macro_regime(
-                                closes, pressure_gauge=GAUGE)["regime"]
+                            _ax_pack = ce.macro_regime(
+                                closes, pressure_gauge=GAUGE)
+                            _ax_regkey = _ax_pack["regime"]
+                            _ax_confirm = float(_ax_pack.get("confirm") or 1.0)
                         except Exception:
                             _ax_regkey = "base"
                     _ax_tilts = ce.SECTOR_TILTS.get(_ax_regkey) or None
@@ -4568,6 +4590,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
             _min_score = 80
             _ax_lens = "off"
             _ax_tilts = None
+            _ax_confirm = 1.0
             _picked_secs = []
             _sec_filter = None
             _require_calm = True
@@ -4608,7 +4631,8 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                                 min_price=float(_min_price), min_dollar_vol=float(_min_dv) * 1e6,
                                 require_calm=_require_calm, min_score=float(_min_score),
                                 top=int(_top_n), apply_rs=_apply_rs,
-                                only_sectors=_sec_filter, macro_tilts=_ax_tilts)
+                                only_sectors=_sec_filter, macro_tilts=_ax_tilts,
+                                macro_confirm=_ax_confirm)
                             _src = ("nightly dump · whole market" if not _sec_filter
                                     else f"nightly dump · {len(_sec_filter)} sector"
                                          f"{'s' if len(_sec_filter) != 1 else ''}")
@@ -4619,7 +4643,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                                 _tf, _uni, require_calm=_require_calm,
                                 min_score=float(_min_score), top=int(_top_n),
                                 sectors=_secmap, apply_rs=_apply_rs,
-                                macro_tilts=_ax_tilts)
+                                macro_tilts=_ax_tilts, macro_confirm=_ax_confirm)
                             _src = (f"Alpaca {_meta['alpaca']} bars · top {_uni_n} by liquidity"
                                     + (f" · {len(_sec_filter)} sectors" if _sec_filter else ""))
                 except Exception as e:
@@ -5892,7 +5916,7 @@ if _main == "Cascade Map" and _map == "Guide":
         ("Pop / crash odds", "Share of analogs that gained/lost 15%+ in 21 sessions, with the lift vs an average stock's base rate."),
         ("Macro regime", "The app's live read of the environment from oil, the dollar, VIX, gold, and the pressure gauge. Eight playbooks: Easy Money, Hot Inflation, Risk-On Calm, Fear / Risk-Off, Rising Dollar, Debasement, Reserve Reset, No Clear Driver. Full win/lose writeups live in the 🔭 Lenses tab."),
         ("Macro lens", "A playbook overlaid on Top 20 or APEX. It re-orders names that already passed the filter; it does not change quality scores, analog odds, or APEX gates. Off ignores a detected regime; Auto uses the live call; a named lens is a what-if."),
-        ("MacroFit", "The sector multiplier the current regime's playbook applies to a stock's score."),
+        ("MacroFit", "Sector × industry multiplier from the current lens. Auto shrinks it toward 1.00 when the live tape does not confirm the lead sector."),
         ("Pressure gauge", "Net Fed liquidity + stablecoin flows + credit spreads combined into −3…+3. Positive = money looking for a home."),
         ("RVOL", "Recent volume vs its own average. 2.5x+ means attention arrived."),
         ("Piotroski", "9-point fundamental health checklist. 7+ = fortress."),

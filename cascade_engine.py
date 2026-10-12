@@ -117,7 +117,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.42"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.43"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -1268,6 +1268,8 @@ def load_dump_panel():
                         _PANEL_CACHE["recent_ok"] = (mt, z["recent_ok"].astype(bool))
                     if "last_ok" in z.files:
                         _PANEL_CACHE["last_ok"] = (mt, z["last_ok"].astype(bool))
+                    if "industries" in z.files:
+                        _PANEL_CACHE["industries"] = (mt, z["industries"])
                     return out
             except Exception as _le:
                 _log_exc("load_dump_panel.npz", _le)
@@ -1325,7 +1327,7 @@ def load_dump_panel():
     panel = {f: np.full((T, N), np.nan, dtype=np.float32)
              for f in ("o", "h", "l", "c", "v")}
     key = dict(o="open", h="high", l="low", c="close", v="volume")
-    tickers, sectors = [], []
+    tickers, sectors, industries = [], [], []
     funds = {f: np.full(N, np.nan, dtype=np.float64) for f in FUND_FIELDS}
     for j, x in enumerate(rows):
         ix = [dix[d] for d in x["_hist"]["dates"]]
@@ -1333,6 +1335,8 @@ def load_dump_panel():
             panel[f][ix, j] = x["_hist"][kk]
         tickers.append(x["Ticker"])
         sectors.append(x.get("Sector") or "Unknown")
+        _an = x.get("_analyzer") if isinstance(x.get("_analyzer"), dict) else {}
+        industries.append(str(_an.get("industry") or x.get("Industry") or "")[:64])
         for f in FUND_FIELDS:
             v = x.get(f)
             if v is not None:
@@ -1367,10 +1371,11 @@ def load_dump_panel():
     panel["c"] = pd.DataFrame(panel["c"]).ffill(limit=5).values.astype(np.float32)
     mdv = np.nanmedian((panel["c"] * np.nan_to_num(panel["v"]))[-21:], axis=0)
     tickers, sectors = np.array(tickers, dtype="U24"), np.array(sectors, dtype="U48")
+    industries = np.array(industries, dtype="U64")
     _dump_w = _data_write_path(LOCAL_DUMP)
     try:
         np.savez_compressed(
-            _dump_w, tickers=tickers, sectors=sectors,
+            _dump_w, tickers=tickers, sectors=sectors, industries=industries,
             mdv=mdv, dates=np.array(all_d, dtype="U10"),
             recent_ok=np.asarray(recent_ok, dtype=np.bool_),
             last_ok=np.asarray(last_ok, dtype=np.bool_),
@@ -1386,6 +1391,7 @@ def load_dump_panel():
     _PANEL_CACHE["panel"] = (mt, out)
     _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(tickers)})
     _PANEL_CACHE["funds"] = (mt, funds)
+    _PANEL_CACHE["industries"] = (mt, industries)
     _PANEL_CACHE["recent_ok"] = (mt, np.asarray(recent_ok, dtype=bool))
     _PANEL_CACHE["last_ok"] = (mt, np.asarray(last_ok, dtype=bool))
     _PANEL_CACHE["last_date"] = pd.Timestamp(all_d[-1]).normalize()
@@ -1411,6 +1417,8 @@ def _np_load_dump():
             _PANEL_CACHE["recent_ok"] = (mt, z["recent_ok"].astype(bool))
         if "last_ok" in z.files:
             _PANEL_CACHE["last_ok"] = (mt, z["last_ok"].astype(bool))
+        if "industries" in z.files:
+            _PANEL_CACHE["industries"] = (mt, z["industries"])
         _PANEL_CACHE["last_date"] = pd.Timestamp(dts[-1]).normalize()
         return out
     except Exception as e:
@@ -1494,6 +1502,44 @@ def dump_fundamentals_all():
         _PANEL_CACHE["funds"] = (mt, out)
         return out
     return hit[1] if hit else {f: np.array([]) for f in FUND_FIELDS}
+
+
+def dump_industries():
+    """Yahoo industry strings aligned to load_dump_panel tickers."""
+    load_dump_panel()
+    mt = _dump_mtime()
+    hit = _PANEL_CACHE.get("industries")
+    if hit and hit[0] == mt:
+        return hit[1]
+    _p = _data_read_path(LOCAL_DUMP)
+    if os.path.exists(_p):
+        try:
+            z = _np_load_arrays(_p)
+            if "industries" in z.files:
+                out = np.asarray(z["industries"])
+                _PANEL_CACHE["industries"] = (mt, out)
+                return out
+        except Exception as _ie:
+            _log_exc("dump_industries.npz", _ie)
+    _, tickers, *_rest = load_dump_panel()
+    out = np.array([""] * len(tickers), dtype="U64")
+    gz = _data_read_path(LOCAL_DUMP_GZ)
+    if os.path.exists(gz):
+        import gzip as _gz
+        try:
+            with _gz.open(gz, "rt", encoding="utf-8") as f:
+                data = json.load(f)
+            ix = {t: i for i, t in enumerate(tickers)}
+            for rec in data:
+                j = ix.get(rec.get("Ticker"))
+                if j is None:
+                    continue
+                an = rec.get("_analyzer") if isinstance(rec.get("_analyzer"), dict) else {}
+                out[j] = str(an.get("industry") or rec.get("Industry") or "")[:64]
+        except Exception as _ge:
+            _log_exc("dump_industries.gz", _ge)
+    _PANEL_CACHE["industries"] = (mt, out)
+    return out
 
 
 # Big movers only. Values = 5d excess vs liquid universe on
@@ -2084,7 +2130,7 @@ def _rss_items(url: str, source: str, timeout: int = 8) -> list:
     try:
         r = requests.get(
             url, timeout=timeout, allow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0 MoneyMaker/2.42",
+            headers={"User-Agent": "Mozilla/5.0 MoneyMaker/2.43",
                      "Accept": "application/rss+xml, application/xml, text/xml"},
         )
         r.raise_for_status()
@@ -4192,7 +4238,7 @@ REGIME_NAMES = {
 }
 
 # display order for the Lenses tab and comparison tables
-LENS_ORDER = ["qe", "stag", "bull", "bear", "strong", "repress", "reset", "base"]
+LENS_ORDER = ["qe", "stag", "bull", "bear", "strong", "repress", "reset", "carry", "base"]
 
 # structured explainer cards — compact fields (leads/lags/trigger) feed the
 # Top 20 / APEX strips; the rest is the Lenses tab playbook.
@@ -4649,6 +4695,59 @@ REGIME_CARDS = {
             "as a group.",
         trigger="gold is outrunning stocks, the dollar is falling AND long yields "
                 "are rising together — creditors leaving, not policy pinning"),
+    "carry": dict(
+        emoji="💴", name="Yen Carry Unwind", aka="BOJ / yen surge",
+        thesis="Cheap yen funding snaps shut. Gold and defensives catch the bid; "
+               "levered growth and high-beta financials are the funding source.",
+        story="For years, the world borrowed yen at near-zero and bought anything "
+              "with yield or beta. When the yen surges (BOJ hike, intervention, or "
+              "a sudden risk-off), those trades get margin-called together. This "
+              "is not generic fear — it is a specific unwind of a funding currency. "
+              "Gold and cash-like defensives hold; crowded Nasdaq and carry-funded "
+              "cyclicals are sold because they were the asset, not because their "
+              "businesses broke.",
+        mechanism="A sharp yen impulse (FXY) plus Nasdaq draining is the live "
+                  "signature. Forced covering of yen-short / risk-long books hits "
+                  "the most levered names first. Gold often catches the same bid "
+                  "it caught in August 2024. The old code folded this into Fear / "
+                  "Risk-Off; the books are different — carry unwind punishes tech "
+                  "harder and does not automatically bid energy.",
+        leads="Gold & miners · Staples · Utilities · Healthcare · Real estate",
+        lags="Tech · High-beta cyclicals · Communication services · Financials",
+        wins=[
+            ("Gold and miners",
+             "The classic unwind hedge. August 2024 rhymes: yen up, Nasdaq down, "
+             "gold bid."),
+            ("Staples and utilities",
+             "Funding-source rotation into what still clears when leverage is "
+             "pulled (1.12× / 1.10×)."),
+            ("Healthcare",
+             "Lower beta, non-discretionary demand. Not a growth story — a "
+             "place to hide while the funding leg resets (1.06×)."),
+        ],
+        loses=[
+            ("Technology",
+             "The most crowded yen-funded book. Lowest tilt in the playbook "
+             "(0.72×)."),
+            ("Consumer discretionary",
+             "High-beta and levered to the same risk appetite the unwind is "
+             "killing (0.80×)."),
+            ("Financials",
+             "Carry and trading books get marked down with the yen. Not the "
+             "defensive bid people expect from 'banks in a crash' (0.88×)."),
+        ],
+        examples_win="GDX / GLD, staples, regulated utilities",
+        examples_lose="QQQ, high-beta retailers, levered financials",
+        vs="Fear / Risk-Off is any VIX shock — it still bids energy. This lens "
+           "is only the yen-funding signature. If VIX spikes without the yen, "
+           "stay on Fear / Risk-Off.",
+        watch="FXY impulse z ≥ 1.75 with QQQ draining. If the yen fades and "
+              "Nasdaq stabilizes, this was a scare — flip back to the prior lens.",
+        rhymes="August 2024 BOJ / yen unwind",
+        how="Sector multipliers plus industry overlays (gold, miners, staples). "
+            "Auto routes the yen signature here instead of folding it into "
+            "Fear / Risk-Off. Named pick applies the full book.",
+        trigger="the yen is surging and Nasdaq is draining at the same time"),
     "base": dict(
         emoji="⛅", name="No Clear Driver", aka="base case",
         thesis="No dominant force. Quality quietly wins; story stocks and deep "
@@ -4701,8 +4800,10 @@ REGIME_CARDS = {
         trigger="none of the other conditions is clearly present"),
 }
 
-# regime → sector multiplier (distilled from the simulator's per-stock
-# base/bull/bear/qe/stag/strong expected-return DB)
+# regime → sector multiplier. Named lenses use these as the playbook.
+# Auto multiplies by regime_confirm() so a mixed tape does not get the
+# full book — walk-forward on stock_data.json.gz (2025-08-13 → 2026-10-09)
+# showed the un-confirmed GICS book inverted (sector IC −0.23 holdout).
 SECTOR_TILTS = {
     "qe":     {"Technology": 1.20, "Communication Services": 1.12, "Consumer Cyclical": 1.10,
                "Basic Materials": 1.18, "Financial Services": 1.10, "Real Estate": 1.08,
@@ -4786,19 +4887,183 @@ RESET_THEMES = [
 ]
 
 
+# Industry overlays on top of GICS. GICS "Materials" mixes gold with chemicals;
+# "Energy" mixes E&P with refiners. These are thesis-aligned, mild, and only
+# applied when dump_industries() has the Yahoo industry string.
+INDUSTRY_TILTS = {
+    "qe": {
+        "Semiconductors": 1.10, "Semiconductor Equipment & Materials": 1.08,
+        "Software - Application": 1.06, "Software - Infrastructure": 1.06,
+        "Gold": 1.08, "Silver": 1.06, "Other Precious Metals & Mining": 1.06,
+        "Banks - Regional": 1.04, "Utilities - Regulated Electric": 0.92,
+        "Discount Stores": 0.94,
+    },
+    "stag": {
+        "Oil & Gas E&P": 1.12, "Oil & Gas Integrated": 1.10,
+        "Oil & Gas Refining & Marketing": 1.14, "Oil & Gas Midstream": 1.08,
+        "Oil & Gas Drilling": 1.10, "Oil & Gas Equipment & Services": 1.08,
+        "Gold": 1.10, "Silver": 1.08, "Other Precious Metals & Mining": 1.08,
+        "Agricultural Inputs": 1.06, "Discount Stores": 1.06,
+        "Semiconductors": 0.90, "Semiconductor Equipment & Materials": 0.92,
+        "Software - Application": 0.92, "Software - Infrastructure": 0.92,
+        "REIT - Retail": 0.90, "REIT - Residential": 0.92,
+        "Auto Manufacturers": 0.90, "Apparel Retail": 0.92,
+    },
+    "bull": {
+        "Semiconductors": 1.10, "Semiconductor Equipment & Materials": 1.08,
+        "Consumer Electronics": 1.06, "Auto Manufacturers": 1.06,
+        "Apparel Retail": 1.06, "Restaurants": 1.05, "Travel Services": 1.05,
+        "Banks - Regional": 1.06, "Capital Markets": 1.05,
+        "Gold": 0.92, "Oil & Gas E&P": 0.94,
+        "Utilities - Regulated Electric": 0.92, "Discount Stores": 0.94,
+    },
+    "bear": {
+        "Gold": 1.12, "Silver": 1.08, "Other Precious Metals & Mining": 1.08,
+        "Discount Stores": 1.08, "Utilities - Regulated Electric": 1.08,
+        "Aerospace & Defense": 1.10, "Drug Manufacturers - General": 1.06,
+        "Software - Application": 0.90, "Semiconductors": 0.90,
+        "Travel Services": 0.88, "Resorts & Casinos": 0.88,
+        "Apparel Retail": 0.90, "Auto Manufacturers": 0.90,
+    },
+    "strong": {
+        "Banks - Regional": 1.08, "Capital Markets": 1.06,
+        "Discount Stores": 1.05, "Utilities - Regulated Electric": 1.05,
+        "Gold": 0.88, "Silver": 0.88, "Other Precious Metals & Mining": 0.90,
+        "Oil & Gas E&P": 0.94, "Marine Shipping": 0.92,
+    },
+    "repress": {
+        "Gold": 1.16, "Silver": 1.14, "Other Precious Metals & Mining": 1.12,
+        "Oil & Gas E&P": 1.08, "Oil & Gas Integrated": 1.06,
+        "Real Estate Services": 1.06, "REIT - Industrial": 1.06,
+        "Semiconductors": 0.90, "Software - Application": 0.90,
+        "Software - Infrastructure": 0.90,
+    },
+    "reset": {
+        "Gold": 1.18, "Silver": 1.14, "Other Precious Metals & Mining": 1.14,
+        "Uranium": 1.12, "Aerospace & Defense": 1.12, "Marine Shipping": 1.10,
+        "Utilities - Renewable": 1.08, "Agricultural Inputs": 1.06,
+        "Biotechnology": 0.90, "Drug Manufacturers - General": 0.88,
+        "Oil & Gas E&P": 0.92,
+    },
+    "carry": {
+        "Gold": 1.14, "Silver": 1.10, "Other Precious Metals & Mining": 1.10,
+        "Discount Stores": 1.08, "Utilities - Regulated Electric": 1.08,
+        "Aerospace & Defense": 1.06,
+        "Semiconductors": 0.86, "Software - Application": 0.88,
+        "Consumer Electronics": 0.88, "Banks - Regional": 0.90,
+        "Capital Markets": 0.90,
+    },
+    "diesel": {
+        "Oil & Gas Refining & Marketing": 1.16, "Oil & Gas Midstream": 1.10,
+        "Oil & Gas Integrated": 1.08, "Utilities - Renewable": 1.10,
+        "Utilities - Independent Power Producers": 1.08,
+        "Railroads": 1.08, "Trucking": 1.06,
+        "Auto Manufacturers": 0.88, "Airlines": 0.86,
+        "Apparel Retail": 0.90,
+    },
+    "base": {},
+}
+
+
+def _r63_sym(closes: pd.DataFrame, sym: str) -> float:
+    if closes is None or sym not in getattr(closes, "columns", []):
+        return np.nan
+    s = closes[sym].dropna()
+    return float(s.iloc[-1] / s.iloc[-64] - 1) if len(s) > 64 else np.nan
+
+
+def _rel63(closes: pd.DataFrame, a: str, b: str) -> float:
+    ra, rb = _r63_sym(closes, a), _r63_sym(closes, b)
+    if np.isfinite(ra) and np.isfinite(rb):
+        return ra - rb
+    return np.nan
+
+
+def regime_confirm(regime: str, closes: pd.DataFrame) -> tuple:
+    """How hard the live tape agrees with this playbook. Returns (0.30–1.0, note).
+
+    Named lenses ignore this (confirm=1). Auto shrinks the book when the
+    trigger fired but the lead sector is not confirming — that is what
+    inverted the 2025-08 → 2026-10 holdout.
+    """
+    if not regime or regime in ("base", "off"):
+        return 1.0, ""
+    xle_xlk = _rel63(closes, "XLE", "XLK")
+    xly_xlp = _rel63(closes, "XLY", "XLP")
+    gld_spy = _rel63(closes, "GLD", "SPY")
+    gdx_spy = _rel63(closes, "GDX", "SPY")
+    eem_spy = _rel63(closes, "EEM", "SPY")
+    hyg_ief = _rel63(closes, "HYG", "IEF")
+    if regime == "stag":
+        if np.isfinite(xle_xlk):
+            if xle_xlk > 0.02:
+                return 1.0, f"energy confirming vs tech ({xle_xlk:+.0%})"
+            if xle_xlk < -0.04:
+                return 0.35, f"oil-up but tech leading energy ({xle_xlk:+.0%}) — book shrunk"
+            return 0.65, f"energy vs tech mixed ({xle_xlk:+.0%})"
+    elif regime == "bull":
+        if np.isfinite(xly_xlp):
+            if xly_xlp > 0.01:
+                return 1.0, f"cyclicals confirming vs staples ({xly_xlp:+.0%})"
+            if xly_xlp < -0.03:
+                return 0.35, f"soft oil but defensives leading ({xly_xlp:+.0%}) — book shrunk"
+            return 0.70, f"cyclicals vs staples mixed ({xly_xlp:+.0%})"
+    elif regime == "bear":
+        if np.isfinite(hyg_ief):
+            if hyg_ief < -0.01:
+                return 1.0, f"credit confirming the shock ({hyg_ief:+.0%})"
+            return 0.55, f"VIX shock without credit stress ({hyg_ief:+.0%})"
+        return 0.75, "VIX shock, credit ratio unavailable"
+    elif regime == "reset":
+        if np.isfinite(gld_spy):
+            if gld_spy > 0.03:
+                return 1.0, f"gold outrunning stocks ({gld_spy:+.0%})"
+            return 0.45, f"reset triggers without gold lead ({gld_spy:+.0%})"
+    elif regime == "repress":
+        if np.isfinite(gdx_spy):
+            if gdx_spy > 0:
+                return 1.0, f"miners confirming debasement ({gdx_spy:+.0%})"
+            return 0.50, f"liquidity+gold without miner lead ({gdx_spy:+.0%})"
+    elif regime == "strong":
+        if np.isfinite(eem_spy):
+            if eem_spy < 0:
+                return 1.0, f"dollar pulling money home ({eem_spy:+.0%})"
+            return 0.50, f"dollar up but EM still leading ({eem_spy:+.0%})"
+    elif regime == "qe":
+        return 0.90, "gauge is the confirmation"
+    elif regime == "carry":
+        return 0.90, "yen+Nasdaq signature"
+    elif regime == "diesel":
+        return 0.85, "named diesel book"
+    return 1.0, ""
+
+
+def lens_multipliers(regime, sectors, industries=None, confirm=1.0):
+    """Sector × industry tilt, shrunk toward 1.0 when confirm < 1."""
+    n = len(sectors)
+    if not regime or regime in ("off",):
+        return np.ones(n, dtype=float)
+    sec_t = SECTOR_TILTS.get(regime) or {}
+    ind_t = INDUSTRY_TILTS.get(regime) or {}
+    c = float(np.clip(1.0 if confirm is None else confirm, 0.30, 1.0))
+    inds = industries if industries is not None else [""] * n
+    out = np.empty(n, dtype=float)
+    for i, (s, ind) in enumerate(zip(sectors, inds)):
+        m = float(sec_t.get(str(s), 1.0)) * float(ind_t.get(str(ind), 1.0))
+        out[i] = 1.0 + (m - 1.0) * c
+    return out
+
+
 def macro_regime(closes: pd.DataFrame, pressure_gauge=None) -> dict:
     """Classify the live macro state — same decision order as the simulator's
-    gkey(): qe → stag → bull → bear → strong → base."""
-    def r63(sym):
-        if sym not in closes.columns:
-            return np.nan
-        s = closes[sym].dropna()
-        return float(s.iloc[-1] / s.iloc[-64] - 1) if len(s) > 64 else np.nan
+    gkey(): qe → stag → bull → bear → strong → base, plus carry and a
+    ratio fallback so 'base' is not the dump-bin for a quiet rotation."""
     imp = impulses(closes).iloc[-1]
-    oil, uup, tlt = r63("USO"), r63("UUP"), r63("TLT")
+    oil, uup, tlt = _r63_sym(closes, "USO"), _r63_sym(closes, "UUP"), _r63_sym(closes, "TLT")
     vix_z = float(imp.get("^VIX", np.nan))
-    gold = r63("GLD")
+    gold = _r63_sym(closes, "GLD")
     drivers = []
+    soft = False
     if (pressure_gauge is not None and pressure_gauge >= 1
             and np.isfinite(gold) and gold >= 0.08
             and (not np.isfinite(uup) or uup <= 0.02)):
@@ -4816,8 +5081,9 @@ def macro_regime(closes: pd.DataFrame, pressure_gauge=None) -> dict:
         reg = "bear"; drivers.append(f"VIX impulse z {vix_z:+.1f} (shock)")
     elif (np.isfinite(imp.get("FXY", np.nan)) and imp.get("FXY") >= 1.75
           and np.isfinite(imp.get("QQQ", np.nan)) and imp.get("QQQ") <= -0.75):
-        reg = "bear"; drivers.append(
-            f"yen carry unwind signature (FXY z {imp.get('FXY'):+.1f}, QQQ draining)")
+        reg = "carry"
+        drivers.append(
+            f"yen carry unwind (FXY z {imp.get('FXY'):+.1f}, QQQ draining)")
     elif (np.isfinite(gold) and np.isfinite(uup) and np.isfinite(tlt)
           and gold > 0.05 and uup < 0.0 and tlt < -0.02):
         # gold up + dollar down + long yields UP = creditors stepping back.
@@ -4829,10 +5095,32 @@ def macro_regime(closes: pd.DataFrame, pressure_gauge=None) -> dict:
     elif np.isfinite(uup) and uup > 0.04:
         reg = "strong"; drivers.append(f"dollar +{uup:.0%}/63d")
     else:
-        reg = "base"; drivers.append("no dominant macro force")
+        # Quiet tape still rotates. A clear discretionary/credit ratio is a
+        # soft call — confirmation will keep the book mild.
+        xly_xlp = _rel63(closes, "XLY", "XLP")
+        hyg_ief = _rel63(closes, "HYG", "IEF")
+        if np.isfinite(xly_xlp) and xly_xlp > 0.04:
+            reg, soft = "bull", True
+            drivers.append(f"XLY/XLP {xly_xlp:+.0%} — risk appetite on (soft call)")
+        elif np.isfinite(xly_xlp) and xly_xlp < -0.04:
+            reg, soft = "bear", True
+            drivers.append(f"XLY/XLP {xly_xlp:+.0%} — defensive rotation (soft call)")
+        elif np.isfinite(hyg_ief) and hyg_ief < -0.03:
+            reg, soft = "bear", True
+            drivers.append(f"HYG/IEF {hyg_ief:+.0%} — credit backing away (soft call)")
+        else:
+            reg = "base"
+            drivers.append("no dominant macro force")
+    confirm, cnote = regime_confirm(reg, closes)
+    if soft:
+        confirm = min(float(confirm), 0.55)
+        drivers.append("soft ratio call — tilt capped at 55%")
+    if cnote:
+        drivers.append(cnote)
     if np.isfinite(gold):
         drivers.append(f"gold {gold:+.0%}/63d")
-    return dict(regime=reg, label=REGIME_LABELS[reg], drivers=drivers)
+    return dict(regime=reg, label=REGIME_LABELS[reg], drivers=drivers,
+                confirm=round(float(confirm), 2), confirm_note=cnote)
 
 
 def _node_follow_corr(node: str, node_closes: pd.DataFrame):
@@ -5017,17 +5305,31 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
     if not apply_macro:
         # macro lens OFF — pure flow/quality ranking, no sector tilt at all
         regime = dict(regime="off", label="🚫 Macro lens off — no sector tilt applied",
-                      drivers=["macro lens disabled — ranking on the raw score"])
+                      drivers=["macro lens disabled — ranking on the raw score"],
+                      confirm=1.0)
         tilts = {}
+        confirm = 1.0
     elif regime_override and regime_override in REGIME_LABELS:
         regime = dict(regime=regime_override, label=REGIME_LABELS[regime_override],
                       drivers=["manual scenario override — matched to your "
-                               "Macro Sim sliders, not live detection"])
+                               "Macro Sim sliders, not live detection"],
+                      confirm=1.0)
         tilts = SECTOR_TILTS.get(regime["regime"], {})
+        confirm = 1.0
     else:
         regime = macro_regime(node_closes, pressure_gauge)
         tilts = SECTOR_TILTS.get(regime["regime"], {})
-    macro_mult = np.array([tilts.get(s, 1.0) for s in sectors])
+        confirm = float(regime.get("confirm") or 1.0)
+    try:
+        industries = dump_industries()
+        if len(industries) != len(sectors):
+            industries = np.array([""] * len(sectors), dtype="U64")
+    except Exception:
+        industries = np.array([""] * len(sectors), dtype="U64")
+    if apply_macro and tilts:
+        macro_mult = lens_multipliers(regime["regime"], sectors, industries, confirm)
+    else:
+        macro_mult = np.ones(len(sectors), dtype=float)
     sec_arr = np.array(sectors)
 
     # ── sector flow: where money went in the last session ────────────
@@ -5060,9 +5362,10 @@ def mega_scan(node_closes: pd.DataFrame, pressure_gauge=None, top: int = 20,
         core = core + SECTOR_FLOW_WEIGHT * flow_pct
     core = np.where(tradeable, core, -np.inf)
 
-    if not tilts:
-        # base / no-regime: plain global top-N by cascade score
-        score = core.copy()
+    if not tilts or confirm < 0.50:
+        # Unconfirmed Auto: do not force lead-sector quotas the tape is
+        # already contradicting. Mild MacroFit still nudges the order.
+        score = core * (macro_mult if tilts else 1.0)
         order = np.argsort(-score)[:top]
     else:
         # ── DIVERSIFIED SCENARIO ALLOCATION ──────────────────────────
@@ -5518,14 +5821,19 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
     if df.empty:
         return df
     if regime and regime in SECTOR_TILTS and SECTOR_TILTS[regime]:
-        tilts = SECTOR_TILTS[regime]
-        # nudge each stock's odds by its sector's regime multiplier, centered
-        # on 1.0 so favored sectors rise and out-of-favor ones fall. A ±25%
-        # tilt maps to roughly ±5 points of effective odds — enough to steer
-        # the leaderboard toward the regime WITHOUT inventing odds the analog
-        # history doesn't support. The displayed OddsUp stays the true number.
-        mult = df.Sector.map(lambda s: tilts.get(s, 1.0)).astype(float)
-        df["RankScore"] = (df.OddsUp * mult).round(2)
+        # nudge each stock's odds by sector × industry tilt. Named/forecast
+        # override uses full confirm. Displayed OddsUp stays the analog number.
+        try:
+            inds = dump_industries()
+            _, tks, *_r = load_dump_panel()
+            imap = {str(t): i for i, t in enumerate(tks)}
+            ind_col = [inds[imap[t]] if t in imap else "" for t in df.Ticker.astype(str)]
+        except Exception:
+            ind_col = [""] * len(df)
+        mult = lens_multipliers(regime, df.Sector.astype(str).tolist(),
+                                ind_col, confirm=1.0)
+        df["MacroFit"] = np.round(mult, 2)
+        df["RankScore"] = (df.OddsUp * df["MacroFit"]).round(2)
         df = df.sort_values(["RankScore", "Typical"], ascending=False)
 
         # Spread the head across sectors. Sorting on RankScore alone hands the
@@ -6199,7 +6507,14 @@ def macro_only_scan(regime: str, top: int = 20, strict: bool = True,
 
     tilts = SECTOR_TILTS.get(regime, {})
     sec_arr = np.array(sectors)
-    mult = np.array([tilts.get(s, 1.0) for s in sec_arr])
+    try:
+        industries = dump_industries()
+        if len(industries) != len(sec_arr):
+            industries = np.array([""] * len(sec_arr), dtype="U64")
+    except Exception:
+        industries = np.array([""] * len(sec_arr), dtype="U64")
+    mult = (lens_multipliers(regime, sec_arr, industries, confirm=1.0)
+            if tilts else np.ones(len(sec_arr), dtype=float))
     score = np.where(eligible, quality * 100 * mult, -np.inf)
 
     # diversify across the regime's leading sectors, capped like mega_scan
@@ -6347,6 +6662,12 @@ def macro_score_tickers(regime: str, tickers: list) -> list:
                + 0.20 * np.nan_to_num(np.clip(pio / 9.0, 0, 1), nan=0.0)
                + 0.10 * _pct(rt) + 0.05 * _pct(rg) + 0.05 * _pct(eg))
     tilts = SECTOR_TILTS.get(regime, {}) or {}
+    try:
+        industries = dump_industries()
+        if len(industries) != len(sec_arr):
+            industries = np.array([""] * len(sec_arr), dtype="U64")
+    except Exception:
+        industries = np.array([""] * len(sec_arr), dtype="U64")
     rows = []
     for t in want:
         j = imap.get(t)
@@ -6357,7 +6678,8 @@ def macro_score_tickers(regime: str, tickers: list) -> list:
                              src="watchlist"))
             continue
         sec = str(sec_arr[j])
-        mult = float(tilts.get(sec, 1.0))
+        ind = str(industries[j]) if j < len(industries) else ""
+        mult = float(lens_multipliers(regime, [sec], [ind], confirm=1.0)[0]) if tilts else 1.0
         q = float(quality[j]) * 100.0
         fit = q * mult
         label, why = _macro_outcome(mult, fit)

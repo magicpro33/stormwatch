@@ -8,7 +8,7 @@ Build a double-click folder with `build_windows.ps1` (PowerShell, Python 3.10+ o
 2. From the repo root: `.\build_windows.ps1`
 3. Zip the entire `dist\MoneyWeather\` folder. Do not ship the small source `moneyweather.zip`, and do not move `MoneyWeather.exe` out of that folder.
 
-Engine and app versions must match (**2.42**).
+Engine and app versions must match (**2.43**).
 
 ## Run
 

@@ -326,8 +326,20 @@ def _apply_macro(picks: pd.DataFrame, regkey: str | None) -> pd.DataFrame:
         out["MacroFit"] = 1.0
         return out
     import cascade_engine as ce
-    tilts = ce.SECTOR_TILTS.get(regkey, {}) or {}
-    out["MacroFit"] = out["Sector"].map(lambda s: float(tilts.get(s, 1.0)))
+    if hasattr(ce, "lens_multipliers"):
+        try:
+            dump_i = ce.dump_industries()
+            _, tks, *_rest = ce.load_dump_panel()
+            imap = {str(t): i for i, t in enumerate(tks)}
+            inds = [dump_i[imap[t]] if t in imap else ""
+                    for t in out["Ticker"].astype(str)]
+        except Exception:
+            inds = [""] * len(out)
+        out["MacroFit"] = ce.lens_multipliers(
+            regkey, out["Sector"].astype(str).tolist(), inds, confirm=1.0)
+    else:
+        tilts = ce.SECTOR_TILTS.get(regkey, {}) or {}
+        out["MacroFit"] = out["Sector"].map(lambda s: float(tilts.get(s, 1.0)))
     out["StormScore"] = out["StormScore"] * out["MacroFit"]
     return out.sort_values("StormScore", ascending=False)
 
