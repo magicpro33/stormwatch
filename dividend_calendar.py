@@ -54,7 +54,6 @@ def _html(markup: str) -> None:
 def _css() -> None:
     _html(
         f"""<style>
-.dc-sub{{color:{DIM};font-size:13px;margin:-4px 0 10px}}
 .dc-badge{{background:{NAVY};border:1px solid {LINE};border-left:4px solid {ACCENT};
   border-radius:10px;padding:8px 14px;margin:6px 0 12px;font-size:13px;color:{INK}}}
 .dc-grid{{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;margin-top:8px}}
@@ -89,7 +88,103 @@ def _css() -> None:
   font-size:11px;font-weight:800}}
 .dc-tmr{{background:{GREEN};color:#081325;padding:2px 8px;border-radius:4px;
   font-size:11px;font-weight:800}}
+.dc-wrap{{max-height:480px;overflow-y:auto;border:1px solid {LINE};border-radius:8px;background:{NAVY}}}
+.dc-stbl{{width:100%;border-collapse:collapse}}
+.dc-stbl thead th{{position:sticky;top:0;z-index:2;background:{STEEL};color:{DIM};
+  font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:10px;
+  text-align:left;white-space:nowrap;border-bottom:1px solid {LINE}}}
+.dc-stbl tbody td{{padding:10px;border-bottom:1px solid #1d2b40;font-size:13px;color:{INK};background:{NAVY}}}
+.dc-stbl tbody tr:last-child td{{border-bottom:none}}
+.dc-stbl tbody tr.dc-trow:hover td{{background:{STEEL}}}
+.dc-tk{{font-family:ui-monospace,monospace;font-weight:800;color:{INK}}}
+.dc-sec{{font-size:12px;color:{DIM}}}
+.dc-tdn{{font-family:ui-monospace,monospace;color:{INK}}}
+.dc-fr{{font-size:12px;color:{DIM}}}
+.dc-dt{{font-family:ui-monospace,monospace;color:{DIM}}}
+.dc-cd{{font-family:ui-monospace,monospace;color:{INK};white-space:nowrap}}
+.dc-yb{{padding:2px 9px;border-radius:100px;font-family:ui-monospace,monospace;
+  font-size:12px;font-weight:700;background:rgba(255,255,255,.06);color:var(--yc);
+  border:1px solid var(--yc)}}
 </style>"""
+    )
+
+
+def _section(options, key):
+    if hasattr(st, "segmented_control"):
+        sel = st.segmented_control("Section", options, key=key,
+                                   label_visibility="collapsed")
+        return sel if sel in options else options[0]
+    return st.radio("Section", options, horizontal=True, key=key,
+                    label_visibility="collapsed")
+
+
+def _ycolor(y):
+    if y >= 8:
+        return GREEN
+    if y >= 6:
+        return "#6fd49a"
+    if y >= 4:
+        return ACCENT
+    if y >= 2.5:
+        return "#f0a05a"
+    return RED
+
+
+def _render_dividend_table(df_show, today, show_buy_cols=True):
+    rows_html = []
+    for row in df_show.to_dict("records"):
+        yc = _ycolor(row["yield_pct"])
+        bd = safe_date(row.get("buy_date"))
+        ex = safe_date(row.get("ex_date"))
+        raw_da = row.get("days_away")
+        try:
+            da = int(raw_da) if raw_da is not None and not (isinstance(raw_da, float) and pd.isna(raw_da)) else None
+        except (TypeError, ValueError):
+            da = None
+        dr = float(row.get("div_rate") or 0)
+        mp = row.get("monthly_pay")
+        px = float(row.get("price") or 0)
+        pr = row.get("payout")
+        freq = str(row.get("frequency") or "—")
+        mp_str = f"${mp:.4f}" if mp else "—"
+        pr_str = f"{pr:.0f}%" if pr else "—"
+        bd_str = bd.strftime("%b %d, %Y") if bd else "—"
+        ex_str = ex.strftime("%b %d, %Y") if ex else "—"
+        alert = ""
+        if show_buy_cols and da is not None:
+            if da == 0:
+                alert = '<span class="dc-buy">BUY TODAY</span>'
+            elif da == 1:
+                alert = '<span class="dc-tmr">BUY TOMORROW</span>'
+        buy_cols = ""
+        if show_buy_cols:
+            cd = f"{da}d {alert}" if da is not None else "—"
+            buy_cols = (
+                f'<td class="dc-dt">{bd_str}</td>'
+                f'<td class="dc-dt">{ex_str}</td>'
+                f'<td class="dc-cd">{cd}</td>'
+            )
+        rows_html.append(
+            '<tr class="dc-trow">'
+            f'<td class="dc-tk">{_esc(row["ticker"])}</td>'
+            f'<td class="dc-sec">{_esc(row["sector"])}</td>'
+            f'<td><span class="dc-yb" style="--yc:{yc}">{row["yield_pct"]}%</span></td>'
+            f'<td class="dc-tdn">${dr:.4f}</td>'
+            f'<td class="dc-tdn">{mp_str}</td>'
+            f'<td class="dc-tdn">{pr_str}</td>'
+            f'<td class="dc-fr">{_esc(freq)}</td>'
+            f'<td class="dc-tdn">${px:.2f}</td>'
+            + buy_cols +
+            "</tr>"
+        )
+    hdr_buy = "<th>Buy Before</th><th>Ex-Date</th><th>Countdown</th>" if show_buy_cols else ""
+    _html(
+        '<div class="dc-wrap"><table class="dc-stbl"><thead><tr>'
+        "<th>Ticker</th><th>Sector</th><th>Yield</th><th>Div/Share</th>"
+        '<th title="Annual dividend divided by 12">Monthly/Share</th>'
+        "<th>Payout</th><th>Frequency</th><th>Price</th>"
+        + hdr_buy +
+        "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table></div>"
     )
 
 
@@ -399,11 +494,7 @@ def _calc_from_row(row) -> dict:
 def render_dividend_calendar_tab():
     _css()
     st.markdown("**Dividend Calender**")
-    st.markdown(
-        '<div class="dc-sub">Last trading day before ex-date (T+1). '
-        "Highest yield first. Dump only — nothing is fetched until you ask.</div>",
-        unsafe_allow_html=True,
-    )
+    view = _section(["Calendar", "Calculator", "Help"], "dc_view")
 
     stamp = _dump_stamp()
     with st.spinner("Reading dividend names from the dump…"):
@@ -418,21 +509,29 @@ def render_dividend_calendar_tab():
     if "dc_cm" not in st.session_state:
         st.session_state["dc_cm"] = today.month
 
-    with st.container(border=True):
-        st.markdown("**Filters**")
-        f1, f2, f3 = st.columns(3)
-        min_y = f1.slider("Min yield (%)", 0.0, 25.0, 0.0, 0.5, key="dc_min_y")
-        max_y = f2.slider("Max yield (%)", 5.0, 50.0, 25.0, 1.0, key="dc_max_y")
-        days = f3.slider("Days ahead", 30, 180, 90, key="dc_days")
-        f4, f5, f6 = st.columns(3)
-        max_px = f4.number_input("Max price ($)", min_value=1, max_value=100_000,
-                                 value=1000, step=1, key="dc_max_px")
-        freq = f5.selectbox("Frequency",
-                            ["All", "Monthly", "Quarterly", "Semi-Annual", "Annual"],
-                            key="dc_freq")
-        secs = ["All sectors"] + sorted(
-            s for s in df_all["sector"].dropna().unique().tolist() if s)
-        sector = f6.selectbox("Sector", secs, key="dc_sec")
+    secs = ["All sectors"] + sorted(
+        s for s in df_all["sector"].dropna().unique().tolist() if s)
+    if view != "Help":
+        with st.container(border=True):
+            st.markdown("**Filters**")
+            f1, f2, f3 = st.columns(3)
+            min_y = f1.slider("Min yield (%)", 0.0, 25.0, 0.0, 0.5, key="dc_min_y")
+            max_y = f2.slider("Max yield (%)", 5.0, 50.0, 25.0, 1.0, key="dc_max_y")
+            days = f3.slider("Days ahead", 30, 180, 90, key="dc_days")
+            f4, f5, f6 = st.columns(3)
+            max_px = f4.number_input("Max price ($)", min_value=1, max_value=100_000,
+                                     value=1000, step=1, key="dc_max_px")
+            freq = f5.selectbox("Frequency",
+                                ["All", "Monthly", "Quarterly", "Semi-Annual", "Annual"],
+                                key="dc_freq")
+            sector = f6.selectbox("Sector", secs, key="dc_sec")
+    else:
+        min_y = float(st.session_state.get("dc_min_y", 0.0))
+        max_y = float(st.session_state.get("dc_max_y", 25.0))
+        days = int(st.session_state.get("dc_days", 90))
+        max_px = float(st.session_state.get("dc_max_px", 1000))
+        freq = st.session_state.get("dc_freq", "All")
+        sector = st.session_state.get("dc_sec", "All sectors")
 
     df = df_all[
         (df_all["yield_pct"] >= min_y)
@@ -450,15 +549,14 @@ def render_dividend_calendar_tab():
     df_cal = df_cal.sort_values("yield_pct", ascending=False)
 
     n_ex = int(df["ex_date"].notna().sum())
-    _html(
-        f'<div class="dc-badge">{len(df_all):,} dividend stocks in the dump · '
-        f"{n_ex:,} with ex-dates in this filter · {len(df_cal):,} buy signals "
-        f"in the next {int(days)} days</div>"
-    )
+    if view != "Help":
+        _html(
+            f'<div class="dc-badge">{len(df_all):,} dividend stocks in the dump · '
+            f"{n_ex:,} with ex-dates in this filter · {len(df_cal):,} buy signals "
+            f"in the next {int(days)} days</div>"
+        )
 
-    tab_cal, tab_calc = st.tabs(["Calendar", "Calculator"])
-
-    with tab_cal:
+    if view == "Calendar":
         df_sorted = (
             df_cal.sort_values(["buy_date", "yield_pct"], ascending=[True, False])
             .reset_index(drop=True) if not df_cal.empty else df_cal
@@ -512,19 +610,7 @@ def render_dividend_calendar_tab():
         )
         _render_calendar(df_cal, st.session_state["dc_cy"], st.session_state["dc_cm"])
 
-        with st.expander("How dividend capture works"):
-            st.markdown(
-                "- The price typically drops by about the dividend on the ex-date. "
-                "It is a transfer from share price to cash, not free money.\n"
-                "- Last day to buy is the previous **trading** day (T+1 settlement).\n"
-                "- Qualified-dividend tax treatment needs a 60-day hold in the "
-                "121-day window around the ex-date. Immediate capture is usually "
-                "ordinary income plus a short-term gain or loss.\n"
-                "- Yields above ~12% often mean a cut, return of capital, or a "
-                "collapsed price. Costs and the ex-date gap usually eat a pure capture."
-            )
-
-        st.markdown("**Upcoming buy signals — ranked by yield**")
+        st.markdown("**Upcoming Buy Signals — Ranked by Yield**")
         if df_cal.empty:
             if df.empty:
                 st.info("No dividend stocks match these filters.")
@@ -532,30 +618,14 @@ def render_dividend_calendar_tab():
                 st.info(f"No buy signals in the next {int(days)} days. "
                         "Widen the window or check that the dump has ex-dates.")
                 show = df.sort_values("yield_pct", ascending=False).head(200)
-                st.dataframe(
-                    show[["ticker", "sector", "yield_pct", "div_rate",
-                          "monthly_pay", "payout", "frequency", "price", "ex_date"]]
-                    .rename(columns=_COLS),
-                    width="stretch", hide_index=True, height=420,
-                )
+                _render_dividend_table(show, today, show_buy_cols=False)
         else:
             show = df_sorted.copy()
             show["days_away"] = show["buy_date"].map(
                 lambda bd: (safe_date(bd) - today).days if safe_date(bd) else 0)
-            tbl = show[["ticker", "sector", "yield_pct", "div_rate", "monthly_pay",
-                        "payout", "frequency", "price", "buy_date", "ex_date",
-                        "days_away"]].rename(columns={**_COLS, "days_away": "Days"})
-            st.dataframe(tbl, width="stretch", hide_index=True, height=440)
+            _render_dividend_table(show, today, show_buy_cols=True)
 
-        with st.expander(f"Full filtered universe — {len(df):,} of {len(df_all):,}"):
-            st.dataframe(
-                df[["ticker", "sector", "yield_pct", "div_rate", "monthly_pay",
-                    "payout", "frequency", "price", "ex_date", "buy_date"]]
-                .rename(columns=_COLS),
-                width="stretch", hide_index=True, height=360,
-            )
-
-    with tab_calc:
+    elif view == "Calculator":
         st.markdown("**Dividend income calculator**")
         mode = st.radio("Stock source", ["Pick from the list", "Enter a ticker"],
                         horizontal=True, key="dc_calc_mode")
@@ -639,16 +709,28 @@ def render_dividend_calendar_tab():
         elif info:
             st.warning("No usable price on this name.")
 
+    elif view == "Help":
+        st.markdown("#### How dividend capture works")
+        st.markdown(
+            "- The price typically drops by about the dividend on the ex-date. "
+            "It is a transfer from share price to cash, not free money.\n"
+            "- Last day to buy is the previous **trading** day (T+1 settlement).\n"
+            "- Qualified-dividend tax treatment needs a 60-day hold in the "
+            "121-day window around the ex-date. Immediate capture is usually "
+            "ordinary income plus a short-term gain or loss.\n"
+            "- Yields above ~12% often mean a cut, return of capital, or a "
+            "collapsed price. Costs and the ex-date gap usually eat a pure capture.\n"
+            "- Calendar chips mark the last session you can buy and still be "
+            "on the books. Highest yield first."
+        )
+        st.markdown(f"#### Full filtered universe — {len(df):,} of {len(df_all):,}")
+        if df.empty:
+            st.info("No dividend stocks match the current filters. Set filters on Calendar first.")
+        else:
+            show = df.sort_values("yield_pct", ascending=False).copy()
+            show["days_away"] = [
+                (safe_date(bd) - today).days if safe_date(bd) else None
+                for bd in show["buy_date"]]
+            _render_dividend_table(show, today, show_buy_cols=True)
 
-_COLS = {
-    "ticker": "Ticker",
-    "sector": "Sector",
-    "yield_pct": "Yield %",
-    "div_rate": "Div/Share",
-    "monthly_pay": "Monthly/Share",
-    "payout": "Payout %",
-    "frequency": "Frequency",
-    "price": "Price",
-    "ex_date": "Ex-Date",
-    "buy_date": "Buy Before",
-}
+
