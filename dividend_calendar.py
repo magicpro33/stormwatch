@@ -491,6 +491,138 @@ def _calc_from_row(row) -> dict:
     }
 
 
+def _fmt_date(v):
+    d = safe_date(v)
+    return d.strftime("%b %d, %Y") if d else "—"
+
+
+def _ranked_display(src, today, show_buy_cols=True) -> pd.DataFrame:
+    out = pd.DataFrame({
+        "Ticker": src["ticker"].values,
+        "Sector": src["sector"].values,
+        "Yield %": src["yield_pct"].values,
+        "Div/Share": src["div_rate"].values,
+        "Monthly/Share": src["monthly_pay"].values,
+        "Payout %": src["payout"].values,
+        "Frequency": src["frequency"].values,
+        "Price": src["price"].values,
+    })
+    if show_buy_cols:
+        days, flags = [], []
+        for bd in src["buy_date"]:
+            d = safe_date(bd)
+            da = (d - today).days if d else None
+            days.append(da)
+            if da == 0:
+                flags.append("BUY TODAY")
+            elif da == 1:
+                flags.append("BUY TOMORROW")
+            elif da is None:
+                flags.append("—")
+            else:
+                flags.append(f"{da}d")
+        out["Buy Before"] = [_fmt_date(v) for v in src["buy_date"]]
+        out["Ex-Date"] = [_fmt_date(v) for v in src["ex_date"]]
+        out["Countdown"] = flags
+    return out
+
+
+def _pick_row(sel, src):
+    try:
+        rows = list(sel.selection.rows or [])
+    except Exception:
+        return None
+    if not rows:
+        return None
+    i = int(rows[0])
+    if i < 0 or i >= len(src):
+        return None
+    return src.iloc[i]
+
+
+def _render_calc_panel(info: dict, key: str = "dc_inv") -> None:
+    if not info or not info.get("price", 0):
+        if info:
+            st.warning("No usable price on this name.")
+        return
+    left, right = st.columns(2)
+    with left:
+        _html(
+            f'<div class="dc-calc"><b>{_esc(info["ticker"])}</b> — '
+            f'{_esc(info["sector"])}<br>'
+            f'Yield <b>{info["yield_pct"]}%</b> · '
+            f'Price <b>${info["price"]:.2f}</b> · '
+            f'{_esc(info["frequency"])}</div>'
+        )
+        inv = st.number_input("Investment ($)", min_value=1.0,
+                              max_value=10_000_000.0, value=1000.0,
+                              step=100.0, format="%.2f", key=key)
+    with right:
+        px = info["price"]
+        dr = info["div_rate"] or 0
+        shrs = inv / px if px > 0 else 0
+        annd = shrs * dr
+        mthd = annd / 12
+        n = _freq_to_pays(info["frequency"])
+        spay = annd / n if n else annd
+        slbl = {12: "Per monthly payment", 4: "Per quarterly payment",
+                2: "Per semi-annual payment", 1: "Per annual payment"}[n]
+        _html(
+            '<div class="dc-res">'
+            f'<div class="dc-row"><span class="dc-lbl">Shares</span>'
+            f'<span class="dc-val">{shrs:.4f}</span></div>'
+            f'<div class="dc-row"><span class="dc-lbl">{_esc(slbl)}</span>'
+            f'<span class="dc-val">${spay:.2f}</span></div>'
+            f'<div class="dc-row"><span class="dc-lbl">Monthly income</span>'
+            f'<span class="dc-val">${mthd:.2f}</span></div>'
+            f'<div class="dc-row"><span class="dc-lbl">Annual income</span>'
+            f'<span class="dc-val big">${annd:.2f}</span></div>'
+            f'<div class="dc-row"><span class="dc-lbl">Yield</span>'
+            f'<span class="dc-val">{info["yield_pct"]}%</span></div>'
+            f'<div class="dc-row"><span class="dc-lbl">Weekly income</span>'
+            f'<span class="dc-val">${annd / 52:.2f}</span></div>'
+            "</div>"
+        )
+    st.markdown("**Holding-period projections**")
+    st.dataframe(pd.DataFrame([
+        {"Hold": f"{m} month" + ("s" if m > 1 else ""),
+         "Total dividends": f"${mthd * m:.2f}",
+         "Return": f"{(mthd * m / inv) * 100:.2f}%",
+         "Monthly income": f"${mthd:.2f}"}
+        for m in (1, 3, 6, 12, 24, 36, 60)
+    ]), width="stretch", hide_index=True)
+
+
+def _yield_list_and_calc(src, today, *, show_buy_cols, table_key, inv_key):
+    """Clickable ranked list; selected row opens the calculator under it."""
+    disp = _ranked_display(src.reset_index(drop=True), today, show_buy_cols)
+    src = src.reset_index(drop=True)
+    sel = st.dataframe(
+        disp,
+        width="stretch",
+        hide_index=True,
+        height=min(440, 80 + 35 * max(len(disp), 1)),
+        on_select="rerun",
+        selection_mode="single-row",
+        key=table_key,
+        column_config={
+            "Yield %": st.column_config.NumberColumn(format="%.2f"),
+            "Div/Share": st.column_config.NumberColumn(format="$%.4f"),
+            "Monthly/Share": st.column_config.NumberColumn(format="$%.4f"),
+            "Payout %": st.column_config.NumberColumn(format="%.0f%%"),
+            "Price": st.column_config.NumberColumn(format="$%.2f"),
+            "Countdown": st.column_config.Column(width="medium"),
+        },
+    )
+    picked = _pick_row(sel, src)
+    if picked is None:
+        st.caption("Click a row to load the calculator under this list.")
+        return
+    st.session_state["dc_pick"] = str(picked["ticker"])
+    st.markdown(f"**Calculator — {picked['ticker']}**")
+    _render_calc_panel(_calc_from_row(picked), key=inv_key)
+
+
 def render_dividend_calendar_tab():
     _css()
     st.markdown("**Dividend Calender**")
@@ -618,12 +750,11 @@ def render_dividend_calendar_tab():
                 st.info(f"No buy signals in the next {int(days)} days. "
                         "Widen the window or check that the dump has ex-dates.")
                 show = df.sort_values("yield_pct", ascending=False).head(200)
-                _render_dividend_table(show, today, show_buy_cols=False)
+                _yield_list_and_calc(show, today, show_buy_cols=False,
+                                     table_key="dc_yield_table", inv_key="dc_inv")
         else:
-            show = df_sorted.copy()
-            show["days_away"] = show["buy_date"].map(
-                lambda bd: (safe_date(bd) - today).days if safe_date(bd) else 0)
-            _render_dividend_table(show, today, show_buy_cols=True)
+            _yield_list_and_calc(df_sorted, today, show_buy_cols=True,
+                                 table_key="dc_yield_table", inv_key="dc_inv")
 
     elif view == "Calculator":
         st.markdown("**Dividend income calculator**")
@@ -638,12 +769,21 @@ def render_dividend_calendar_tab():
                 src = src.sort_values("yield_pct", ascending=False).head(400)
                 opts = [f"{r.ticker}  —  {r.yield_pct}%  |  {r.frequency}"
                         for r in src.itertuples(index=False)]
-                sel = st.selectbox("Select stock", opts, key="dc_calc_sel")
+                pick = st.session_state.get("dc_pick")
+                idx = 0
+                if pick:
+                    for i, r in enumerate(src.itertuples(index=False)):
+                        if r.ticker == pick:
+                            idx = i
+                            break
+                sel = st.selectbox("Select stock", opts, index=idx, key="dc_calc_sel")
                 tk = sel.split("  —  ")[0].strip()
                 row = src[src["ticker"] == tk].iloc[0]
                 info = _calc_from_row(row)
         else:
-            ctk = st.text_input("Ticker", placeholder="ET, EPD, DOC",
+            ctk = st.text_input("Ticker",
+                                value=st.session_state.get("dc_pick") or "",
+                                placeholder="ET, EPD, DOC",
                                 key="dc_calc_tk").strip().upper()
             if ctk:
                 hit = df_all[df_all["ticker"] == ctk]
@@ -651,63 +791,7 @@ def render_dividend_calendar_tab():
                     info = _calc_from_row(hit.iloc[0])
                 else:
                     st.warning(f"{ctk} is not a dividend stock in the nightly dump.")
-
-        if info and info.get("price", 0) > 0:
-            left, right = st.columns(2)
-            with left:
-                _html(
-                    f'<div class="dc-calc"><b>{_esc(info["ticker"])}</b> — '
-                    f'{_esc(info["sector"])}<br>'
-                    f'Yield <b>{info["yield_pct"]}%</b> · '
-                    f'Price <b>${info["price"]:.2f}</b> · '
-                    f'{_esc(info["frequency"])}</div>'
-                )
-                inv = st.number_input("Investment ($)", min_value=1.0,
-                                      max_value=10_000_000.0, value=1000.0,
-                                      step=100.0, format="%.2f", key="dc_inv")
-            with right:
-                px = info["price"]
-                dr = info["div_rate"] or 0
-                shrs = inv / px if px > 0 else 0
-                annd = shrs * dr
-                mthd = annd / 12
-                n = _freq_to_pays(info["frequency"])
-                spay = annd / n if n else annd
-                slbl = {12: "Per monthly payment", 4: "Per quarterly payment",
-                        2: "Per semi-annual payment", 1: "Per annual payment"}[n]
-                _html(
-                    '<div class="dc-res">'
-                    f'<div class="dc-row"><span class="dc-lbl">Shares</span>'
-                    f'<span class="dc-val">{shrs:.4f}</span></div>'
-                    f'<div class="dc-row"><span class="dc-lbl">{_esc(slbl)}</span>'
-                    f'<span class="dc-val">${spay:.2f}</span></div>'
-                    f'<div class="dc-row"><span class="dc-lbl">Monthly income</span>'
-                    f'<span class="dc-val">${mthd:.2f}</span></div>'
-                    f'<div class="dc-row"><span class="dc-lbl">Annual income</span>'
-                    f'<span class="dc-val big">${annd:.2f}</span></div>'
-                    f'<div class="dc-row"><span class="dc-lbl">Yield</span>'
-                    f'<span class="dc-val">{info["yield_pct"]}%</span></div>'
-                    f'<div class="dc-row"><span class="dc-lbl">Weekly income</span>'
-                    f'<span class="dc-val">${annd / 52:.2f}</span></div>'
-                    "</div>"
-                )
-            st.markdown("**Holding-period projections**")
-            proj = pd.DataFrame([
-                {"Hold": f"{m} month" + ("s" if m > 1 else ""),
-                 "Total dividends": f"${mthd * m:.2f}",
-                 "Return": f"{(mthd * m / inv) * 100:.2f}%",
-                 "Monthly income": f"${mthd:.2f}"}
-                for m in (1, 3, 6, 12, 24, 36, 60)
-            ])
-            st.dataframe(proj, width="stretch", hide_index=True)
-            st.markdown("**Cumulative dividends over 12 months**")
-            chart = pd.DataFrame(
-                {"Cumulative dividends ($)": [mthd * m for m in range(1, 13)]},
-                index=pd.Index(range(1, 13), name="Month"),
-            )
-            st.line_chart(chart, color=ACCENT)
-        elif info:
-            st.warning("No usable price on this name.")
+        _render_calc_panel(info, key="dc_inv_tab")
 
     elif view == "Help":
         st.markdown("#### How dividend capture works")
