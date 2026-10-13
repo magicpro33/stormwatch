@@ -265,15 +265,17 @@ def _render_dividend_table(df_show, today, show_buy_cols=True, selected=None):
 def safe_date(v):
     if v is None:
         return None
-    if isinstance(v, datetime.datetime):
-        return v.date()
-    if isinstance(v, datetime.date):
-        return v
+    # NaT is a datetime subclass, so it must be caught before the isinstance
+    # checks below or .date() hands back NaT and comparisons raise TypeError.
     try:
         if pd.isna(v):
             return None
     except Exception:
         pass
+    if isinstance(v, datetime.datetime):
+        return v.date()
+    if isinstance(v, datetime.date):
+        return v
     try:
         ts = pd.to_datetime(v, errors="coerce")
         if ts is not pd.NaT and not pd.isna(ts):
@@ -372,7 +374,12 @@ def _prev_trading_day(d):
 
 def _in_buy_window(bd, start, end):
     d = safe_date(bd)
-    return d is not None and start <= d <= end
+    if d is None:
+        return False
+    try:
+        return bool(start <= d <= end)
+    except TypeError:
+        return False
 
 
 def _freq_to_pays(freq_label):
