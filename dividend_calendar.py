@@ -89,6 +89,10 @@ def _css() -> None:
   border-radius:10px;padding:9px 14px;margin:18px 0 8px;font-size:15px;font-weight:800;
   color:{INK};letter-spacing:.02em}}
 .dc-sechead small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
+.dc-sechead.lg{{font-size:21px;padding:12px 18px}}
+.dc-sechead.lg small{{font-size:14px}}
+.dc-sechead.xl{{font-size:28px;padding:14px 20px;border-left-width:8px}}
+.dc-sechead.xl small{{font-size:15px}}
 .dc-title{{background:linear-gradient(90deg,{STEEL},{NAVY});border:1px solid {LINE};
   border-left:6px solid {ACCENT};border-radius:12px;padding:12px 18px;margin:4px 0 10px;
   font-size:20px;font-weight:800;color:{INK}}}
@@ -143,9 +147,10 @@ def _css() -> None:
     )
 
 
-def _sechead(title, color=ACCENT, sub=""):
+def _sechead(title, color=ACCENT, sub="", size=""):
     s = f"<small>{_esc(sub)}</small>" if sub else ""
-    _html(f'<div class="dc-sechead" style="--sc:{color}">{_esc(title)}{s}</div>')
+    cls = f"dc-sechead {size}".strip()
+    _html(f'<div class="{cls}" style="--sc:{color}">{_esc(title)}{s}</div>')
 
 
 def _metric_cards(cards):
@@ -645,12 +650,17 @@ def _yield_list_and_calc(src, today, *, show_buy_cols, table_key, inv_key):
 
     _render_dividend_table(src, today, show_buy_cols, selected=pick)
     _sechead("Load calculator", BLUE, "pick a stock to highlight it above")
-    st.selectbox("Load calculator for", opts, key=sel_key,
-                 label_visibility="collapsed")
+    yld = {str(t): y for t, y in zip(src["ticker"], src["yield_pct"])}
+    st.selectbox(
+        "Load calculator for", opts, key=sel_key,
+        format_func=lambda t: t if t == placeholder
+        else f"{t}  —  {yld.get(t, 0):.2f}%",
+        label_visibility="collapsed",
+    )
     if pick is None:
         return
     row = src[src["ticker"] == pick].iloc[0]
-    _sechead(f"Calculator — {pick}", GREEN)
+    _sechead(f"Calculator — {pick}", GREEN, size="xl")
     _render_calc_panel(_calc_from_row(row), key=inv_key)
 
 
@@ -675,7 +685,7 @@ def render_dividend_calendar_tab():
     secs = ["All sectors"] + sorted(
         s for s in df_all["sector"].dropna().unique().tolist() if s)
     if view != "Help":
-        _sechead("Filters", BLUE, "narrow the universe")
+        _sechead("Filters", BLUE, "narrow the universe", size="lg")
         with st.container(border=True, key="dc_filters"):
             f1, f2, f3 = st.columns(3)
             min_y = f1.slider("Min yield (%)", 0.0, 25.0, 0.0, 0.5, key="dc_min_y")
@@ -734,7 +744,6 @@ def render_dividend_calendar_tab():
         else:
             hi_val, hi_sub = "—", ""
         nd = safe_date(nxt["buy_date"]) if nxt is not None else None
-        _sechead("Snapshot", GREEN, "what the filters are showing")
         _metric_cards([
             ("Buy signals ahead", f"{len(df_cal):,}", "", GREEN),
             ("Avg yield", f"{avg:.1f}%" if np.isfinite(avg) else "—", "", ACCENT),
@@ -863,5 +872,3 @@ def render_dividend_calendar_tab():
                 (safe_date(bd) - today).days if safe_date(bd) else None
                 for bd in show["buy_date"]]
             _render_dividend_table(show, today, show_buy_cols=True)
-
-
