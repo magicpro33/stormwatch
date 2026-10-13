@@ -27,6 +27,10 @@ except Exception:
 ACCENT = "#E87722"
 GREEN = "#3fbf7f"
 RED = "#e05252"
+BLUE = "#4aa3df"
+GOLD = "#e8c34a"
+PURPLE = "#9b7fe0"
+ORANGE_ALT = "#E87722"
 DIM = "#9aa8bd"
 INK = "#F6F4E9"
 NAVY = "#0c1829"
@@ -74,10 +78,39 @@ def _css() -> None:
 .dc-t5{{background:rgba(224,82,82,.12);color:{RED};border-color:{RED}}}
 .dc-leg{{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px}}
 .dc-leg span{{padding:2px 10px;border-radius:4px;font-size:11px;font-weight:700;color:{INK}}}
-.dc-month{{text-align:center;font-size:20px;font-weight:800;color:{INK};margin:4px 0}}
-.dc-calc{{background:{NAVY};border:1px solid {LINE};border-radius:10px;padding:16px 18px}}
+.dc-month{{text-align:center;font-size:20px;font-weight:800;color:{INK};margin:4px 0;
+  background:{NAVY};border:1px solid {LINE};border-left:4px solid {ORANGE_ALT};
+  border-right:4px solid {ORANGE_ALT};border-radius:10px;padding:6px 10px}}
+.dc-calc{{background:{NAVY};border:1px solid {LINE};border-left:4px solid {ACCENT};
+  border-radius:10px;padding:16px 18px;color:{INK}}}
 .dc-res{{background:#081325;border:1px solid {LINE};border-left:4px solid {GREEN};
   border-radius:10px;padding:14px 16px}}
+.dc-sechead{{background:{NAVY};border:1px solid {LINE};border-left:5px solid var(--sc,{ACCENT});
+  border-radius:10px;padding:9px 14px;margin:18px 0 8px;font-size:15px;font-weight:800;
+  color:{INK};letter-spacing:.02em}}
+.dc-sechead small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
+.dc-title{{background:linear-gradient(90deg,{STEEL},{NAVY});border:1px solid {LINE};
+  border-left:6px solid {ACCENT};border-radius:12px;padding:12px 18px;margin:4px 0 10px;
+  font-size:20px;font-weight:800;color:{INK}}}
+.dc-metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0}}
+@media(max-width:720px){{.dc-metrics{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
+.dc-met{{background:{NAVY};border:1px solid {LINE};border-left:4px solid var(--mc,{ACCENT});
+  border-radius:10px;padding:10px 14px}}
+.dc-mlbl{{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:{DIM}}}
+.dc-mval{{font-family:ui-monospace,monospace;font-size:24px;font-weight:800;color:var(--mc,{INK});margin-top:2px}}
+.dc-msub{{font-size:12px;color:{DIM};font-family:ui-monospace,monospace}}
+.dc-box{{background:{NAVY};border:1px solid {LINE};border-left:4px solid var(--bc,{BLUE});
+  border-radius:10px;padding:12px 16px;color:{INK};font-size:14px;line-height:1.55}}
+.dc-box ul{{margin:0;padding-left:20px}}
+.dc-box li{{margin-bottom:6px}}
+.dc-wrap.pj{{border-left:4px solid {PURPLE}}}
+.dc-wrap.tb{{border-left:4px solid {GREEN}}}
+.dc-cal{{background:{NAVY};border:1px solid {LINE};border-left:4px solid {ACCENT};
+  border-radius:10px;padding:10px 12px}}
+.dc-leg{{background:{NAVY};border:1px solid {LINE};border-left:4px solid {GOLD};
+  border-radius:10px;padding:8px 12px}}
+.st-key-dc_filters{{border-left:4px solid {BLUE};border-radius:10px}}
+[class*="st-key-dc_calcbox"]{{border-left:4px solid {GREEN};border-radius:10px}}
 .dc-row{{display:flex;justify-content:space-between;align-items:baseline;
   padding:6px 0;border-bottom:1px solid #1d2b40}}
 .dc-row:last-child{{border-bottom:none}}
@@ -107,6 +140,37 @@ def _css() -> None:
   font-size:12px;font-weight:700;background:rgba(255,255,255,.06);color:var(--yc);
   border:1px solid var(--yc)}}
 </style>"""
+    )
+
+
+def _sechead(title, color=ACCENT, sub=""):
+    s = f"<small>{_esc(sub)}</small>" if sub else ""
+    _html(f'<div class="dc-sechead" style="--sc:{color}">{_esc(title)}{s}</div>')
+
+
+def _metric_cards(cards):
+    """cards = [(label, value, sub, color), ...] rendered as bordered cards."""
+    out = ['<div class="dc-metrics">']
+    for label, value, sub, color in cards:
+        out.append(
+            f'<div class="dc-met" style="--mc:{color}">'
+            f'<div class="dc-mlbl">{_esc(label)}</div>'
+            f'<div class="dc-mval">{_esc(value)}</div>'
+            f'<div class="dc-msub">{_esc(sub) if sub else "&nbsp;"}</div></div>'
+        )
+    out.append("</div>")
+    _html("".join(out))
+
+
+def _simple_table(headers, rows, cls="pj"):
+    th = "".join(f"<th>{_esc(h)}</th>" for h in headers)
+    body = "".join(
+        "<tr class=\"dc-trow\">" + "".join(f"<td>{_esc(c)}</td>" for c in r) + "</tr>"
+        for r in rows
+    )
+    _html(
+        f'<div class="dc-wrap {cls}"><table class="dc-stbl"><thead><tr>{th}'
+        f"</tr></thead><tbody>{body}</tbody></table></div>"
     )
 
 
@@ -182,7 +246,7 @@ def _render_dividend_table(df_show, today, show_buy_cols=True, selected=None):
         )
     hdr_buy = "<th>Buy Before</th><th>Ex-Date</th><th>Countdown</th>" if show_buy_cols else ""
     _html(
-        '<div class="dc-wrap"><table class="dc-stbl"><thead><tr>'
+        '<div class="dc-wrap tb"><table class="dc-stbl"><thead><tr>'
         "<th>Ticker</th><th>Sector</th><th>Yield</th><th>Div/Share</th>"
         '<th title="Annual dividend divided by 12">Monthly/Share</th>'
         "<th>Payout</th><th>Frequency</th><th>Price</th>"
@@ -451,7 +515,7 @@ def _render_calendar(df, year, month):
         bd = safe_date(getattr(row, "buy_date", None))
         if bd and bd.year == year and bd.month == month:
             day_map.setdefault(bd.day, []).append(row)
-    parts = ['<div class="dc-grid">']
+    parts = ['<div class="dc-cal"><div class="dc-grid">']
     for d in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"):
         parts.append(f'<div class="dc-hdr">{d}</div>')
     for week in cal_mod.monthcalendar(year, month):
@@ -477,7 +541,7 @@ def _render_calendar(df, year, month):
                     f"{_esc(row.ticker)} {row.yield_pct}%</span>"
                 )
             parts.append("</div>")
-    parts.append("</div>")
+    parts.append("</div></div>")
     _html("".join(parts))
 
 
@@ -508,9 +572,10 @@ def _render_calc_panel(info: dict, key: str = "dc_inv") -> None:
             f'Price <b>${info["price"]:.2f}</b> · '
             f'{_esc(info["frequency"])}</div>'
         )
-        inv = st.number_input("Investment ($)", min_value=1.0,
-                              max_value=10_000_000.0, value=1000.0,
-                              step=100.0, format="%.2f", key=key)
+        with st.container(border=True, key=f"dc_calcbox_{key}"):
+            inv = st.number_input("Investment ($)", min_value=1.0,
+                                  max_value=10_000_000.0, value=1000.0,
+                                  step=100.0, format="%.2f", key=key)
     with right:
         px = info["price"]
         dr = info["div_rate"] or 0
@@ -537,14 +602,18 @@ def _render_calc_panel(info: dict, key: str = "dc_inv") -> None:
             f'<span class="dc-val">${annd / 52:.2f}</span></div>'
             "</div>"
         )
-    st.markdown("**Holding-period projections**")
-    st.dataframe(pd.DataFrame([
-        {"Hold": f"{m} month" + ("s" if m > 1 else ""),
-         "Total dividends": f"${mthd * m:.2f}",
-         "Return": f"{(mthd * m / inv) * 100:.2f}%",
-         "Monthly income": f"${mthd:.2f}"}
-        for m in (1, 3, 6, 12, 24, 36, 60)
-    ]), width="stretch", hide_index=True)
+    _sechead("Holding-period projections", PURPLE,
+             "dividends only, no price change")
+    _simple_table(
+        ["Hold", "Total dividends", "Return", "Monthly income"],
+        [
+            (f"{m} month" + ("s" if m > 1 else ""),
+             f"${mthd * m:.2f}",
+             f"{(mthd * m / inv) * 100:.2f}%",
+             f"${mthd:.2f}")
+            for m in (1, 3, 6, 12, 24, 36, 60)
+        ],
+    )
 
 
 def _yield_list_and_calc(src, today, *, show_buy_cols, table_key, inv_key):
@@ -555,29 +624,39 @@ def _yield_list_and_calc(src, today, *, show_buy_cols, table_key, inv_key):
             (safe_date(bd) - today).days if safe_date(bd) else None
             for bd in src["buy_date"]
         ]
-    tickers = [str(t) for t in src["ticker"].tolist()]
-    pick = st.session_state.get("dc_pick")
-    if pick not in tickers:
-        pick = None
+    tickers = list(dict.fromkeys(str(t) for t in src["ticker"].tolist()))
+    placeholder = "— select a stock —"
+    opts = [placeholder] + tickers
+    sel_key = f"{table_key}_sel"
+
+    # Seed the selectbox from the last pick (e.g. set on the Calculator tab),
+    # and drop a stale value that is no longer in the filtered list.
+    if sel_key not in st.session_state:
+        last = st.session_state.get("dc_pick")
+        st.session_state[sel_key] = last if last in tickers else placeholder
+    elif st.session_state[sel_key] not in opts:
+        st.session_state[sel_key] = placeholder
+
+    # Read the selection BEFORE drawing the table so the highlight is the
+    # stock currently loaded in the calculator, not the previous one.
+    chosen = st.session_state[sel_key]
+    pick = chosen if chosen != placeholder else None
+    st.session_state["dc_pick"] = pick
+
     _render_dividend_table(src, today, show_buy_cols, selected=pick)
-    opts = ["— select a stock —"] + tickers
-    chosen = st.selectbox(
-        "Load calculator for",
-        opts,
-        index=opts.index(pick) if pick in opts else 0,
-        key=f"{table_key}_sel",
-    )
-    if chosen == "— select a stock —":
+    _sechead("Load calculator", BLUE, "pick a stock to highlight it above")
+    st.selectbox("Load calculator for", opts, key=sel_key,
+                 label_visibility="collapsed")
+    if pick is None:
         return
-    st.session_state["dc_pick"] = chosen
-    row = src[src["ticker"] == chosen].iloc[0]
-    st.markdown(f"**Calculator — {chosen}**")
+    row = src[src["ticker"] == pick].iloc[0]
+    _sechead(f"Calculator — {pick}", GREEN)
     _render_calc_panel(_calc_from_row(row), key=inv_key)
 
 
 def render_dividend_calendar_tab():
     _css()
-    st.markdown("**Dividend Calender**")
+    _html('<div class="dc-title">Dividend Calender</div>')
     view = _section(["Calendar", "Calculator", "Help"], "dc_view")
 
     stamp = _dump_stamp()
@@ -596,8 +675,8 @@ def render_dividend_calendar_tab():
     secs = ["All sectors"] + sorted(
         s for s in df_all["sector"].dropna().unique().tolist() if s)
     if view != "Help":
-        with st.container(border=True):
-            st.markdown("**Filters**")
+        _sechead("Filters", BLUE, "narrow the universe")
+        with st.container(border=True, key="dc_filters"):
             f1, f2, f3 = st.columns(3)
             min_y = f1.slider("Min yield (%)", 0.0, 25.0, 0.0, 0.5, key="dc_min_y")
             max_y = f2.slider("Max yield (%)", 5.0, 50.0, 25.0, 1.0, key="dc_max_y")
@@ -646,21 +725,25 @@ def render_dividend_calendar_tab():
             .reset_index(drop=True) if not df_cal.empty else df_cal
         )
         nxt = df_sorted.iloc[0] if not df_cal.empty else None
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Buy signals ahead", len(df_cal))
         avg = (df_cal["yield_pct"].mean() if not df_cal.empty
                else (df["yield_pct"].mean() if not df.empty else np.nan))
-        c2.metric("Avg yield", f"{avg:.1f}%" if np.isfinite(avg) else "—")
         hi_src = df_cal if not df_cal.empty else df
         if not hi_src.empty:
             top = hi_src.sort_values("yield_pct", ascending=False).iloc[0]
-            c3.metric("Highest yield", f"{top['yield_pct']:.1f}%", delta=str(top["ticker"]))
+            hi_val, hi_sub = f"{top['yield_pct']:.1f}%", str(top["ticker"])
         else:
-            c3.metric("Highest yield", "—")
+            hi_val, hi_sub = "—", ""
         nd = safe_date(nxt["buy_date"]) if nxt is not None else None
-        c4.metric("Next buy date", nd.strftime("%b %d") if nd else "—",
-                  delta=str(nxt["ticker"]) if nxt is not None else "")
+        _sechead("Snapshot", GREEN, "what the filters are showing")
+        _metric_cards([
+            ("Buy signals ahead", f"{len(df_cal):,}", "", GREEN),
+            ("Avg yield", f"{avg:.1f}%" if np.isfinite(avg) else "—", "", ACCENT),
+            ("Highest yield", hi_val, hi_sub, GOLD),
+            ("Next buy date", nd.strftime("%b %d") if nd else "—",
+             str(nxt["ticker"]) if nxt is not None else "", BLUE),
+        ])
 
+        _sechead("Buy calendar", ACCENT, "last trading day before ex-date")
         cp, cc, cn = st.columns([1, 5, 1])
         with cp:
             if st.button("Prev", key="dc_prev", width="stretch"):
@@ -694,7 +777,7 @@ def render_dividend_calendar_tab():
         )
         _render_calendar(df_cal, st.session_state["dc_cy"], st.session_state["dc_cm"])
 
-        st.markdown("**Upcoming Buy Signals — Ranked by Yield**")
+        _sechead("Upcoming buy signals", GREEN, "ranked by yield")
         if df_cal.empty:
             if df.empty:
                 st.info("No dividend stocks match these filters.")
@@ -709,7 +792,8 @@ def render_dividend_calendar_tab():
                                  table_key="dc_yield_table", inv_key="dc_inv")
 
     elif view == "Calculator":
-        st.markdown("**Dividend income calculator**")
+        _sechead("Dividend income calculator", GREEN, "estimate payouts")
+        _sechead("Stock source", BLUE)
         mode = st.radio("Stock source", ["Pick from the list", "Enter a ticker"],
                         horizontal=True, key="dc_calc_mode")
         info = None
@@ -746,20 +830,31 @@ def render_dividend_calendar_tab():
         _render_calc_panel(info, key="dc_inv_tab")
 
     elif view == "Help":
-        st.markdown("#### How dividend capture works")
-        st.markdown(
-            "- The price typically drops by about the dividend on the ex-date. "
-            "It is a transfer from share price to cash, not free money.\n"
-            "- Last day to buy is the previous **trading** day (T+1 settlement).\n"
-            "- Qualified-dividend tax treatment needs a 60-day hold in the "
-            "121-day window around the ex-date. Immediate capture is usually "
-            "ordinary income plus a short-term gain or loss.\n"
-            "- Yields above ~12% often mean a cut, return of capital, or a "
-            "collapsed price. Costs and the ex-date gap usually eat a pure capture.\n"
-            "- Calendar chips mark the last session you can buy and still be "
-            "on the books. Highest yield first."
-        )
-        st.markdown(f"#### Full filtered universe — {len(df):,} of {len(df_all):,}")
+        _sechead("How dividend capture works", GOLD)
+        help_items = [
+            (ACCENT, "Price drop",
+             "The price typically drops by about the dividend on the ex-date. "
+             "It is a transfer from share price to cash, not free money."),
+            (GREEN, "Buy date",
+             "Last day to buy is the previous <b>trading</b> day (T+1 settlement)."),
+            (BLUE, "Taxes",
+             "Qualified-dividend tax treatment needs a 60-day hold in the "
+             "121-day window around the ex-date. Immediate capture is usually "
+             "ordinary income plus a short-term gain or loss."),
+            (RED, "High yields",
+             "Yields above ~12% often mean a cut, return of capital, or a "
+             "collapsed price. Costs and the ex-date gap usually eat a pure capture."),
+            (PURPLE, "Calendar chips",
+             "Chips mark the last session you can buy and still be on the "
+             "books. Highest yield first."),
+        ]
+        for color, head, body in help_items:
+            _html(
+                f'<div class="dc-box" style="--bc:{color};margin-bottom:8px">'
+                f'<b style="color:{color}">{head}</b><br>{body}</div>'
+            )
+        _sechead("Full filtered universe", GREEN,
+                 f"{len(df):,} of {len(df_all):,}")
         if df.empty:
             st.info("No dividend stocks match the current filters. Set filters on Calendar first.")
         else:
