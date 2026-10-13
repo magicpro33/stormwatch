@@ -762,7 +762,6 @@ def render_dividend_calendar_tab():
              str(nxt["ticker"]) if nxt is not None else "", BLUE),
         ])
 
-        _sechead("Buy calendar", ACCENT)
         cp, cc, cn = st.columns([1, 5, 1])
         with cp:
             if st.button("Prev", key="dc_prev", width="stretch"):
