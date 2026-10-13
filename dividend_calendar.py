@@ -89,6 +89,12 @@ def _css() -> None:
   border-radius:10px;padding:9px 14px;margin:18px 0 8px;font-size:15px;font-weight:800;
   color:{INK};letter-spacing:.02em}}
 .dc-sechead small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
+.dc-sechead.lg{{font-size:21px;padding:12px 18px}}
+.dc-sechead.lg small{{font-size:14px}}
+.dc-sechead.xl{{font-size:28px;padding:14px 20px;border-left-width:8px}}
+.dc-sechead.xl small{{font-size:15px}}
+.dc-cinfo{{font-size:15px;font-weight:500;color:{DIM};margin-top:6px;letter-spacing:0}}
+.dc-cinfo b{{color:{INK};font-family:ui-monospace,monospace}}
 .dc-title{{background:linear-gradient(90deg,{STEEL},{NAVY});border:1px solid {LINE};
   border-left:6px solid {ACCENT};border-radius:12px;padding:12px 18px;margin:4px 0 10px;
   font-size:20px;font-weight:800;color:{INK}}}
@@ -143,9 +149,10 @@ def _css() -> None:
     )
 
 
-def _sechead(title, color=ACCENT, sub=""):
+def _sechead(title, color=ACCENT, sub="", size=""):
     s = f"<small>{_esc(sub)}</small>" if sub else ""
-    _html(f'<div class="dc-sechead" style="--sc:{color}">{_esc(title)}{s}</div>')
+    cls = f"dc-sechead {size}".strip()
+    _html(f'<div class="{cls}" style="--sc:{color}">{_esc(title)}{s}</div>')
 
 
 def _metric_cards(cards):
@@ -258,15 +265,17 @@ def _render_dividend_table(df_show, today, show_buy_cols=True, selected=None):
 def safe_date(v):
     if v is None:
         return None
-    if isinstance(v, datetime.datetime):
-        return v.date()
-    if isinstance(v, datetime.date):
-        return v
+    # NaT is a datetime subclass, so it must be caught before the isinstance
+    # checks below or .date() hands back NaT and comparisons raise TypeError.
     try:
         if pd.isna(v):
             return None
     except Exception:
         pass
+    if isinstance(v, datetime.datetime):
+        return v.date()
+    if isinstance(v, datetime.date):
+        return v
     try:
         ts = pd.to_datetime(v, errors="coerce")
         if ts is not pd.NaT and not pd.isna(ts):
@@ -365,7 +374,12 @@ def _prev_trading_day(d):
 
 def _in_buy_window(bd, start, end):
     d = safe_date(bd)
-    return d is not None and start <= d <= end
+    if d is None:
+        return False
+    try:
+        return bool(start <= d <= end)
+    except TypeError:
+        return False
 
 
 def _freq_to_pays(freq_label):
@@ -563,15 +577,16 @@ def _render_calc_panel(info: dict, key: str = "dc_inv") -> None:
         if info:
             st.warning("No usable price on this name.")
         return
+    _html(
+        '<div class="dc-sechead xl" style="--sc:' + GREEN + '">'
+        f'Calculator — {_esc(info["ticker"])}'
+        f'<div class="dc-cinfo">{_esc(info["sector"])} · '
+        f'Yield <b>{info["yield_pct"]}%</b> · '
+        f'Price <b>${info["price"]:.2f}</b> · '
+        f'{_esc(info["frequency"])}</div></div>'
+    )
     left, right = st.columns(2)
     with left:
-        _html(
-            f'<div class="dc-calc"><b>{_esc(info["ticker"])}</b> — '
-            f'{_esc(info["sector"])}<br>'
-            f'Yield <b>{info["yield_pct"]}%</b> · '
-            f'Price <b>${info["price"]:.2f}</b> · '
-            f'{_esc(info["frequency"])}</div>'
-        )
         with st.container(border=True, key=f"dc_calcbox_{key}"):
             inv = st.number_input("Investment ($)", min_value=1.0,
                                   max_value=10_000_000.0, value=1000.0,
@@ -645,12 +660,17 @@ def _yield_list_and_calc(src, today, *, show_buy_cols, table_key, inv_key):
 
     _render_dividend_table(src, today, show_buy_cols, selected=pick)
     _sechead("Load calculator", BLUE, "pick a stock to highlight it above")
-    st.selectbox("Load calculator for", opts, key=sel_key,
-                 label_visibility="collapsed")
+    yld = {str(t): y for t, y in zip(src["ticker"], src["yield_pct"])}
+    frq = {str(t): str(f or "—") for t, f in zip(src["ticker"], src["frequency"])}
+    st.selectbox(
+        "Load calculator for", opts, key=sel_key,
+        format_func=lambda t: t if t == placeholder
+        else f"{t}  —  {yld.get(t, 0):.2f}%  |  {frq.get(t, '—')}",
+        label_visibility="collapsed",
+    )
     if pick is None:
         return
     row = src[src["ticker"] == pick].iloc[0]
-    _sechead(f"Calculator — {pick}", GREEN)
     _render_calc_panel(_calc_from_row(row), key=inv_key)
 
 
@@ -675,7 +695,7 @@ def render_dividend_calendar_tab():
     secs = ["All sectors"] + sorted(
         s for s in df_all["sector"].dropna().unique().tolist() if s)
     if view != "Help":
-        _sechead("Filters", BLUE, "narrow the universe")
+        _sechead("Filters", BLUE, "narrow the universe", size="lg")
         with st.container(border=True, key="dc_filters"):
             f1, f2, f3 = st.columns(3)
             min_y = f1.slider("Min yield (%)", 0.0, 25.0, 0.0, 0.5, key="dc_min_y")
@@ -734,7 +754,6 @@ def render_dividend_calendar_tab():
         else:
             hi_val, hi_sub = "—", ""
         nd = safe_date(nxt["buy_date"]) if nxt is not None else None
-        _sechead("Snapshot", GREEN, "what the filters are showing")
         _metric_cards([
             ("Buy signals ahead", f"{len(df_cal):,}", "", GREEN),
             ("Avg yield", f"{avg:.1f}%" if np.isfinite(avg) else "—", "", ACCENT),
@@ -743,7 +762,6 @@ def render_dividend_calendar_tab():
              str(nxt["ticker"]) if nxt is not None else "", BLUE),
         ])
 
-        _sechead("Buy calendar", ACCENT, "last trading day before ex-date")
         cp, cc, cn = st.columns([1, 5, 1])
         with cp:
             if st.button("Prev", key="dc_prev", width="stretch"):
@@ -766,18 +784,8 @@ def render_dividend_calendar_tab():
                 f'<div class="dc-month">{cal_mod.month_name[st.session_state["dc_cm"]]} '
                 f'{st.session_state["dc_cy"]}</div>'
             )
-        _html(
-            '<div class="dc-leg">'
-            f'<span style="background:{GREEN}">8%+</span>'
-            '<span style="background:#2d8a58">6%+</span>'
-            f'<span style="background:{ACCENT}">4%+</span>'
-            '<span style="background:#b86a20">2.5%+</span>'
-            f'<span style="background:{RED}">below 2.5%</span>'
-            "</div>"
-        )
         _render_calendar(df_cal, st.session_state["dc_cy"], st.session_state["dc_cm"])
 
-        _sechead("Upcoming buy signals", GREEN, "ranked by yield")
         if df_cal.empty:
             if df.empty:
                 st.info("No dividend stocks match these filters.")
@@ -863,5 +871,3 @@ def render_dividend_calendar_tab():
                 (safe_date(bd) - today).days if safe_date(bd) else None
                 for bd in show["buy_date"]]
             _render_dividend_table(show, today, show_buy_cols=True)
-
-
