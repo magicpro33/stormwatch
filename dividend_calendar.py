@@ -651,10 +651,11 @@ def _yield_list_and_calc(src, today, *, show_buy_cols, table_key, inv_key):
     _render_dividend_table(src, today, show_buy_cols, selected=pick)
     _sechead("Load calculator", BLUE, "pick a stock to highlight it above")
     yld = {str(t): y for t, y in zip(src["ticker"], src["yield_pct"])}
+    frq = {str(t): str(f or "—") for t, f in zip(src["ticker"], src["frequency"])}
     st.selectbox(
         "Load calculator for", opts, key=sel_key,
         format_func=lambda t: t if t == placeholder
-        else f"{t}  —  {yld.get(t, 0):.2f}%",
+        else f"{t}  —  {yld.get(t, 0):.2f}%  |  {frq.get(t, '—')}",
         label_visibility="collapsed",
     )
     if pick is None:
@@ -752,7 +753,7 @@ def render_dividend_calendar_tab():
              str(nxt["ticker"]) if nxt is not None else "", BLUE),
         ])
 
-        _sechead("Buy calendar", ACCENT, "last trading day before ex-date")
+        _sechead("Buy calendar", ACCENT)
         cp, cc, cn = st.columns([1, 5, 1])
         with cp:
             if st.button("Prev", key="dc_prev", width="stretch"):
@@ -775,18 +776,8 @@ def render_dividend_calendar_tab():
                 f'<div class="dc-month">{cal_mod.month_name[st.session_state["dc_cm"]]} '
                 f'{st.session_state["dc_cy"]}</div>'
             )
-        _html(
-            '<div class="dc-leg">'
-            f'<span style="background:{GREEN}">8%+</span>'
-            '<span style="background:#2d8a58">6%+</span>'
-            f'<span style="background:{ACCENT}">4%+</span>'
-            '<span style="background:#b86a20">2.5%+</span>'
-            f'<span style="background:{RED}">below 2.5%</span>'
-            "</div>"
-        )
         _render_calendar(df_cal, st.session_state["dc_cy"], st.session_state["dc_cm"])
 
-        _sechead("Upcoming buy signals", GREEN, "ranked by yield")
         if df_cal.empty:
             if df.empty:
                 st.info("No dividend stocks match these filters.")
