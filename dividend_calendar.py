@@ -93,6 +93,8 @@ def _css() -> None:
 .dc-sechead.lg small{{font-size:14px}}
 .dc-sechead.xl{{font-size:28px;padding:14px 20px;border-left-width:8px}}
 .dc-sechead.xl small{{font-size:15px}}
+.dc-cinfo{{font-size:15px;font-weight:500;color:{DIM};margin-top:6px;letter-spacing:0}}
+.dc-cinfo b{{color:{INK};font-family:ui-monospace,monospace}}
 .dc-title{{background:linear-gradient(90deg,{STEEL},{NAVY});border:1px solid {LINE};
   border-left:6px solid {ACCENT};border-radius:12px;padding:12px 18px;margin:4px 0 10px;
   font-size:20px;font-weight:800;color:{INK}}}
@@ -568,15 +570,16 @@ def _render_calc_panel(info: dict, key: str = "dc_inv") -> None:
         if info:
             st.warning("No usable price on this name.")
         return
+    _html(
+        '<div class="dc-sechead xl" style="--sc:' + GREEN + '">'
+        f'Calculator — {_esc(info["ticker"])}'
+        f'<div class="dc-cinfo">{_esc(info["sector"])} · '
+        f'Yield <b>{info["yield_pct"]}%</b> · '
+        f'Price <b>${info["price"]:.2f}</b> · '
+        f'{_esc(info["frequency"])}</div></div>'
+    )
     left, right = st.columns(2)
     with left:
-        _html(
-            f'<div class="dc-calc"><b>{_esc(info["ticker"])}</b> — '
-            f'{_esc(info["sector"])}<br>'
-            f'Yield <b>{info["yield_pct"]}%</b> · '
-            f'Price <b>${info["price"]:.2f}</b> · '
-            f'{_esc(info["frequency"])}</div>'
-        )
         with st.container(border=True, key=f"dc_calcbox_{key}"):
             inv = st.number_input("Investment ($)", min_value=1.0,
                                   max_value=10_000_000.0, value=1000.0,
@@ -661,7 +664,6 @@ def _yield_list_and_calc(src, today, *, show_buy_cols, table_key, inv_key):
     if pick is None:
         return
     row = src[src["ticker"] == pick].iloc[0]
-    _sechead(f"Calculator — {pick}", GREEN, size="xl")
     _render_calc_panel(_calc_from_row(row), key=inv_key)
 
 
