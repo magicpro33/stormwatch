@@ -2432,9 +2432,53 @@ def _section_bar(options, key):
                     label_visibility="collapsed")
 
 
-def _hub_pill():
-    """Rounded contained block for Scan Hub controls."""
+_T20_BLUE = "#4aa3df"
+_T20_GOLD = "#e8c34a"
+_T20_PURPLE = "#9b7fe0"
+
+
+def _hub_pill(key=None):
+    """Rounded contained block for Scan Hub controls (optional CSS key)."""
+    if key:
+        return st.container(border=True, key=key)
     return st.container(border=True)
+
+
+def _t20_css():
+    """Colored left-border section styling for the Top 20 tab only."""
+    _md_html(f"""<style>
+.t20-title{{background:linear-gradient(90deg,#1a4060,#0c1829);border:1px solid #3d6a94;
+  border-left:6px solid {ACCENT};border-radius:12px;padding:12px 18px;margin:4px 0 10px;
+  font-size:22px;font-weight:800;color:#F6F4E9}}
+.t20-head{{background:#0c1829;border:1px solid #3d6a94;border-left:5px solid var(--sc,{ACCENT});
+  border-radius:10px;padding:9px 14px;margin:18px 0 8px;font-size:15px;font-weight:800;
+  color:#F6F4E9;letter-spacing:.02em}}
+.t20-head.lg{{font-size:21px;padding:12px 18px}}
+.t20-head small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
+.t20-head.lg small{{font-size:14px}}
+.t20-box{{background:#0c1829;border:1px solid #3d6a94;border-left:4px solid var(--bc,{_T20_BLUE});
+  border-radius:10px;padding:12px 16px;color:#F6F4E9;font-size:14px;line-height:1.55;margin:6px 0}}
+.st-key-t20_engine{{border-left:5px solid {_T20_BLUE} !important;border-radius:10px}}
+.st-key-t20_lens{{border-left:5px solid {_T20_PURPLE} !important;border-radius:10px}}
+.st-key-t20_sectors{{border-left:5px solid {GREEN} !important;border-radius:10px}}
+.st-key-t20_run{{border-left:5px solid {ACCENT} !important;border-radius:10px}}
+.st-key-t20_help{{border-left:5px solid {_T20_GOLD};border-radius:10px;padding-left:8px}}
+[class*="st-key-t20_tbl"]{{border-left:5px solid {GREEN};border-radius:10px;padding-left:8px}}
+</style>""")
+
+
+def _t20_title(text):
+    _md_html(f'<div class="t20-title">{_esc(text)}</div>')
+
+
+def _t20_head(title, color=ACCENT, sub="", big=True):
+    sm = f"<small>{_esc(sub)}</small>" if sub else ""
+    cls = "t20-head lg" if big else "t20-head"
+    _md_html(f'<div class="{cls}" style="--sc:{color}">{_esc(title)}{sm}</div>')
+
+
+def _t20_box(text, color=_T20_BLUE):
+    _md_html(f'<div class="t20-box" style="--bc:{color}">{_esc(text)}</div>')
 
 
 def _catalysts_section(key: str, pill: bool = True):
@@ -3743,10 +3787,12 @@ if _main == "Scan Hub" and _hub == "TOP20":
     _hub_keep_restore("top20", ("top20_", "t20_", "forecast_all_toggle"))
     closes, asof = _try_closes_for_scan()
     GAUGE = _gauge()
-    st.caption("One screener, four brains: IGNITION technicals + the macro "
-               "simulator's quality DNA + the cascade engine's wave tailwind "
-               "+ the live macro regime — scored across the ENTIRE nightly "
-               "dump (all markets, ~5,700 stocks).")
+    _t20_css()
+    _t20_title("🏆 Top 20 Scanner")
+    _t20_box("One screener, four brains: IGNITION technicals + the macro "
+             "simulator's quality DNA + the cascade engine's wave tailwind "
+             "+ the live macro regime — scored across the ENTIRE nightly "
+             "dump (all markets, ~5,700 stocks).", _T20_BLUE)
     try:
         _gauge = GAUGE
     except Exception:
@@ -3764,10 +3810,10 @@ if _main == "Scan Hub" and _hub == "TOP20":
         "Scenario fit only, no flow",
     ]
 
-    st.markdown("##### 1 · How to rank")
+    _t20_head("1 · How to rank", _T20_BLUE, "pick the engine and the macro lens")
     _d1, _d2 = st.columns(2, gap="medium")
     with _d1:
-        with _hub_pill():
+        with _hub_pill("t20_engine"):
             st.markdown("**Engine**")
             _method_label = st.radio(
                 "Rank stocks by", list(_METHODS), key="top20_method",
@@ -3786,7 +3832,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
     _scn_opts = {_LENS_OFF: "off", _LENS_AUTO: None}
     _scn_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
     with _d2:
-        with _hub_pill():
+        with _hub_pill("t20_lens"):
             _lh, _lb = st.columns([1.35, 1], vertical_alignment="center")
             _lh.markdown("**Macro lens**")
             if _lb.button("🧭 Recommend lens", key="macro_advise",
@@ -3907,8 +3953,8 @@ if _main == "Scan Hub" and _hub == "TOP20":
         _all_secs, _picked_secs, _sec_filter = [], [], None
         _use_flow = False
     else:
-        with _hub_pill():
-            st.markdown("##### 2 · Session and sectors")
+        _t20_head("2 · Session and sectors", GREEN, "where the money is going")
+        with _hub_pill("t20_sectors"):
             _t_lb, _t_off, _t_lbl = flow_window_picker("t20")
             _t20_pending = st.session_state.pop("_top20_sectors_pending", None)
             if _t20_pending:
@@ -3981,8 +4027,8 @@ if _main == "Scan Hub" and _hub == "TOP20":
                         })
     _secs_key = tuple(sorted(_sec_filter)) if _sec_filter else ()
 
-    with _hub_pill():
-        st.markdown("##### 3 · Size and run")
+    _t20_head("3 · Size and run", ACCENT, "how many names, then go")
+    with _hub_pill("t20_run"):
         _n1, _n2 = st.columns([1, 2], gap="medium")
         _top_n = _n1.selectbox("How many stocks", list(range(20, 55, 5)),
                                index=0, key="top20_count",
@@ -4081,6 +4127,8 @@ if _main == "Scan Hub" and _hub == "TOP20":
             <span style="color:{DIM};font-size:12px;">“Live” is the current price;
             “Chg%” is the move since the scan's close.</span></div>""",
             unsafe_allow_html=True)
+    if st.session_state.get("top20_go"):
+        _t20_head("4 · Results", _T20_GOLD, "tap a row for the full profile")
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "forecast":
         _snap = st.session_state.get("top20_snap") or {}
         if _snap.get("mode") == "forecast":
@@ -4116,7 +4164,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                     "run — try again after a data refresh.")
         else:
             st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                border-left:4px solid {_T20_PURPLE};border-radius:10px;padding:10px 14px;margin:8px 0;">
                 <span style="font-weight:700;">🔮 Best-odds leaderboard — ranked by analog odds of gain</span><br>
                 <span style="color:{DIM};font-size:12px;">Each stock's look-alike history says how
                 often it finished up over 21 sessions. Sorted by those odds (typical size breaks
@@ -4126,33 +4174,34 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _fc, _lmeta = _apply_live(_fc)
             _live_banner(_lmeta)
             _fc = _with_catalysts(_fc, _t20_cat)
-            _fcsel = st.dataframe(
-                _fc.style.format(_live_fmt(_fc, {
-                    "Price": "${:,.2f}", "OddsUp": "{:.0f}%",
-                    "Typical": "{:+.1f}%", "PopOdds": "{:.0f}%",
-                    "Worst10": "{:+.0f}%", "Best10": "{:+.0f}%",
-                    "Cases": "{:,}"}), na_rep="—")
-                .map(lambda v: f"color:{GREEN};font-weight:700" if isinstance(v,(int,float)) and v>=60
-                     else (f"color:{RED}" if isinstance(v,(int,float)) and v<50 else ""),
-                     subset=["OddsUp"])
-                .map(lambda v: _css_sign(v) if isinstance(v,(int,float)) else "", subset=["Typical"]),
-                width="stretch", hide_index=True, height=740,
-                on_select="rerun", selection_mode="single-row", key="forecast_table",
-                column_order=_order_with_cat(
-                    ["Ticker", "Sector", "Price"]
-                    + (["Live", "Chg%", "Src"] if "Live" in _fc.columns else [])
-                    + ["OddsUp", "Typical"],
-                    _fc),
-                column_config={
-                    "#": _rank_col_cfg(),
-                    **_cat_col_cfgs(),
-                    "OddsUp": st.column_config.Column(help="Share of analog look-alike cases that finished HIGHER after 21 sessions. This is what the preset ranks by."),
-                    "Typical": st.column_config.Column(help="Median analog outcome — the middle-of-the-pack result. Breaks ties on odds."),
-                    "PopOdds": st.column_config.Column(help="Share of analogs that popped +15% or more."),
-                    "Worst10": st.column_config.Column(help="10th-percentile analog outcome — the rough worst case (1 in 10 did at least this badly)."),
-                    "Best10": st.column_config.Column(help="90th-percentile analog outcome — the rough best case."),
-                    "Cases": st.column_config.Column(help="How many historical look-alikes this forecast is built on. 300+ enforced."),
-                })
+            with st.container(key="t20_tbl_fc"):
+                _fcsel = st.dataframe(
+                    _fc.style.format(_live_fmt(_fc, {
+                        "Price": "${:,.2f}", "OddsUp": "{:.0f}%",
+                        "Typical": "{:+.1f}%", "PopOdds": "{:.0f}%",
+                        "Worst10": "{:+.0f}%", "Best10": "{:+.0f}%",
+                        "Cases": "{:,}"}), na_rep="—")
+                    .map(lambda v: f"color:{GREEN};font-weight:700" if isinstance(v,(int,float)) and v>=60
+                         else (f"color:{RED}" if isinstance(v,(int,float)) and v<50 else ""),
+                         subset=["OddsUp"])
+                    .map(lambda v: _css_sign(v) if isinstance(v,(int,float)) else "", subset=["Typical"]),
+                    width="stretch", hide_index=True, height=740,
+                    on_select="rerun", selection_mode="single-row", key="forecast_table",
+                    column_order=_order_with_cat(
+                        ["Ticker", "Sector", "Price"]
+                        + (["Live", "Chg%", "Src"] if "Live" in _fc.columns else [])
+                        + ["OddsUp", "Typical"],
+                        _fc),
+                    column_config={
+                        "#": _rank_col_cfg(),
+                        **_cat_col_cfgs(),
+                        "OddsUp": st.column_config.Column(help="Share of analog look-alike cases that finished HIGHER after 21 sessions. This is what the preset ranks by."),
+                        "Typical": st.column_config.Column(help="Median analog outcome — the middle-of-the-pack result. Breaks ties on odds."),
+                        "PopOdds": st.column_config.Column(help="Share of analogs that popped +15% or more."),
+                        "Worst10": st.column_config.Column(help="10th-percentile analog outcome — the rough worst case (1 in 10 did at least this badly)."),
+                        "Best10": st.column_config.Column(help="90th-percentile analog outcome — the rough best case."),
+                        "Cases": st.column_config.Column(help="How many historical look-alikes this forecast is built on. 300+ enforced."),
+                    })
             st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                        "Highest odds ≠ biggest gain — check the Typical and Worst-10 "
                        "columns before sizing.")
@@ -4181,7 +4230,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             st.info("No names cleared the quality bar for this scenario.")
         else:
             st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                border-left:4px solid {_T20_BLUE};border-radius:10px;padding:10px 14px;margin:8px 0;">
                 <span style="font-weight:700;">🎯 Macro-only: {_mmeta.get('label','')}</span><br>
                 <span style="color:{DIM};font-size:12px;">Ranked purely on how well a
                 quality company fits this scenario — no cascade flow, no technicals,
@@ -4196,29 +4245,30 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _mcols = (["Ticker", "Sector", "Price"]
                       + (["Live", "Chg%", "Src"] if "Live" in _m20.columns else [])
                       + ["ROIC", "OE Yield", "Piotroski", "P/E", "RevGrowth"])
-            _msel = st.dataframe(
-                _m20.style.format(_live_fmt(_m20, {
-                    "Price": "${:,.2f}", "Fit": "{:.1f}", "MacroFit": "{:.2f}",
-                    "Quality": "{:.0f}", "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
-                    "Piotroski": "{:.0f}", "P/E": "{:.1f}",
-                    "RevGrowth": "{:+.0%}"}), na_rep="—")
-                .map(lambda v: f"color:{GREEN};font-weight:600"
-                     if isinstance(v, (int, float)) and v > 1.0
-                     else (f"color:{RED}" if isinstance(v, (int, float)) and v < 1.0
-                           else ""), subset=["MacroFit"])
-                .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
-                                else f"color:{DIM}"), subset=["Data"]),
-                width="stretch", hide_index=True, height=740,
-                on_select="rerun", selection_mode="single-row", key="macro_table",
-                column_order=_order_with_cat(
-                    [c for c in _mcols if c in _m20.columns], _m20),
-                column_config={
-                    "#": _rank_col_cfg(),
-                    "Fit": st.column_config.Column(help="Quality score multiplied by this sector's multiplier under the chosen scenario."),
-                    "MacroFit": st.column_config.Column(help="The scenario's sector multiplier. Above 1.00 = a sector this regime favours."),
-                    "Quality": st.column_config.Column(help="Composite of ROIC, owner-earnings yield, Piotroski, ROIC trend and growth. Missing inputs rank at the bottom."),
-                    "Data": st.column_config.Column(help="How many of the 6 fundamental inputs are known."),
-                })
+            with st.container(key="t20_tbl_mc"):
+                _msel = st.dataframe(
+                    _m20.style.format(_live_fmt(_m20, {
+                        "Price": "${:,.2f}", "Fit": "{:.1f}", "MacroFit": "{:.2f}",
+                        "Quality": "{:.0f}", "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
+                        "Piotroski": "{:.0f}", "P/E": "{:.1f}",
+                        "RevGrowth": "{:+.0%}"}), na_rep="—")
+                    .map(lambda v: f"color:{GREEN};font-weight:600"
+                         if isinstance(v, (int, float)) and v > 1.0
+                         else (f"color:{RED}" if isinstance(v, (int, float)) and v < 1.0
+                               else ""), subset=["MacroFit"])
+                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
+                                    else f"color:{DIM}"), subset=["Data"]),
+                    width="stretch", hide_index=True, height=740,
+                    on_select="rerun", selection_mode="single-row", key="macro_table",
+                    column_order=_order_with_cat(
+                        [c for c in _mcols if c in _m20.columns], _m20),
+                    column_config={
+                        "#": _rank_col_cfg(),
+                        "Fit": st.column_config.Column(help="Quality score multiplied by this sector's multiplier under the chosen scenario."),
+                        "MacroFit": st.column_config.Column(help="The scenario's sector multiplier. Above 1.00 = a sector this regime favours."),
+                        "Quality": st.column_config.Column(help="Composite of ROIC, owner-earnings yield, Piotroski, ROIC trend and growth. Missing inputs rank at the bottom."),
+                        "Data": st.column_config.Column(help="How many of the 6 fundamental inputs are known."),
+                    })
             st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                        "This list answers \"if this scenario is right, who's positioned?\" "
                        "— it says nothing about whether the scenario is actually arriving.")
@@ -4242,7 +4292,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             }
         if not f20.empty:
             st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                border-left:4px solid {_T20_GOLD};border-radius:10px;padding:10px 14px;margin:8px 0;">
                 <span style="font-weight:700;">🎩 Felix mode — quality checklist leaderboard</span><br>
                 <span style="color:{DIM};font-size:12px;">Only ~3% of US stocks pass all five
                 tests. Tests column: ROIC ≥ 15% · Piotroski ≥ 7 · OE yield ≥ 4% · ROIC trend
@@ -4252,37 +4302,38 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _f, _lmeta = _apply_live(_f)
             _live_banner(_lmeta)
             _f = _with_catalysts(_f, _t20_cat)
-            _fsel = st.dataframe(
-                _f.style.format(_live_fmt(_f, {
-                    "Price": "${:,.2f}", "Felix": "{:.1f}",
-                    "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
-                    "Piotroski": "{:.0f}", "ROIC Trend": "{:+.2f}",
-                    "P/E": "{:.1f}", "RevGrowth": "{:+.0%}"}), na_rep="—")
-                .map(lambda v: _css_sign(v - 0.15, dead=0.0) if isinstance(v, float) else "",
-                     subset=["ROIC"])
-                .map(lambda v: f"color:{GREEN};font-weight:600" if v == "4/4"
-                     else (f"color:{DIM}" if v in ("2/4", "3/4") else f"color:{RED}"),
-                     subset=["Tests"])
-                .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
-                                else (f"color:{RED};font-weight:600"
-                                      if isinstance(v, str) and v[:1] in "0123"
-                                      else f"color:{DIM}")), subset=["Data"]),
-                width="stretch", hide_index=True, height=740,
-                on_select="rerun", selection_mode="single-row", key="felix_table",
-                column_order=_order_with_cat(
-                    ["Ticker", "Sector", "Price"]
-                    + (["Live", "Chg%", "Src"] if "Live" in _f.columns else [])
-                    + ["ROIC", "OE Yield", "Piotroski", "ROIC Trend",
-                       "P/E", "RevGrowth"],
-                    _f),
-                column_config={
-                    "#": _rank_col_cfg(),
-                    "Felix": st.column_config.Column(help="Weighted checklist score, mirroring the screener preset exactly: ROIC x5, OE Yield x4, Piotroski x4, ROIC Trend x2, growth x1 each — percentile-ranked, P/E-gated."),
-                    "Tests": st.column_config.Column(help="How many of the four measurable quality bars this stock clears. A missing input can never pass a test."),
-                    "Data": st.column_config.Column(help="How many of the 6 Felix inputs (ROIC, OE yield, Piotroski, ROIC trend, revenue growth, earnings growth) this stock actually has. Missing inputs rank at the BOTTOM, never as average."),
-                    "OE Yield": st.column_config.Column(help="Owner-earnings yield — real cash generated relative to price. Revenue is vanity, cash is sanity."),
-                    "ROIC Trend": st.column_config.Column(help="Direction of return on capital — a real moat keeps returns from eroding."),
-                })
+            with st.container(key="t20_tbl_fx"):
+                _fsel = st.dataframe(
+                    _f.style.format(_live_fmt(_f, {
+                        "Price": "${:,.2f}", "Felix": "{:.1f}",
+                        "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
+                        "Piotroski": "{:.0f}", "ROIC Trend": "{:+.2f}",
+                        "P/E": "{:.1f}", "RevGrowth": "{:+.0%}"}), na_rep="—")
+                    .map(lambda v: _css_sign(v - 0.15, dead=0.0) if isinstance(v, float) else "",
+                         subset=["ROIC"])
+                    .map(lambda v: f"color:{GREEN};font-weight:600" if v == "4/4"
+                         else (f"color:{DIM}" if v in ("2/4", "3/4") else f"color:{RED}"),
+                         subset=["Tests"])
+                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
+                                    else (f"color:{RED};font-weight:600"
+                                          if isinstance(v, str) and v[:1] in "0123"
+                                          else f"color:{DIM}")), subset=["Data"]),
+                    width="stretch", hide_index=True, height=740,
+                    on_select="rerun", selection_mode="single-row", key="felix_table",
+                    column_order=_order_with_cat(
+                        ["Ticker", "Sector", "Price"]
+                        + (["Live", "Chg%", "Src"] if "Live" in _f.columns else [])
+                        + ["ROIC", "OE Yield", "Piotroski", "ROIC Trend",
+                           "P/E", "RevGrowth"],
+                        _f),
+                    column_config={
+                        "#": _rank_col_cfg(),
+                        "Felix": st.column_config.Column(help="Weighted checklist score, mirroring the screener preset exactly: ROIC x5, OE Yield x4, Piotroski x4, ROIC Trend x2, growth x1 each — percentile-ranked, P/E-gated."),
+                        "Tests": st.column_config.Column(help="How many of the four measurable quality bars this stock clears. A missing input can never pass a test."),
+                        "Data": st.column_config.Column(help="How many of the 6 Felix inputs (ROIC, OE yield, Piotroski, ROIC trend, revenue growth, earnings growth) this stock actually has. Missing inputs rank at the BOTTOM, never as average."),
+                        "OE Yield": st.column_config.Column(help="Owner-earnings yield — real cash generated relative to price. Revenue is vanity, cash is sanity."),
+                        "ROIC Trend": st.column_config.Column(help="Direction of return on capital — a real moat keeps returns from eroding."),
+                    })
             st.caption("👆 Tap a row for the chart, cards, and company profile below.")
             _scan_hub_pick_and_show(_fsel, _f, "t20_inline", "t20az", source="TOP20")
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode", "cascade") == "cascade":
@@ -4321,49 +4372,50 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 if _cc in _t.columns:
                     _t = _t.drop(columns=[_cc])
             _t = _with_catalysts(_t, _t20_cat)
-            _sel20 = st.dataframe(
-                _t.style.format(_live_fmt(_t, {
-                    "Price": "${:,.2f}", "Score": "{:.1f}", "Tech": "{:.0f}",
-                    "Quality": "{:.0f}", "Tailwind": "{:.0f}", "MacroFit": "{:.2f}",
-                    "Piotroski": "{:.0f}", "RevGrowth": "{:+.0%}",
-                    "RVOL": "{:.2f}x", "RangePos": "{:.0%}"}), na_rep="—")
-                .map(lambda v: f"color:{ACCENT};font-weight:700"
-                     if isinstance(v, (int, float)) and len(_t) and v >= _t.Score.iloc[min(4, len(_t) - 1)]
-                     else "", subset=["Score"])
-                .map(lambda v: _css_sign(v - 50, dead=10) if isinstance(v, (int, float)) else "",
-                     subset=["Tech", "Quality", "Tailwind"])
-                .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "5/5"
-                                else (f"color:{RED};font-weight:600"
-                                      if isinstance(v, str) and v[:1] in "012"
-                                      else f"color:{DIM}")), subset=["Data"]),
-                width="stretch", hide_index=True, height=740,
-                on_select="rerun", selection_mode="single-row", key="top20_table",
-                column_order=_order_with_cat(
-                    ["Ticker", "Sector", "Price"]
-                    + (["Live", "Chg%", "Src"] if "Live" in _t.columns else [])
-                    + ["Data", "Piotroski", "RevGrowth", "RVOL",
-                       "RangePos"],
-                    _t),
-                column_config={
-                    "#": _rank_col_cfg(),
-                    **_cat_col_cfgs(),
-                    "Score": st.column_config.Column(help="Combined score: 42% technicals + 23% quality + 29% cascade tailwind + 6% catalysts, multiplied by the macro-regime sector fit."),
-                    "Tech": st.column_config.Column(help="IGNITION technical percentile: momentum, range position, relative volume, trend, RSI sweet spot, MACD."),
-                    "Quality": st.column_config.Column(help="Macro-simulator quality DNA: Piotroski, golden cross, ROIC, revenue & earnings growth."),
-                    "Tailwind": st.column_config.Column(help="Cascade engine: how strongly the currently-firing waves historically push THIS stock over the next week (percentile)."),
-                    "MacroFit": st.column_config.Column(help="Regime sector multiplier from the macro simulator's playbook — >1 means this sector historically leads in the current regime."),
-                    "Piotroski": st.column_config.Column(help="9-point fundamental health score from the nightly dump."),
-                    "RevGrowth": st.column_config.Column(help="YoY revenue growth from the nightly dump."),
-                    "RVOL": st.column_config.Column(help="5-day vs 63-day average volume."),
-                    "RangePos": st.column_config.Column(help="Position in the 63-day range — 100% = at the highs."),
-                    "Data": st.column_config.Column(
-                        help="How many of the 5 quality inputs (Piotroski, ROIC, "
-                             "revenue growth, earnings growth, golden cross) this "
-                             "stock actually has data for. Missing inputs now rank "
-                             "at the BOTTOM, never as average — but a low count "
-                             "still means the Quality pillar knows less about this "
-                             "name. 5/5 = fully known."),
-                })
+            with st.container(key="t20_tbl_cs"):
+                _sel20 = st.dataframe(
+                    _t.style.format(_live_fmt(_t, {
+                        "Price": "${:,.2f}", "Score": "{:.1f}", "Tech": "{:.0f}",
+                        "Quality": "{:.0f}", "Tailwind": "{:.0f}", "MacroFit": "{:.2f}",
+                        "Piotroski": "{:.0f}", "RevGrowth": "{:+.0%}",
+                        "RVOL": "{:.2f}x", "RangePos": "{:.0%}"}), na_rep="—")
+                    .map(lambda v: f"color:{ACCENT};font-weight:700"
+                         if isinstance(v, (int, float)) and len(_t) and v >= _t.Score.iloc[min(4, len(_t) - 1)]
+                         else "", subset=["Score"])
+                    .map(lambda v: _css_sign(v - 50, dead=10) if isinstance(v, (int, float)) else "",
+                         subset=["Tech", "Quality", "Tailwind"])
+                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "5/5"
+                                    else (f"color:{RED};font-weight:600"
+                                          if isinstance(v, str) and v[:1] in "012"
+                                          else f"color:{DIM}")), subset=["Data"]),
+                    width="stretch", hide_index=True, height=740,
+                    on_select="rerun", selection_mode="single-row", key="top20_table",
+                    column_order=_order_with_cat(
+                        ["Ticker", "Sector", "Price"]
+                        + (["Live", "Chg%", "Src"] if "Live" in _t.columns else [])
+                        + ["Data", "Piotroski", "RevGrowth", "RVOL",
+                           "RangePos"],
+                        _t),
+                    column_config={
+                        "#": _rank_col_cfg(),
+                        **_cat_col_cfgs(),
+                        "Score": st.column_config.Column(help="Combined score: 42% technicals + 23% quality + 29% cascade tailwind + 6% catalysts, multiplied by the macro-regime sector fit."),
+                        "Tech": st.column_config.Column(help="IGNITION technical percentile: momentum, range position, relative volume, trend, RSI sweet spot, MACD."),
+                        "Quality": st.column_config.Column(help="Macro-simulator quality DNA: Piotroski, golden cross, ROIC, revenue & earnings growth."),
+                        "Tailwind": st.column_config.Column(help="Cascade engine: how strongly the currently-firing waves historically push THIS stock over the next week (percentile)."),
+                        "MacroFit": st.column_config.Column(help="Regime sector multiplier from the macro simulator's playbook — >1 means this sector historically leads in the current regime."),
+                        "Piotroski": st.column_config.Column(help="9-point fundamental health score from the nightly dump."),
+                        "RevGrowth": st.column_config.Column(help="YoY revenue growth from the nightly dump."),
+                        "RVOL": st.column_config.Column(help="5-day vs 63-day average volume."),
+                        "RangePos": st.column_config.Column(help="Position in the 63-day range — 100% = at the highs."),
+                        "Data": st.column_config.Column(
+                            help="How many of the 5 quality inputs (Piotroski, ROIC, "
+                                 "revenue growth, earnings growth, golden cross) this "
+                                 "stock actually has data for. Missing inputs now rank "
+                                 "at the BOTTOM, never as average — but a low count "
+                                 "still means the Quality pillar knows less about this "
+                                 "name. 5/5 = fully known."),
+                    })
             st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                        "Scores refresh with the nightly dump; the tailwind and regime "
                        "refresh live.")
@@ -4377,7 +4429,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             if _t20_cat:
                 with st.expander("🔑 Catalyst key", expanded=False):
                     st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                    border-radius:10px;padding:12px 16px;margin-top:6px;">
+                    border-left:4px solid {_T20_PURPLE};border-radius:10px;padding:12px 16px;margin-top:6px;">
                     <div style="color:{ACCENT};font-size:11px;letter-spacing:1px;text-transform:uppercase;margin:4px 0 2px;">
                       Up — dump-backed (walk-forward on the nightly gz)</div>
                     {_krow("💥 WASH OUT +8", "new 63-day low — mean-reversion (+0.9% / 5d, +1.5% / 21d)")}
@@ -4393,31 +4445,32 @@ if _main == "Scan Hub" and _hub == "TOP20":
                     <div style="color:{DIM};font-size:11px;margin-top:6px;">
                       Tape flags are scored across the whole dump. News tags are fetched for the final 20.</div>
                     </div>""", unsafe_allow_html=True)
-            with st.expander("❓ How the Top 20 is chosen"):
-                st.markdown(
-                    "- **Universe:** every tradeable stock in the nightly dump — all "
-                    "markets, price ≥ $3, median dollar volume ≥ $2M.\n"
-                    "- **Tech (42%)** — the IGNITION signal stack, computed fresh from "
-                    "the dump's full OHLCV: 63-day momentum, range position, relative "
-                    "volume, above-50MA, RSI sweet spot (45-65), MACD bull cross.\n"
-                    "- **Quality (23%)** — the macro simulator's stock-picking DNA: "
-                    "Piotroski, golden cross, ROIC, revenue and earnings growth.\n"
-                    "- **Catalysts (signed, dump-backed)** — wash-out at 63-day lows "
-                    "(+), earn growth (+), breakout (+), volume selloff (−), "
-                    "gap-up fade (−), crowded squeeze (−). Weights are 5-day "
-                    "excess vs the liquid universe on the nightly gz "
-                    "(2025-08 → 2026-10). News M&A / FDA / deal / legal / "
-                    "offering tags are fetched for the final 20.\n"
-                    "- **Tailwind (29%)** — the cascade engine: for every node wave "
-                    "firing right now, each stock's historical lagged response, summed. "
-                    "Stocks the current waves are already traveling toward score high.\n"
-                    "- **× MacroFit** — the whole score is multiplied by the sector's "
-                    "regime multiplier, translated from the macro simulator's six-"
-                    "regime playbook (QE / stagflation / melt-up / shock / strong "
-                    "dollar / base) detected from live oil, dollar, VIX, and the "
-                    "pressure gauge.\n\n"
-                    "It's a ranking, not a prophecy — validate ideas in Stock Lookup's "
-                    "analog forecast before acting. Not investment advice.")
+            with st.container(key="t20_help"):
+                with st.expander("❓ How the Top 20 is chosen"):
+                    st.markdown(
+                        "- **Universe:** every tradeable stock in the nightly dump — all "
+                        "markets, price ≥ $3, median dollar volume ≥ $2M.\n"
+                        "- **Tech (42%)** — the IGNITION signal stack, computed fresh from "
+                        "the dump's full OHLCV: 63-day momentum, range position, relative "
+                        "volume, above-50MA, RSI sweet spot (45-65), MACD bull cross.\n"
+                        "- **Quality (23%)** — the macro simulator's stock-picking DNA: "
+                        "Piotroski, golden cross, ROIC, revenue and earnings growth.\n"
+                        "- **Catalysts (signed, dump-backed)** — wash-out at 63-day lows "
+                        "(+), earn growth (+), breakout (+), volume selloff (−), "
+                        "gap-up fade (−), crowded squeeze (−). Weights are 5-day "
+                        "excess vs the liquid universe on the nightly gz "
+                        "(2025-08 → 2026-10). News M&A / FDA / deal / legal / "
+                        "offering tags are fetched for the final 20.\n"
+                        "- **Tailwind (29%)** — the cascade engine: for every node wave "
+                        "firing right now, each stock's historical lagged response, summed. "
+                        "Stocks the current waves are already traveling toward score high.\n"
+                        "- **× MacroFit** — the whole score is multiplied by the sector's "
+                        "regime multiplier, translated from the macro simulator's six-"
+                        "regime playbook (QE / stagflation / melt-up / shock / strong "
+                        "dollar / base) detected from live oil, dollar, VIX, and the "
+                        "pressure gauge.\n\n"
+                        "It's a ranking, not a prophecy — validate ideas in Stock Lookup's "
+                        "analog forecast before acting. Not investment advice.")
 
     _hub_keep_save("top20", ("top20_", "t20_", "forecast_all_toggle"))
 
