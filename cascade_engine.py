@@ -2365,6 +2365,170 @@ def stamp_rank(df, col: str = "#"):
     return out
 
 
+# Keyword hits catch replaceable services when Yahoo files the company under
+# a broader industry. Staffing, consulting, ad agencies, and labor-heavy IT
+# services are handled in service_replaced_by_ai.
+_AI_VENDOR_RE = re.compile(
+    r"\b(?:software (?:company|platform|products?)|saas\b|"
+    r"develops (?:and (?:markets|sells) )?software|"
+    r"artificial intelligence[- ]powered|"
+    r"\bai-powered\b|"
+    r"provides artificial intelligence|"
+    r"artificial intelligence (?:software|platform|solutions|models?)|"
+    r"digital infrastructure|"
+    r"provides (?:a |an )?(?:software|platform|saas))\b",
+    re.I,
+)
+_AI_SERVICE_RE = re.compile(
+    r"(?:"
+    r"\bbusiness process outsourc|"
+    r"\b(?:bpo|kpo|rpo)\b|"
+    r"\bcall cent(?:er|re)s? (?:services|outsourcing|operations)\b|"
+    r"\boperates call cent(?:er|re)s?\b|"
+    r"\bcontact cent(?:er|re) (?:services|outsourcing|operations)\b|"
+    r"\bcustomer (?:support|service|care) outsourc|"
+    r"\btelemarket|\bteleservices\b|"
+    r"\b(?:translation|transcription|language|interpreting) services\b|"
+    r"\bdata entry\b|\bdata processing services\b|"
+    r"\bbookkeeping\b|\btax preparation\b|\baccounting outsourc|"
+    r"\bpayroll (?:processing|services)\b|"
+    r"\bstaff augmentation\b|\btemporary staffing\b|"
+    r"\brecruitment process outsourc|\bemployment services\b|"
+    r"\bcontent (?:writing|creation) services\b|\bcopywriting\b|"
+    r"\bsearch engine optimization\b|\bseo services\b|"
+    r"\b(?:digital marketing|creative|advertising) agency\b|"
+    r"\bit outsourc|\bsoftware testing services\b|"
+    r"\bquality assurance outsourc|"
+    r"\bhelp ?desk (?:services|outsourcing)\b|"
+    r"\bvirtual assistant services\b|"
+    r"\blegal process outsourc|\bdocument review services\b|"
+    r"\be-discovery services\b|"
+    r"\bmedical (?:transcription|coding services|billing services)\b|"
+    r"\btravel agenc(?:y|ies)\b|"
+    r"\btutoring services\b|\btest preparation\b|"
+    r"\bmarket research (?:services|firm|company)\b|"
+    r"\bgraphic design services\b|"
+    r"\boutsourc(?:ed|ing) (?:services|solutions)\b"
+    r")",
+    re.I,
+)
+SAFE_FROM_AI_HELP = (
+    "Hide companies whose business is a service AI is replacing: "
+    "IT outsourcing and consulting, call centers and BPO, staffing, "
+    "advertising agencies, bookkeeping and tax preparation, translation, "
+    "content and SEO shops, tutoring, and travel agencies. "
+    "Software vendors and physical businesses stay on the list."
+)
+_AI_REPLACED_CACHE = {}
+
+
+def _sells_software(industry: str, blob: str) -> bool:
+    """Product companies that sell the tool, not the labor AI replaces."""
+    ind = (industry or "").strip().lower()
+    if ind.startswith("software"):
+        return True
+    if ind in {
+        "internet content & information",
+        "computer hardware",
+        "semiconductors",
+        "semiconductor equipment & materials",
+        "scientific & technical instruments",
+    }:
+        return True
+    return bool(_AI_VENDOR_RE.search(blob or ""))
+
+
+_IT_LABOR_RE = re.compile(
+    r"\b(?:outsourc|consulting|professional services|systems integration|"
+    r"application development|managed services|staff augmentation|"
+    r"business process|it services)\b",
+    re.I,
+)
+_EDU_LABOR_RE = re.compile(
+    r"\b(?:test preparation|tutoring|language training)\b",
+    re.I,
+)
+_AGENCY_KEEP_RE = re.compile(
+    r"\b(?:out-of-home|billboard|advertising platform)\b",
+    re.I,
+)
+
+
+def service_replaced_by_ai(sector: str = "", industry: str = "",
+                           summary: str = "", name: str = "") -> bool:
+    """True when the company sells a service AI is replacing.
+
+    `sector` is accepted so callers can pass the dump row straight through.
+    The decision uses industry plus the opening of the business summary.
+    A call center or side segment mentioned later does not count.
+    """
+    del sector
+    ind = (industry or "").strip().lower()
+    text = summary or ""
+    # Opening clause is the business. Later sentences list side segments.
+    lead = f"{name or ''} {text[:500]}"
+    primary = f"{name or ''} {text[:200]}"
+    if _sells_software(ind, lead) or _AI_VENDOR_RE.search(lead):
+        return False
+    if ind in ("staffing & employment services", "consulting services"):
+        return True
+    if ind == "advertising agencies":
+        return not bool(_AGENCY_KEEP_RE.search(lead))
+    if ind == "information technology services":
+        return bool(_IT_LABOR_RE.search(lead))
+    if ind == "education & training services":
+        return bool(_EDU_LABOR_RE.search(lead))
+    return bool(_AI_SERVICE_RE.search(primary))
+
+
+def ai_service_index_ready() -> bool:
+    """True once company descriptions are loaded from the nightly dump."""
+    try:
+        return bool(_keyword_corpus())
+    except Exception:
+        return False
+
+
+def ai_replaced_service_tickers() -> set:
+    """Tickers whose offered service is one AI is replacing."""
+    try:
+        rows = _keyword_corpus()
+    except Exception as _ae:
+        _log_exc("ai_replaced_service_tickers", _ae)
+        return set()
+    mt = _KW_CORPUS.get("mt")
+    hit = _AI_REPLACED_CACHE.get("hit")
+    if hit and hit[0] == mt:
+        return hit[1]
+    bad = set()
+    for row in rows or []:
+        if service_replaced_by_ai(
+            row.get("sector") or "",
+            row.get("industry") or "",
+            row.get("summary") or "",
+            row.get("name") or "",
+        ):
+            tk = str(row.get("ticker") or "").strip().upper()
+            if tk:
+                bad.add(tk)
+    _AI_REPLACED_CACHE["hit"] = (mt, bad)
+    return bad
+
+
+def filter_safe_from_ai(df, enabled: bool = True, ticker_col: str = "Ticker"):
+    """Drop names that sell a service AI is replacing. No-op when off."""
+    if not enabled or df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    if ticker_col not in df.columns:
+        return df
+    bad = ai_replaced_service_tickers()
+    if not bad:
+        return df
+    tk = df[ticker_col].astype(str).str.strip().str.upper()
+    out = df.loc[~tk.isin(bad)].copy()
+    return out.reset_index(drop=True)
+
+
 def dump_fundamentals(ticker: str) -> dict:
     """One stock's nightly-dump fundamentals (NaNs dropped)."""
     panel, tickers, sectors, mdv, dts = load_dump_panel()
@@ -2429,6 +2593,7 @@ def _keyword_corpus() -> list:
         summary = str(an.get("longBusinessSummary") or an.get("description")
                       or rec.get("description") or "").strip()
         sector = str(rec.get("Sector") or an.get("sector") or "Unknown").strip() or "Unknown"
+        industry = str(an.get("industry") or rec.get("Industry") or "").strip()
         try:
             px = float(rec.get("Price"))
             if not np.isfinite(px):
@@ -2439,7 +2604,7 @@ def _keyword_corpus() -> list:
         hay_sum = " ".join(summary.lower().split())
         rows.append(dict(
             ticker=str(tk).upper(), name=name or str(tk).upper(),
-            sector=sector, price=px, summary=summary,
+            sector=sector, industry=industry, price=px, summary=summary,
             hay_name=hay_name, hay_sum=hay_sum))
     _KW_CORPUS.clear()
     _KW_CORPUS["mt"] = mt

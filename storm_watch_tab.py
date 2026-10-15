@@ -602,16 +602,28 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         unsafe_allow_html=True)
 
     with st.container(border=True):
-        st.markdown("**Catalysts**")
-        use_cat = st.toggle(
-            "Add Catalysts to the list and rank by net up/down score",
-            key="sw_use_cat",
-            help="Dump-backed tape flags plus news. Ranked by signed score.")
-        if use_cat:
-            st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
-                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
-            st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
-                       "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
+        cat_col, ai_col = st.columns([1.35, 1], gap="medium")
+        with cat_col:
+            st.markdown("**Catalysts**")
+            use_cat = st.toggle(
+                "Add Catalysts to the list and rank by net up/down score",
+                key="sw_use_cat",
+                help="Dump-backed tape flags plus news. Ranked by signed score.")
+            if use_cat:
+                st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
+                           "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
+                st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
+                           "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
+        with ai_col:
+            st.markdown("**Filter**")
+            safe_ai = st.toggle(
+                "SAFE FROM AI",
+                key="sw_safe_ai",
+                help="Hide companies that sell a service AI is replacing: "
+                     "outsourcing, call centers, staffing, agencies, "
+                     "bookkeeping, translation, and similar.")
+            if safe_ai:
+                st.caption("On — services AI is replacing stay off this list.")
 
     b1, b2 = st.columns([2, 1])
     if b1.button("🚀 Scan shakeout coils", type="primary", key="sw_run",
@@ -677,8 +689,19 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             except Exception:
                 pass
             st.caption("Catalysts unavailable for this list — dump or news feed failed.")
+    _dropped = 0
     try:
         import cascade_engine as ce
+        if safe_ai:
+            _n0 = len(show) if show is not None else 0
+            show = ce.filter_safe_from_ai(show, True)
+            view = ce.filter_safe_from_ai(view, True)
+            _dropped = _n0 - (len(show) if show is not None else 0)
+            if _dropped:
+                st.caption(
+                    f"SAFE FROM AI hid {_dropped} "
+                    f"{'company' if _dropped == 1 else 'companies'} "
+                    "whose service AI is replacing.")
         show = ce.stamp_rank(show)
         view = ce.stamp_rank(view)
     except Exception:
@@ -702,8 +725,11 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     else:
         c4.metric("Live factors", str(len(LIVE_FACTORS)))
 
-    if view.empty:
-        st.info("No names match those filters — lower the shakeout minimum or add sectors.")
+    if view is None or view.empty:
+        if safe_ai and _dropped:
+            st.info("SAFE FROM AI hid every name on this list.")
+        else:
+            st.info("No names match those filters — lower the shakeout minimum or add sectors.")
         _render_backtest(bt)
         return
 

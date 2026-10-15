@@ -990,16 +990,27 @@ def render_hybrid_screener() -> None:
         weights[key] = float(st.session_state.get(_k(f"wt_{key}"), 0.0) or 0.0)
 
     with st.container(border=True):
-        st.markdown("**Catalysts**")
-        use_cat = st.toggle(
-            "Add Catalysts to the list and rank by net up/down score",
-            key=_k("use_cat"),
-            help="Dump-backed tape flags plus news. Ranked by signed score.")
-        if use_cat:
-            st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
-                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
-            st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
-                       "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
+        cat_col, ai_col = st.columns([1.35, 1], gap="medium")
+        with cat_col:
+            st.markdown("**Catalysts**")
+            use_cat = st.toggle(
+                "Add Catalysts to the list and rank by net up/down score",
+                key=_k("use_cat"),
+                help="Dump-backed tape flags plus news. Ranked by signed score.")
+            if use_cat:
+                st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
+                           "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
+                st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
+                           "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
+        with ai_col:
+            st.markdown("**Filter**")
+            safe_ai = st.toggle(
+                "SAFE FROM AI",
+                key=_k("safe_ai"),
+                help=getattr(ce, "SAFE_FROM_AI_HELP",
+                             "Hide companies that sell a service AI is replacing."))
+            if safe_ai:
+                st.caption("On — services AI is replacing stay off this list.")
 
     run = st.button("🚀 Run Screener", type="primary", width="stretch", key=_k("run"))
 
@@ -1040,6 +1051,21 @@ def render_hybrid_screener() -> None:
         st.session_state.pop(_k("inline"), None)
 
     display = st.session_state.get("_hs_display")
+    if safe_ai and display is not None and not getattr(display, "empty", True):
+        _n0 = len(display)
+        try:
+            display = ce.filter_safe_from_ai(display, True)
+        except Exception:
+            display = st.session_state.get("_hs_display")
+        else:
+            _dropped = _n0 - len(display)
+            if _dropped:
+                st.caption(
+                    f"SAFE FROM AI hid {_dropped} "
+                    f"{'company' if _dropped == 1 else 'companies'} "
+                    "whose service AI is replacing.")
+        if display is not None and display.empty:
+            st.info("SAFE FROM AI hid every name on this list.")
     if use_cat and display is not None and not getattr(display, "empty", True):
         try:
             with st.spinner("Reading catalyst signals…"):

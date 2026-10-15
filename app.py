@@ -225,9 +225,29 @@ div[data-testid="stRadio"] label:has(input:checked) {
     color: #081325 !important;
     border-color: #E87722 !important;
 }
+div[data-testid="stRadio"] label:has(input:checked) p,
+div[data-testid="stRadio"] label:has(input:checked) span {
+    color: #081325 !important;
+    background: transparent !important;
+}
+div[data-testid="stRadio"] label p,
+div[data-testid="stRadio"] label span {
+    color: #F4F8FF !important;
+    font-weight: 700 !important;
+    opacity: 1 !important;
+}
 div[data-testid="stSegmentedControl"] button {
-    border: 1px solid #4a7aa0 !important;
-    color: #F6F4E9 !important;
+    background-color: #10283f !important;
+    border: 1.5px solid #7eb0d4 !important;
+    color: #F7FBFF !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.3px !important;
+}
+div[data-testid="stSegmentedControl"] button,
+div[data-testid="stSegmentedControl"] button * {
+    font-weight: 800 !important;
+    font-size: 15px !important;
+    opacity: 1 !important;
 }
 div[data-testid="stExpander"] {
     background-color: #122a42 !important;
@@ -247,6 +267,45 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     padding: 6px 10px 10px 10px !important;
 }
 </style>""", unsafe_allow_html=True)
+
+# One bright font color per menu category so the bars don't read as one cream strip.
+_MENU_CAT_COLORS = {
+    "mw_main": ["#FFD15C", "#7FD4FF", "#6EE7B7", "#F0A6FF", "#FF9B6A", "#C5D4FF"],
+    "mw_hub": ["#FFD15C", "#7FD4FF", "#6EE7B7", "#FF8FA3", "#F0A6FF",
+               "#FFB020", "#C5D4FF", "#FF9B6A", "#F4F8FF"],
+    "mw_map": ["#7FD4FF", "#FF8FA3", "#FFD15C", "#6EE7B7", "#F0A6FF",
+               "#FF9B6A", "#F4F8FF"],
+}
+
+
+def _menu_category_css() -> str:
+    rules = []
+    for key, colors in _MENU_CAT_COLORS.items():
+        for i, col in enumerate(colors, start=1):
+            rules.append(
+                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i}),"
+                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i}) *,"
+                f".st-key-{key} [data-baseweb='button-group'] > :nth-child({i}) button,"
+                f".st-key-{key} [data-baseweb='button-group'] > :nth-child({i}) button *{{"
+                f"color:{col} !important;}}"
+            )
+        rules.append(
+            f".st-key-{key} [data-baseweb='button-group'] > button[aria-checked='true'],"
+            f".st-key-{key} [data-baseweb='button-group'] > button[aria-checked='true'] *,"
+            f".st-key-{key} [data-baseweb='button-group'] button[aria-checked='true'],"
+            f".st-key-{key} [data-baseweb='button-group'] button[aria-checked='true'] *{{"
+            f"color:#081325 !important;}}"
+        )
+    rules.append(
+        "[class*='_safe_ai'] label, [class*='_safe_ai'] label p, "
+        "[class*='_safe_ai'] label span {"
+        "color:#9AF7C4 !important;font-weight:800 !important;"
+        "letter-spacing:.6px !important;}"
+    )
+    return "\n".join(rules)
+
+
+st.markdown("<style>" + _menu_category_css() + "</style>", unsafe_allow_html=True)
 
 
 # ── help texts (every ❓ icon in the app reads from here) ─────────────
@@ -2268,6 +2327,8 @@ _HUB_KEEP_TOGGLES = {
     "ig_all_presets_mode",
     "apex_use_cat", "poc_use_cat", "sw_use_cat",
     "hs_use_cat", "kw_use_cat", "te_use_cat", "top20_use_cat",
+    "apex_safe_ai", "poc_safe_ai", "sw_safe_ai",
+    "hs_safe_ai", "kw_safe_ai", "te_safe_ai", "top20_safe_ai",
 }
 
 _HUB_KEEP_BUTTON_SUFFIXES = (
@@ -2336,7 +2397,7 @@ def _hub_keep_is_toggle(k: str) -> bool:
     """Bools that are real checkboxes / toggles — safe to persist."""
     if k in _HUB_KEEP_TOGGLES:
         return True
-    if "_tog_" in k or k.endswith(("_filter", "_toggle", "_use_cat")):
+    if "_tog_" in k or k.endswith(("_filter", "_toggle", "_use_cat", "_safe_ai")):
         return True
     return False
 
@@ -2482,24 +2543,66 @@ def _t20_box(text, color=_T20_BLUE):
 
 
 def _catalysts_section(key: str, pill: bool = True):
-    """Option to add signed dump+news catalysts to a scanner list."""
+    """Catalyst rank toggle plus the SAFE FROM AI service filter."""
     ctx = _hub_pill() if pill else st.container()
     with ctx:
-        st.markdown("**Catalysts**")
-        on = st.toggle(
-            "Add Catalysts to the list and rank by net up/down score",
-            key=f"{key}_use_cat",
-            help="Dump-backed tape flags plus news for the listed names. "
-                 "Up: wash-out at 63d lows, earn growth, breakout, M&A, FDA, deal. "
-                 "Down: volume selloff, gap-up fade, offering, legal, squeeze. "
-                 "Ranked by signed score, not tag count.",
-        )
-        if on:
-            st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
-                       "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
-            st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
-                       "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
+        cat_col, ai_col = st.columns([1.35, 1], gap="medium")
+        with cat_col:
+            st.markdown("**Catalysts**")
+            on = st.toggle(
+                "Add Catalysts to the list and rank by net up/down score",
+                key=f"{key}_use_cat",
+                help="Dump-backed tape flags plus news for the listed names. "
+                     "Up: wash-out at 63d lows, earn growth, breakout, M&A, FDA, deal. "
+                     "Down: volume selloff, gap-up fade, offering, legal, squeeze. "
+                     "Ranked by signed score, not tag count.",
+            )
+            if on:
+                st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
+                           "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
+                st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
+                           "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
+        with ai_col:
+            st.markdown("**Filter**")
+            st.toggle(
+                "SAFE FROM AI",
+                key=f"{key}_safe_ai",
+                help=getattr(ce, "SAFE_FROM_AI_HELP",
+                             "Hide companies that sell a service AI is replacing."),
+            )
+            if _safe_ai_on(key):
+                st.caption("On — services AI is replacing stay off this list.")
     return bool(on)
+
+
+def _safe_ai_on(key: str) -> bool:
+    return bool(st.session_state.get(f"{key}_safe_ai"))
+
+
+def _apply_safe_ai(df, key: str, ticker_col: str = "Ticker"):
+    """Drop AI-replaced services when that scanner's switch is on."""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    if not _safe_ai_on(key):
+        return df
+    if not getattr(ce, "ai_service_index_ready", lambda: False)():
+        st.caption("SAFE FROM AI needs the nightly dump's company descriptions. "
+                   "Nothing was hidden.")
+        return df
+    n0 = len(df)
+    try:
+        out = ce.filter_safe_from_ai(df, True, ticker_col)
+    except Exception as e:
+        log_exc("safe_from_ai", e)
+        st.caption("SAFE FROM AI could not read company descriptions.")
+        return df
+    dropped = n0 - len(out)
+    if dropped:
+        st.caption(
+            f"SAFE FROM AI hid {dropped} "
+            f"{'company' if dropped == 1 else 'companies'} "
+            "whose service AI is replacing.")
+    return out
 
 
 def _with_rank(df):
@@ -2510,9 +2613,13 @@ def _with_rank(df):
         return df
 
 
-def _with_catalysts(df, on, ticker_col="Ticker"):
+def _with_catalysts(df, on, ticker_col="Ticker", safe_key=None):
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return df
+    if safe_key:
+        df = _apply_safe_ai(df, safe_key, ticker_col)
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+            return df
     if on:
         try:
             with st.spinner("Reading catalyst signals…"):
@@ -2944,6 +3051,12 @@ def _render_scan_hub_help():
                "from headlines on the listed names. Stock Lookup runs a "
                "deeper search (calendar, upgrades, insiders, more news) and "
                "still splits every hit ▲ Up vs ▼ Down.")
+    st.markdown("#### SAFE FROM AI")
+    st.caption("The switch next to Catalysts hides companies that sell a "
+               "service AI is replacing: IT outsourcing and consulting, call "
+               "centers, staffing, ad agencies, bookkeeping and tax prep, "
+               "translation, content and SEO shops, tutoring, and travel "
+               "agencies. Software vendors and physical businesses stay.")
     meanings = {
         "washout":  "New 63-day low. In this sample, washed-out names bounced.",
         "earn_up":  "Dump earnings growth at least 25%.",
@@ -4173,7 +4286,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _fc = fc20.copy()
             _fc, _lmeta = _apply_live(_fc)
             _live_banner(_lmeta)
-            _fc = _with_catalysts(_fc, _t20_cat)
+            _fc = _with_catalysts(_fc, _t20_cat, safe_key="top20")
             with st.container(key="t20_tbl_fc"):
                 _fcsel = st.dataframe(
                     _fc.style.format(_live_fmt(_fc, {
@@ -4239,7 +4352,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 unsafe_allow_html=True)
             _m20, _lmeta = _apply_live(_m20)
             _live_banner(_lmeta)
-            _m20 = _with_catalysts(_m20, _t20_cat)
+            _m20 = _with_catalysts(_m20, _t20_cat, safe_key="top20")
             # Fit / MacroFit / Quality / Data stay in the frame (they drive the
             # ranking and the styling) but are hidden from the display
             _mcols = (["Ticker", "Sector", "Price"]
@@ -4301,7 +4414,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _f = f20.copy()
             _f, _lmeta = _apply_live(_f)
             _live_banner(_lmeta)
-            _f = _with_catalysts(_f, _t20_cat)
+            _f = _with_catalysts(_f, _t20_cat, safe_key="top20")
             with st.container(key="t20_tbl_fx"):
                 _fsel = st.dataframe(
                     _f.style.format(_live_fmt(_f, {
@@ -4371,7 +4484,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                         getattr(ce, "CAT_DOWN_COL", "▼ Down"), "Catalysts"):
                 if _cc in _t.columns:
                     _t = _t.drop(columns=[_cc])
-            _t = _with_catalysts(_t, _t20_cat)
+            _t = _with_catalysts(_t, _t20_cat, safe_key="top20")
             with st.container(key="t20_tbl_cs"):
                 _sel20 = st.dataframe(
                     _t.style.format(_live_fmt(_t, {
@@ -4728,55 +4841,57 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                                "intraday bars come from Alpaca. If keys are set, try a "
                                "larger universe or a looser min score.")
             else:
-                _m1, _m2, _m3 = st.columns(3)
-                _m1.metric("Names found", len(_res))
-                _m2.metric("Top score", f"{_res['Score'].max():.1f}")
-                _m3.metric("Median vol", f"{_res['Vol%'].median():.2f}%")
-                st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
-
-                _show = _with_catalysts(_res.copy(), _apex_cat)
-                _ax_hide = {"Data", "Score", "Risk"}
-                _ax_view = _show.drop(columns=[c for c in _ax_hide if c in _show.columns])
-                _sel_ax = st.dataframe(
-                    _ax_view.style.format({
-                        k: v for k, v in {
-                            "Adj": "{:.1f}", "Macro": "{:.2f}",
-                            "Price": "${:,.2f}", "Vol%": "{:.2f}%",
-                            "RangePos": "{:.0f}%", "RS": "{:+.2f}%",
-                            "POC": "${:,.2f}", "VAL": "${:,.2f}", "VAH": "${:,.2f}",
-                        }.items() if k in _ax_view.columns}, na_rep="—")
-                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "BELOW VALUE"
-                                    else (f"color:{DIM}" if v == "IN VALUE"
-                                          else "color:#b565f3")), subset=["ValueArea"])
-                    .map(lambda v: _css_sign(-abs(v) + 3, dead=0) if isinstance(v, (int, float))
-                         else "", subset=["RS"]),
-                    width="stretch", hide_index=True, height=620,
-                    on_select="rerun", selection_mode="single-row", key="apex_table",
-                    column_order=_order_with_cat(
-                        ["#", "Ticker", "Sector"]
-                        + (["Macro", "Adj"] if "Adj" in _ax_view.columns else [])
-                        + ["Vol%",
-                           "RangePos", "ValueArea", "Regime", "RS", "Price",
-                           "VAL", "POC", "VAH"],
-                        _ax_view),
-                    column_config={
-                        "#": _rank_col_cfg(),
-                        **_cat_col_cfgs(),
-                        "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
-                        "RangePos": st.column_config.Column(help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
-                        "ValueArea": st.column_config.Column(help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
-                        "Regime": st.column_config.Column(help="5-factor trend tally. Context — trend direction showed no forward edge in testing."),
-                        "RS": st.column_config.Column(help="20-bar return minus SPY's. The filter keeps ±3% — the middle of the pack."),
-                        "VAL": st.column_config.Column(help="Value area low."),
-                        "POC": st.column_config.Column(help="Point of control — the heaviest-volume price level."),
-                        "VAH": st.column_config.Column(help="Value area high."),
-                    })
-                st.caption("👆 Tap a row for the chart, cards, and company profile below.")
-                st.download_button("⬇ Download CSV", _res.to_csv(index=False),
-                                   f"apex_flow_{_tf.replace(' ','')}_{asof}.csv",
-                                   "text/csv", key="apex_csv")
-                _scan_hub_pick_and_show(_sel_ax, _show, "apex_inline", "apexaz",
-                                       source="Apex Flow")
+                _show = _with_catalysts(_res.copy(), _apex_cat, safe_key="apex")
+                if _show is None or _show.empty:
+                    st.info("SAFE FROM AI hid every name on this list.")
+                else:
+                    _m1, _m2, _m3 = st.columns(3)
+                    _m1.metric("Names found", len(_show))
+                    _m2.metric("Top score", f"{_show['Score'].max():.1f}")
+                    _m3.metric("Median vol", f"{_show['Vol%'].median():.2f}%")
+                    st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
+                    _ax_hide = {"Data", "Score", "Risk"}
+                    _ax_view = _show.drop(columns=[c for c in _ax_hide if c in _show.columns])
+                    _sel_ax = st.dataframe(
+                        _ax_view.style.format({
+                            k: v for k, v in {
+                                "Adj": "{:.1f}", "Macro": "{:.2f}",
+                                "Price": "${:,.2f}", "Vol%": "{:.2f}%",
+                                "RangePos": "{:.0f}%", "RS": "{:+.2f}%",
+                                "POC": "${:,.2f}", "VAL": "${:,.2f}", "VAH": "${:,.2f}",
+                            }.items() if k in _ax_view.columns}, na_rep="—")
+                        .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "BELOW VALUE"
+                                        else (f"color:{DIM}" if v == "IN VALUE"
+                                              else "color:#b565f3")), subset=["ValueArea"])
+                        .map(lambda v: _css_sign(-abs(v) + 3, dead=0) if isinstance(v, (int, float))
+                             else "", subset=["RS"]),
+                        width="stretch", hide_index=True, height=620,
+                        on_select="rerun", selection_mode="single-row", key="apex_table",
+                        column_order=_order_with_cat(
+                            ["#", "Ticker", "Sector"]
+                            + (["Macro", "Adj"] if "Adj" in _ax_view.columns else [])
+                            + ["Vol%",
+                               "RangePos", "ValueArea", "Regime", "RS", "Price",
+                               "VAL", "POC", "VAH"],
+                            _ax_view),
+                        column_config={
+                            "#": _rank_col_cfg(),
+                            **_cat_col_cfgs(),
+                            "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
+                            "RangePos": st.column_config.Column(help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
+                            "ValueArea": st.column_config.Column(help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
+                            "Regime": st.column_config.Column(help="5-factor trend tally. Context — trend direction showed no forward edge in testing."),
+                            "RS": st.column_config.Column(help="20-bar return minus SPY's. The filter keeps ±3% — the middle of the pack."),
+                            "VAL": st.column_config.Column(help="Value area low."),
+                            "POC": st.column_config.Column(help="Point of control — the heaviest-volume price level."),
+                            "VAH": st.column_config.Column(help="Value area high."),
+                        })
+                    st.caption("👆 Tap a row for the chart, cards, and company profile below.")
+                    st.download_button("⬇ Download CSV", _show.to_csv(index=False),
+                                       f"apex_flow_{_tf.replace(' ','')}_{asof}.csv",
+                                       "text/csv", key="apex_csv")
+                    _scan_hub_pick_and_show(_sel_ax, _show, "apex_inline", "apexaz",
+                                           source="Apex Flow")
         else:
             st.info("Hit **Run APEX scan** to build the list. Nothing is fetched until then.")
 
@@ -5148,65 +5263,68 @@ if _main == "Scan Hub" and _hub == "POC Future":
                 st.info("No setups match right now. Widen the stages, loosen the "
                         "range, or check back after the next dump.")
             else:
-                _cnt = _pdf.Stage.value_counts().to_dict()
-                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                    border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
-                    <b>{len(_pdf)} setups</b> —
-                    <span style="color:{GREEN};">{_cnt.get('TRIGGERED',0)} triggered</span> ·
-                    <span style="color:#d0b040;">{_cnt.get('SWEPT',0)} swept, awaiting reclaim</span> ·
-                    <span style="color:{DIM};">{_cnt.get('COILING',0)} still coiling</span>
-                    <br><span style="color:{DIM};font-size:12px;">Freshest first, then
-                    tightest coil. Entry is the POC, stop sits below the sweep,
-                    target is the far side of the range. Coils always outnumber
-                    triggers — most bases never get swept, and most sweeps never
-                    reclaim. The coiling list is the early-warning queue.</span></div>""",
-                    unsafe_allow_html=True)
-                _pdf = _with_catalysts(_pdf, _poc_cat)
-                _psel = st.dataframe(
-                    _pdf.style.format({
-                        "Price": "${:,.2f}", "POC": "${:,.2f}", "ToPOC%": "{:+.1f}%",
-                        "Entry": "${:,.2f}", "Stop": "${:,.2f}", "Target": "${:,.2f}",
-                        "R:R": "{:.2f}", "RangeATR": "{:.2f}",
-                        "Win%": "{:.0f}%", "ExpR": "{:+.2f}R",
-                        "RangeLow": "${:,.2f}", "RangeHigh": "${:,.2f}",
-                        "VAH": "${:,.2f}", "VAL": "${:,.2f}"}, na_rep="—")
-                    .map(lambda v: (f"color:{GREEN};font-weight:700" if v == "TRIGGERED"
-                                    else ("color:#d0b040" if v == "SWEPT"
-                                          else f"color:{DIM}")), subset=["Stage"])
-                    .map(lambda v: _css_sign(v) if isinstance(v, (int, float)) else "",
-                         subset=["ToPOC%"])
-                    .map(lambda v: (f"color:{GREEN};font-weight:700" if v >= 85
-                                    else ("color:#d0b040" if v >= 75 else f"color:{DIM}"))
-                         if isinstance(v, (int, float)) else "", subset=["Win%"])
-                    .map(lambda v: (f"color:{GREEN};font-weight:700" if v >= 0.50
-                                    else (f"color:{DIM}" if v >= 0.25 else f"color:{RED}"))
-                         if isinstance(v, (int, float)) else "", subset=["ExpR"]),
-                    width="stretch", hide_index=True, height=620,
-                    on_select="rerun", selection_mode="single-row", key="poc_table",
-                    column_order=_order_with_cat(
-                        ["Ticker", "Sector", "Stage", "Price", "POC",
-                         "ToPOC%", "Entry", "Stop", "Target",
-                         "Win%", "ExpR"],
-                        _pdf),
-                    column_config={
-                        "#": _rank_col_cfg(),
-                        **_cat_col_cfgs(),
-                        "Stage": st.column_config.Column(help="TRIGGERED = POC reclaimed. SWEPT = lows taken, reclaim pending. COILING = range forming."),
-                        "BarsAgo": st.column_config.Column(help="Sessions since the stage began. 0 = it happened on the latest bar."),
-                        "POC": st.column_config.Column(help="Point of Control — where the coil traded the most volume. The entry level."),
-                        "ToPOC%": st.column_config.Column(help="How far price sits from the POC. Negative = still below it."),
-                        "Win%": st.column_config.Column(help="How often setups with this reward-to-risk actually reached target before stop — measured by replaying 1,639 real triggers on the nightly dump (81.8% overall, matching the Pine script's 77.8%). It is an estimate from the bucket, not a promise about this stock."),
-                        "ExpR": st.column_config.Column(help="Expected return per trade in R, using that measured win rate. THE CATCH: win% falls as reward-to-risk rises, but expectancy RISES. An 89% setup pays +0.16R; a 61% setup pays +0.76R. Chasing the highest Win% column walks you into the lowest-payoff trades — read the two together."),
-                    })
-                st.caption(f"👆 Tap a row for the chart, cards, and company profile below. "
-                           f"**Win%** comes from replaying {pfut.WIN_SAMPLE:,} real "
-                           f"triggers on this dump — but read it next to **ExpR**: "
-                           f"the highest win rates come from the nearest targets, "
-                           f"which pay the least. Best expectancy usually sits "
-                           f"around a 1.0-2.0 reward-to-risk, not at the top of "
-                           f"the Win% column.")
-                _scan_hub_pick_and_show(_psel, _pdf, "poc_inline", "pocaz",
-                                       source="POC Future")
+                _pdf = _with_catalysts(_pdf, _poc_cat, safe_key="poc")
+                if _pdf is None or _pdf.empty:
+                    st.info("SAFE FROM AI hid every setup on this list.")
+                else:
+                    _cnt = _pdf.Stage.value_counts().to_dict()
+                    st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                        border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                        <b>{len(_pdf)} setups</b> —
+                        <span style="color:{GREEN};">{_cnt.get('TRIGGERED',0)} triggered</span> ·
+                        <span style="color:#d0b040;">{_cnt.get('SWEPT',0)} swept, awaiting reclaim</span> ·
+                        <span style="color:{DIM};">{_cnt.get('COILING',0)} still coiling</span>
+                        <br><span style="color:{DIM};font-size:12px;">Freshest first, then
+                        tightest coil. Entry is the POC, stop sits below the sweep,
+                        target is the far side of the range. Coils always outnumber
+                        triggers — most bases never get swept, and most sweeps never
+                        reclaim. The coiling list is the early-warning queue.</span></div>""",
+                        unsafe_allow_html=True)
+                    _psel = st.dataframe(
+                        _pdf.style.format({
+                            "Price": "${:,.2f}", "POC": "${:,.2f}", "ToPOC%": "{:+.1f}%",
+                            "Entry": "${:,.2f}", "Stop": "${:,.2f}", "Target": "${:,.2f}",
+                            "R:R": "{:.2f}", "RangeATR": "{:.2f}",
+                            "Win%": "{:.0f}%", "ExpR": "{:+.2f}R",
+                            "RangeLow": "${:,.2f}", "RangeHigh": "${:,.2f}",
+                            "VAH": "${:,.2f}", "VAL": "${:,.2f}"}, na_rep="—")
+                        .map(lambda v: (f"color:{GREEN};font-weight:700" if v == "TRIGGERED"
+                                        else ("color:#d0b040" if v == "SWEPT"
+                                              else f"color:{DIM}")), subset=["Stage"])
+                        .map(lambda v: _css_sign(v) if isinstance(v, (int, float)) else "",
+                             subset=["ToPOC%"])
+                        .map(lambda v: (f"color:{GREEN};font-weight:700" if v >= 85
+                                        else ("color:#d0b040" if v >= 75 else f"color:{DIM}"))
+                             if isinstance(v, (int, float)) else "", subset=["Win%"])
+                        .map(lambda v: (f"color:{GREEN};font-weight:700" if v >= 0.50
+                                        else (f"color:{DIM}" if v >= 0.25 else f"color:{RED}"))
+                             if isinstance(v, (int, float)) else "", subset=["ExpR"]),
+                        width="stretch", hide_index=True, height=620,
+                        on_select="rerun", selection_mode="single-row", key="poc_table",
+                        column_order=_order_with_cat(
+                            ["Ticker", "Sector", "Stage", "Price", "POC",
+                             "ToPOC%", "Entry", "Stop", "Target",
+                             "Win%", "ExpR"],
+                            _pdf),
+                        column_config={
+                            "#": _rank_col_cfg(),
+                            **_cat_col_cfgs(),
+                            "Stage": st.column_config.Column(help="TRIGGERED = POC reclaimed. SWEPT = lows taken, reclaim pending. COILING = range forming."),
+                            "BarsAgo": st.column_config.Column(help="Sessions since the stage began. 0 = it happened on the latest bar."),
+                            "POC": st.column_config.Column(help="Point of Control — where the coil traded the most volume. The entry level."),
+                            "ToPOC%": st.column_config.Column(help="How far price sits from the POC. Negative = still below it."),
+                            "Win%": st.column_config.Column(help="How often setups with this reward-to-risk actually reached target before stop — measured by replaying 1,639 real triggers on the nightly dump (81.8% overall, matching the Pine script's 77.8%). It is an estimate from the bucket, not a promise about this stock."),
+                            "ExpR": st.column_config.Column(help="Expected return per trade in R, using that measured win rate. THE CATCH: win% falls as reward-to-risk rises, but expectancy RISES. An 89% setup pays +0.16R; a 61% setup pays +0.76R. Chasing the highest Win% column walks you into the lowest-payoff trades — read the two together."),
+                        })
+                    st.caption(f"👆 Tap a row for the chart, cards, and company profile below. "
+                               f"**Win%** comes from replaying {pfut.WIN_SAMPLE:,} real "
+                               f"triggers on this dump — but read it next to **ExpR**: "
+                               f"the highest win rates come from the nearest targets, "
+                               f"which pay the least. Best expectancy usually sits "
+                               f"around a 1.0-2.0 reward-to-risk, not at the top of "
+                               f"the Win% column.")
+                    _scan_hub_pick_and_show(_psel, _pdf, "poc_inline", "pocaz",
+                                           source="POC Future")
         else:
             st.info("Hit **Scan for setups** to build the list. Nothing is fetched until then.")
 
@@ -5315,6 +5433,8 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                 st.info("No names matched that phrase in the current price "
                         "range. Widen the prices or try a shorter word.")
         else:
+            _kdf = _drop_blank_cols(_kdf)
+            _kdf = _with_catalysts(_kdf, _kw_cat, safe_key="kw")
             _qshow = (_ksnap.get("query")
                       if isinstance(_ksnap, dict) and _ksnap.get("query")
                       else str(_kw_q or "").strip())
@@ -5327,8 +5447,6 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                 f"<span style='color:{DIM};font-size:12px;'> · dump last close "
                 f"${float(_ksnap.get('lo', _kw_lo)):,.2f}–"
                 f"${float(_ksnap.get('hi', _kw_hi)):,.2f}</span></div>")
-            _kdf = _drop_blank_cols(_kdf)
-            _kdf = _with_catalysts(_kdf, _kw_cat)
             _korder = _order_with_cat(
                 [c for c in ["Ticker", "Name", "Sector", "Price",
                              "Where", "Snippet"] if c in _kdf.columns],
@@ -5535,6 +5653,7 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                             "business summary or company name.")
                 else:
                     _tdf = _tdf.copy()
+                    _tdf = _apply_safe_ai(_tdf, "te")
                     _te_tks = [str(t).strip().upper() for t in _tdf.Ticker]
                     _rfc1, _rfc2 = st.columns([4, 1],
                                               vertical_alignment="bottom")
