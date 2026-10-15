@@ -2316,6 +2316,63 @@ def dump_catalyst_map() -> dict:
     return out
 
 
+def hint_catalyst_text(text: str) -> str:
+    """Keep each tag, and append its meaning so a hover on the cell can show it."""
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    index = {}
+    for cid, meta in {**CATALYST_METRICS, **LOOKUP_EXTRA_METRICS}.items():
+        lab = f"{meta.get('icon', '')} {meta.get('label', '')}".strip()
+        index[lab] = CATALYST_MEANINGS.get(cid) or ""
+    bits = []
+    for part in raw.split(" · "):
+        clean = part.replace(" (filtered)", "").strip()
+        note = index.get(clean) or ""
+        if note and "—" not in clean:
+            suffix = " (filtered)" if "(filtered)" in part else ""
+            bits.append(f"{clean} — {note}{suffix}")
+        else:
+            bits.append(part)
+    return " · ".join(bits)
+
+
+def catalyst_legend_html() -> str:
+    """Hoverable catalyst chips for the Scan Hub catalyst boxes."""
+    import html as _html
+
+    def chips(side, color, border, bg):
+        bits = []
+        for cid, meta in CATALYST_METRICS.items():
+            if meta.get("side") != side:
+                continue
+            note = CATALYST_MEANINGS.get(cid) or ""
+            val = int(meta.get("value") or 0)
+            label = f"{meta.get('icon', '')} {meta.get('label', '')} {val:+d}".strip()
+            bits.append(
+                f"<span title='{_html.escape(note, quote=True)}' "
+                f"style='display:inline-block;cursor:help;font-size:12px;"
+                f"font-weight:700;padding:2px 8px;border-radius:6px;"
+                f"margin:0 6px 6px 0;background:{bg};border:1px solid {border};"
+                f"color:{color}'>{_html.escape(label)}</span>")
+        return "".join(bits)
+
+    up = chips("up", "#3fbf7f", "#1e6b35", "#0d2215")
+    down = chips("down", "#e05252", "#a03535", "#220d0d")
+    return (
+        "<div style='margin:6px 0 2px'>"
+        "<span style='color:#3fbf7f;font-weight:800;font-size:11px;"
+        "letter-spacing:.6px;margin-right:8px'>▲ UP</span>"
+        f"{up}</div>"
+        "<div style='margin:2px 0 0'>"
+        "<span style='color:#e05252;font-weight:800;font-size:11px;"
+        "letter-spacing:.6px;margin-right:8px'>▼ DOWN</span>"
+        f"{down}</div>"
+        "<div style='color:#9aa8bd;font-size:11px;margin-top:2px'>"
+        "Hover an icon for what it means.</div>"
+    )
+
+
 def apply_catalyst_rank(df, enabled: bool, ticker_col: str = "Ticker"):
     """Tag lists with signed dump+news catalysts and rank by net score."""
     if not enabled or df is None or not isinstance(df, pd.DataFrame) or df.empty:
@@ -2339,8 +2396,8 @@ def apply_catalyst_rank(df, enabled: bool, ticker_col: str = "Ticker"):
     for tk in tks:
         pack = assemble_catalysts(
             (mapping.get(tk) or {}).get("keys"), news.get(tk))
-        ups.append(pack["up"])
-        downs.append(pack["down"])
+        ups.append(hint_catalyst_text(pack["up"]))
+        downs.append(hint_catalyst_text(pack["down"]))
         scores.append(pack["score"])
     out = df.copy()
     if "Catalysts" in out.columns:

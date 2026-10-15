@@ -1493,6 +1493,216 @@ def render_business_summary(info: dict, tk: str) -> None:
                 "feed is rate-limited. Try again in a minute.")
 
 
+def _qnum(x):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if np.isfinite(v) else None
+
+
+def _qalong(v, knots):
+    v = float(v)
+    if v <= knots[0][0]:
+        return float(knots[0][1])
+    if v >= knots[-1][0]:
+        return float(knots[-1][1])
+    for (x0, y0), (x1, y1) in zip(knots, knots[1:]):
+        if v <= x1:
+            span = (x1 - x0) or 1.0
+            return float(y0) + (v - x0) / span * (float(y1) - float(y0))
+    return float(knots[-1][1])
+
+
+def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
+                        fcfm, roce, pio, eg, rg, rsi, ret3, ma50, ma200, px,
+                        deq, cr, beta, vol, upside):
+    """Six-spoke quant rating, drawn like the Macro Sim sector radar."""
+    spokes = []
+
+    def _spoke(name, scores, bits):
+        got = [(s, b) for s, b in zip(scores, bits) if s is not None and b]
+        if not got:
+            return
+        spokes.append({
+            "name": name,
+            "score": sum(s for s, _ in got) / len(got),
+            "detail": " · ".join(b for _, b in got),
+        })
+
+    pe, pb, ps = _qnum(pe), _qnum(pb), _qnum(ps)
+    vs, vb = [], []
+    if pe is not None:
+        vs.append(8.0 if pe < 0 else _qalong(pe, [(0, 100), (15, 100), (25, 78), (40, 45), (60, 12), (90, 8)]))
+        vb.append("loss-making" if pe < 0 else f"P/E {pe:.1f}x")
+    if pb is not None:
+        vs.append(_qalong(pb, [(0, 100), (1, 100), (3, 78), (6, 45), (10, 12)]))
+        vb.append(f"P/B {pb:.2f}x")
+    if ps is not None:
+        vs.append(_qalong(ps, [(0, 100), (2, 90), (5, 70), (10, 40), (16, 12)]))
+        vb.append(f"P/S {ps:.1f}x")
+    _spoke("Value", vs, vb)
+
+    qs, qb = [], []
+    for label, raw, knots in (
+        ("ROCE", roce, [(0, 15), (8, 55), (15, 80), (30, 100)]),
+        ("Gross", gm, [(0, 15), (30, 55), (50, 80), (70, 100)]),
+        ("Op margin", opm if opm is not None else om, [(0, 20), (5, 50), (15, 80), (30, 100)]),
+        ("FCF", fcfm, [(0, 20), (5, 50), (10, 78), (20, 100)]),
+        ("Profit", pm, [(0, 20), (5, 50), (15, 80), (30, 100)]),
+        ("ROE", roe, [(0, 15), (8, 55), (15, 80), (30, 100)]),
+        ("ROA", roa, [(0, 15), (4, 55), (8, 80), (15, 100)]),
+    ):
+        v = _qnum(raw)
+        if v is None:
+            continue
+        pct = v * 100.0
+        qs.append(8.0 if pct < 0 else _qalong(pct, knots))
+        qb.append(f"{label} {pct:.0f}%")
+    pio_v = _qnum(pio)
+    if pio_v is not None:
+        qs.append(max(0.0, min(100.0, pio_v / 9.0 * 100.0)))
+        qb.append(f"Piotroski {pio_v:.0f}/9")
+    _spoke("Quality", qs, qb)
+
+    gs, gb = [], []
+    for label, raw in (("Rev", rg), ("Earn", eg)):
+        v = _qnum(raw)
+        if v is None:
+            continue
+        pct = v * 100.0
+        gs.append(_qalong(pct, [(-30, 8), (0, 40), (8, 62), (15, 80), (30, 100)]))
+        gb.append(f"{label} {pct:+.0f}%")
+    _spoke("Growth", gs, gb)
+
+    ms, mb = [], []
+    rsi_v = _qnum(rsi)
+    if rsi_v is not None:
+        ms.append(max(15.0, 100.0 - min(80.0, abs(rsi_v - 55.0) * 1.8)))
+        mb.append(f"RSI {rsi_v:.0f}")
+    ret_v = _qnum(ret3)
+    if ret_v is not None:
+        ms.append(_qalong(ret_v, [(-30, 15), (0, 45), (15, 75), (40, 100)]))
+        mb.append(f"3M {ret_v:+.0f}%")
+    px_v, ma50_v, ma200_v = _qnum(px), _qnum(ma50), _qnum(ma200)
+    if px_v and ma50_v:
+        gap = (px_v - ma50_v) / ma50_v * 100.0
+        ms.append(_qalong(gap, [(-20, 20), (0, 55), (8, 88), (20, 70), (45, 40)]))
+        mb.append(f"{gap:+.0f}% vs 50d")
+    if ma50_v and ma200_v:
+        ms.append(85.0 if ma50_v > ma200_v else 32.0)
+        mb.append("golden cross" if ma50_v > ma200_v else "death cross")
+    _spoke("Momentum", ms, mb)
+
+    ss, sb = [], []
+    deq_v = _qnum(deq)
+    if deq_v is not None:
+        ss.append(_qalong(deq_v, [(0, 100), (40, 100), (80, 80), (150, 45), (250, 12)]))
+        sb.append(f"D/E {deq_v:.0f}%")
+    vol_v = _qnum(vol)
+    if vol_v is not None:
+        vp = vol_v * 100.0
+        ss.append(_qalong(vp, [(12, 100), (25, 80), (40, 55), (60, 30), (100, 10)]))
+        sb.append(f"Vol {vp:.0f}%")
+    cr_v = _qnum(cr)
+    if cr_v is not None:
+        ss.append(_qalong(cr_v, [(0.4, 15), (1.0, 55), (1.5, 82), (2.5, 100)]))
+        sb.append(f"Current {cr_v:.2f}x")
+    beta_v = _qnum(beta)
+    if beta_v is not None:
+        ss.append(_qalong(beta_v, [(0.5, 100), (1.0, 80), (1.5, 55), (2.2, 25), (3.0, 10)]))
+        sb.append(f"Beta {beta_v:.2f}")
+    _spoke("Safety", ss, sb)
+
+    us = _qnum(upside)
+    if us is not None:
+        _spoke("Street",
+               [_qalong(us, [(-30, 10), (0, 45), (15, 75), (40, 100)])],
+               [f"Target {us:+.0f}%"])
+
+    if len(spokes) < 3:
+        st.caption("Not enough fundamentals yet for a quant radar.")
+        return
+
+    score = sum(s["score"] for s in spokes) / len(spokes)
+    tone = "#4dd880" if score >= 70 else ("#00e5ff" if score >= 50 else "#ff5a7a")
+    best = max(spokes, key=lambda s: s["score"])
+    soft = min(spokes, key=lambda s: s["score"])
+
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=[s["score"] for s in spokes],
+        theta=[s["name"] for s in spokes],
+        customdata=[s["detail"] for s in spokes],
+        fill="toself",
+        fillcolor="rgba(0,229,255,0.07)",
+        line=dict(color="#00e5ff", width=2),
+        marker=dict(size=7, color="#00e5ff"),
+        hovertemplate="<b>%{theta}</b>  %{r:.0f}<br>%{customdata}<extra></extra>",
+        name="Quant",
+    ))
+    fig.update_layout(
+        height=340,
+        margin=dict(l=56, r=56, t=28, b=28),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#e8edf5", family="JetBrains Mono, monospace"),
+        showlegend=False,
+        polar=dict(
+            bgcolor="#0c1829",
+            radialaxis=dict(
+                range=[0, 100],
+                showline=False,
+                gridcolor="rgba(30,45,69,0.7)",
+                tickfont=dict(size=9, color="#6b7fa3"),
+                tickvals=[25, 50, 75, 100],
+                angle=90,
+            ),
+            angularaxis=dict(
+                gridcolor="rgba(30,45,69,0.7)",
+                linecolor="rgba(30,45,69,0.7)",
+                tickfont=dict(size=12, color="#e8edf5"),
+                rotation=90,
+                direction="clockwise",
+            ),
+        ),
+    )
+    box = f"{key_prefix}_quant"
+    st.markdown(
+        f"<style>.st-key-{box}{{background:#0c1829;border:1px solid #1e2d45 !important;"
+        f"border-radius:12px}}</style>",
+        unsafe_allow_html=True)
+    with st.container(border=True, key=box):
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:13px;"
+            "font-weight:700;color:#00e5ff;letter-spacing:.6px'>Quant Rating</div>"
+            "<div style='color:#6b7fa3;font-size:12px;margin:2px 0 6px'>"
+            "Same shape as the Sector Rotation Radar. 0–100, higher is the "
+            "better side of that lens.</div>",
+            unsafe_allow_html=True)
+        left, right = st.columns([1.25, 0.75], vertical_alignment="center")
+        left.plotly_chart(fig, width="stretch", key=f"{box}_chart")
+        rows = []
+        for s in spokes:
+            col = "#4dd880" if s["score"] >= 70 else ("#d0b040" if s["score"] >= 45 else "#ff5a7a")
+            rows.append(
+                f"<div style='display:flex;justify-content:space-between;gap:10px;margin-top:6px'>"
+                f"<span style='color:#e8edf5'>{_esc(s['name'])}</span>"
+                f"<b style='color:{col};font-family:monospace'>{s['score']:.0f}</b></div>"
+                f"<div style='color:#6b7fa3;font-size:11px;line-height:1.3'>{_esc(s['detail'])}</div>")
+        right.markdown(
+            f"<div style='font-size:42px;font-weight:800;line-height:1;color:{tone};"
+            f"font-family:JetBrains Mono,monospace'>{score:.0f}</div>"
+            f"<div style='color:#6b7fa3;font-size:11px;letter-spacing:1px;margin-bottom:8px'>"
+            f"QUANT / 100</div>"
+            f"<div style='color:#9aa8bd;font-size:12px;margin-bottom:6px'>"
+            f"Strongest {_esc(best['name'])} {best['score']:.0f}"
+            f" · softest {_esc(soft['name'])} {soft['score']:.0f}</div>"
+            + "".join(rows),
+            unsafe_allow_html=True)
+
+
 def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                             key_prefix: str = "az"):
     """The IGNITION Stock Analyzer: dump → Alpaca → yfinance chain,
@@ -1686,6 +1896,21 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
     for iss in info.get("_data_issues", []):
         st.caption(f"⚠️ {iss}")
     st.markdown("<hr style='border-color:#1e3a5f;margin:10px 0'>", unsafe_allow_html=True)
+
+    _ann = None
+    try:
+        if not hist.empty and len(hist) > 22:
+            _ann = float(hist.Close.pct_change().tail(21).std() * (252 ** 0.5))
+    except Exception:
+        _ann = None
+    try:
+        _render_quant_radar(
+            key_prefix, pe=pe, pb=pb, ps=ps, roe=roe, roa=roa, om=om, opm=opm,
+            gm=gm, pm=pm, fcfm=fcfm, roce=roce, pio=info.get("_scan_piotroski"),
+            eg=eg, rg=rg, rsi=rsi_v, ret3=pct3m, ma50=ma50_v, ma200=ma200_v,
+            px=px, deq=deq, cr=cr, beta=beta, vol=_ann, upside=aus)
+    except Exception as _qe:
+        st.caption(f"Quant radar unavailable: {_qe}")
 
     colA, colB, colC = st.columns(3)
     with colA:
@@ -2286,7 +2511,7 @@ def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
     render_ticker_analysis(tk, closes, state_key=state_key, closable=False,
                            df=df_tk, src_label=_hs, info=_info)
     try:
-        _render_signed_catalysts(tk, str((_info or {}).get("sector") or ""))
+        _render_signed_catalysts(tk, str((_info or {}).get("sector") or ""), notes=False)
     except Exception as _cse:
         st.caption(f"Catalyst signals unavailable: {_cse}")
     try:
@@ -2335,7 +2560,7 @@ def _render_scan_hub_detail(tk: str, state_key: str, az_prefix: str,
             _sec = str((ce.dump_fundamentals(tk) or {}).get("Sector") or "")
         except Exception:
             _sec = ""
-        _render_signed_catalysts(tk, _sec)
+        _render_signed_catalysts(tk, _sec, notes=False)
     except Exception as _cse:
         st.caption(f"Catalyst signals unavailable: {_cse}")
     try:
@@ -2715,10 +2940,7 @@ def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
                      "Ranked by signed score, not tag count.",
             )
             if on:
-                st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
-                           "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
-                st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
-                           "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
+                _md_html(ce.catalyst_legend_html())
         with ai_col:
             _md_html("<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>")
             st.toggle(
@@ -2792,15 +3014,11 @@ def _cat_col_cfgs():
     down = getattr(ce, "CAT_DOWN_COL", "▼ Down")
     return {
         up: st.column_config.Column(
-            up, width="medium",
-            help=_cat_side_help(
-                "up",
-                "Up catalysts — historically helped the next move.")),
+            up, width="small",
+            help="Hover a tag. The note after the dash is what that icon means."),
         down: st.column_config.Column(
-            down, width="medium",
-            help=_cat_side_help(
-                "down",
-                "Down catalysts — historically hurt the next move.")),
+            down, width="small",
+            help="Hover a tag. The note after the dash is what that icon means."),
     }
 
 
@@ -2864,8 +3082,12 @@ def _order_with_cat(order, df):
     return order
 
 
-def _render_signed_catalysts(tk: str, sector: str = "") -> None:
-    """Up/Down catalyst cards for Stock Lookup and scan-hub detail."""
+def _render_signed_catalysts(tk: str, sector: str = "", *, notes: bool = True) -> None:
+    """Up/Down catalyst cards.
+
+    Stock Lookup passes notes=True: the sentence sits under the icon.
+    Scan Hub passes notes=False: the same sentence shows when you hover the icon.
+    """
     tk = str(tk or "").strip().upper()
     if not tk:
         return
@@ -2879,10 +3101,12 @@ def _render_signed_catalysts(tk: str, sector: str = "") -> None:
     up, down, other = pack.get("up") or "", pack.get("down") or "", pack.get("other") or ""
     score = int(pack.get("score") or 0)
     st.markdown("##### Catalysts")
+    _note_line = ("A short note sits under each tag that is firing."
+                  if notes else
+                  "Hover a tag for what it means.")
     st.caption("Deep search: dump tape and fundamentals, Yahoo news, earnings "
                "calendar, analyst actions, and insiders. ▲ Up historically helped "
-               "the next move. ▼ Down historically hurt it. A short note sits "
-               "under each tag that is firing.")
+               "the next move. ▼ Down historically hurt it. " + _note_line)
     if not (up or down or other):
         st.caption("No catalysts firing after the deep search.")
         return
@@ -2892,13 +3116,14 @@ def _render_signed_catalysts(tk: str, sector: str = "") -> None:
             return f"<span style='color:{DIM};font-size:13px'>None</span>"
         bits = []
         for part in text.split(" · "):
-            tip = _cat_tip(part)
+            tip = "" if notes else _cat_tip(part)
             title = f" title='{_esc(tip)}'" if tip else ""
+            cursor = "cursor:help;" if tip else ""
             bits.append(
                 f"<span{title} style='display:inline-block;font-family:Space Mono,monospace;"
                 f"font-size:12px;font-weight:700;padding:3px 10px;border-radius:6px;"
                 f"margin:0 6px 6px 0;background:{bg};border:1px solid {border};"
-                f"color:{color};cursor:help'>{_esc(part)}</span>")
+                f"color:{color};{cursor}'>{_esc(part)}</span>")
         return "".join(bits)
 
     meanings = getattr(ce, "CATALYST_MEANINGS", {}) or {}
@@ -2935,19 +3160,19 @@ def _render_signed_catalysts(tk: str, sector: str = "") -> None:
         f"<div style='color:{GREEN};font-weight:800;font-size:11px;letter-spacing:1px;"
         f"text-transform:uppercase;margin-bottom:8px'>▲ Up</div>"
         f"{_pills(up, GREEN, '#1e6b35', '#0d2215')}"
-        f"{_notes('up', GREEN)}</div>"
+        f"{_notes('up', GREEN) if notes else ''}</div>"
         f"<div style='background:#0c1829;border:1px solid {RED};border-radius:10px;"
         f"padding:10px 12px'>"
         f"<div style='color:{RED};font-weight:800;font-size:11px;letter-spacing:1px;"
         f"text-transform:uppercase;margin-bottom:8px'>▼ Down</div>"
         f"{_pills(down, RED, '#a03535', '#220d0d')}"
-        f"{_notes('down', RED)}</div></div>"
+        f"{_notes('down', RED) if notes else ''}</div></div>"
         + (f"<div style='background:#0c1829;border:1px solid {ACCENT};border-radius:10px;"
            f"padding:10px 12px;margin:0 0 8px'>"
            f"<div style='color:{ACCENT};font-weight:800;font-size:11px;letter-spacing:1px;"
            f"text-transform:uppercase;margin-bottom:8px'>▲▼ Either way</div>"
            f"{_pills(other, ACCENT, '#c47d0e', '#221800')}"
-           f"{_notes('both', ACCENT)}</div>"
+           f"{_notes('both', ACCENT) if notes else ''}</div>"
            if other else "")
         + f"<div style='color:{DIM};font-size:12px;margin-bottom:8px'>"
         f"Net signed score <b style='color:{sc_col}'>{score:+d}</b> "

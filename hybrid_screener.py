@@ -1023,10 +1023,7 @@ def render_hybrid_screener() -> None:
                 key=_k("use_cat"),
                 help="Dump-backed tape flags plus news. Ranked by signed score.")
             if use_cat:
-                st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
-                           "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
-                st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
-                           "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
+                st.markdown(ce.catalyst_legend_html(), unsafe_allow_html=True)
         with ai_col:
             st.markdown(
                 "<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>",
@@ -1188,12 +1185,12 @@ def render_hybrid_screener() -> None:
     _up, _dn = getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "CAT_DOWN_COL", "▼ Down")
     if _up in display.columns:
         _cat_cfg[_up] = st.column_config.Column(
-            _up, width="medium",
-            help=_hs_cat_help("up", "Up catalysts — historically helped the next move. Hover a tag in the stock card for the same note."))
+            _up, width="small",
+            help="Hover a tag. The note after the dash is what that icon means.")
     if _dn in display.columns:
         _cat_cfg[_dn] = st.column_config.Column(
-            _dn, width="medium",
-            help=_hs_cat_help("down", "Down catalysts — historically hurt the next move. Hover a tag in the stock card for the same note."))
+            _dn, width="small",
+            help="Hover a tag. The note after the dash is what that icon means.")
     try:
         styled = display.style.map(_color_score, subset=["Score"]) if "Score" in display.columns else display
         _tsel = st.dataframe(

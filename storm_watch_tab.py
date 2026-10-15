@@ -643,10 +643,8 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                 key="sw_use_cat",
                 help="Dump-backed tape flags plus news. Ranked by signed score.")
             if use_cat:
-                st.caption("▲ Up  💥 WASH OUT +8 · 📈 EARN ↑ +4 · 🚀 BREAKOUT +3 · "
-                           "🤝 M&A +6 · 💊 FDA +5 · 🔗 DEAL +3")
-                st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
-                           "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
+                import cascade_engine as ce
+                st.markdown(ce.catalyst_legend_html(), unsafe_allow_html=True)
         with ai_col:
             st.markdown(
                 "<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>",
@@ -798,11 +796,11 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                 "#", width="small", format="%d",
                 help="Scan rank. 1 is first on this list. Click the header to sort."),
             "▲ Up": st.column_config.Column(
-                "▲ Up", width="medium",
-                help=_sw_cat_help("up")),
+                "▲ Up", width="small",
+                help="Hover a tag. The note after the dash is what that icon means."),
             "▼ Down": st.column_config.Column(
-                "▼ Down", width="medium",
-                help=_sw_cat_help("down")),
+                "▼ Down", width="small",
+                help="Hover a tag. The note after the dash is what that icon means."),
             "StormScore": st.column_config.Column(help=HELP["score"]),
             "Shakeout": st.column_config.Column(help=HELP["min_shakeout"]),
             "Ret5": st.column_config.Column(help=HELP["ret5"]),
