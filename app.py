@@ -329,6 +329,12 @@ def _menu_category_css() -> str:
     rules.append(
         ".st-key-poc_controls{border-left:5px solid #FF9B6A !important}"
     )
+    rules.append(
+        ".hub-title{background:linear-gradient(90deg,#1a4060,#0c1829);"
+        "border:1px solid #3d6a94;border-left:6px solid var(--tc,#FFD15C);"
+        "border-radius:12px;padding:12px 18px;margin:4px 0 10px;"
+        "font-size:22px;font-weight:800;color:var(--tc,#FFD15C)}"
+    )
     return "\n".join(rules)
 
 
@@ -2583,8 +2589,13 @@ def _t20_css():
 </style>""")
 
 
+def _hub_title(text, color="#FFD15C"):
+    """Scan Hub tab banner: icon, title, and a border in that tab's color."""
+    _md_html(f'<div class="hub-title" style="--tc:{color}">{_esc(text)}</div>')
+
+
 def _t20_title(text):
-    _md_html(f'<div class="t20-title">{_esc(text)}</div>')
+    _hub_title(text, "#FFD15C")
 
 
 def _t20_head(title, color=ACCENT, sub="", big=True):
@@ -2955,7 +2966,7 @@ def _help_key_row(icon, name, score, meaning, side="up"):
 
 
 def _render_scan_hub_help():
-    st.markdown("### Help")
+    _hub_title("❓ Help", "#F4F8FF")
     st.caption("A short map of Scan Hub: what each scanner is for, what a "
                "macro lens does, and what the catalyst icons mean.")
     sec = st.radio(
@@ -3911,6 +3922,7 @@ if _main == "Stock Lookup":
 
 # ── 📊 hybrid screener (nightly-dump filters from magicpro33/stock) ──
 if _main == "Scan Hub" and _hub == "Hybrid Screener":
+    _hub_title("📊 Hybrid Screener", "#F0A6FF")
     _hub_keep_restore("hs", ("hs_",))
     _try_closes()
     if _HS_ERR is not None or hs is None:
@@ -3925,6 +3937,7 @@ if _main == "Scan Hub" and _hub == "Hybrid Screener":
 
 # ── 🔥 ignition scanner ─────────────────────────────────────────────
 if _main == "Scan Hub" and _hub == "Ignition Scanner":
+    _hub_title("🔥 Ignition Scanner", "#FFB020")
     _hub_keep_restore("ig", ("ig_",))
     if _IG_ERR is not None or render_ignition_scanner_tab is None:
         st.error(f"Ignition Scanner failed to load: {_IG_ERR}")
@@ -3936,6 +3949,7 @@ if _main == "Scan Hub" and _hub == "Ignition Scanner":
 
 # ── 🌩 shakeout coils (pre-move scan, backtested on the nightly dump) ──
 if _main == "Scan Hub" and _hub == "ShakeOut":
+    _hub_title("🌩 ShakeOut", "#FF8FA3")
     _hub_keep_restore("sw", ("sw_",))
     closes, asof = _try_closes_for_scan()
     GAUGE = _gauge()
@@ -4645,6 +4659,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
 
 # ── ⚡ APEX FLOW screener ────────────────────────────────────────────
 if _main == "Scan Hub" and _hub == "Apex Flow":
+    _hub_title("⚡ Apex Flow", "#7FD4FF")
     _hub_keep_restore("apex", ("apex_",))
     closes, asof = _try_closes_for_scan()
     GAUGE = _gauge()
@@ -5171,9 +5186,10 @@ if _main == "Cascade Map" and _map == "Lenses":
 
 # ── 🎯 POC Future — AMD accumulation / manipulation / distribution ────
 if _main == "Scan Hub" and _hub == "POC Future":
+    _hub_title("🎯 POC Future", "#6EE7B7")
     _hub_keep_restore("poc", ("poc_",))
     _try_closes()
-    st.markdown("### 🎯 POC Future — coil, sweep, reclaim")
+    st.caption("Coil, stop-sweep, reclaim the point of control — long only.")
     if _POC_ERR:
         st.error(f"⚠️ **poc_future.py missing** — {_POC_ERR}. Push it alongside "
                  "app.py, cascade_engine.py and apex_flow.py, then reboot. "
@@ -5419,9 +5435,9 @@ if _main == "Scan Hub" and _hub == "POC Future":
 
 # ── 🔎 Key Word Search — dump name + business-summary search ─────────
 if _main == "Scan Hub" and _hub == "Key Word Search":
+    _hub_title("🔎 Key Word Search", "#C5D4FF")
     _hub_keep_restore("kw", ("kw_",))
     closes, asof = _try_closes_for_scan()
-    st.markdown("### 🔎 Key Word Search — name and business summary")
     st.caption("Search the nightly dump for a word or phrase in the company "
                "name and the stored business summary. Set a price range, "
                "then tap a row to load the full Stock Lookup — chart, cards, "
@@ -5541,9 +5557,9 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
 
 # ── 🇺🇸 Trump Effect — speech keywords → market tells ───────────────
 if _main == "Scan Hub" and _hub == "Trump Effect":
+    _hub_title("🇺🇸 Trump Effect", "#FF9B6A")
     _hub_keep_restore("te", ("te_",))
     closes, asof = _try_closes_for_scan()
-    st.markdown("### 🇺🇸 Trump Effect — what he keeps saying")
     st.caption(
         "Live White House remarks and news (same-day posts), with GovInfo "
         "transcripts as archive backfill — the official compilation often "

@@ -480,8 +480,6 @@ def _draw_chart(tk: str):
 
 def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                            render_detail=None):
-    st.subheader("🌩 Shakeout coils")
-
     mw = _in_mw()
     mode = st.radio(
         "Mode", ["Basic", "Advanced"], horizontal=True, key="sw_ui_mode",
