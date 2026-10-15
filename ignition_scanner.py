@@ -2069,7 +2069,9 @@ def render_ignition_scanner_tab():
             tickers = [t.strip().upper() for t in PRESETS[preset].split(",") if t.strip()]
 
     with st.container(border=True):
-        st.markdown("**Scan settings**")
+        st.markdown(
+            "<div class='mw-sec' style='--sc:#FFB020'>Scan settings</div>",
+            unsafe_allow_html=True)
         top_n = st.slider(
             "Results to show", 5, 30, 10,
             key="ig_top_n",
@@ -2230,10 +2232,15 @@ def render_ignition_scanner_tab():
 
 
     def az_section(title):
-        st.markdown(f"<div style='font-family:Rajdhani,sans-serif;font-weight:700;font-size:13px;"
-                    f"letter-spacing:1px;text-transform:uppercase;color:#f5a623;"
-                    f"border-bottom:1px solid #1e3a5f;padding-bottom:4px;margin:14px 0 8px'>{title}</div>",
-                    unsafe_allow_html=True)
+        tones = ("#7FD4FF", "#6EE7B7", "#F0A6FF", "#FFD15C",
+                 "#FF9B6A", "#FF8FA3", "#FFB020", "#C5D4FF")
+        color = tones[sum(ord(c) for c in title) % len(tones)]
+        st.markdown(
+            f"<div style='font-family:Rajdhani,sans-serif;font-weight:800;font-size:13px;"
+            f"letter-spacing:1px;text-transform:uppercase;color:{color};"
+            f"border-left:4px solid {color};padding:2px 0 2px 10px;"
+            f"margin:14px 0 8px'>{title}</div>",
+            unsafe_allow_html=True)
 
 
     def pct_color(v):

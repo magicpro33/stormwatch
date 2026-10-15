@@ -87,7 +87,7 @@ def _css() -> None:
   border-radius:10px;padding:14px 16px}}
 .dc-sechead{{background:{NAVY};border:1px solid {LINE};border-left:5px solid var(--sc,{ACCENT});
   border-radius:10px;padding:9px 14px;margin:18px 0 8px;font-size:15px;font-weight:800;
-  color:{INK};letter-spacing:.02em}}
+  color:var(--sc,{ACCENT});letter-spacing:.02em}}
 .dc-sechead small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
 .dc-sechead.lg{{font-size:21px;padding:12px 18px}}
 .dc-sechead.lg small{{font-size:14px}}
@@ -96,8 +96,8 @@ def _css() -> None:
 .dc-cinfo{{font-size:15px;font-weight:500;color:{DIM};margin-top:6px;letter-spacing:0}}
 .dc-cinfo b{{color:{INK};font-family:ui-monospace,monospace}}
 .dc-title{{background:linear-gradient(90deg,{STEEL},{NAVY});border:1px solid {LINE};
-  border-left:6px solid {ACCENT};border-radius:12px;padding:12px 18px;margin:4px 0 10px;
-  font-size:20px;font-weight:800;color:{INK}}}
+  border-left:6px solid #FFB020;border-radius:12px;padding:12px 18px;margin:4px 0 10px;
+  font-size:20px;font-weight:800;color:#FFB020}}
 .dc-metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0}}
 @media(max-width:720px){{.dc-metrics{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 .dc-met{{background:{NAVY};border:1px solid {LINE};border-left:4px solid var(--mc,{ACCENT});

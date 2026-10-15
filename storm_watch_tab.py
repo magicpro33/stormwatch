@@ -504,7 +504,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             lens_opts = {LENS_OFF: "off", LENS_AUTO: None}
             lens_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
             with st.container(border=True):
-                st.markdown("**Macro lens**")
+                st.markdown(
+                    "<div class='mw-sec' style='--sc:#F0A6FF'>Macro lens</div>",
+                    unsafe_allow_html=True)
                 lens_label = st.selectbox(
                     "Macro lens", list(lens_opts), key="sw_lens",
                     label_visibility="collapsed", help=HELP["macro_lens"])
@@ -604,7 +606,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     with st.container(border=True):
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:
-            st.markdown("**Catalysts**")
+            st.markdown(
+                "<div class='mw-sec' style='--sc:#FF9B6A'>Catalysts</div>",
+                unsafe_allow_html=True)
             use_cat = st.toggle(
                 "Add Catalysts to the list and rank by net up/down score",
                 key="sw_use_cat",
@@ -615,7 +619,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                 st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
                            "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
         with ai_col:
-            st.markdown("**Filter**")
+            st.markdown(
+                "<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>",
+                unsafe_allow_html=True)
             safe_ai = st.toggle(
                 "SAFE FROM AI",
                 key="sw_safe_ai",

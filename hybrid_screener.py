@@ -862,7 +862,9 @@ def render_hybrid_screener() -> None:
         min_score = r1[2].slider("Min hybrid score", 0.0, 20.0, step=0.5, key=_k("min_score"))
         top_n = r1[3].slider("Max results", 5, 100, step=5, key=_k("top_n"))
 
-        st.markdown("**Sectors**")
+        st.markdown(
+            "<div class='mw-sec' style='--sc:#6EE7B7'>Sectors</div>",
+            unsafe_allow_html=True)
         _hs_lb, _hs_off, _hs_lbl = _hs_flow_window_picker("hs")
         try:
             _all_secs = _hs_sector_list(datetime.today().strftime("%Y-%m-%d"))
@@ -992,7 +994,9 @@ def render_hybrid_screener() -> None:
     with st.container(border=True):
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:
-            st.markdown("**Catalysts**")
+            st.markdown(
+                "<div class='mw-sec' style='--sc:#FF9B6A'>Catalysts</div>",
+                unsafe_allow_html=True)
             use_cat = st.toggle(
                 "Add Catalysts to the list and rank by net up/down score",
                 key=_k("use_cat"),
@@ -1003,7 +1007,9 @@ def render_hybrid_screener() -> None:
                 st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
                            "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
         with ai_col:
-            st.markdown("**Filter**")
+            st.markdown(
+                "<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>",
+                unsafe_allow_html=True)
             safe_ai = st.toggle(
                 "SAFE FROM AI",
                 key=_k("safe_ai"),

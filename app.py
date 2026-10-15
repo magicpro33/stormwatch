@@ -302,6 +302,33 @@ def _menu_category_css() -> str:
         "color:#9AF7C4 !important;font-weight:800 !important;"
         "letter-spacing:.6px !important;}"
     )
+    # Section labels and Basic/Advanced choices. Selected chip stays dark on orange.
+    for key, col in (
+        ("apex_ui_mode", "#FFD15C"),
+        ("sw_ui_mode", "#FFD15C"),
+        ("poc_ui_mode", "#FF9B6A"),
+        ("ig_source", "#7FD4FF"),
+        ("ig_sector_preset", "#F0A6FF"),
+    ):
+        rules.append(
+            f".st-key-{key} [data-testid='stWidgetLabel'] p,"
+            f".st-key-{key} [data-testid='stWidgetLabel'] span,"
+            f".st-key-{key} [role='radiogroup'] label p,"
+            f".st-key-{key} [role='radiogroup'] label span{{"
+            f"color:{col} !important;font-weight:800 !important;}}"
+        )
+        rules.append(
+            f".st-key-{key} label:has(input:checked) p,"
+            f".st-key-{key} label:has(input:checked) span{{"
+            f"color:#081325 !important;}}"
+        )
+    rules.append(
+        ".mw-sec{font-weight:800;font-size:15px;letter-spacing:.03em;"
+        "color:var(--sc,#FFD15C);margin:0 0 6px}"
+    )
+    rules.append(
+        ".st-key-poc_controls{border-left:5px solid #FF9B6A !important}"
+    )
     return "\n".join(rules)
 
 
@@ -907,10 +934,26 @@ def render_lens_playbook(cd: dict, regkey: str | None = None, *, full: bool = Tr
     st.caption(f"Live trigger: pick this when {cd.get('trigger', '—')}.")
 
 
+_AZ_TONE = {
+    "Price Range Analysis": "#7FD4FF",
+    "Price Performance": "#6EE7B7",
+    "Technical Signals": "#F0A6FF",
+    "Short Interest & Growth": "#FF8FA3",
+    "Earnings Breakdown (EPS Trend)": "#FFD15C",
+    "Dividend": "#6EE7B7",
+    "Valuation": "#FF9B6A",
+    "Financial Health": "#7FD4FF",
+    "Nightly Scan Signals": "#FFB020",
+}
+
+
 def az_section(title):
-    st.markdown(f"<div style='font-weight:700;font-size:13px;letter-spacing:1px;"
-                f"text-transform:uppercase;color:#f5a623;border-bottom:1px solid #1e3a5f;"
-                f"padding-bottom:4px;margin:14px 0 8px'>{title}</div>", unsafe_allow_html=True)
+    color = _AZ_TONE.get(title, "#FFB020")
+    st.markdown(
+        f"<div style='font-weight:800;font-size:13px;letter-spacing:1px;"
+        f"text-transform:uppercase;color:{color};border-left:4px solid {color};"
+        f"padding:2px 0 2px 10px;margin:14px 0 8px'>{title}</div>",
+        unsafe_allow_html=True)
 
 
 def pct_color(v):
@@ -1530,7 +1573,8 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
     if cpush is not None and cpush > 0.5: pills += az_pill("Cascade Tailwind", True)
     elif cpush is not None and cpush < -0.5: pills += az_pill("Cascade Headwind", False)
 
-    st.markdown("<div style='font-size:20px;font-weight:700;letter-spacing:.6px;"
+    st.markdown("<div style='font-size:20px;font-weight:800;letter-spacing:.6px;"
+                "color:#FFB020;border-left:5px solid #FFB020;padding-left:12px;"
                 "margin:16px 0 4px'>🔥 Stock Analyzer</div>", unsafe_allow_html=True)
     m1, m2, m3 = st.columns(3)
     m1.metric("Price", f"${px:,.2f}" if px else "--")
@@ -2509,22 +2553,33 @@ def _t20_css():
     """Colored left-border section styling for the Top 20 tab only."""
     _md_html(f"""<style>
 .t20-title{{background:linear-gradient(90deg,#1a4060,#0c1829);border:1px solid #3d6a94;
-  border-left:6px solid {ACCENT};border-radius:12px;padding:12px 18px;margin:4px 0 10px;
-  font-size:22px;font-weight:800;color:#F6F4E9}}
+  border-left:6px solid #FFD15C;border-radius:12px;padding:12px 18px;margin:4px 0 10px;
+  font-size:22px;font-weight:800;color:#FFD15C}}
 .t20-head{{background:#0c1829;border:1px solid #3d6a94;border-left:5px solid var(--sc,{ACCENT});
   border-radius:10px;padding:9px 14px;margin:18px 0 8px;font-size:15px;font-weight:800;
-  color:#F6F4E9;letter-spacing:.02em}}
+  color:var(--sc,{ACCENT});letter-spacing:.02em}}
 .t20-head.lg{{font-size:21px;padding:12px 18px}}
 .t20-head small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
 .t20-head.lg small{{font-size:14px}}
 .t20-box{{background:#0c1829;border:1px solid #3d6a94;border-left:4px solid var(--bc,{_T20_BLUE});
   border-radius:10px;padding:12px 16px;color:#F6F4E9;font-size:14px;line-height:1.55;margin:6px 0}}
-.st-key-t20_engine{{border-left:5px solid {_T20_BLUE} !important;border-radius:10px}}
-.st-key-t20_lens{{border-left:5px solid {_T20_PURPLE} !important;border-radius:10px}}
-.st-key-t20_sectors{{border-left:5px solid {GREEN} !important;border-radius:10px}}
-.st-key-t20_run{{border-left:5px solid {ACCENT} !important;border-radius:10px}}
-.st-key-t20_help{{border-left:5px solid {_T20_GOLD};border-radius:10px;padding-left:8px}}
-[class*="st-key-t20_tbl"]{{border-left:5px solid {GREEN};border-radius:10px;padding-left:8px}}
+.st-key-t20_engine{{border-left:5px solid #7FD4FF !important;border-radius:10px}}
+.st-key-t20_lens{{border-left:5px solid #F0A6FF !important;border-radius:10px}}
+.st-key-t20_sectors{{border-left:5px solid #6EE7B7 !important;border-radius:10px}}
+.st-key-t20_run{{border-left:5px solid #FF9B6A !important;border-radius:10px}}
+.st-key-t20_help{{border-left:5px solid #FFD15C;border-radius:10px;padding-left:8px}}
+[class*="st-key-t20_tbl"]{{border-left:5px solid #6EE7B7;border-radius:10px;padding-left:8px}}
+.st-key-t20_engine [data-testid="stMarkdownContainer"] strong,
+.st-key-t20_engine [data-testid="stWidgetLabel"] p,
+.st-key-t20_engine [data-testid="stRadio"] label p{{color:#7FD4FF !important}}
+.st-key-t20_lens [data-testid="stMarkdownContainer"] strong,
+.st-key-t20_lens [data-testid="stWidgetLabel"] p{{color:#F0A6FF !important}}
+.st-key-t20_sectors [data-testid="stMarkdownContainer"] strong,
+.st-key-t20_sectors [data-testid="stWidgetLabel"] p,
+.st-key-t20_sectors [data-testid="stRadio"] label p{{color:#6EE7B7 !important}}
+.st-key-t20_run [data-testid="stMarkdownContainer"] strong{{color:#FF9B6A !important}}
+.st-key-t20_engine [data-testid="stRadio"] label:has(input:checked) p,
+.st-key-t20_sectors [data-testid="stRadio"] label:has(input:checked) p{{color:#081325 !important}}
 </style>""")
 
 
@@ -2548,7 +2603,7 @@ def _catalysts_section(key: str, pill: bool = True):
     with ctx:
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:
-            st.markdown("**Catalysts**")
+            _md_html("<div class='mw-sec' style='--sc:#FF9B6A'>Catalysts</div>")
             on = st.toggle(
                 "Add Catalysts to the list and rank by net up/down score",
                 key=f"{key}_use_cat",
@@ -2563,7 +2618,7 @@ def _catalysts_section(key: str, pill: bool = True):
                 st.caption("▼ Down  🩸 SELL OFF −12 · 🎈 GAP UP −8 · 💸 OFFERING −8 · "
                            "⚖️ LEGAL −5 · 🩳 SQUEEZE −3")
         with ai_col:
-            st.markdown("**Filter**")
+            _md_html("<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>")
             st.toggle(
                 "SAFE FROM AI",
                 key=f"{key}_safe_ai",
@@ -3923,7 +3978,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
         "Scenario fit only, no flow",
     ]
 
-    _t20_head("1 · How to rank", _T20_BLUE, "pick the engine and the macro lens")
+    _t20_head("1 · How to rank", "#7FD4FF", "pick the engine and the macro lens")
     _d1, _d2 = st.columns(2, gap="medium")
     with _d1:
         with _hub_pill("t20_engine"):
@@ -4066,7 +4121,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
         _all_secs, _picked_secs, _sec_filter = [], [], None
         _use_flow = False
     else:
-        _t20_head("2 · Session and sectors", GREEN, "where the money is going")
+        _t20_head("2 · Session and sectors", "#6EE7B7", "where the money is going")
         with _hub_pill("t20_sectors"):
             _t_lb, _t_off, _t_lbl = flow_window_picker("t20")
             _t20_pending = st.session_state.pop("_top20_sectors_pending", None)
@@ -4140,7 +4195,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                         })
     _secs_key = tuple(sorted(_sec_filter)) if _sec_filter else ()
 
-    _t20_head("3 · Size and run", ACCENT, "how many names, then go")
+    _t20_head("3 · Size and run", "#FF9B6A", "how many names, then go")
     with _hub_pill("t20_run"):
         _n1, _n2 = st.columns([1, 2], gap="medium")
         _top_n = _n1.selectbox("How many stocks", list(range(20, 55, 5)),
@@ -4241,7 +4296,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             “Chg%” is the move since the scan's close.</span></div>""",
             unsafe_allow_html=True)
     if st.session_state.get("top20_go"):
-        _t20_head("4 · Results", _T20_GOLD, "tap a row for the full profile")
+        _t20_head("4 · Results", "#FFD15C", "tap a row for the full profile")
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode") == "forecast":
         _snap = st.session_state.get("top20_snap") or {}
         if _snap.get("mode") == "forecast":
@@ -4615,7 +4670,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                        "— so anything that ranks here looks identical on your chart.")
 
             with _hub_pill():
-                st.markdown("**Timeframe and score**")
+                _md_html("<div class='mw-sec' style='--sc:#7FD4FF'>Timeframe and score</div>")
                 _ac1, _ac2, _ac3 = st.columns([2, 1, 1], vertical_alignment="bottom")
                 _tf = _ac1.radio("Timeframe", _tf_names, key="apex_tf", horizontal=True,
                                  help="1 Day is the only timeframe the score was validated on. "
@@ -4662,7 +4717,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                 _AX_AUTO = "📡 Auto — detect the live regime"
                 _ax_opts = {_AX_OFF: "off", _AX_AUTO: None}
                 _ax_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
-                st.markdown("**Macro lens**")
+                _md_html("<div class='mw-sec' style='--sc:#F0A6FF'>Macro lens</div>")
                 _ax_lens_label = st.selectbox(
                     "Macro lens", list(_ax_opts), key="apex_lens",
                     label_visibility="collapsed",
@@ -4704,7 +4759,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                     st.caption("No tilt — pure APEX ranking.")
 
             with _hub_pill():
-                st.markdown("**Session and sectors**")
+                _md_html("<div class='mw-sec' style='--sc:#6EE7B7'>Session and sectors</div>")
                 _a_lb, _a_off, _a_lbl = flow_window_picker("apex")
                 _hs1, _hs2 = st.columns([1, 3])
                 if _hs1.button("🔥 Use today's hot sectors", key="apex_hot",
@@ -5124,7 +5179,7 @@ if _main == "Scan Hub" and _hub == "POC Future":
                  "app.py, cascade_engine.py and apex_flow.py, then reboot. "
                  "The rest of the app still works.")
     else:
-        with _hub_pill():
+        with _hub_pill("poc_controls"):
             _poc_mode = st.radio(
                 "Controls", ["Basic", "Advanced"], horizontal=True,
                 key="poc_ui_mode",
