@@ -270,11 +270,11 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 
 # One bright font color per menu category so the bars don't read as one cream strip.
 _MENU_CAT_COLORS = {
-    "mw_main": ["#FFD15C", "#7FD4FF", "#6EE7B7", "#F0A6FF", "#FF9B6A", "#C5D4FF"],
+    "mw_main": ["#FFD15C", "#7FD4FF", "#6EE7B7", "#F0A6FF", "#2DD4BF", "#C5D4FF"],
     "mw_hub": ["#FFD15C", "#7FD4FF", "#6EE7B7", "#FF8FA3", "#F0A6FF",
-               "#FFB020", "#C5D4FF", "#FF9B6A", "#F4F8FF"],
+               "#C8F542", "#C5D4FF", "#2DD4BF", "#F4F8FF"],
     "mw_map": ["#7FD4FF", "#FF8FA3", "#FFD15C", "#6EE7B7", "#F0A6FF",
-               "#FF9B6A", "#F4F8FF"],
+               "#2DD4BF", "#F4F8FF"],
 }
 
 
@@ -306,7 +306,7 @@ def _menu_category_css() -> str:
     for key, col in (
         ("apex_ui_mode", "#FFD15C"),
         ("sw_ui_mode", "#FFD15C"),
-        ("poc_ui_mode", "#FF9B6A"),
+        ("poc_ui_mode", "#7FD4FF"),
         ("ig_source", "#7FD4FF"),
         ("ig_sector_preset", "#F0A6FF"),
     ):
@@ -327,14 +327,44 @@ def _menu_category_css() -> str:
         "color:var(--sc,#FFD15C);margin:0 0 6px}"
     )
     rules.append(
-        ".st-key-poc_controls{border-left:5px solid #FF9B6A !important}"
-    )
-    rules.append(
         ".hub-title{background:linear-gradient(90deg,#1a4060,#0c1829);"
         "border:1px solid #3d6a94;border-left:6px solid var(--tc,#FFD15C);"
         "border-radius:12px;padding:12px 18px;margin:4px 0 10px;"
         "font-size:22px;font-weight:800;color:var(--tc,#FFD15C)}"
     )
+    rules.append(
+        ".hub-sec{background:#0c1829;border:1px solid #3d6a94;"
+        "border-left:5px solid var(--sc,#7FD4FF);border-radius:10px;"
+        "padding:9px 14px;margin:18px 0 8px;font-size:15px;font-weight:800;"
+        "color:var(--sc,#7FD4FF);letter-spacing:.02em}"
+        ".hub-sec.lg{font-size:21px;padding:12px 18px}"
+        ".hub-sec small{font-weight:500;font-size:12px;color:#9aa8bd;margin-left:8px}"
+        ".hub-sec.lg small{font-size:14px}"
+    )
+    for _pk, _pc in (
+        ("apex_mode_box", "#FFD15C"),
+        ("apex_tf_box", "#7FD4FF"),
+        ("apex_lens_box", "#F0A6FF"),
+        ("apex_sectors_box", "#6EE7B7"),
+        ("apex_cat_box", "#A78BFA"),
+        ("poc_controls", "#7FD4FF"),
+        ("poc_sectors_box", "#6EE7B7"),
+        ("poc_cat_box", "#A78BFA"),
+        ("sw_mode_box", "#FFD15C"),
+        ("sw_lens_box", "#F0A6FF"),
+        ("sw_sectors_box", "#6EE7B7"),
+        ("sw_size_box", "#7FD4FF"),
+        ("sw_cat_box", "#A78BFA"),
+        ("hs_presets_box", "#F0A6FF"),
+        ("hs_filters_box", "#7FD4FF"),
+        ("hs_cat_box", "#A78BFA"),
+        ("ig_run_box", "#C8F542"),
+        ("ig_watch_box", "#7FD4FF"),
+        ("ig_settings_box", "#C8F542"),
+        ("kw_search_box", "#C5D4FF"),
+        ("te_search_box", "#2DD4BF"),
+    ):
+        rules.append(f".st-key-{_pk}{{border-left:5px solid {_pc} !important}}")
     return "\n".join(rules)
 
 
@@ -2594,6 +2624,12 @@ def _hub_title(text, color="#FFD15C"):
     _md_html(f'<div class="hub-title" style="--tc:{color}">{_esc(text)}</div>')
 
 
+def _hub_sec(title, color, sub=""):
+    """Colored section bar: left border and title share one color."""
+    sm = f"<small>{_esc(sub)}</small>" if sub else ""
+    _md_html(f'<div class="hub-sec lg" style="--sc:{color}">{_esc(title)}{sm}</div>')
+
+
 def _t20_title(text):
     _hub_title(text, "#FFD15C")
 
@@ -2608,13 +2644,14 @@ def _t20_box(text, color=_T20_BLUE):
     _md_html(f'<div class="t20-box" style="--bc:{color}">{_esc(text)}</div>')
 
 
-def _catalysts_section(key: str, pill: bool = True):
+def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
+                       pill_key: str | None = None):
     """Catalyst rank toggle plus the SAFE FROM AI service filter."""
-    ctx = _hub_pill() if pill else st.container()
+    ctx = _hub_pill(pill_key) if pill else st.container()
     with ctx:
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:
-            _md_html("<div class='mw-sec' style='--sc:#FF9B6A'>Catalysts</div>")
+            _md_html(f"<div class='mw-sec' style='--sc:{cat_color}'>Catalysts</div>")
             on = st.toggle(
                 "Add Catalysts to the list and rank by net up/down score",
                 key=f"{key}_use_cat",
@@ -2928,18 +2965,18 @@ def _render_lookup_news(tk: str, name: str = "") -> None:
             _md_html(_news_items_html(other, ACCENT, "#c47d0e", "#221800", "MIX", "None."))
 
 
-def _help_card(title, blurb, body, use=""):
+def _help_card(title, blurb, body, use="", color="#7FD4FF"):
     extra = ""
     if use:
-        extra = (f"<div style='margin-top:8px;font-size:12.5px;color:{ACCENT}'>"
+        extra = (f"<div style='margin-top:8px;font-size:12.5px;color:{color}'>"
                  f"<b>Use when</b> · {_esc(use)}</div>")
     _md_html(
         f"<div style='background:#0c1829;border:1px solid #3d6a94;"
-        f"border-left:4px solid {ACCENT};border-radius:12px;"
+        f"border-left:4px solid {color};border-radius:12px;"
         f"padding:12px 16px;margin:0 0 10px'>"
         f"<div style='font-weight:800;font-size:16px;letter-spacing:.2px'>"
         f"{_esc(title)}</div>"
-        f"<div style='color:{ACCENT};font-size:13px;font-weight:650;"
+        f"<div style='color:{color};font-size:13px;font-weight:650;"
         f"margin:4px 0 8px'>{_esc(blurb)}</div>"
         f"<div style='color:{DIM};font-size:13.5px;line-height:1.55'>"
         f"{_esc(body)}</div>{extra}</div>"
@@ -2974,7 +3011,7 @@ def _render_scan_hub_help():
         horizontal=True, key="hub_help_sec")
 
     if sec == "Scanners":
-        st.markdown("#### Scanners")
+        _hub_sec("Scanners", "#7FD4FF", "what each tab hunts")
         st.caption("Each tab hunts a different setup. Tap a row on any list "
                    "to open the chart and company profile under it.")
         _help_card(
@@ -2985,7 +3022,8 @@ def _render_scan_hub_help():
             "Felix is balance-sheet quality only. Macro-only ranks scenario fit "
             "with no flow. A macro lens then tilts the order toward that "
             "regime's winning sectors.",
-            "You want a cross-market shortlist, not a single pattern.")
+            "You want a cross-market shortlist, not a single pattern.",
+            color="#FFD15C")
         _help_card(
             "⚡ Apex Flow",
             "The same 0–100 conviction score as the TradingView APEX script.",
@@ -2994,7 +3032,8 @@ def _render_scan_hub_help():
             "up — not the names with the biggest expected gain. Daily bars "
             "are the validated timeframe. A macro lens re-orders the list; "
             "it does not change the APEX score.",
-            "You already trade APEX on the chart and want the same gate on the dump.")
+            "You already trade APEX on the chart and want the same gate on the dump.",
+            color="#7FD4FF")
         _help_card(
             "🎯 POC Future",
             "Coil, stop-sweep, reclaim the point of control — long only.",
@@ -3002,7 +3041,8 @@ def _render_scan_hub_help():
             "beyond it, then a close back through the volume-profile POC. "
             "You can watch a coil before it sweeps, or catch the reclaim "
             "after. Shorts failed every test, so this scanner does not list them.",
-            "You want a spring from a defined range, not a trend chase.")
+            "You want a spring from a defined range, not a trend chase.",
+            color="#6EE7B7")
         _help_card(
             "🌩 ShakeOut",
             "Washout coils sitting on range lows.",
@@ -3010,7 +3050,8 @@ def _render_scan_hub_help():
             "of the 63-day range, with RSI washed out and volatility "
             "compressed — a coil after the shake, not strength. Macro lens "
             "and hot-sector filters are optional.",
-            "You want mean-reversion candidates, not breakouts.")
+            "You want mean-reversion candidates, not breakouts.",
+            color="#FF8FA3")
         _help_card(
             "📊 Hybrid Screener",
             "The dump filter suite with named presets.",
@@ -3019,7 +3060,8 @@ def _render_scan_hub_help():
             "you to Clean Setup, Felix quality, short-squeeze, range-low, "
             "volume, breakout, insider, or recent IPO. Toggle factors and "
             "weights in Advanced.",
-            "You want to build or reuse a fundamental + tape checklist.")
+            "You want to build or reuse a fundamental + tape checklist.",
+            color="#F0A6FF")
         _help_card(
             "🔥 Ignition Scanner",
             "Live names in the money zone.",
@@ -3027,25 +3069,28 @@ def _render_scan_hub_help():
             "velocity, VWAP, and live news catalysts. Hit Scan — nothing "
             "fetches until then. Its catalyst pills are the live news set; "
             "the dump signed tags live on the other scanners.",
-            "You want what is moving right now, not yesterday's close.")
+            "You want what is moving right now, not yesterday's close.",
+            color="#C8F542")
         _help_card(
             "🔎 Key Word Search",
             "Search company names and business summaries.",
             "Type a word or phrase (lithium, REIT, rare earth). The dump is "
             "searched case-insensitive, then filtered by price. Tap a row "
             "for the full lookup under the list.",
-            "You have a theme and need names that actually mention it.")
+            "You have a theme and need names that actually mention it.",
+            color="#C5D4FF")
         _help_card(
             "🇺🇸 Trump Effect",
             "What the speeches keep saying — then the names that match.",
             "Reads live White House remarks (GovInfo as archive). Flags "
             "market-signal words (tariffs, oil, chips…) and repeated topics. "
             "Tap a word to search the dump for companies that mention it.",
-            "You want policy-talk mapped onto tickers, not a technical scan.")
+            "You want policy-talk mapped onto tickers, not a technical scan.",
+            color="#2DD4BF")
         return
 
     if sec == "Lenses":
-        st.markdown("#### Macro lenses")
+        _hub_sec("Macro lenses", "#F0A6FF", "a tilt on top of a ranking")
         st.caption("A lens is a sector + industry tilt laid on top of a ranking. It "
                    "re-orders names that already passed the scanner. Auto shrinks "
                    "the book when the trigger fired but the lead sector is not "
@@ -3055,13 +3100,13 @@ def _render_scan_hub_help():
             f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;"
             f"margin:0 0 14px'>"
             f"<div style='background:#0c1829;border:1px solid #3d6a94;"
-            f"border-radius:10px;padding:10px 12px'>"
-            f"<div style='font-weight:800'>🚫 Off</div>"
+            f"border-left:5px solid #7FD4FF;border-radius:10px;padding:10px 12px'>"
+            f"<div style='font-weight:800;color:#7FD4FF'>🚫 Off</div>"
             f"<div style='color:{DIM};font-size:13px;margin-top:4px'>"
             f"No sector tilt. Pure scanner score.</div></div>"
             f"<div style='background:#0c1829;border:1px solid #3d6a94;"
-            f"border-radius:10px;padding:10px 12px'>"
-            f"<div style='font-weight:800'>📡 Auto</div>"
+            f"border-left:5px solid #F0A6FF;border-radius:10px;padding:10px 12px'>"
+            f"<div style='font-weight:800;color:#F0A6FF'>📡 Auto</div>"
             f"<div style='color:{DIM};font-size:13px;margin-top:4px'>"
             f"Uses the regime the app detects live from oil, dollar, VIX, "
             f"and the pressure gauge.</div></div></div>"
@@ -3098,10 +3143,13 @@ def _render_scan_hub_help():
                 lag_html = (
                     f"<div style='color:{RED};font-size:12px;margin-top:4px'>"
                     f"<b>Lags</b> · {_esc(lags)}</div>" if lags else "")
+                _lens_c = ("#7FD4FF", "#6EE7B7", "#F0A6FF", "#FFD15C",
+                           "#FF8FA3", "#C5D4FF", "#2DD4BF", "#A78BFA")[i % 8]
                 _md_html(
                     f"<div style='background:#0c1829;border:1px solid #3d6a94;"
-                    f"border-radius:12px;padding:12px 14px;margin:0 0 10px'>"
-                    f"<div style='font-weight:800;font-size:15px'>"
+                    f"border-left:5px solid {_lens_c};border-radius:12px;"
+                    f"padding:12px 14px;margin:0 0 10px'>"
+                    f"<div style='font-weight:800;font-size:15px;color:{_lens_c}'>"
                     f"{_esc(emoji)} {_esc(title)}</div>"
                     f"<div style='color:{DIM};font-size:13px;line-height:1.5;"
                     f"margin-top:6px'>{_esc(thesis)}</div>"
@@ -3109,7 +3157,7 @@ def _render_scan_hub_help():
                 )
         return
 
-    st.markdown("#### Catalysts")
+    _hub_sec("Catalysts", "#A78BFA", "signed tags that re-rank the list")
     st.caption("Turn on Add Catalysts on a scanner to tag the list and rank "
                "by net score — not by how many tags a name has. Positive "
                "scores float up; negative scores sink. Tape flags are read "
@@ -3937,7 +3985,7 @@ if _main == "Scan Hub" and _hub == "Hybrid Screener":
 
 # ── 🔥 ignition scanner ─────────────────────────────────────────────
 if _main == "Scan Hub" and _hub == "Ignition Scanner":
-    _hub_title("🔥 Ignition Scanner", "#FFB020")
+    _hub_title("🔥 Ignition Scanner", "#C8F542")
     _hub_keep_restore("ig", ("ig_",))
     if _IG_ERR is not None or render_ignition_scanner_tab is None:
         st.error(f"Ignition Scanner failed to load: {_IG_ERR}")
@@ -4672,9 +4720,12 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                  "then reboot the app. The rest of the app still works.")
 
     else:
-        _mode = st.radio(
-            "Mode", ["Basic", "Advanced"], horizontal=True, key="apex_ui_mode",
-            help="Basic runs the default scan. Advanced shows every filter.")
+        _hub_sec("1 · Mode", "#FFD15C", "basic runs the default scan")
+        with _hub_pill("apex_mode_box"):
+            _mode = st.radio(
+                "Mode", ["Basic", "Advanced"], horizontal=True, key="apex_ui_mode",
+                label_visibility="collapsed",
+                help="Basic runs the default scan. Advanced shows every filter.")
         _advanced = _mode == "Advanced"
         _tf_names = list(af.TIMEFRAMES)
 
@@ -4684,8 +4735,8 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                        "position 25 + value-area structure 15 + regime 15 + trend quality 10 "
                        "— so anything that ranks here looks identical on your chart.")
 
-            with _hub_pill():
-                _md_html("<div class='mw-sec' style='--sc:#7FD4FF'>Timeframe and score</div>")
+            _hub_sec("2 · Timeframe and score", "#7FD4FF", "bars and the conviction gate")
+            with _hub_pill("apex_tf_box"):
                 _ac1, _ac2, _ac3 = st.columns([2, 1, 1], vertical_alignment="bottom")
                 _tf = _ac1.radio("Timeframe", _tf_names, key="apex_tf", horizontal=True,
                                  help="1 Day is the only timeframe the score was validated on. "
@@ -4726,13 +4777,12 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                 _all_secs = _apex_sector_list(asof)
             except Exception:
                 _all_secs = []
-            _ax_l1, _ax_l2 = st.columns([1, 1])
-            with _hub_pill():
+            _hub_sec("3 · Macro lens", "#F0A6FF", "re-order names that already passed")
+            with _hub_pill("apex_lens_box"):
                 _AX_OFF = "🚫 Off — no macro tilt"
                 _AX_AUTO = "📡 Auto — detect the live regime"
                 _ax_opts = {_AX_OFF: "off", _AX_AUTO: None}
                 _ax_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
-                _md_html("<div class='mw-sec' style='--sc:#F0A6FF'>Macro lens</div>")
                 _ax_lens_label = st.selectbox(
                     "Macro lens", list(_ax_opts), key="apex_lens",
                     label_visibility="collapsed",
@@ -4759,7 +4809,8 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                     _axc = ce.REGIME_CARDS.get(_ax_regkey)
                     if _axc:
                         _md_html(
-                            f"<div style='background:#081325;border-left:3px solid {ACCENT};"
+                            f"<div style='background:#081325;border:1px solid #3d6a94;"
+                            f"border-left:5px solid #F0A6FF;border-radius:10px;"
                             f"padding:7px 12px;margin-top:8px;font-size:12.5px;'>"
                             f"<b>{_axc['emoji']} {_esc(_axc['name'])}</b>"
                             f"<span style='color:{DIM};'> — {_esc(_axc.get('thesis') or '')}</span>"
@@ -4773,8 +4824,8 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                 else:
                     st.caption("No tilt — pure APEX ranking.")
 
-            with _hub_pill():
-                _md_html("<div class='mw-sec' style='--sc:#6EE7B7'>Session and sectors</div>")
+            _hub_sec("4 · Session and sectors", "#6EE7B7", "where the money is going")
+            with _hub_pill("apex_sectors_box"):
                 _a_lb, _a_off, _a_lbl = flow_window_picker("apex")
                 _hs1, _hs2 = st.columns([1, 3])
                 if _hs1.button("🔥 Use today's hot sectors", key="apex_hot",
@@ -4844,7 +4895,8 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
             _uni_n = None
 
         _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
-        _apex_cat = _catalysts_section("apex")
+        _hub_sec("5 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+        _apex_cat = _catalysts_section("apex", cat_color="#A78BFA", pill_key="apex_cat_box")
         _apex_sig = (
             str(_tf), _sec_key, float(_min_score), int(_top_n),
             bool(_require_calm), bool(_apply_rs), float(_min_price),
@@ -5195,10 +5247,12 @@ if _main == "Scan Hub" and _hub == "POC Future":
                  "app.py, cascade_engine.py and apex_flow.py, then reboot. "
                  "The rest of the app still works.")
     else:
+        _hub_sec("1 · Controls", "#7FD4FF", "pattern, size, and the knobs")
         with _hub_pill("poc_controls"):
             _poc_mode = st.radio(
                 "Controls", ["Basic", "Advanced"], horizontal=True,
                 key="poc_ui_mode",
+                label_visibility="collapsed",
                 help="Basic = pick a plain-English pattern. Advanced = the same "
                      "hunt menu plus coil, range, and freshness knobs.")
             _poc_basic = _poc_mode == "Basic"
@@ -5257,52 +5311,56 @@ if _main == "Scan Hub" and _hub == "POC Future":
                 _poc_secs = _apex_sector_list(asof)
             except Exception:
                 _poc_secs = []
-            _p_lb, _p_off, _p_lbl = flow_window_picker("poc")
-            _hs1, _hs2 = st.columns([1, 3])
-            if _hs1.button("🔥 Use today's hot sectors", key="poc_hot_btn",
-                           width="stretch",
-                           help="Replace the sector selection with the sectors that "
-                                "received the most money in the chosen window."):
+            _hub_sec("2 · Session and sectors", "#6EE7B7", "where the money is going")
+            with _hub_pill("poc_sectors_box"):
+                _p_lb, _p_off, _p_lbl = flow_window_picker("poc")
+                _hs1, _hs2 = st.columns([1, 3])
+                if _hs1.button("🔥 Use today's hot sectors", key="poc_hot_btn",
+                               width="stretch",
+                               help="Replace the sector selection with the sectors that "
+                                    "received the most money in the chosen window."):
+                    try:
+                        _hot = _hot_sectors(asof, 5, _p_lb, _p_off, dump_asof=_dump_asof_key())
+                        if _hot:
+                            st.session_state["_poc_sectors_pending"] = _hot
+                            st.rerun()
+                    except Exception as _he:
+                        st.caption(f"Hot sectors unavailable: {_he}")
                 try:
-                    _hot = _hot_sectors(asof, 5, _p_lb, _p_off, dump_asof=_dump_asof_key())
-                    if _hot:
-                        st.session_state["_poc_sectors_pending"] = _hot
-                        st.rerun()
-                except Exception as _he:
-                    st.caption(f"Hot sectors unavailable: {_he}")
-            try:
-                _hs_now = _hot_sectors(asof, 5, _p_lb, _p_off, dump_asof=_dump_asof_key())
-                if _hs_now:
-                    _hs2.caption(f"🔥 Hottest ({_p_lbl}): " + " · ".join(_hs_now))
-            except Exception:
-                pass
-            _ms_kw = ({} if "poc_sectors" in st.session_state
-                      else {"default": _poc_secs})
-            _psec = st.multiselect(
-                "Sectors", _poc_secs, key="poc_sectors", **_ms_kw,
-                help="Defaults to every sector. Narrow it to focus the scan. "
-                     "Use today's hot sectors to start from the names that "
-                     "received the most money, then add or remove.")
-            _sec_filter = (None if (not _psec or len(_psec) == len(_poc_secs))
-                           else list(_psec))
-            if _sec_filter:
-                st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_poc_secs)} sectors.")
+                    _hs_now = _hot_sectors(asof, 5, _p_lb, _p_off, dump_asof=_dump_asof_key())
+                    if _hs_now:
+                        _hs2.caption(f"🔥 Hottest ({_p_lbl}): " + " · ".join(_hs_now))
+                except Exception:
+                    pass
+                _ms_kw = ({} if "poc_sectors" in st.session_state
+                          else {"default": _poc_secs})
+                _psec = st.multiselect(
+                    "Sectors", _poc_secs, key="poc_sectors", **_ms_kw,
+                    help="Defaults to every sector. Narrow it to focus the scan. "
+                         "Use today's hot sectors to start from the names that "
+                         "received the most money, then add or remove.")
+                _sec_filter = (None if (not _psec or len(_psec) == len(_poc_secs))
+                               else list(_psec))
+                if _sec_filter:
+                    st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_poc_secs)} sectors.")
 
-            _stage_txt = ", ".join(_stage_pick or ["TRIGGERED"]).title()
-            _sec_txt = (f"{len(_sec_filter)} hot/selected sectors ({_p_lbl})"
-                        if _sec_filter else "every sector")
-            st.markdown(
-                f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
-                padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
-                Hunting <b style="color:{ACCENT};">{_stage_txt}</b>
-                · coil {_accum} bars / {_rng:.1f} ATR
-                · {_sec_txt}.</div>""",
-                unsafe_allow_html=True)
+                _stage_txt = ", ".join(_stage_pick or ["TRIGGERED"]).title()
+                _sec_txt = (f"{len(_sec_filter)} hot/selected sectors ({_p_lbl})"
+                            if _sec_filter else "every sector")
+                st.markdown(
+                    f"""<div style="background:#0c1829;border:1px solid #3d6a94;
+                    border-left:5px solid #6EE7B7;border-radius:10px;
+                    padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
+                    Hunting <b style="color:#6EE7B7;">{_stage_txt}</b>
+                    · coil {_accum} bars / {_rng:.1f} ATR
+                    · {_sec_txt}.</div>""",
+                    unsafe_allow_html=True)
 
         _poc_sig = (tuple(_stage_pick or ["TRIGGERED"]), int(_poc_top),
                     int(_accum), float(_rng), int(_poc_fresh),
                     tuple(sorted(_sec_filter)) if _sec_filter else ())
-        _poc_cat = _catalysts_section("poc")
+        _hub_sec("3 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+        _poc_cat = _catalysts_section("poc", cat_color="#A78BFA", pill_key="poc_cat_box")
         if st.button("🎯 Scan for setups", type="primary", key="poc_go",
                      width="stretch"):
             st.session_state["poc_run"] = True
@@ -5339,8 +5397,8 @@ if _main == "Scan Hub" and _hub == "POC Future":
                     st.info("SAFE FROM AI hid every setup on this list.")
                 else:
                     _cnt = _pdf.Stage.value_counts().to_dict()
-                    st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                        border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                    st.markdown(f"""<div style="background:#0c1829;border:1px solid #3d6a94;
+                        border-left:5px solid #6EE7B7;border-radius:10px;padding:10px 14px;margin:8px 0;">
                         <b>{len(_pdf)} setups</b> —
                         <span style="color:{GREEN};">{_cnt.get('TRIGGERED',0)} triggered</span> ·
                         <span style="color:#d0b040;">{_cnt.get('SWEPT',0)} swept, awaiting reclaim</span> ·
@@ -5443,7 +5501,8 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                "then tap a row to load the full Stock Lookup — chart, cards, "
                "analyzer, and company profile — under the list.")
 
-    with _hub_pill():
+    _hub_sec("1 · Search", "#C5D4FF", "name and business summary")
+    with _hub_pill("kw_search_box"):
         _kw_q = st.text_input(
             "Keyword or phrase", key="kw_query",
             placeholder="lithium · semiconductor · REIT · rare earth",
@@ -5459,7 +5518,8 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                                   help="Last nightly-dump close.")
         _kw_top = _k3.selectbox("How many", [25, 50, 100, 200, 500],
                                 index=1, key="kw_top")
-        _kw_cat = _catalysts_section("kw", pill=False)
+        _hub_sec("2 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+        _kw_cat = _catalysts_section("kw", pill=False, cat_color="#A78BFA")
 
         if st.button("🔎 Search the dump", type="primary", key="kw_go",
                      width="stretch"):
@@ -5510,11 +5570,11 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                       if isinstance(_ksnap, dict) and _ksnap.get("query")
                       else str(_kw_q or "").strip())
             _md_html(
-                f"<div style='background:#0c1829;border:1px solid #1d2b40;"
-                f"border-left:4px solid {ACCENT};border-radius:10px;"
+                f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+                f"border-left:5px solid #C5D4FF;border-radius:10px;"
                 f"padding:10px 14px;margin:8px 0;'>"
                 f"<b>{len(_kdf)} match{'es' if len(_kdf) != 1 else ''}</b> for "
-                f"<b style='color:{ACCENT};'>{_esc(_qshow)}</b>"
+                f"<b style='color:#C5D4FF;'>{_esc(_qshow)}</b>"
                 f"<span style='color:{DIM};font-size:12px;'> · dump last close "
                 f"${float(_ksnap.get('lo', _kw_lo)):,.2f}–"
                 f"${float(_ksnap.get('hi', _kw_hi)):,.2f}</span></div>")
@@ -5557,7 +5617,7 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
 
 # ── 🇺🇸 Trump Effect — speech keywords → market tells ───────────────
 if _main == "Scan Hub" and _hub == "Trump Effect":
-    _hub_title("🇺🇸 Trump Effect", "#FF9B6A")
+    _hub_title("🇺🇸 Trump Effect", "#2DD4BF")
     _hub_keep_restore("te", ("te_",))
     closes, asof = _try_closes_for_scan()
     st.caption(
@@ -5570,7 +5630,8 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
         "filler. Tap a word to search the nightly dump for names that "
         "mention it."
     )
-    with _hub_pill():
+    _hub_sec("1 · Speeches", "#2DD4BF", "dates, sources, and a phrase")
+    with _hub_pill("te_search_box"):
         _te_today = datetime.now().date()
         _te_c1, _te_c2, _te_c3 = st.columns(3)
         _te_from = _te_c1.date_input("From", value=_te_today - timedelta(days=14),
@@ -5583,7 +5644,8 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
             placeholder="greenland · drug prices · china · tariffs",
             help="Search the same live remarks. Returns the same word chart, "
                  "but only sources and words that mention this phrase.")
-        _te_cat = _catalysts_section("te", pill=False)
+        _hub_sec("2 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+        _te_cat = _catalysts_section("te", pill=False, cat_color="#A78BFA")
         _te_b1, _te_b2 = st.columns(2)
         if _te_b1.button("🔎 Scan speeches", type="primary", key="te_go",
                          width="stretch"):
@@ -5658,10 +5720,10 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
             _te_about = (f" pertaining to “{_esc(_te_qhit)}”"
                          if _te_qhit else "")
             _md_html(
-                f"<div style='background:#0c1829;border:1px solid #1d2b40;"
-                f"border-left:4px solid {ACCENT};border-radius:10px;"
+                f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+                f"border-left:5px solid #2DD4BF;border-radius:10px;"
                 f"padding:10px 14px;margin:8px 0;'>"
-                f"<b>{len(_wdf)} important word"
+                f"<b style='color:#2DD4BF'>{len(_wdf)} important word"
                 f"{'s' if len(_wdf) != 1 else ''}</b>"
                 f"{_te_about} from "
                 f"{int((_tmeta or {}).get('n_with_text') or 0)} readable "

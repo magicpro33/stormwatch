@@ -478,12 +478,22 @@ def _draw_chart(tk: str):
         st.caption(f"Last 180 sessions · {src}. Research view, not investment advice.")
 
 
+def _hub_sec(title, color, sub=""):
+    small = f"<small>{sub}</small>" if sub else ""
+    st.markdown(
+        f'<div class="hub-sec lg" style="--sc:{color}">{title}{small}</div>',
+        unsafe_allow_html=True)
+
+
 def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                            render_detail=None):
     mw = _in_mw()
-    mode = st.radio(
-        "Mode", ["Basic", "Advanced"], horizontal=True, key="sw_ui_mode",
-        help=HELP["mode"])
+    _hub_sec("1 · Mode", "#FFD15C", "basic or every filter")
+    with st.container(border=True, key="sw_mode_box"):
+        mode = st.radio(
+            "Mode", ["Basic", "Advanced"], horizontal=True, key="sw_ui_mode",
+            label_visibility="collapsed",
+            help=HELP["mode"])
     advanced = mode == "Advanced"
 
     # ── defaults (Basic) ────────────────────────────────────────────
@@ -501,10 +511,8 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             LENS_AUTO = "📡 Auto — detect the live regime"
             lens_opts = {LENS_OFF: "off", LENS_AUTO: None}
             lens_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
-            with st.container(border=True):
-                st.markdown(
-                    "<div class='mw-sec' style='--sc:#F0A6FF'>Macro lens</div>",
-                    unsafe_allow_html=True)
+            _hub_sec("2 · Macro lens", "#F0A6FF", "tilt the ranking, not the coil")
+            with st.container(border=True, key="sw_lens_box"):
                 lens_label = st.selectbox(
                     "Macro lens", list(lens_opts), key="sw_lens",
                     label_visibility="collapsed", help=HELP["macro_lens"])
@@ -517,73 +525,77 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                     card = ce.REGIME_CARDS.get(lens_token, {})
                     st.caption(card.get("thesis") or card.get("leads") or "")
 
-            lb, off, flbl = _flow_window(True)
-            try:
-                all_secs = sorted({
-                    str(s) for s in ce.load_dump_panel()[2]
-                    if s and str(s) != "Unknown"
-                })
-            except Exception:
-                all_secs = []
-            hs1, hs2 = st.columns([1, 3])
-            if hs1.button("🔥 Use today's hot sectors", key="sw_hot_btn",
-                          width="stretch", help=HELP["hot_sectors"]):
+            _hub_sec("3 · Session and sectors", "#6EE7B7", "where the money is going")
+            with st.container(border=True, key="sw_sectors_box"):
+                lb, off, flbl = _flow_window(True)
                 try:
-                    hot = ce.hot_sectors(5, lookback=lb, offset=off)
-                    if hot:
-                        st.session_state["_sw_sectors_pending"] = hot
-                        st.rerun()
-                except Exception as he:
-                    st.caption(f"Hot sectors unavailable: {he}")
-            try:
-                hot_now = ce.hot_sectors(5, lookback=lb, offset=off)
-                if hot_now:
-                    hs2.caption(f"🔥 Hottest ({flbl}): " + " · ".join(hot_now))
-            except Exception:
-                hot_now = []
-            pending = st.session_state.pop("_sw_sectors_pending", None)
-            if pending:
-                st.session_state["sw_sectors"] = pending
-            ms_kw = {} if "sw_sectors" in st.session_state else {"default": all_secs}
-            picked = st.multiselect(
-                "Sectors", all_secs, key="sw_sectors", **ms_kw, help=HELP["sectors"])
-            sec_filter = (None if (not picked or (all_secs and len(picked) == len(all_secs)))
-                          else list(picked))
-            if sec_filter:
-                st.caption(f"🎯 Scanning {len(sec_filter)} of {len(all_secs)} sectors.")
-            with st.expander("🔥 Where the money went in the last session"):
+                    all_secs = sorted({
+                        str(s) for s in ce.load_dump_panel()[2]
+                        if s and str(s) != "Unknown"
+                    })
+                except Exception:
+                    all_secs = []
+                hs1, hs2 = st.columns([1, 3])
+                if hs1.button("🔥 Use today's hot sectors", key="sw_hot_btn",
+                              width="stretch", help=HELP["hot_sectors"]):
+                    try:
+                        hot = ce.hot_sectors(5, lookback=lb, offset=off)
+                        if hot:
+                            st.session_state["_sw_sectors_pending"] = hot
+                            st.rerun()
+                    except Exception as he:
+                        st.caption(f"Hot sectors unavailable: {he}")
                 try:
-                    fl = ce.sector_flow(lookback=lb, offset=off)
-                except Exception as fe:
-                    fl = pd.DataFrame()
-                    st.caption(f"Sector flow unavailable: {fe}")
-                if fl is None or fl.empty:
-                    st.caption("No sector-flow reading available yet.")
-                else:
-                    st.caption(
-                        f"{flbl} · a sector is hot when money-weighted return, "
-                        "breadth and turnover all lean the same way.")
-                    fs = fl.copy()
-                    mark = set(hot_now) if hot_now else set(str(s) for s in fs.Sector.head(5))
-                    fs["Hot"] = ["🔥" if str(s) in mark else "" for s in fs.Sector]
-                    st.dataframe(
-                        fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
-                        .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
-                                       "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"}),
-                        width="stretch", hide_index=True,
-                        column_config={
-                            "Ret": st.column_config.Column(help="Dollar-weighted sector return."),
-                            "RS": st.column_config.Column(help="Sector return minus the market."),
-                            "Breadth": st.column_config.Column(help="Share of names in the sector that rose."),
-                            "VolSurge": st.column_config.Column(help="Median dollar-volume vs its 63-day average."),
-                        })
-        fc1, fc2 = st.columns(2)
-        min_sh = fc1.slider(
-            "Min shakeout (0–5)", 0, 5, BASIC_MIN_SHAKEOUT, key="sw_min_shakeout",
-            help=HELP["min_shakeout"])
-        n_show = fc2.selectbox(
-            "How many stocks", list(range(8, 44, 4)),
-            index=1, key="sw_n_show", help=HELP["n_show"])
+                    hot_now = ce.hot_sectors(5, lookback=lb, offset=off)
+                    if hot_now:
+                        hs2.caption(f"🔥 Hottest ({flbl}): " + " · ".join(hot_now))
+                except Exception:
+                    hot_now = []
+                pending = st.session_state.pop("_sw_sectors_pending", None)
+                if pending:
+                    st.session_state["sw_sectors"] = pending
+                ms_kw = {} if "sw_sectors" in st.session_state else {"default": all_secs}
+                picked = st.multiselect(
+                    "Sectors", all_secs, key="sw_sectors", **ms_kw, help=HELP["sectors"])
+                sec_filter = (None if (not picked or (all_secs and len(picked) == len(all_secs)))
+                              else list(picked))
+                if sec_filter:
+                    st.caption(f"🎯 Scanning {len(sec_filter)} of {len(all_secs)} sectors.")
+                with st.expander("🔥 Where the money went in the last session"):
+                    try:
+                        fl = ce.sector_flow(lookback=lb, offset=off)
+                    except Exception as fe:
+                        fl = pd.DataFrame()
+                        st.caption(f"Sector flow unavailable: {fe}")
+                    if fl is None or fl.empty:
+                        st.caption("No sector-flow reading available yet.")
+                    else:
+                        st.caption(
+                            f"{flbl} · a sector is hot when money-weighted return, "
+                            "breadth and turnover all lean the same way.")
+                        fs = fl.copy()
+                        mark = set(hot_now) if hot_now else set(str(s) for s in fs.Sector.head(5))
+                        fs["Hot"] = ["🔥" if str(s) in mark else "" for s in fs.Sector]
+                        st.dataframe(
+                            fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
+                            .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
+                                           "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"}),
+                            width="stretch", hide_index=True,
+                            column_config={
+                                "Ret": st.column_config.Column(help="Dollar-weighted sector return."),
+                                "RS": st.column_config.Column(help="Sector return minus the market."),
+                                "Breadth": st.column_config.Column(help="Share of names in the sector that rose."),
+                                "VolSurge": st.column_config.Column(help="Median dollar-volume vs its 63-day average."),
+                            })
+        _hub_sec("4 · Size", "#7FD4FF", "how tight and how many")
+        with st.container(border=True, key="sw_size_box"):
+            fc1, fc2 = st.columns(2)
+            min_sh = fc1.slider(
+                "Min shakeout (0–5)", 0, 5, BASIC_MIN_SHAKEOUT, key="sw_min_shakeout",
+                help=HELP["min_shakeout"])
+            n_show = fc2.selectbox(
+                "How many stocks", list(range(8, 44, 4)),
+                index=1, key="sw_n_show", help=HELP["n_show"])
 
     # recipe line
     if mw:
@@ -594,18 +606,20 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     sec_txt = (f", limited to {len(sec_filter)} sectors ({flbl})"
                if sec_filter else "")
     st.markdown(
-        f"""<div style="background:#0c1829;border-left:3px solid {ACCENT};
+        f"""<div style="background:#0c1829;border:1px solid #3d6a94;
+        border-left:5px solid #FF8FA3;border-radius:10px;
         padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
-        Ranking shakeout coils by <b style="color:{ACCENT};">washout + coil at range lows</b>,
-        through <b style="color:{ACCENT};">{lens_txt}</b>{sec_txt},
+        Ranking shakeout coils by <b style="color:#FF8FA3;">washout + coil at range lows</b>,
+        through <b style="color:#FF8FA3;">{lens_txt}</b>{sec_txt},
         shakeout ≥ <b>{min_sh}/5</b>.</div>""",
         unsafe_allow_html=True)
 
-    with st.container(border=True):
+    _hub_sec("5 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+    with st.container(border=True, key="sw_cat_box"):
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:
             st.markdown(
-                "<div class='mw-sec' style='--sc:#FF9B6A'>Catalysts</div>",
+                "<div class='mw-sec' style='--sc:#A78BFA'>Catalysts</div>",
                 unsafe_allow_html=True)
             use_cat = st.toggle(
                 "Add Catalysts to the list and rank by net up/down score",
@@ -755,7 +769,8 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     if "MacroFit" in show.columns:
         styler = styler.map(lambda v: _band_fit(v), subset=["MacroFit"])
 
-    st.subheader(f"Shakeout coils · {len(show)} of {ranked_n}")
+    _hub_sec(f"Results · {len(show)} of {ranked_n}", "#FF8FA3",
+             "green is in the zone this setup wants")
     st.caption("Green = in the zone this setup wants · red = against it · dim = noise. "
                "Tap a row for the chart, cards, and company profile.")
     sel = st.dataframe(

@@ -827,11 +827,19 @@ def _run_screen(settings: dict) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     return df, screened, diag
 
 
+def _hub_sec(title, color, sub=""):
+    small = f"<small>{sub}</small>" if sub else ""
+    st.markdown(
+        f'<div class="hub-sec lg" style="--sc:{color}">{title}{small}</div>',
+        unsafe_allow_html=True)
+
+
 def render_hybrid_screener() -> None:
     """Filters + results. Call from the Hybrid Screener tab."""
     _ensure_defaults()
 
-    with st.container(border=True):
+    _hub_sec("1 · Presets", "#F0A6FF", "jump to a named screen")
+    with st.container(border=True, key="hs_presets_box"):
         presets = st.columns(8)
         _preset_btns = [
             ("clean", "📐 Clean Setup", "Trend + flag + RSI band. Strongest preset in the suite."),
@@ -852,7 +860,8 @@ def render_hybrid_screener() -> None:
                 st.session_state.pop("_hs_display", None)
                 st.rerun()
 
-    with st.expander("⚙️ Filters", expanded=True):
+    _hub_sec("2 · Filters", "#7FD4FF", "narrow the universe")
+    with st.container(border=True, key="hs_filters_box"):
         r1 = st.columns([1.2, 1, 1, 1])
         exchange = r1[0].selectbox(
             "Universe", list(EXCHANGES), key=_k("exchange"),
@@ -974,6 +983,7 @@ def render_hybrid_screener() -> None:
             key=_k("ipo_days"), disabled=not use_ipo)
 
     enabled, weights = {}, {}
+    _hub_sec("3 · Metric weights", "#6EE7B7", "toggle a factor and set its weight")
     with st.expander("📊 Metric weights", expanded=False):
         st.caption("Toggle a factor and set its weight in the hybrid score (0–5).")
         for title, keys in _METRIC_GROUPS:
@@ -991,11 +1001,12 @@ def render_hybrid_screener() -> None:
         enabled[key] = bool(st.session_state.get(_k(f"tog_{key}"), False))
         weights[key] = float(st.session_state.get(_k(f"wt_{key}"), 0.0) or 0.0)
 
-    with st.container(border=True):
+    _hub_sec("4 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+    with st.container(border=True, key="hs_cat_box"):
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:
             st.markdown(
-                "<div class='mw-sec' style='--sc:#FF9B6A'>Catalysts</div>",
+                "<div class='mw-sec' style='--sc:#A78BFA'>Catalysts</div>",
                 unsafe_allow_html=True)
             use_cat = st.toggle(
                 "Add Catalysts to the list and rank by net up/down score",
@@ -1122,7 +1133,7 @@ def render_hybrid_screener() -> None:
         return
 
     label = st.session_state.get("_hs_sector", "All Sectors")
-    st.subheader(f"Top {len(display)} — {label}")
+    _hub_sec(f"5 · Top {len(display)}", "#F0A6FF", label)
     st.caption("Click a ticker above, or a row in the table below, to open it "
                "in Stock Lookup — that also saves it to your watchlist, same "
                "as the other scanners.")

@@ -1902,6 +1902,13 @@ def scan_tickers_parallel(ticker_list, progress_cb=None, max_workers=12):
 
 
 
+def _hub_sec(title, color, sub=""):
+    small = f"<small>{sub}</small>" if sub else ""
+    st.markdown(
+        f'<div class="hub-sec lg" style="--sc:{color}">{title}{small}</div>',
+        unsafe_allow_html=True)
+
+
 def render_ignition_scanner_tab():
     """Scan Hub tab — IGNITION momentum scanner.
 
@@ -1953,21 +1960,22 @@ def render_ignition_scanner_tab():
         "<svg width='44' height='44' viewBox='0 0 72 72' fill='none' "
         "xmlns='http://www.w3.org/2000/svg'>"
         "<polyline points='8,36 18,36 24,16 30,56 38,26 44,46 50,36 64,36' "
-        "stroke='#f5a623' stroke-width='4' stroke-linecap='round' "
+        "stroke='#C8F542' stroke-width='4' stroke-linecap='round' "
         "stroke-linejoin='round' fill='none'/>"
-        "<circle cx='36' cy='36' r='4' fill='#f5a623'/>"
+        "<circle cx='36' cy='36' r='4' fill='#C8F542'/>"
         "</svg>"
         f"<div>"
         f"<div style='font-family:Space Mono,monospace;font-size:12px;color:#7a9ab8'>{APP_VERSION}"
         f"{' · last scan ' + last_scan if last_scan != '--:--:--' else ''}</div>"
         f"<div style='font-family:Rajdhani,sans-serif;font-size:22px;font-weight:700;"
-        f"color:#ffffff;letter-spacing:1px;line-height:1.1'>STOCKS IN THE MONEY ZONE</div>"
+        f"color:#C8F542;letter-spacing:1px;line-height:1.1'>STOCKS IN THE MONEY ZONE</div>"
         f"</div>"
         "</div>",
         unsafe_allow_html=True,
     )
 
-    with st.container(border=True):
+    _hub_sec("1 · Run", "#C8F542", "nothing fetches until you scan")
+    with st.container(border=True, key="ig_run_box"):
         col_refresh, col_status = st.columns([1, 4])
         with col_refresh:
             refresh_clicked = st.button(
@@ -1996,82 +2004,81 @@ def render_ignition_scanner_tab():
 
     ig_progress_slot = st.empty()
 
-    # ── Scan ALL presets toggle ──────────────────────────────────────────
-    all_presets_mode = st.toggle(
-        "Scan ALL presets",
-        value=False,
-        key="ig_all_presets_mode",
-        help="Combines every ticker across all 8 sector presets into one scan "
-             "and shows the top N results by Score. Great for finding the single "
-             "best opportunity across your entire watchlist right now.",
-    )
+    _hub_sec("2 · Watchlist", "#7FD4FF", "a preset list or the whole dump")
+    with st.container(border=True, key="ig_watch_box"):
+        all_presets_mode = st.toggle(
+            "Scan ALL presets",
+            value=False,
+            key="ig_all_presets_mode",
+            help="Combines every ticker across all 8 sector presets into one scan "
+                 "and shows the top N results by Score. Great for finding the single "
+                 "best opportunity across your entire watchlist right now.",
+        )
 
-    source = st.radio(
-        "Watchlist source",
-        ["Preset / Custom", "Scan over 5000 stocks"],
-        index=0,
-        disabled=all_presets_mode,
-        key="ig_source",
-        help="Preset / Custom: scan a hand-picked sector list. "
-             "Scan over 5000 stocks: nightly dump pre-ranks the whole universe, "
-             "then live-scans the top candidates. Disabled when Scan ALL presets is on.",
-    )
+        source = st.radio(
+            "Watchlist source",
+            ["Preset / Custom", "Scan over 5000 stocks"],
+            index=0,
+            disabled=all_presets_mode,
+            key="ig_source",
+            help="Preset / Custom: scan a hand-picked sector list. "
+                 "Scan over 5000 stocks: nightly dump pre-ranks the whole universe, "
+                 "then live-scans the top candidates. Disabled when Scan ALL presets is on.",
+        )
 
-    screener_mode = False
-    screener_url = SCREENER_URL_DEFAULT
-    pool_size = 40
-    min_price = 1.0
-    if all_presets_mode:
-        # Build deduplicated mega-list across all 8 presets, excluding ETFs
-        seen, all_combined = set(), []
-        for tkrs in PRESETS.values():
-            for t in [x.strip().upper() for x in tkrs.split(",") if x.strip()]:
-                if t not in seen and t not in ALL_PRESETS_ETF_EXCLUDE:
-                    seen.add(t)
-                    all_combined.append(t)
-        tickers = all_combined
-        st.caption(
-            f"ALL PRESETS: {len(tickers)} stocks across "
-            f"{len(PRESETS)} sectors (ETFs excluded)."
-        )
-    elif source == "Scan over 5000 stocks":
-        screener_mode = True
-        min_price = st.number_input(
-            "Min price filter", value=1.0, step=0.5,
-            key="ig_min_price",
-            help="Excludes stocks below this price from the candidate pool.",
-        )
-        tickers = []
-        st.caption("Dump pre-rank + live scan run only when you hit Scan.")
-    else:
-        preset_names = ["Custom"] + list(PRESETS.keys())
-        # Pick a random sector on very first load (not on every rerun)
-        if "ig_initial_preset_idx" not in st.session_state:
-            st.session_state["ig_initial_preset_idx"] = random.randint(1, len(preset_names) - 1)
-        preset = st.selectbox(
-            "Sector preset",
-            preset_names,
-            index=st.session_state["ig_initial_preset_idx"],
-            help="Select a sector to scan, or choose Custom to enter your own tickers.",
-            key="ig_sector_preset",
-        )
-        # Update stored index so switching presets doesn't snap back on rerun
-        st.session_state["ig_initial_preset_idx"] = preset_names.index(preset)
-        if preset == "Custom":
-            tickers_raw = st.text_area(
-                "Tickers (comma separated)",
-                value="CCJ,SMR,NNE,OKLO,LEU,EU,UUUU,UROY,GEV,CEG",
-                height=90,
-                key="ig_custom_tickers",
+        screener_mode = False
+        screener_url = SCREENER_URL_DEFAULT
+        pool_size = 40
+        min_price = 1.0
+        if all_presets_mode:
+            # Build deduplicated mega-list across all 8 presets, excluding ETFs
+            seen, all_combined = set(), []
+            for tkrs in PRESETS.values():
+                for t in [x.strip().upper() for x in tkrs.split(",") if x.strip()]:
+                    if t not in seen and t not in ALL_PRESETS_ETF_EXCLUDE:
+                        seen.add(t)
+                        all_combined.append(t)
+            tickers = all_combined
+            st.caption(
+                f"ALL PRESETS: {len(tickers)} stocks across "
+                f"{len(PRESETS)} sectors (ETFs excluded)."
             )
-            tickers = [t.strip().upper() for t in re.split(r"[,\s]+", tickers_raw) if t.strip()][:250]
+        elif source == "Scan over 5000 stocks":
+            screener_mode = True
+            min_price = st.number_input(
+                "Min price filter", value=1.0, step=0.5,
+                key="ig_min_price",
+                help="Excludes stocks below this price from the candidate pool.",
+            )
+            tickers = []
+            st.caption("Dump pre-rank + live scan run only when you hit Scan.")
         else:
-            tickers = [t.strip().upper() for t in PRESETS[preset].split(",") if t.strip()]
+            preset_names = ["Custom"] + list(PRESETS.keys())
+            # Pick a random sector on very first load (not on every rerun)
+            if "ig_initial_preset_idx" not in st.session_state:
+                st.session_state["ig_initial_preset_idx"] = random.randint(1, len(preset_names) - 1)
+            preset = st.selectbox(
+                "Sector preset",
+                preset_names,
+                index=st.session_state["ig_initial_preset_idx"],
+                help="Select a sector to scan, or choose Custom to enter your own tickers.",
+                key="ig_sector_preset",
+            )
+            # Update stored index so switching presets doesn't snap back on rerun
+            st.session_state["ig_initial_preset_idx"] = preset_names.index(preset)
+            if preset == "Custom":
+                tickers_raw = st.text_area(
+                    "Tickers (comma separated)",
+                    value="CCJ,SMR,NNE,OKLO,LEU,EU,UUUU,UROY,GEV,CEG",
+                    height=90,
+                    key="ig_custom_tickers",
+                )
+                tickers = [t.strip().upper() for t in re.split(r"[,\s]+", tickers_raw) if t.strip()][:250]
+            else:
+                tickers = [t.strip().upper() for t in PRESETS[preset].split(",") if t.strip()]
 
-    with st.container(border=True):
-        st.markdown(
-            "<div class='mw-sec' style='--sc:#FFB020'>Scan settings</div>",
-            unsafe_allow_html=True)
+    _hub_sec("3 · Scan settings", "#C8F542", "how many names and the alert line")
+    with st.container(border=True, key="ig_settings_box"):
         top_n = st.slider(
             "Results to show", 5, 30, 10,
             key="ig_top_n",
@@ -2233,7 +2240,7 @@ def render_ignition_scanner_tab():
 
     def az_section(title):
         tones = ("#7FD4FF", "#6EE7B7", "#F0A6FF", "#FFD15C",
-                 "#FF9B6A", "#FF8FA3", "#FFB020", "#C5D4FF")
+                 "#A78BFA", "#FF8FA3", "#C8F542", "#C5D4FF")
         color = tones[sum(ord(c) for c in title) % len(tones)]
         st.markdown(
             f"<div style='font-family:Rajdhani,sans-serif;font-weight:800;font-size:13px;"
