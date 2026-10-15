@@ -3884,8 +3884,63 @@ def watchlist_normalize_added(raw) -> str:
     return s[:10] if len(s) >= 10 and s[0].isdigit() else ""
 
 
+def watchlist_scan_snapshot(row) -> dict:
+    """JSON-safe slice of a scanner row, stored on the watchlist."""
+    if row is None:
+        return {}
+    try:
+        items = row.to_dict() if hasattr(row, "to_dict") else dict(row)
+    except Exception:
+        return {}
+    out = {}
+    for key, val in items.items():
+        name = str(key)
+        if name.startswith("_") or name in ("Data", "Snippet", "Speech"):
+            continue
+        if val is None or isinstance(val, (dict, list, tuple, set)):
+            continue
+        if isinstance(val, (bool, np.bool_)):
+            out[name] = bool(val)
+            continue
+        if isinstance(val, (int, np.integer)) and not isinstance(val, bool):
+            out[name] = int(val)
+            continue
+        try:
+            num = float(val)
+        except (TypeError, ValueError):
+            num = None
+        if num is not None:
+            if np.isfinite(num):
+                out[name] = round(num, 4)
+            continue
+        text = str(val).strip()
+        if not text or text.lower() in ("nan", "none", "nat"):
+            continue
+        out[name] = text[:157] + "..." if len(text) > 160 else text
+    return out
+
+
+def watchlist_scan_blurb(scan) -> str:
+    """One line of the scan numbers saved with a watchlist row."""
+    if not isinstance(scan, dict) or not scan:
+        return ""
+    bits = []
+    for key in ("#", "Score", "StormScore", "Stage", "Shakeout", "Adj",
+                "Macro", "Vol%", "RangePos", "Win%", "ExpR", "RSI", "Why"):
+        if key not in scan or scan[key] in ("", None):
+            continue
+        val = scan[key]
+        if isinstance(val, float):
+            val = f"{val:.2f}".rstrip("0").rstrip(".")
+        bits.append(f"{key} {val}")
+    for key in ("▲ Up", "▼ Down", "Catalysts"):
+        if scan.get(key):
+            bits.append(str(scan[key]))
+    return " · ".join(bits[:8])
+
+
 def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
-                  added: str = "") -> bool:
+                  added: str = "", scan=None) -> bool:
     """Add a ticker, or update its scanner tag if it's already saved.
 
     `source` is the Scan Hub scanner (or Stock Lookup) that found it.
@@ -3920,6 +3975,10 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
         if not watchlist_normalize_added(existing.get("added")):
             existing["added"] = watchlist_stamp_date()
             changed = True
+        snap = watchlist_scan_snapshot(scan) if scan else {}
+        if snap:
+            existing["scan"] = snap
+            changed = True
         if changed:
             watchlist_save(items)
         return False
@@ -3927,10 +3986,14 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
         px = round(float(price), 2)
     except Exception:
         px = float("nan")
-    items.append(dict(ticker=ticker,
-                      added=watchlist_normalize_added(added) or watchlist_stamp_date(),
-                      price_at_add=px, note=note,
-                      source=watchlist_source_label(src, note)))
+    snap = watchlist_scan_snapshot(scan) if scan else {}
+    row = dict(ticker=ticker,
+               added=watchlist_normalize_added(added) or watchlist_stamp_date(),
+               price_at_add=px, note=note,
+               source=watchlist_source_label(src, note))
+    if snap:
+        row["scan"] = snap
+    items.append(row)
     watchlist_save(items)
     return True
 

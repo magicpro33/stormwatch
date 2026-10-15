@@ -691,8 +691,7 @@ def _header() -> None:
         f"""
         <div style="background:#0c1829;border:1px solid #1d2b40;border-left:4px solid {ACCENT};
             border-radius:10px;padding:12px 14px;margin-bottom:10px;">
-          <div style="font-weight:750;font-size:18px;color:{INK};">Crypto Copycat</div>
-          <div style="color:{DIM};font-size:13px;margin-top:4px;line-height:1.45;">
+          <div style="color:{DIM};font-size:13px;line-height:1.45;">
             Live buys and sells from Hyperliquid wallets that are actually up, plus the
             vaults Hyperliquid uses for real copy-trading. The leaderboard snapshot
             refreshes about hourly. Positions and fills refresh about every 25 seconds.

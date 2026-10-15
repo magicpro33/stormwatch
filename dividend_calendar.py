@@ -676,7 +676,6 @@ def _yield_list_and_calc(src, today, *, show_buy_cols, table_key, inv_key):
 
 def render_dividend_calendar_tab():
     _css()
-    _html('<div class="dc-title">Dividend Calender</div>')
     view = _section(["Calendar", "Calculator", "Help"], "dc_view")
 
     stamp = _dump_stamp()

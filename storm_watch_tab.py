@@ -478,6 +478,23 @@ def _draw_chart(tk: str):
         st.caption(f"Last 180 sessions · {src}. Research view, not investment advice.")
 
 
+def _sw_cat_help(side):
+    try:
+        import cascade_engine as ce
+    except Exception:
+        return "Catalyst tags. Hover a tag on the stock card for what it means."
+    lead = ("Up catalysts — historically helped the next move."
+            if side == "up" else
+            "Down catalysts — historically hurt the next move.")
+    lines = [lead]
+    for cid, meta in (getattr(ce, "CATALYST_METRICS", {}) or {}).items():
+        if meta.get("side") != side:
+            continue
+        note = (getattr(ce, "CATALYST_MEANINGS", {}) or {}).get(cid) or ""
+        lines.append(f"{meta.get('icon', '')} {meta.get('label', cid)}: {note}".strip())
+    return "\n".join(lines)
+
+
 def _hub_sec(title, color, sub=""):
     small = f"<small>{sub}</small>" if sub else ""
     st.markdown(
@@ -782,10 +799,10 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                 help="Scan rank. 1 is first on this list. Click the header to sort."),
             "▲ Up": st.column_config.Column(
                 "▲ Up", width="medium",
-                help="Up catalysts — historically helped the next move."),
+                help=_sw_cat_help("up")),
             "▼ Down": st.column_config.Column(
                 "▼ Down", width="medium",
-                help="Down catalysts — historically hurt the next move."),
+                help=_sw_cat_help("down")),
             "StormScore": st.column_config.Column(help=HELP["score"]),
             "Shakeout": st.column_config.Column(help=HELP["min_shakeout"]),
             "Ret5": st.column_config.Column(help=HELP["ret5"]),
@@ -818,7 +835,10 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                     _spx = float(show[show.Ticker.astype(str).str.upper() == _stk].iloc[0].Price)
                 except Exception:
                     _spx = float("nan")
-                added = ce.watchlist_add(_stk, _spx, source="ShakeOut")
+                _srow = show[show.Ticker.astype(str).str.upper() == _stk]
+                added = ce.watchlist_add(
+                    _stk, _spx, source="ShakeOut",
+                    scan=ce.watchlist_scan_snapshot(_srow.iloc[0]) if len(_srow) else None)
                 if added:
                     try:
                         st.toast(f"⭐ {_stk} saved from ShakeOut")
@@ -858,7 +878,8 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             elif w1.button(f"⭐ Add {tk} to watchlist", key=f"sw_wl_{tk}",
                            width="stretch", help=HELP["watchlist"]):
                 try:
-                    ce.watchlist_add(tk, float(row.Price), source="ShakeOut")
+                    ce.watchlist_add(tk, float(row.Price), source="ShakeOut",
+                                    scan=ce.watchlist_scan_snapshot(row))
                     st.toast(f"⭐ {tk} saved from ShakeOut at ${float(row.Price):,.2f}")
                     st.rerun()
                 except Exception as we:

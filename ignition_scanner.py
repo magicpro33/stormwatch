@@ -606,10 +606,26 @@ CATALYST_SIGNAL_CSS = """<style>
 </style>"""
 
 
-def catalyst_pill(label: str, css_class: str, url: str) -> str:
+CATALYST_TIPS = {
+    "earnings": "Earnings or guidance in the news. The print can move the stock either way.",
+    "fda": "FDA, trial, or approval headlines. Healthcare names only.",
+    "buyout": "Merger, takeover, or sale-process headlines.",
+    "legal": "Lawsuit, settlement, or investigation headlines.",
+    "partnership": "Partnership, contract, or joint-venture news.",
+    "squeeze": "Crowded short. A squeeze can force buying, then fade.",
+    "breakout": "52-week high or a breakout in the headlines.",
+    "geopolitical": "Tariff, trade, or conflict news in an exposed sector.",
+    "rate": "Fed or rate headlines. Rate-sensitive sectors only.",
+    "earn_growth": "Record earnings or a beat vs estimates.",
+    "bimodal": "Earnings, FDA, legal, or M&A overlapping — can cut either way.",
+}
+
+
+def catalyst_pill(label: str, css_class: str, url: str, tip: str = "") -> str:
+    title = f" title='{tip}'" if tip else ""
     return (
-        f"<span class='fuel-tag {css_class}'>"
-        f"<a href='{url}' target='_blank' rel='noopener'>{label}</a>"
+        f"<span class='fuel-tag {css_class}'{title} style='cursor:help'>"
+        f"<a href='{url}' target='_blank' rel='noopener'{title}>{label}</a>"
         f"</span>"
     )
 
@@ -644,7 +660,7 @@ def build_catalyst_tags_html(ticker: str, cat_tags: list, bimodal: bool,
     parts = []
     if bimodal:
         label, css, url_fn = BIMODAL_TAG
-        parts.append(catalyst_pill(label, css, url_fn(ticker)))
+        parts.append(catalyst_pill(label, css, url_fn(ticker), CATALYST_TIPS.get("bimodal", "")))
     for tag in cat_tags or []:
         if tag not in CATALYST_TAG_META:
             continue
@@ -652,7 +668,7 @@ def build_catalyst_tags_html(ticker: str, cat_tags: list, bimodal: bool,
         if tag == "earnings" and earnings_days is not None:
             label = (f"EARN {earnings_days}d" if earnings_days >= 0
                      else f"EARN -{abs(earnings_days)}d")
-        parts.append(catalyst_pill(label, css, url_fn(ticker)))
+        parts.append(catalyst_pill(label, css, url_fn(ticker), CATALYST_TIPS.get(tag, "")))
     if dtc and dtc >= 5:
         parts.append(dtc_gauge_pill(ticker, dtc))
     return "".join(parts)
@@ -683,11 +699,19 @@ def render_catalyst_signals(ticker: str) -> None:
             return "<span style='color:#9aa8bd;font-size:13px'>None</span>"
         bits = []
         for part in text.split(" · "):
+            tip = ""
+            clean = part.replace(" (filtered)", "").strip()
+            for cid, meta in (getattr(_ce, "LOOKUP_CATALYST_METRICS", {}) or {}).items():
+                lab = f"{meta.get('icon', '')} {meta.get('label', '')}".strip()
+                if clean == lab:
+                    tip = (getattr(_ce, "CATALYST_MEANINGS", {}) or {}).get(cid) or ""
+                    break
+            title = f" title='{tip.replace(chr(39), '&#39;')}'" if tip else ""
             bits.append(
-                f"<span style='display:inline-block;font-family:Space Mono,monospace;"
+                f"<span{title} style='display:inline-block;font-family:Space Mono,monospace;"
                 f"font-size:12px;font-weight:700;padding:3px 10px;border-radius:6px;"
                 f"margin:0 6px 6px 0;background:{bg};border:1px solid {border};"
-                f"color:{color}'>{part}</span>")
+                f"color:{color};cursor:help'>{part}</span>")
         return "".join(bits)
 
     sc_col = "#3fbf7f" if score > 0 else ("#e05252" if score < 0 else "#9aa8bd")
@@ -3272,7 +3296,18 @@ def render_ignition_scanner_tab():
                     _r = next((r for r in ok
                                if str(r.get("ticker", "")).strip().upper() == _itk), None)
                     _px = float(_r["price"]) if _r and _r.get("price") else float("nan")
-                    _ig_new = _ig_ce_row.watchlist_add(_itk, _px, source="Ignition Scanner")
+                    _ig_scan = {}
+                    if _r:
+                        if _r.get("score") is not None:
+                            _ig_scan["Score"] = _r.get("score")
+                        _why = [str(x) for x in (_r.get("reasons") or [])[:4]]
+                        if _why:
+                            _ig_scan["Why"] = ", ".join(_why)
+                        _tags = ((_r.get("fuel") or {}).get("catalyst_tags") or [])
+                        if _tags:
+                            _ig_scan["Catalysts"] = ", ".join(str(t) for t in _tags[:6])
+                    _ig_new = _ig_ce_row.watchlist_add(
+                        _itk, _px, source="Ignition Scanner", scan=_ig_scan or None)
                 except Exception:
                     _ig_new = False
                 if st.session_state.get("_ig_chart_handled") != _itk:
@@ -3335,8 +3370,19 @@ def render_ignition_scanner_tab():
                            help="Save this Ignition Scanner result to your watchlist."):
                 _r = next((r for r in ok if r["ticker"] == az_ticker), None)
                 _px = float(_r["price"]) if _r and _r.get("price") else float("nan")
+                _ig_scan = {}
+                if _r:
+                    if _r.get("score") is not None:
+                        _ig_scan["Score"] = _r.get("score")
+                    _why = [str(x) for x in (_r.get("reasons") or [])[:4]]
+                    if _why:
+                        _ig_scan["Why"] = ", ".join(_why)
+                    _tags = ((_r.get("fuel") or {}).get("catalyst_tags") or [])
+                    if _tags:
+                        _ig_scan["Catalysts"] = ", ".join(str(t) for t in _tags[:6])
                 if _ig_ce is not None:
-                    _ig_ce.watchlist_add(az_ticker, _px, source="Ignition Scanner")
+                    _ig_ce.watchlist_add(az_ticker, _px, source="Ignition Scanner",
+                                         scan=_ig_scan or None)
                     st.session_state["wl_source"] = "Ignition Scanner"
                     st.session_state["lk_tk"] = az_ticker
                     try:

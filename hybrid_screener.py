@@ -827,6 +827,16 @@ def _run_screen(settings: dict) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     return df, screened, diag
 
 
+def _hs_cat_help(side, lead):
+    lines = [lead]
+    for cid, meta in (getattr(ce, "CATALYST_METRICS", {}) or {}).items():
+        if meta.get("side") != side:
+            continue
+        note = (getattr(ce, "CATALYST_MEANINGS", {}) or {}).get(cid) or ""
+        lines.append(f"{meta.get('icon', '')} {meta.get('label', cid)}: {note}".strip())
+    return "\n".join(lines)
+
+
 def _hub_sec(title, color, sub=""):
     small = f"<small>{sub}</small>" if sub else ""
     st.markdown(
@@ -1153,7 +1163,9 @@ def render_hybrid_screener() -> None:
                         px = float(display.loc[display["Ticker"] == tk, "Price"].iloc[0])
                     except Exception:
                         px = float("nan")
-                    if ce.watchlist_add(tk, px, source="Hybrid Screener"):
+                    _hs_row = display.loc[display["Ticker"] == tk].iloc[0]
+                    if ce.watchlist_add(tk, px, source="Hybrid Screener",
+                                        scan=ce.watchlist_scan_snapshot(_hs_row)):
                         try:
                             st.toast(f"⭐ {tk} saved from Hybrid Screener")
                         except Exception:
@@ -1177,11 +1189,11 @@ def render_hybrid_screener() -> None:
     if _up in display.columns:
         _cat_cfg[_up] = st.column_config.Column(
             _up, width="medium",
-            help="Up catalysts — historically helped the next move.")
+            help=_hs_cat_help("up", "Up catalysts — historically helped the next move. Hover a tag in the stock card for the same note."))
     if _dn in display.columns:
         _cat_cfg[_dn] = st.column_config.Column(
             _dn, width="medium",
-            help="Down catalysts — historically hurt the next move.")
+            help=_hs_cat_help("down", "Down catalysts — historically hurt the next move. Hover a tag in the stock card for the same note."))
     try:
         styled = display.style.map(_color_score, subset=["Score"]) if "Score" in display.columns else display
         _tsel = st.dataframe(
@@ -1211,7 +1223,9 @@ def render_hybrid_screener() -> None:
                 _tpx = float(display.loc[display["Ticker"] == _ttk, "Price"].iloc[0])
             except Exception:
                 _tpx = float("nan")
-            if ce.watchlist_add(_ttk, _tpx, source="Hybrid Screener"):
+            _hs_row = display.iloc[_trows[0]]
+            if ce.watchlist_add(_ttk, _tpx, source="Hybrid Screener",
+                                scan=ce.watchlist_scan_snapshot(_hs_row)):
                 try:
                     st.toast(f"⭐ {_ttk} saved from Hybrid Screener")
                 except Exception:

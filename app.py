@@ -845,11 +845,54 @@ def az_tag_inv(v, hi, lo, fmt="{:.2f}", suffix=""):
         return "--"
 
 
-def mrow(label, tooltip, value):
+def metric_scale(value, vmin, vmax, good, ok, caption, higher=True, neg_bad=False):
+    """Bar to the right of a metric. Green band is the good range."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if not np.isfinite(v):
+        return ""
+    span = max(float(vmax) - float(vmin), 1e-9)
+
+    def _pct(x):
+        return max(0.0, min(100.0, (float(x) - float(vmin)) / span * 100.0))
+
+    def _band(a, b, color):
+        left, right = _pct(a), _pct(b)
+        return (f"<div style='position:absolute;left:{min(left, right):.1f}%;"
+                f"width:{max(abs(right - left), 0):.1f}%;top:0;bottom:0;"
+                f"background:{color}'></div>")
+
+    if higher:
+        in_good = v >= good
+        in_ok = v >= ok
+        zones = _band(ok, good, "rgba(208,176,64,.45)") + _band(good, vmax, "rgba(77,216,128,.5)")
+    else:
+        in_good = v <= good
+        in_ok = v <= ok
+        zones = _band(vmin, good, "rgba(77,216,128,.5)") + _band(good, ok, "rgba(208,176,64,.45)")
+    if neg_bad and v < 0:
+        in_good = in_ok = False
+    color = "#4dd880" if in_good else ("#d0b040" if in_ok else "#ff4444")
+    mark = _pct(0 if (neg_bad and v < 0) else v)
+    cap = _esc(caption)
+    return (
+        f"<div title='{cap}' style='position:relative;height:12px;background:#122540;"
+        f"border-radius:4px;overflow:hidden'>{zones}"
+        f"<div style='position:absolute;left:calc({mark:.1f}% - 2px);top:0;width:4px;"
+        f"height:12px;background:{color}'></div></div>"
+        f"<div style='font-size:10px;color:#9aa8bd;margin-top:2px;line-height:1.2'>{cap}</div>"
+    )
+
+
+def mrow(label, tooltip, value, scale=""):
     return (f"<tr style='border-bottom:1px solid #122540'>"
-            f"<td style='padding:8px 10px;font-size:13px;color:#b0c8e8;width:44%'>"
+            f"<td style='padding:8px 10px;font-size:13px;color:#b0c8e8;width:34%'>"
             f"<span title='{tooltip}' style='cursor:help;border-bottom:1px dashed #1e3a5f'>{label}</span></td>"
-            f"<td style='padding:8px 10px;font-size:13px;font-family:monospace;color:#F6F4E9'>{value}</td></tr>")
+            f"<td style='padding:8px 8px;font-size:13px;font-family:monospace;color:#F6F4E9;"
+            f"width:28%;white-space:nowrap'>{value}</td>"
+            f"<td style='padding:6px 8px;width:38%;vertical-align:middle'>{scale}</td></tr>")
 
 
 def mtable(rows):
@@ -1756,16 +1799,22 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                              f"<span style='font-family:monospace;color:#b0c8e8'>${mcap/1e9:,.1f}B</span> <span style='font-size:11px;color:#7a9ab8'>{tier} cap</span>"))
         if pe:
             rows.append(mrow("P/E Ratio", "Price per dollar of trailing earnings.",
-                             az_tag_inv(pe, 40, 25, "{:.1f}", "x")))
+                             az_tag_inv(pe, 40, 25, "{:.1f}", "x"),
+                             metric_scale(pe, 0, 60, 25, 40, "good under 25x",
+                                          higher=False, neg_bad=True)))
         if fwpe:
             rows.append(mrow("Forward P/E", "P/E on next-12-month estimates. Below trailing = growth expected.",
-                             f"<span style='font-family:monospace;color:#b0c8e8'>{fwpe:.1f}x</span>"))
+                             f"<span style='font-family:monospace;color:#b0c8e8'>{fwpe:.1f}x</span>",
+                             metric_scale(fwpe, 0, 60, 25, 40, "good under 25x",
+                                          higher=False, neg_bad=True)))
         if pb:
             rows.append(mrow("P/B Ratio", "Below 1 = under book value; above 3 = premium.",
-                             az_tag_inv(pb, 6, 3, "{:.2f}", "x")))
+                             az_tag_inv(pb, 6, 3, "{:.2f}", "x"),
+                             metric_scale(pb, 0, 10, 3, 6, "good under 3x", higher=False)))
         if ps:
             rows.append(mrow("P/S Ratio", "Below 2x reasonable; above 10x = growth premium.",
-                             az_tag_inv(ps, 10, 5, "{:.2f}", "x")))
+                             az_tag_inv(ps, 10, 5, "{:.2f}", "x"),
+                             metric_scale(ps, 0, 16, 5, 10, "good under 5x", higher=False)))
         if beta is not None:
             rows.append(mrow("Beta", "Sensitivity to the market. 1 = moves with SPY; 2 = twice the swing.",
                              f"<span style='font-family:monospace;color:#b0c8e8'>{beta:.2f}</span>"))
@@ -1777,30 +1826,34 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                                        roce, gm, opm, cfm, fcfm)):
             az_section("Financial Health")
             rows = []
-            if roce is not None: rows.append(mrow("ROCE", "Return on Capital Employed: operating income / (total assets − current liabilities). Felix's favorite capital-efficiency lens — 15%+ is elite.", az_tag(roce * 100, 15, 8, "{:.1f}", "%")))
-            if gm is not None: rows.append(mrow("Gross Margin", "Gross profit / revenue — the moat test. 60%+ means pricing power nobody can compete away.", az_tag(gm * 100, 50, 30, "{:.1f}", "%")))
-            if opm is not None: rows.append(mrow("Operating Margin", "Operating income / revenue — what's left after running the business.", az_tag(opm * 100, 15, 5, "{:.1f}", "%")))
-            elif om is not None: rows.append(mrow("Operating Margin", "Operating income / revenue.", az_tag(om * 100, 15, 5, "{:.1f}", "%")))
-            if cfm is not None: rows.append(mrow("Cash Flow Margin", "Operating cash flow / revenue — earnings are an opinion, cash is a fact.", az_tag(cfm * 100, 15, 8, "{:.1f}", "%")))
-            if fcfm is not None: rows.append(mrow("FCF Margin", "Free cash flow / revenue — cash left after capex; what owners actually keep.", az_tag(fcfm * 100, 10, 5, "{:.1f}", "%")))
-            if pm is not None: rows.append(mrow("Profit Margin", "Net income / revenue.", az_tag(pm * 100, 15, 5, "{:.1f}", "%")))
-            if roe is not None: rows.append(mrow("ROE", "Return on equity.", az_tag(roe * 100, 15, 8, "{:.1f}", "%")))
-            if roa is not None: rows.append(mrow("ROA", "Return on assets.", az_tag(roa * 100, 8, 4, "{:.1f}", "%")))
-            if deq is not None: rows.append(mrow("Debt / Equity", "Leverage — lower is safer.", az_tag_inv(deq, 150, 80, "{:.0f}", "%")))
-            if cr is not None: rows.append(mrow("Current Ratio", "Short-term assets / liabilities. Above 1.5 healthy.", az_tag(cr, 1.5, 1.0, "{:.2f}", "x")))
+            if roce is not None: rows.append(mrow("ROCE", "Return on Capital Employed: operating income / (total assets − current liabilities). Felix's favorite capital-efficiency lens — 15%+ is elite.", az_tag(roce * 100, 15, 8, "{:.1f}", "%"), metric_scale(roce * 100, 0, 40, 15, 8, "good 15%+")))
+            if gm is not None: rows.append(mrow("Gross Margin", "Gross profit / revenue — the moat test. 60%+ means pricing power nobody can compete away.", az_tag(gm * 100, 50, 30, "{:.1f}", "%"), metric_scale(gm * 100, 0, 80, 50, 30, "good 50%+")))
+            if opm is not None: rows.append(mrow("Operating Margin", "Operating income / revenue — what's left after running the business.", az_tag(opm * 100, 15, 5, "{:.1f}", "%"), metric_scale(opm * 100, 0, 40, 15, 5, "good 15%+")))
+            elif om is not None: rows.append(mrow("Operating Margin", "Operating income / revenue.", az_tag(om * 100, 15, 5, "{:.1f}", "%"), metric_scale(om * 100, 0, 40, 15, 5, "good 15%+")))
+            if cfm is not None: rows.append(mrow("Cash Flow Margin", "Operating cash flow / revenue — earnings are an opinion, cash is a fact.", az_tag(cfm * 100, 15, 8, "{:.1f}", "%"), metric_scale(cfm * 100, 0, 40, 15, 8, "good 15%+")))
+            if fcfm is not None: rows.append(mrow("FCF Margin", "Free cash flow / revenue — cash left after capex; what owners actually keep.", az_tag(fcfm * 100, 10, 5, "{:.1f}", "%"), metric_scale(fcfm * 100, 0, 30, 10, 5, "good 10%+")))
+            if pm is not None: rows.append(mrow("Profit Margin", "Net income / revenue.", az_tag(pm * 100, 15, 5, "{:.1f}", "%"), metric_scale(pm * 100, 0, 40, 15, 5, "good 15%+")))
+            if roe is not None: rows.append(mrow("ROE", "Return on equity.", az_tag(roe * 100, 15, 8, "{:.1f}", "%"), metric_scale(roe * 100, 0, 40, 15, 8, "good 15%+")))
+            if roa is not None: rows.append(mrow("ROA", "Return on assets.", az_tag(roa * 100, 8, 4, "{:.1f}", "%"), metric_scale(roa * 100, 0, 20, 8, 4, "good 8%+")))
+            if deq is not None: rows.append(mrow("Debt / Equity", "Leverage — lower is safer.", az_tag_inv(deq, 150, 80, "{:.0f}", "%"), metric_scale(deq, 0, 250, 80, 150, "good under 80%", higher=False)))
+            if cr is not None: rows.append(mrow("Current Ratio", "Short-term assets / liabilities. Above 1.5 healthy.", az_tag(cr, 1.5, 1.0, "{:.2f}", "x"), metric_scale(cr, 0, 3, 1.5, 1.0, "good 1.5x+")))
             mtable(rows)
         scan_rows = []
-        for lab, key, hi, lo, fmt, suf, tip in (
-            ("Piotroski", "_scan_piotroski", 7, 5, "{:.0f}", "/9", "9-point fundamental health score from the nightly scan. 7+ = fortress."),
-            ("Golden Cross", "_scan_golden_cross", 1, 0.5, "{:.1f}", "", "1 = 50MA above 200MA in the nightly scan."),
-            ("ROIC", "_scan_roic", 0.15, 0.08, "{:.1%}", "", "Return on invested capital — the macro simulator's #1 quality marker."),
-            ("MFI", "_scan_mfi", 55, 45, "{:.0f}", "", "Money Flow Index from the nightly scan."),
-            ("Squeeze Score", "_scan_squeeze", 60, 40, "{:.0f}", "", "Nightly short-squeeze composite."),
-            ("Clean Setup", "_scan_clean_setup", 60, 40, "{:.0f}", "", "Your Clean Setup preset score from the nightly scan."),
+        for lab, key, hi, lo, fmt, suf, tip, scale in (
+            ("Piotroski", "_scan_piotroski", 7, 5, "{:.0f}", "/9", "9-point fundamental health score from the nightly scan. 7+ = fortress.", (0, 9, 7, 5, "good 7+", False)),
+            ("Golden Cross", "_scan_golden_cross", 1, 0.5, "{:.1f}", "", "1 = 50MA above 200MA in the nightly scan.", (0, 1, 1, 0.5, "good 1", False)),
+            ("ROIC", "_scan_roic", 0.15, 0.08, "{:.1%}", "", "Return on invested capital — the macro simulator's #1 quality marker.", None),
+            ("MFI", "_scan_mfi", 55, 45, "{:.0f}", "", "Money Flow Index from the nightly scan.", (0, 100, 55, 45, "good 55+", False)),
+            ("Squeeze Score", "_scan_squeeze", 60, 40, "{:.0f}", "", "Nightly short-squeeze composite.", (0, 100, 60, 40, "good 60+", False)),
+            ("Clean Setup", "_scan_clean_setup", 60, 40, "{:.0f}", "", "Your Clean Setup preset score from the nightly scan.", (0, 100, 60, 40, "good 60+", False)),
         ):
             v = info.get(key)
             if v is not None and np.isfinite(v):
-                scan_rows.append(mrow(lab, tip, az_tag(v, hi, lo, fmt, suf)))
+                if key == "_scan_roic":
+                    bar = metric_scale(v * 100, 0, 40, 15, 8, "good 15%+")
+                else:
+                    bar = metric_scale(v, scale[0], scale[1], scale[2], scale[3], scale[4])
+                scan_rows.append(mrow(lab, tip, az_tag(v, hi, lo, fmt, suf), bar))
         if scan_rows:
             az_section("Nightly Scan Signals")
             mtable(scan_rows)
@@ -2323,7 +2376,7 @@ def _row_price(row) -> float:
     return float("nan")
 
 
-def _watchlist_tag(tk: str, price, source: str) -> bool:
+def _watchlist_tag(tk: str, price, source: str, row=None) -> bool:
     """Save `tk` to the watchlist tagged with the scanner that found it."""
     if not tk:
         return False
@@ -2331,9 +2384,10 @@ def _watchlist_tag(tk: str, price, source: str) -> bool:
     source = (ce.watchlist_source_label(source)
               if hasattr(ce, "watchlist_source_label") else (str(source or "").strip() or "Stock Lookup"))
     st.session_state["wl_source"] = source
+    snap = ce.watchlist_scan_snapshot(row) if row is not None and hasattr(ce, "watchlist_scan_snapshot") else None
     try:
         added = ce.watchlist_add(tk, float(price) if price is not None else float("nan"),
-                                 source=source)
+                                 source=source, scan=snap)
     except Exception as e:
         log_exc("watchlist_tag", e)
         return False
@@ -2381,7 +2435,7 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
     st.session_state[persist] = tk
     st.session_state["lk_tk"] = tk
     if from_click and source:
-        _watchlist_tag(tk, _row_price(row), source)
+        _watchlist_tag(tk, _row_price(row), source, row)
     if full_lookup:
         _render_lookup_stack(tk, state_key, az_prefix)
     else:
@@ -2739,13 +2793,38 @@ def _cat_col_cfgs():
     return {
         up: st.column_config.Column(
             up, width="medium",
-            help="Up catalysts — historically helped the next move: "
-                 "💥 WASH OUT, 📈 EARN ↑, 🚀 BREAKOUT, 🤝 M&A, 💊 FDA, 🔗 DEAL."),
+            help=_cat_side_help(
+                "up",
+                "Up catalysts — historically helped the next move.")),
         down: st.column_config.Column(
             down, width="medium",
-            help="Down catalysts — historically hurt the next move: "
-                 "🩸 SELL OFF, 🎈 GAP UP, 💸 OFFERING, ⚖️ LEGAL, 🩳 SQUEEZE."),
+            help=_cat_side_help(
+                "down",
+                "Down catalysts — historically hurt the next move.")),
     }
+
+
+def _cat_side_help(side: str, lead: str) -> str:
+    metrics = getattr(ce, "CATALYST_METRICS", {}) or {}
+    meanings = getattr(ce, "CATALYST_MEANINGS", {}) or {}
+    lines = [lead]
+    for cid, meta in metrics.items():
+        if meta.get("side") != side:
+            continue
+        note = meanings.get(cid) or ""
+        lines.append(f"{meta.get('icon', '')} {meta.get('label', cid)}: {note}".strip())
+    return "\n".join(lines)
+
+
+def _cat_tip(part: str) -> str:
+    metrics = getattr(ce, "LOOKUP_CATALYST_METRICS", None) or getattr(ce, "CATALYST_METRICS", {}) or {}
+    meanings = getattr(ce, "CATALYST_MEANINGS", {}) or {}
+    clean = str(part or "").replace(" (filtered)", "").strip()
+    for cid, meta in metrics.items():
+        lab = f"{meta.get('icon', '')} {meta.get('label', '')}".strip()
+        if clean == lab:
+            return meanings.get(cid) or ""
+    return ""
 
 
 def _rank_col_cfg():
@@ -2813,11 +2892,13 @@ def _render_signed_catalysts(tk: str, sector: str = "") -> None:
             return f"<span style='color:{DIM};font-size:13px'>None</span>"
         bits = []
         for part in text.split(" · "):
+            tip = _cat_tip(part)
+            title = f" title='{_esc(tip)}'" if tip else ""
             bits.append(
-                f"<span style='display:inline-block;font-family:Space Mono,monospace;"
+                f"<span{title} style='display:inline-block;font-family:Space Mono,monospace;"
                 f"font-size:12px;font-weight:700;padding:3px 10px;border-radius:6px;"
                 f"margin:0 6px 6px 0;background:{bg};border:1px solid {border};"
-                f"color:{color}'>{_esc(part)}</span>")
+                f"color:{color};cursor:help'>{_esc(part)}</span>")
         return "".join(bits)
 
     meanings = getattr(ce, "CATALYST_MEANINGS", {}) or {}
@@ -3343,13 +3424,13 @@ def flow_window_picker(prefix: str, compact: bool = False):
 
 # ── 🌊 cascade map ───────────────────────────────────────────────────
 if _main == "Cascade Map" and _map == "Market Weather":
+    _hub_title("🌊 Market Weather", "#7FD4FF")
     closes, asof = _require_closes()
     if st.session_state.get("mw_analyze"):
         render_ticker_analysis(st.session_state["mw_analyze"], closes)
         st.divider()
 
     _cc1, _cc2 = st.columns([6, 1], vertical_alignment="center")
-    _cc1.markdown("### 🌊 Market Weather")
     if _cc2.button("🔄 Refresh", key="mw_refresh", width="stretch",
                    help="Get the latest prices and recompute everything now. "
                         "Takes a minute or two. If the internet feeds are down, "
@@ -3686,6 +3767,7 @@ if _main == "Cascade Map" and _map == "Market Weather":
 
 # ── 🔎 stock lookup ──────────────────────────────────────────────────
 if _main == "Stock Lookup":
+    _hub_title("🔎 Stock Lookup", "#7FD4FF")
     closes, asof = _try_closes_for_scan()
     st.caption("Search any stock in the 5,700-name nightly universe. The "
                "outlook is an ANALOG forecast: what actually happened next to "
@@ -3876,8 +3958,14 @@ if _main == "Stock Lookup":
         _norm_added = (ce.watchlist_normalize_added
                        if hasattr(ce, "watchlist_normalize_added") else (lambda v: str(v or "")))
         wdf["added"] = wdf["added"].map(_norm_added) if "added" in wdf.columns else ""
-        show = wdf[["ticker", "sector", "scanner", "added", "price_at_add", "price_now", "since_add"]]
-        show.columns = ["Ticker", "Sector", "Scanner", "Saved", "Price then", "Price now", "Since saved"]
+        _blurb = (ce.watchlist_scan_blurb if hasattr(ce, "watchlist_scan_blurb")
+                  else (lambda s: ""))
+        if "scan" in wdf.columns:
+            wdf["scan_data"] = wdf["scan"].map(lambda s: _blurb(s) if isinstance(s, dict) else "")
+        else:
+            wdf["scan_data"] = ""
+        show = wdf[["ticker", "sector", "scanner", "scan_data", "added", "price_at_add", "price_now", "since_add"]]
+        show.columns = ["Ticker", "Sector", "Scanner", "Scan data", "Saved", "Price then", "Price now", "Since saved"]
         _wl_sel_epoch = int(st.session_state.get("_wl_sel_epoch", 0) or 0)
         _wsel = st.dataframe(
             show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
@@ -3889,6 +3977,8 @@ if _main == "Stock Lookup":
             column_config={
                 "Scanner": st.column_config.Column(
                     help="Which Scan Hub scanner (or Stock Lookup) added this ticker."),
+                "Scan data": st.column_config.Column(
+                    help="Numbers from the scan row that saved this ticker."),
                 "Saved": st.column_config.Column(
                     help="New York session date you saved it. Weekends use the last completed session."),
                 "Since saved": st.column_config.Column(
@@ -3959,7 +4049,8 @@ if _main == "Stock Lookup":
                                     "ShakeOut" if _note == "shakeout coil" else "Stock Lookup")))
                         ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
                                          note=_note, source=_src,
-                                         added=_it.get("added") or "")
+                                         added=_it.get("added") or "",
+                                         scan=_it.get("scan") or None)
                         _n += 1
                 st.session_state["_wl_uploaded"] = True
                 st.success(f"Restored {_n} ticker(s) from backup.")
@@ -5051,12 +5142,14 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
     _hub_keep_save("apex", ("apex_",))
 
 if _main == "Dividend Calender":
+    _hub_title("📅 Dividend Calender", "#6EE7B7")
     if _DC_ERR is not None or render_dividend_calendar_tab is None:
         st.error(f"Dividend Calender failed to load: {_DC_ERR}")
     else:
         render_dividend_calendar_tab()
 
 if _main == "Crypto Copycat":
+    _hub_title("₿ Crypto Copycat", "#F0A6FF")
     if _CC_ERR is not None or render_crypto_copycat_tab is None:
         st.error(f"Crypto Copycat failed to load: {_CC_ERR}")
     else:
@@ -5064,6 +5157,7 @@ if _main == "Crypto Copycat":
 
     # ── 🧪 macro simulator (the original, embedded whole) ────────────────
 if _main == "Macro Sim":
+    _hub_title("🌐 Macro Sim", "#2DD4BF")
     _try_closes()
     if GAUGE is None:
         GAUGE = _gauge()
@@ -5139,9 +5233,9 @@ if _main == "Macro Sim":
 
 # ── 🔭 Lenses — full playbooks for every macro regime ─────────────────
 if _main == "Cascade Map" and _map == "Lenses":
+    _hub_title("🔭 Lenses", "#2DD4BF")
     closes, asof = _require_closes()
     GAUGE = _gauge()
-    st.markdown("### 🔭 Macro lenses — who wins, who loses")
     st.markdown(
         "A **macro lens** is a playbook you overlay on a ranking. It does **not** "
         "change a stock's quality score, analog odds, or APEX CALM/RS gates. Those "
@@ -5905,6 +5999,7 @@ if _main == "Scan Hub" and _hub == "Help":
 
 # ── 🌡 pressure ──────────────────────────────────────────────────────
 if _main == "Cascade Map" and _map == "Cascade Pressure":
+    _hub_title("🌡 Cascade Pressure", "#FF8FA3")
     st.caption("The upstream source of every wave: global net liquidity. "
                "Rising pressure = waves travel far. Draining = fade the rallies.")
     try:
@@ -5946,6 +6041,7 @@ if _main == "Cascade Map" and _map == "Cascade Pressure":
 
 # ── 🛰 sentinels ─────────────────────────────────────────────────────
 if _main == "Cascade Map" and _map == "Cascade Sentinels":
+    _hub_title("🛰 Cascade Sentinels", "#FFD15C")
     closes, asof = _require_closes()
     st.caption("The 24/7 early-warning line — fast, frictionless assets that "
                "react to pressure changes first. Crypto trades all weekend; "
@@ -6093,6 +6189,7 @@ if _main == "Cascade Map" and _map == "Cascade Sentinels":
                 </div>""", unsafe_allow_html=True)
 
 if _main == "Cascade Map" and _map == "Forced Flows":
+    _hub_title("📅 Forced Flows", "#6EE7B7")
     st.caption("The closest thing to prophecy that legally exists: flows that "
                "are scheduled and price-insensitive. They don't care what the "
                "chart looks like — they have to trade.")
@@ -6129,6 +6226,7 @@ if _main == "Cascade Map" and _map == "Forced Flows":
 
 # ── 🔬 validation lab ────────────────────────────────────────────────
 if _main == "Cascade Map" and _map == "Cascade Validation Lab":
+    _hub_title("🔬 Cascade Validation Lab", "#F0A6FF")
     closes, asof = _require_closes()
     st.caption("Trust nothing you haven't walk-forward tested. This re-runs "
                "the honest experiment: weekly, re-estimate the graph on "
@@ -6181,6 +6279,7 @@ if _main == "Cascade Map" and _map == "Cascade Validation Lab":
 
 # ── 📖 guide: every wave, every term, every key ──────────────────────
 if _main == "Cascade Map" and _map == "Guide":
+    _hub_title("📖 Guide", "#F4F8FF")
     _try_closes()
     _cats = {"core": "🏛 Core Indices", "sector": "🏭 Sectors",
              "theme": "🎯 Themes & Industries", "factor": "🧬 Factors",
