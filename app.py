@@ -1516,32 +1516,71 @@ def _qalong(v, knots):
 
 def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
                         fcfm, roce, pio, eg, rg, rsi, ret3, ma50, ma200, px,
-                        deq, cr, beta, vol, upside):
-    """Six-spoke quant rating, drawn like the Macro Sim sector radar."""
+                        div_yield, div_rate, payout):
+    """Five-spoke quant rating: Growth, Income, Momentum, Quality, Value."""
     spokes = []
 
-    def _spoke(name, scores, bits):
+    def _spoke(name, scores, bits, empty="no data"):
         got = [(s, b) for s, b in zip(scores, bits) if s is not None and b]
         if not got:
+            spokes.append({"name": name, "score": 0.0, "detail": empty, "live": False})
             return
         spokes.append({
             "name": name,
             "score": sum(s for s, _ in got) / len(got),
             "detail": " · ".join(b for _, b in got),
+            "live": True,
         })
 
-    pe, pb, ps = _qnum(pe), _qnum(pb), _qnum(ps)
-    vs, vb = [], []
-    if pe is not None:
-        vs.append(8.0 if pe < 0 else _qalong(pe, [(0, 100), (15, 100), (25, 78), (40, 45), (60, 12), (90, 8)]))
-        vb.append("loss-making" if pe < 0 else f"P/E {pe:.1f}x")
-    if pb is not None:
-        vs.append(_qalong(pb, [(0, 100), (1, 100), (3, 78), (6, 45), (10, 12)]))
-        vb.append(f"P/B {pb:.2f}x")
-    if ps is not None:
-        vs.append(_qalong(ps, [(0, 100), (2, 90), (5, 70), (10, 40), (16, 12)]))
-        vb.append(f"P/S {ps:.1f}x")
-    _spoke("Value", vs, vb)
+    gs, gb = [], []
+    for label, raw in (("Rev", rg), ("Earn", eg)):
+        v = _qnum(raw)
+        if v is None:
+            continue
+        pct = v * 100.0
+        gs.append(_qalong(pct, [(-30, 8), (0, 40), (8, 62), (15, 80), (30, 100)]))
+        gb.append(f"{label} {pct:+.0f}%")
+    _spoke("Growth", gs, gb, "no growth data")
+
+    inc_s, inc_b = [], []
+    yld = _qnum(div_yield)
+    if yld is None:
+        rate, price = _qnum(div_rate), _qnum(px)
+        if rate and price:
+            yld = rate / price
+    if yld is not None:
+        yld_pct = yld * 100.0 if yld < 1 else yld
+        base = _qalong(yld_pct, [(0, 8), (0.5, 28), (1.5, 48), (2.5, 65), (4, 85), (6, 100)])
+        pr = _qnum(payout)
+        if pr is not None:
+            pr_pct = pr * 100.0 if pr < 1 else pr
+            if pr_pct > 60:
+                base = max(8.0, base - _qalong(pr_pct, [(60, 0), (90, 25), (150, 50)]))
+            inc_b.append(f"Payout {pr_pct:.0f}%")
+        inc_s.append(base)
+        inc_b.insert(0, f"Yield {yld_pct:.1f}%")
+    if not inc_s:
+        inc_s, inc_b = [8.0], ["no dividend"]
+    _spoke("Income", inc_s, inc_b, "no dividend")
+
+    ms, mb = [], []
+    rsi_v = _qnum(rsi)
+    if rsi_v is not None:
+        ms.append(max(15.0, 100.0 - min(80.0, abs(rsi_v - 55.0) * 1.8)))
+        mb.append(f"RSI {rsi_v:.0f}")
+    ret_v = _qnum(ret3)
+    if ret_v is not None:
+        ms.append(_qalong(ret_v, [(-30, 15), (0, 45), (15, 75), (40, 100)]))
+        mb.append(f"3M {ret_v:+.0f}%")
+    px_v, ma50_v, ma200_v = _qnum(px), _qnum(ma50), _qnum(ma200)
+    if px_v and ma50_v:
+        gap = (px_v - ma50_v) / ma50_v * 100.0
+        ms.append(_qalong(gap, [(-20, 20), (0, 55), (8, 88), (20, 70), (45, 40)]))
+        mb.append(f"{gap:+.0f}% vs 50d")
+    if ma50_v and ma200_v:
+        ms.append(85.0 if ma50_v > ma200_v else 32.0)
+        mb.append("golden cross" if ma50_v > ma200_v else "death cross")
+    _spoke("Momentum", ms, mb, "no price trend")
 
     qs, qb = [], []
     for label, raw, knots in (
@@ -1563,71 +1602,30 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
     if pio_v is not None:
         qs.append(max(0.0, min(100.0, pio_v / 9.0 * 100.0)))
         qb.append(f"Piotroski {pio_v:.0f}/9")
-    _spoke("Quality", qs, qb)
+    _spoke("Quality", qs, qb, "no quality data")
 
-    gs, gb = [], []
-    for label, raw in (("Rev", rg), ("Earn", eg)):
-        v = _qnum(raw)
-        if v is None:
-            continue
-        pct = v * 100.0
-        gs.append(_qalong(pct, [(-30, 8), (0, 40), (8, 62), (15, 80), (30, 100)]))
-        gb.append(f"{label} {pct:+.0f}%")
-    _spoke("Growth", gs, gb)
+    pe, pb, ps = _qnum(pe), _qnum(pb), _qnum(ps)
+    vs, vb = [], []
+    if pe is not None:
+        vs.append(8.0 if pe < 0 else _qalong(pe, [(0, 100), (15, 100), (25, 78), (40, 45), (60, 12), (90, 8)]))
+        vb.append("loss-making" if pe < 0 else f"P/E {pe:.1f}x")
+    if pb is not None:
+        vs.append(_qalong(pb, [(0, 100), (1, 100), (3, 78), (6, 45), (10, 12)]))
+        vb.append(f"P/B {pb:.2f}x")
+    if ps is not None:
+        vs.append(_qalong(ps, [(0, 100), (2, 90), (5, 70), (10, 40), (16, 12)]))
+        vb.append(f"P/S {ps:.1f}x")
+    _spoke("Value", vs, vb, "no valuation")
 
-    ms, mb = [], []
-    rsi_v = _qnum(rsi)
-    if rsi_v is not None:
-        ms.append(max(15.0, 100.0 - min(80.0, abs(rsi_v - 55.0) * 1.8)))
-        mb.append(f"RSI {rsi_v:.0f}")
-    ret_v = _qnum(ret3)
-    if ret_v is not None:
-        ms.append(_qalong(ret_v, [(-30, 15), (0, 45), (15, 75), (40, 100)]))
-        mb.append(f"3M {ret_v:+.0f}%")
-    px_v, ma50_v, ma200_v = _qnum(px), _qnum(ma50), _qnum(ma200)
-    if px_v and ma50_v:
-        gap = (px_v - ma50_v) / ma50_v * 100.0
-        ms.append(_qalong(gap, [(-20, 20), (0, 55), (8, 88), (20, 70), (45, 40)]))
-        mb.append(f"{gap:+.0f}% vs 50d")
-    if ma50_v and ma200_v:
-        ms.append(85.0 if ma50_v > ma200_v else 32.0)
-        mb.append("golden cross" if ma50_v > ma200_v else "death cross")
-    _spoke("Momentum", ms, mb)
-
-    ss, sb = [], []
-    deq_v = _qnum(deq)
-    if deq_v is not None:
-        ss.append(_qalong(deq_v, [(0, 100), (40, 100), (80, 80), (150, 45), (250, 12)]))
-        sb.append(f"D/E {deq_v:.0f}%")
-    vol_v = _qnum(vol)
-    if vol_v is not None:
-        vp = vol_v * 100.0
-        ss.append(_qalong(vp, [(12, 100), (25, 80), (40, 55), (60, 30), (100, 10)]))
-        sb.append(f"Vol {vp:.0f}%")
-    cr_v = _qnum(cr)
-    if cr_v is not None:
-        ss.append(_qalong(cr_v, [(0.4, 15), (1.0, 55), (1.5, 82), (2.5, 100)]))
-        sb.append(f"Current {cr_v:.2f}x")
-    beta_v = _qnum(beta)
-    if beta_v is not None:
-        ss.append(_qalong(beta_v, [(0.5, 100), (1.0, 80), (1.5, 55), (2.2, 25), (3.0, 10)]))
-        sb.append(f"Beta {beta_v:.2f}")
-    _spoke("Safety", ss, sb)
-
-    us = _qnum(upside)
-    if us is not None:
-        _spoke("Street",
-               [_qalong(us, [(-30, 10), (0, 45), (15, 75), (40, 100)])],
-               [f"Target {us:+.0f}%"])
-
-    if len(spokes) < 3:
+    live = [s for s in spokes if s.get("live")]
+    if len(live) < 2:
         st.caption("Not enough fundamentals yet for a quant radar.")
         return
 
-    score = sum(s["score"] for s in spokes) / len(spokes)
+    score = sum(s["score"] for s in live) / len(live)
     tone = "#4dd880" if score >= 70 else ("#00e5ff" if score >= 50 else "#ff5a7a")
-    best = max(spokes, key=lambda s: s["score"])
-    soft = min(spokes, key=lambda s: s["score"])
+    best = max(live, key=lambda s: s["score"])
+    soft = min(live, key=lambda s: s["score"])
 
     import plotly.graph_objects as go
     # Repeat the first spoke so the stroke returns to it. A score of 100 sits
@@ -1691,7 +1689,10 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
         left.plotly_chart(fig, width="stretch", key=f"{box}_chart")
         rows = []
         for s in spokes:
-            col = "#4dd880" if s["score"] >= 70 else ("#d0b040" if s["score"] >= 45 else "#ff5a7a")
+            if not s.get("live"):
+                col = "#6b7fa3"
+            else:
+                col = "#4dd880" if s["score"] >= 70 else ("#d0b040" if s["score"] >= 45 else "#ff5a7a")
             rows.append(
                 f"<div style='display:flex;justify-content:space-between;gap:10px;margin-top:6px'>"
                 f"<span style='color:#e8edf5'>{_esc(s['name'])}</span>"
@@ -1903,18 +1904,13 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
         st.caption(f"⚠️ {iss}")
     st.markdown("<hr style='border-color:#1e3a5f;margin:10px 0'>", unsafe_allow_html=True)
 
-    _ann = None
-    try:
-        if not hist.empty and len(hist) > 22:
-            _ann = float(hist.Close.pct_change().tail(21).std() * (252 ** 0.5))
-    except Exception:
-        _ann = None
     try:
         _render_quant_radar(
             key_prefix, pe=pe, pb=pb, ps=ps, roe=roe, roa=roa, om=om, opm=opm,
             gm=gm, pm=pm, fcfm=fcfm, roce=roce, pio=info.get("_scan_piotroski"),
             eg=eg, rg=rg, rsi=rsi_v, ret3=pct3m, ma50=ma50_v, ma200=ma200_v,
-            px=px, deq=deq, cr=cr, beta=beta, vol=_ann, upside=aus)
+            px=px, div_yield=info.get("dividendYield", info.get("_divYieldPct")),
+            div_rate=info.get("dividendRate"), payout=info.get("payoutRatio"))
     except Exception as _qe:
         st.caption(f"Quant radar unavailable: {_qe}")
 
