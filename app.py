@@ -365,6 +365,21 @@ def _menu_category_css() -> str:
         ("te_search_box", "#2DD4BF"),
     ):
         rules.append(f".st-key-{_pk}{{border-left:5px solid {_pc} !important}}")
+    for _slug, _pc in (
+        ("_az_range", "#7FD4FF"),
+        ("_az_perf", "#6EE7B7"),
+        ("_az_tech", "#F0A6FF"),
+        ("_az_short", "#FF8FA3"),
+        ("_az_earn", "#FFD15C"),
+        ("_az_div", "#2DD4BF"),
+        ("_az_value", "#C8F542"),
+        ("_az_health", "#A78BFA"),
+        ("_az_scan", "#C5D4FF"),
+    ):
+        rules.append(
+            f'[class*="{_slug}"]{{border-left:5px solid {_pc} !important;'
+            f"border-radius:10px}}"
+        )
     return "\n".join(rules)
 
 
@@ -1019,20 +1034,41 @@ _AZ_TONE = {
     "Technical Signals": "#F0A6FF",
     "Short Interest & Growth": "#FF8FA3",
     "Earnings Breakdown (EPS Trend)": "#FFD15C",
-    "Dividend": "#6EE7B7",
-    "Valuation": "#FF9B6A",
-    "Financial Health": "#7FD4FF",
-    "Nightly Scan Signals": "#FFB020",
+    "Dividend": "#2DD4BF",
+    "Valuation": "#C8F542",
+    "Financial Health": "#A78BFA",
+    "Nightly Scan Signals": "#C5D4FF",
+}
+_AZ_SLUG = {
+    "Price Range Analysis": "az_range",
+    "Price Performance": "az_perf",
+    "Technical Signals": "az_tech",
+    "Short Interest & Growth": "az_short",
+    "Earnings Breakdown (EPS Trend)": "az_earn",
+    "Dividend": "az_div",
+    "Valuation": "az_value",
+    "Financial Health": "az_health",
+    "Nightly Scan Signals": "az_scan",
 }
 
 
-def az_section(title):
-    color = _AZ_TONE.get(title, "#FFB020")
-    st.markdown(
-        f"<div style='font-weight:800;font-size:13px;letter-spacing:1px;"
-        f"text-transform:uppercase;color:{color};border-left:4px solid {color};"
-        f"padding:2px 0 2px 10px;margin:14px 0 8px'>{title}</div>",
-        unsafe_allow_html=True)
+class az_section:
+    """Scanner-style section: colored bar, then a bordered box in that color."""
+
+    def __init__(self, title, key_prefix="az"):
+        self.title = title
+        self.key_prefix = key_prefix
+        self._box = None
+
+    def __enter__(self):
+        color = _AZ_TONE.get(self.title, "#7FD4FF")
+        slug = _AZ_SLUG.get(self.title, "az_sec")
+        _md_html(f'<div class="hub-sec" style="--sc:{color}">{_esc(self.title)}</div>')
+        self._box = st.container(border=True, key=f"{self.key_prefix}_{slug}")
+        return self._box.__enter__()
+
+    def __exit__(self, *exc):
+        return self._box.__exit__(*exc)
 
 
 def pct_color(v):
@@ -1724,12 +1760,10 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                info.get("previousClose") or
                (hist.Close.iloc[-1] if not hist.empty else 0) or 0)
     live = {}
-    live_src = ""
     try:
         _tk = str(tk).strip().upper()
-        live, _srcs = _live_one(_tk, _px_nonce())
+        live, _ = _live_one(_tk, _px_nonce())
         live = live or {}
-        live_src = str((_srcs or {}).get(_tk) or "")
         if _tk in live:
             px = live[_tk]
     except Exception:
@@ -1738,7 +1772,6 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
             _tk = str(tk).strip().upper()
             if _tk in live:
                 px = live[_tk]
-                live_src = "Alpaca"
         except Exception:
             live = {}
     name = info.get("shortName") or info.get("longName") or tk
@@ -1869,9 +1902,7 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
     if cpush is not None and cpush > 0.5: pills += az_pill("Cascade Tailwind", True)
     elif cpush is not None and cpush < -0.5: pills += az_pill("Cascade Headwind", False)
 
-    st.markdown("<div style='font-size:20px;font-weight:800;letter-spacing:.6px;"
-                "color:#FFB020;border-left:5px solid #FFB020;padding-left:12px;"
-                "margin:16px 0 4px'>🔥 Stock Analyzer</div>", unsafe_allow_html=True)
+    _md_html('<div class="hub-sec lg" style="--sc:#7FD4FF">🔥 Stock Analyzer</div>')
     m1, m2, m3 = st.columns(3)
     m1.metric("Price", f"${px:,.2f}" if px else "--")
     m2.metric("Target", f"${am:,.2f}" if am else "--",
@@ -1885,21 +1916,6 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                 unsafe_allow_html=True)
     if pills:
         st.markdown(f"<div style='margin:6px 0 12px'>{pills}</div>", unsafe_allow_html=True)
-    hs = info.get("_hist_source")
-    badge = lambda txt, col, bc: (f"<span style='font-family:monospace;font-size:10px;color:{col};"
-                                  f"border:1px solid {bc};border-radius:3px;padding:1px 7px'>{txt}</span>")
-    parts = []
-    if hs == "alpaca": parts.append(badge("Alpaca history (live)", "#4dd880", "#1e6b35"))
-    elif hs == "yahoo": parts.append(badge("Yahoo history", "#7a9ab8", "#1e3a5f"))
-    elif hs == "dump": parts.append(badge("nightly-dump history", "#d0b040", "#907020"))
-    if info.get("_from_scan_dump"):
-        parts.append(badge(f"dump filled {len(info.get('_dump_fields', []))} fields", "#d0b040", "#907020"))
-    if live_src == "Yahoo":
-        parts.append(badge("Yahoo live price", "#7a9ab8", "#1e3a5f"))
-    elif tk in live:
-        parts.append(badge("Alpaca live price", "#4dd880", "#1e6b35"))
-    st.markdown("<div style='display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px'>"
-                + "".join(parts) + "</div>", unsafe_allow_html=True)
     for iss in info.get("_data_issues", []):
         st.caption(f"⚠️ {iss}")
     st.markdown("<hr style='border-color:#1e3a5f;margin:10px 0'>", unsafe_allow_html=True)
@@ -1916,155 +1932,155 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
 
     colA, colB, colC = st.columns(3)
     with colA:
-        az_section("Price Range Analysis")
-        _pr_labels = list(PRICE_RANGE_OPTS)
-        _pr_default = _pr_labels.index(PRICE_RANGE_DEFAULT) \
-            if PRICE_RANGE_DEFAULT in _pr_labels else len(_pr_labels) - 2
-        _pr_pick = st.selectbox(
-            "Lookback", _pr_labels, index=_pr_default,
-            key=f"{key_prefix}_prange",
-            help=HELP["price_range"])
-        _pr_spec = PRICE_RANGE_OPTS[_pr_pick]
-        _rw = price_range_window(hist, _pr_spec, px)
-        if _rw and px:
-            _hi, _lo = _rw["high"], _rw["low"]
-            pp = max(0.0, min(1.0, (px - _lo) / (_hi - _lo))) if _hi != _lo else 0.5
-            bc = "#4dd880" if pp > 0.7 else ("#d0b040" if pp > 0.35 else "#ff4444")
-            _off_hi = ((px - _hi) / _hi * 100) if _hi else None
-            _asked = 252 if _pr_spec == "ytd" else int(_pr_spec)
-            _short = _rw["n"] < (_asked * 0.85) if _pr_spec != "ytd" else False
-            _span = f"{_fmt_bar_date(_rw['start'])} – {_fmt_bar_date(_rw['end'])}"
-            st.markdown(
-                f"<div style='background:#0d1e33;border:1px solid #1e3a5f;border-radius:8px;padding:12px 14px;margin-bottom:10px'>"
-                f"<div style='display:flex;justify-content:space-between;font-family:monospace;font-size:11px;color:#7a9ab8;margin-bottom:6px'>"
-                f"<span>Low ${_lo:,.2f}<br><span style='font-size:10px'>{_fmt_bar_date(_rw['low_dt'])}</span></span>"
-                f"<span style='text-align:right'>High ${_hi:,.2f}<br><span style='font-size:10px'>{_fmt_bar_date(_rw['high_dt'])}</span></span></div>"
-                f"<div style='background:#081325;border-radius:4px;height:10px;position:relative'>"
-                f"<div style='background:{bc};height:10px;border-radius:4px;width:{int(pp*100)}%'></div></div>"
-                f"<div style='text-align:center;font-family:monospace;font-size:12px;color:{bc};margin-top:6px'>"
-                f"${px:,.2f} · {int(pp*100)}% of range"
-                f"{'' if _off_hi is None else f' · {_off_hi:+.1f}% vs high'}</div>"
-                f"<div style='text-align:center;font-size:11px;color:#7a9ab8;margin-top:4px'>"
-                f"{_esc(_pr_pick)} · {_rw['n']} sessions · {_span}</div></div>",
-                unsafe_allow_html=True)
-            if _short:
-                st.caption(f"Only {_rw['n']} sessions on hand — showing everything available "
-                           f"(asked for ~{_asked}).")
-        else:
-            st.caption("Not enough price history to draw this window.")
-        az_section("Price Performance")
-        mtable([mrow("1 Day", "Daily price change vs yesterday's close.", pct_color(pct1d)),
-                mrow("5 Day", "Five trading days — roughly one week.", pct_color(pct5d)),
-                mrow("1 Month", "~22 trading days. Near-term trend.", pct_color(pct1m)),
-                mrow("3 Month", "~66 trading days (one quarter).", pct_color(pct3m))])
-        az_section("Technical Signals")
-        rows = []
-        if rsi_v is not None:
-            rc = "#4dd880" if 45 < rsi_v < 65 else ("#ff4444" if rsi_v > 70 else "#d0b040")
-            ri = "oversold" if rsi_v < 30 else ("overbought" if rsi_v > 70 else "sweet spot" if 45 < rsi_v < 65 else "neutral")
-            rows.append(mrow("RSI (14d)", "0-100. Below 30 oversold, above 70 overbought, 45-65 momentum sweet spot.",
-                             f"<span style='color:{rc};font-family:monospace'>{rsi_v:.1f}</span> <span style='font-size:11px;color:#7a9ab8'>{ri}</span>"))
-        if macd_v is not None and macd_s is not None:
-            mc = "#4dd880" if macd_v > macd_s else "#ff4444"
-            rows.append(mrow("MACD", "MACD above its signal line = buyers in control.",
-                             f"<span style='color:{mc};font-family:monospace'>{macd_v:.3f}</span> <span style='font-size:11px;color:#7a9ab8'>{'bullish' if macd_v > macd_s else 'bearish'}</span>"))
-        if ma50_v is not None:
-            pvs = (px - ma50_v) / ma50_v * 100
-            rows.append(mrow("50-Day MA", "Price just above = support; below = watch for reclaim.",
-                             f"${ma50_v:,.2f} <span style='color:{'#4dd880' if pvs >= 0 else '#ff4444'};font-size:11px'>({pvs:+.1f}%)</span>"))
-        if ma200_v is not None:
-            gi = "golden cross" if (ma50_v is not None and ma50_v > ma200_v) else "below 50MA"
-            rows.append(mrow("200-Day MA", "Golden Cross (50MA over 200MA) = major trend signal.",
-                             f"${ma200_v:,.2f} <span style='font-size:11px;color:#7a9ab8'>{gi}</span>"))
-        if atr is not None:
-            rows.append(mrow("ATR (14d)", "Average True Range — typical daily travel in dollars.",
-                             f"<span style='font-family:monospace;color:#b0c8e8'>${atr:,.2f}</span>"))
-        if bb_u is not None and bb_l is not None:
-            bpos = "above upper" if px > bb_u else ("below lower" if px < bb_l else "inside")
-            rows.append(mrow("Bollinger 20/2", "Price vs 2-sigma bands: outside the bands = stretched.",
-                             f"<span style='font-family:monospace;color:#b0c8e8'>{bpos}</span> <span style='font-size:11px;color:#7a9ab8'>${bb_l:,.0f}–${bb_u:,.0f}</span>"))
-        if rows:
-            mtable(rows)
+        with az_section("Price Range Analysis", key_prefix):
+            _pr_labels = list(PRICE_RANGE_OPTS)
+            _pr_default = _pr_labels.index(PRICE_RANGE_DEFAULT) \
+                if PRICE_RANGE_DEFAULT in _pr_labels else len(_pr_labels) - 2
+            _pr_pick = st.selectbox(
+                "Lookback", _pr_labels, index=_pr_default,
+                key=f"{key_prefix}_prange",
+                help=HELP["price_range"])
+            _pr_spec = PRICE_RANGE_OPTS[_pr_pick]
+            _rw = price_range_window(hist, _pr_spec, px)
+            if _rw and px:
+                _hi, _lo = _rw["high"], _rw["low"]
+                pp = max(0.0, min(1.0, (px - _lo) / (_hi - _lo))) if _hi != _lo else 0.5
+                bc = "#4dd880" if pp > 0.7 else ("#d0b040" if pp > 0.35 else "#ff4444")
+                _off_hi = ((px - _hi) / _hi * 100) if _hi else None
+                _asked = 252 if _pr_spec == "ytd" else int(_pr_spec)
+                _short = _rw["n"] < (_asked * 0.85) if _pr_spec != "ytd" else False
+                _span = f"{_fmt_bar_date(_rw['start'])} – {_fmt_bar_date(_rw['end'])}"
+                st.markdown(
+                    f"<div style='background:#0d1e33;border:1px solid #1e3a5f;border-radius:8px;padding:12px 14px;margin-bottom:10px'>"
+                    f"<div style='display:flex;justify-content:space-between;font-family:monospace;font-size:11px;color:#7a9ab8;margin-bottom:6px'>"
+                    f"<span>Low ${_lo:,.2f}<br><span style='font-size:10px'>{_fmt_bar_date(_rw['low_dt'])}</span></span>"
+                    f"<span style='text-align:right'>High ${_hi:,.2f}<br><span style='font-size:10px'>{_fmt_bar_date(_rw['high_dt'])}</span></span></div>"
+                    f"<div style='background:#081325;border-radius:4px;height:10px;position:relative'>"
+                    f"<div style='background:{bc};height:10px;border-radius:4px;width:{int(pp*100)}%'></div></div>"
+                    f"<div style='text-align:center;font-family:monospace;font-size:12px;color:{bc};margin-top:6px'>"
+                    f"${px:,.2f} · {int(pp*100)}% of range"
+                    f"{'' if _off_hi is None else f' · {_off_hi:+.1f}% vs high'}</div>"
+                    f"<div style='text-align:center;font-size:11px;color:#7a9ab8;margin-top:4px'>"
+                    f"{_esc(_pr_pick)} · {_rw['n']} sessions · {_span}</div></div>",
+                    unsafe_allow_html=True)
+                if _short:
+                    st.caption(f"Only {_rw['n']} sessions on hand — showing everything available "
+                               f"(asked for ~{_asked}).")
+            else:
+                st.caption("Not enough price history to draw this window.")
+        with az_section("Price Performance", key_prefix):
+            mtable([mrow("1 Day", "Daily price change vs yesterday's close.", pct_color(pct1d)),
+                    mrow("5 Day", "Five trading days — roughly one week.", pct_color(pct5d)),
+                    mrow("1 Month", "~22 trading days. Near-term trend.", pct_color(pct1m)),
+                    mrow("3 Month", "~66 trading days (one quarter).", pct_color(pct3m))])
+        with az_section("Technical Signals", key_prefix):
+            rows = []
+            if rsi_v is not None:
+                rc = "#4dd880" if 45 < rsi_v < 65 else ("#ff4444" if rsi_v > 70 else "#d0b040")
+                ri = "oversold" if rsi_v < 30 else ("overbought" if rsi_v > 70 else "sweet spot" if 45 < rsi_v < 65 else "neutral")
+                rows.append(mrow("RSI (14d)", "0-100. Below 30 oversold, above 70 overbought, 45-65 momentum sweet spot.",
+                                 f"<span style='color:{rc};font-family:monospace'>{rsi_v:.1f}</span> <span style='font-size:11px;color:#7a9ab8'>{ri}</span>"))
+            if macd_v is not None and macd_s is not None:
+                mc = "#4dd880" if macd_v > macd_s else "#ff4444"
+                rows.append(mrow("MACD", "MACD above its signal line = buyers in control.",
+                                 f"<span style='color:{mc};font-family:monospace'>{macd_v:.3f}</span> <span style='font-size:11px;color:#7a9ab8'>{'bullish' if macd_v > macd_s else 'bearish'}</span>"))
+            if ma50_v is not None:
+                pvs = (px - ma50_v) / ma50_v * 100
+                rows.append(mrow("50-Day MA", "Price just above = support; below = watch for reclaim.",
+                                 f"${ma50_v:,.2f} <span style='color:{'#4dd880' if pvs >= 0 else '#ff4444'};font-size:11px'>({pvs:+.1f}%)</span>"))
+            if ma200_v is not None:
+                gi = "golden cross" if (ma50_v is not None and ma50_v > ma200_v) else "below 50MA"
+                rows.append(mrow("200-Day MA", "Golden Cross (50MA over 200MA) = major trend signal.",
+                                 f"${ma200_v:,.2f} <span style='font-size:11px;color:#7a9ab8'>{gi}</span>"))
+            if atr is not None:
+                rows.append(mrow("ATR (14d)", "Average True Range — typical daily travel in dollars.",
+                                 f"<span style='font-family:monospace;color:#b0c8e8'>${atr:,.2f}</span>"))
+            if bb_u is not None and bb_l is not None:
+                bpos = "above upper" if px > bb_u else ("below lower" if px < bb_l else "inside")
+                rows.append(mrow("Bollinger 20/2", "Price vs 2-sigma bands: outside the bands = stretched.",
+                                 f"<span style='font-family:monospace;color:#b0c8e8'>{bpos}</span> <span style='font-size:11px;color:#7a9ab8'>${bb_l:,.0f}–${bb_u:,.0f}</span>"))
+            if rows:
+                mtable(rows)
 
     with colB:
-        az_section("Short Interest & Growth")
-        rows = []
-        if spf is not None:
-            rows.append(mrow("Short % Float", "% of float sold short. 15%+ = squeeze fuel if price runs.",
-                             az_tag_inv(spf * 100, 20, 10, "{:.1f}", "%")))
-        if sratio is not None:
-            rows.append(mrow("Days to Cover", "Shares short / avg volume. High = shorts forced to chase.",
-                             az_tag_inv(sratio, 5, 3, "{:.1f}", "d")))
-        if rg is not None:
-            rows.append(mrow("Revenue Growth", "YoY revenue growth. Double-digit attracts institutions.",
-                             az_tag(rg * 100, 10, 3, "{:.1f}", "%")))
-        if eg is not None:
-            rows.append(mrow("Earnings Growth", "YoY EPS growth — faster than revenue = margin expansion.",
-                             az_tag(eg * 100, 10, 3, "{:.1f}", "%")))
-        _last = next((q for q in reversed(eps_history) if q.get("surprise") is not None), None)
-        if _last:
-            ec = "#4dd880" if _last["surprise"] >= 0 else "#ff4444"
-            rows.append(mrow("Earnings Surprise", "Last quarter EPS vs estimates. 10%+ beat = momentum fuel.",
-                             f"<span style='font-family:monospace;color:{ec}'>{_last['surprise']:+.1f}%</span> vs estimates"))
-        if rows:
-            mtable(rows)
-        else:
-            st.caption("No short-interest or growth data from any source.")
-        az_section("Earnings Breakdown (EPS Trend)")
-        render_eps_trend(eps_history, eps_forward,
-                         why=next((i for i in info.get("_data_issues", []) if "EPS" in i), ""))
-        az_section("Dividend")
-        render_dividend_info(info)
+        with az_section("Short Interest & Growth", key_prefix):
+            rows = []
+            if spf is not None:
+                rows.append(mrow("Short % Float", "% of float sold short. 15%+ = squeeze fuel if price runs.",
+                                 az_tag_inv(spf * 100, 20, 10, "{:.1f}", "%")))
+            if sratio is not None:
+                rows.append(mrow("Days to Cover", "Shares short / avg volume. High = shorts forced to chase.",
+                                 az_tag_inv(sratio, 5, 3, "{:.1f}", "d")))
+            if rg is not None:
+                rows.append(mrow("Revenue Growth", "YoY revenue growth. Double-digit attracts institutions.",
+                                 az_tag(rg * 100, 10, 3, "{:.1f}", "%")))
+            if eg is not None:
+                rows.append(mrow("Earnings Growth", "YoY EPS growth — faster than revenue = margin expansion.",
+                                 az_tag(eg * 100, 10, 3, "{:.1f}", "%")))
+            _last = next((q for q in reversed(eps_history) if q.get("surprise") is not None), None)
+            if _last:
+                ec = "#4dd880" if _last["surprise"] >= 0 else "#ff4444"
+                rows.append(mrow("Earnings Surprise", "Last quarter EPS vs estimates. 10%+ beat = momentum fuel.",
+                                 f"<span style='font-family:monospace;color:{ec}'>{_last['surprise']:+.1f}%</span> vs estimates"))
+            if rows:
+                mtable(rows)
+            else:
+                st.caption("No short-interest or growth data from any source.")
+        with az_section("Earnings Breakdown (EPS Trend)", key_prefix):
+            render_eps_trend(eps_history, eps_forward,
+                             why=next((i for i in info.get("_data_issues", []) if "EPS" in i), ""))
+        with az_section("Dividend", key_prefix):
+            render_dividend_info(info)
 
     with colC:
-        az_section("Valuation")
-        rows = []
-        if mcap:
-            tier = ("mega" if mcap >= 2e11 else "large" if mcap >= 1e10 else
-                    "mid" if mcap >= 2e9 else "small" if mcap >= 3e8 else "micro")
-            rows.append(mrow("Market Cap", "Share price × shares outstanding.",
-                             f"<span style='font-family:monospace;color:#b0c8e8'>${mcap/1e9:,.1f}B</span> <span style='font-size:11px;color:#7a9ab8'>{tier} cap</span>"))
-        if pe:
-            rows.append(mrow("P/E Ratio", "Price per dollar of trailing earnings.",
-                             az_tag_inv(pe, 40, 25, "{:.1f}", "x"),
-                             metric_scale(pe, 0, 60, 25, 40, "good under 25x",
-                                          higher=False, neg_bad=True)))
-        if fwpe:
-            rows.append(mrow("Forward P/E", "P/E on next-12-month estimates. Below trailing = growth expected.",
-                             f"<span style='font-family:monospace;color:#b0c8e8'>{fwpe:.1f}x</span>",
-                             metric_scale(fwpe, 0, 60, 25, 40, "good under 25x",
-                                          higher=False, neg_bad=True)))
-        if pb:
-            rows.append(mrow("P/B Ratio", "Below 1 = under book value; above 3 = premium.",
-                             az_tag_inv(pb, 6, 3, "{:.2f}", "x"),
-                             metric_scale(pb, 0, 10, 3, 6, "good under 3x", higher=False)))
-        if ps:
-            rows.append(mrow("P/S Ratio", "Below 2x reasonable; above 10x = growth premium.",
-                             az_tag_inv(ps, 10, 5, "{:.2f}", "x"),
-                             metric_scale(ps, 0, 16, 5, 10, "good under 5x", higher=False)))
-        if beta is not None:
-            rows.append(mrow("Beta", "Sensitivity to the market. 1 = moves with SPY; 2 = twice the swing.",
-                             f"<span style='font-family:monospace;color:#b0c8e8'>{beta:.2f}</span>"))
-        if rows:
-            mtable(rows)
-        else:
-            st.caption("No valuation data from any source.")
+        with az_section("Valuation", key_prefix):
+            rows = []
+            if mcap:
+                tier = ("mega" if mcap >= 2e11 else "large" if mcap >= 1e10 else
+                        "mid" if mcap >= 2e9 else "small" if mcap >= 3e8 else "micro")
+                rows.append(mrow("Market Cap", "Share price × shares outstanding.",
+                                 f"<span style='font-family:monospace;color:#b0c8e8'>${mcap/1e9:,.1f}B</span> <span style='font-size:11px;color:#7a9ab8'>{tier} cap</span>"))
+            if pe:
+                rows.append(mrow("P/E Ratio", "Price per dollar of trailing earnings.",
+                                 az_tag_inv(pe, 40, 25, "{:.1f}", "x"),
+                                 metric_scale(pe, 0, 60, 25, 40, "good under 25x",
+                                              higher=False, neg_bad=True)))
+            if fwpe:
+                rows.append(mrow("Forward P/E", "P/E on next-12-month estimates. Below trailing = growth expected.",
+                                 f"<span style='font-family:monospace;color:#b0c8e8'>{fwpe:.1f}x</span>",
+                                 metric_scale(fwpe, 0, 60, 25, 40, "good under 25x",
+                                              higher=False, neg_bad=True)))
+            if pb:
+                rows.append(mrow("P/B Ratio", "Below 1 = under book value; above 3 = premium.",
+                                 az_tag_inv(pb, 6, 3, "{:.2f}", "x"),
+                                 metric_scale(pb, 0, 10, 3, 6, "good under 3x", higher=False)))
+            if ps:
+                rows.append(mrow("P/S Ratio", "Below 2x reasonable; above 10x = growth premium.",
+                                 az_tag_inv(ps, 10, 5, "{:.2f}", "x"),
+                                 metric_scale(ps, 0, 16, 5, 10, "good under 5x", higher=False)))
+            if beta is not None:
+                rows.append(mrow("Beta", "Sensitivity to the market. 1 = moves with SPY; 2 = twice the swing.",
+                                 f"<span style='font-family:monospace;color:#b0c8e8'>{beta:.2f}</span>"))
+            if rows:
+                mtable(rows)
+            else:
+                st.caption("No valuation data from any source.")
         if any(x is not None for x in (pm, om, roe, roa, deq, cr,
                                        roce, gm, opm, cfm, fcfm)):
-            az_section("Financial Health")
-            rows = []
-            if roce is not None: rows.append(mrow("ROCE", "Return on Capital Employed: operating income / (total assets − current liabilities). Felix's favorite capital-efficiency lens — 15%+ is elite.", az_tag(roce * 100, 15, 8, "{:.1f}", "%"), metric_scale(roce * 100, 0, 40, 15, 8, "good 15%+")))
-            if gm is not None: rows.append(mrow("Gross Margin", "Gross profit / revenue — the moat test. 60%+ means pricing power nobody can compete away.", az_tag(gm * 100, 50, 30, "{:.1f}", "%"), metric_scale(gm * 100, 0, 80, 50, 30, "good 50%+")))
-            if opm is not None: rows.append(mrow("Operating Margin", "Operating income / revenue — what's left after running the business.", az_tag(opm * 100, 15, 5, "{:.1f}", "%"), metric_scale(opm * 100, 0, 40, 15, 5, "good 15%+")))
-            elif om is not None: rows.append(mrow("Operating Margin", "Operating income / revenue.", az_tag(om * 100, 15, 5, "{:.1f}", "%"), metric_scale(om * 100, 0, 40, 15, 5, "good 15%+")))
-            if cfm is not None: rows.append(mrow("Cash Flow Margin", "Operating cash flow / revenue — earnings are an opinion, cash is a fact.", az_tag(cfm * 100, 15, 8, "{:.1f}", "%"), metric_scale(cfm * 100, 0, 40, 15, 8, "good 15%+")))
-            if fcfm is not None: rows.append(mrow("FCF Margin", "Free cash flow / revenue — cash left after capex; what owners actually keep.", az_tag(fcfm * 100, 10, 5, "{:.1f}", "%"), metric_scale(fcfm * 100, 0, 30, 10, 5, "good 10%+")))
-            if pm is not None: rows.append(mrow("Profit Margin", "Net income / revenue.", az_tag(pm * 100, 15, 5, "{:.1f}", "%"), metric_scale(pm * 100, 0, 40, 15, 5, "good 15%+")))
-            if roe is not None: rows.append(mrow("ROE", "Return on equity.", az_tag(roe * 100, 15, 8, "{:.1f}", "%"), metric_scale(roe * 100, 0, 40, 15, 8, "good 15%+")))
-            if roa is not None: rows.append(mrow("ROA", "Return on assets.", az_tag(roa * 100, 8, 4, "{:.1f}", "%"), metric_scale(roa * 100, 0, 20, 8, 4, "good 8%+")))
-            if deq is not None: rows.append(mrow("Debt / Equity", "Leverage — lower is safer.", az_tag_inv(deq, 150, 80, "{:.0f}", "%"), metric_scale(deq, 0, 250, 80, 150, "good under 80%", higher=False)))
-            if cr is not None: rows.append(mrow("Current Ratio", "Short-term assets / liabilities. Above 1.5 healthy.", az_tag(cr, 1.5, 1.0, "{:.2f}", "x"), metric_scale(cr, 0, 3, 1.5, 1.0, "good 1.5x+")))
-            mtable(rows)
+            with az_section("Financial Health", key_prefix):
+                rows = []
+                if roce is not None: rows.append(mrow("ROCE", "Return on Capital Employed: operating income / (total assets − current liabilities). Felix's favorite capital-efficiency lens — 15%+ is elite.", az_tag(roce * 100, 15, 8, "{:.1f}", "%"), metric_scale(roce * 100, 0, 40, 15, 8, "good 15%+")))
+                if gm is not None: rows.append(mrow("Gross Margin", "Gross profit / revenue — the moat test. 60%+ means pricing power nobody can compete away.", az_tag(gm * 100, 50, 30, "{:.1f}", "%"), metric_scale(gm * 100, 0, 80, 50, 30, "good 50%+")))
+                if opm is not None: rows.append(mrow("Operating Margin", "Operating income / revenue — what's left after running the business.", az_tag(opm * 100, 15, 5, "{:.1f}", "%"), metric_scale(opm * 100, 0, 40, 15, 5, "good 15%+")))
+                elif om is not None: rows.append(mrow("Operating Margin", "Operating income / revenue.", az_tag(om * 100, 15, 5, "{:.1f}", "%"), metric_scale(om * 100, 0, 40, 15, 5, "good 15%+")))
+                if cfm is not None: rows.append(mrow("Cash Flow Margin", "Operating cash flow / revenue — earnings are an opinion, cash is a fact.", az_tag(cfm * 100, 15, 8, "{:.1f}", "%"), metric_scale(cfm * 100, 0, 40, 15, 8, "good 15%+")))
+                if fcfm is not None: rows.append(mrow("FCF Margin", "Free cash flow / revenue — cash left after capex; what owners actually keep.", az_tag(fcfm * 100, 10, 5, "{:.1f}", "%"), metric_scale(fcfm * 100, 0, 30, 10, 5, "good 10%+")))
+                if pm is not None: rows.append(mrow("Profit Margin", "Net income / revenue.", az_tag(pm * 100, 15, 5, "{:.1f}", "%"), metric_scale(pm * 100, 0, 40, 15, 5, "good 15%+")))
+                if roe is not None: rows.append(mrow("ROE", "Return on equity.", az_tag(roe * 100, 15, 8, "{:.1f}", "%"), metric_scale(roe * 100, 0, 40, 15, 8, "good 15%+")))
+                if roa is not None: rows.append(mrow("ROA", "Return on assets.", az_tag(roa * 100, 8, 4, "{:.1f}", "%"), metric_scale(roa * 100, 0, 20, 8, 4, "good 8%+")))
+                if deq is not None: rows.append(mrow("Debt / Equity", "Leverage — lower is safer.", az_tag_inv(deq, 150, 80, "{:.0f}", "%"), metric_scale(deq, 0, 250, 80, 150, "good under 80%", higher=False)))
+                if cr is not None: rows.append(mrow("Current Ratio", "Short-term assets / liabilities. Above 1.5 healthy.", az_tag(cr, 1.5, 1.0, "{:.2f}", "x"), metric_scale(cr, 0, 3, 1.5, 1.0, "good 1.5x+")))
+                mtable(rows)
         scan_rows = []
         for lab, key, hi, lo, fmt, suf, tip, scale in (
             ("Piotroski", "_scan_piotroski", 7, 5, "{:.0f}", "/9", "9-point fundamental health score from the nightly scan. 7+ = fortress.", (0, 9, 7, 5, "good 7+", False)),
@@ -2082,8 +2098,8 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                     bar = metric_scale(v, scale[0], scale[1], scale[2], scale[3], scale[4])
                 scan_rows.append(mrow(lab, tip, az_tag(v, hi, lo, fmt, suf), bar))
         if scan_rows:
-            az_section("Nightly Scan Signals")
-            mtable(scan_rows)
+            with az_section("Nightly Scan Signals", key_prefix):
+                mtable(scan_rows)
 
 
 

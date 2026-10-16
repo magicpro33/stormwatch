@@ -2927,7 +2927,6 @@ def render_ignition_scanner_tab():
             ("1. Nightly dump", "First source for daily history, RVOL baseline, short interest, float, 52-week high, targets, sector, and dump-backed catalysts. Same panel as Nightly Screener.", "preferred daily"),
             ("2. Alpaca API", "Second source when the dump is thin. Real-time 1-min and 5-min bars (the dump has no intraday). Set ALPACA_API_KEY + ALPACA_SECRET_KEY in Streamlit secrets.", "live bars"),
             ("3. yfinance", "Last source. Fills remaining daily bars and fundamentals. Only source for news, insiders, and the earnings calendar.", "last + news"),
-            ("Data source badge", "Below Stock Analyzer header: amber = dump history, green = Alpaca, grey = Yahoo. A second amber badge appears when dump filled fields on top of live history.", "badge shows source"),
         ]),
         ("Watchlist modes", "#d0b040", [
             ("Sector presets", "8 sector watchlists from your Webull list: Precious Metals, Energy/Uranium, Defense/Space, Semis/Tech, Quantum/AI/Biotech, Industrials, Income/ETFs, Critical Minerals. Random sector on first app load.", "random on startup"),
@@ -3557,18 +3556,6 @@ def render_ignition_scanner_tab():
         if pills_html:
             st.markdown(f"<div style='margin:6px 0 14px'>{pills_html}</div>", unsafe_allow_html=True)
 
-        # Data source badge
-        src_parts = []
-        hist_src = info.get("_hist_source") or ""
-        if hist_src == "dump":
-            src_parts.append("<span style='font-family:Space Mono,monospace;font-size:10px;color:#d0b040;border:1px solid #907020;border-radius:3px;padding:1px 7px'>Nightly dump history</span>")
-        elif hist_src == "alpaca":
-            src_parts.append("<span style='font-family:Space Mono,monospace;font-size:10px;color:#4dd880;border:1px solid #1e6b35;border-radius:3px;padding:1px 7px'>Alpaca history</span>")
-        else:
-            src_parts.append("<span style='font-family:Space Mono,monospace;font-size:10px;color:#7a9ab8;border:1px solid #1e3a5f;border-radius:3px;padding:1px 7px'>Yahoo history</span>")
-        if info.get("_from_scan_dump") and hist_src != "dump":
-            src_parts.append("<span style='font-family:Space Mono,monospace;font-size:10px;color:#d0b040;border:1px solid #907020;border-radius:3px;padding:1px 7px'>nightly dump fields</span>")
-        st.markdown("<div style='margin:0 0 10px;display:flex;gap:6px;flex-wrap:wrap'>" + "".join(src_parts) + "</div>", unsafe_allow_html=True)
         st.markdown("<hr style='border-color:#1e3a5f;margin:12px 0'>", unsafe_allow_html=True)
 
         # ── Three column layout ──────────────────────────────────────────
