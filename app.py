@@ -1630,16 +1630,22 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
     soft = min(spokes, key=lambda s: s["score"])
 
     import plotly.graph_objects as go
+    # Repeat the first spoke so the stroke returns to it. A score of 100 sits
+    # on the clip edge and Plotly drops that last segment, so draw it just inside.
+    rr = [min(float(s["score"]), 99.4) for s in spokes]
+    tt = [s["name"] for s in spokes]
+    dd = [[s["detail"], f"{s['score']:.0f}"] for s in spokes]
+    rr, tt, dd = rr + [rr[0]], tt + [tt[0]], dd + [dd[0]]
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
-        r=[s["score"] for s in spokes],
-        theta=[s["name"] for s in spokes],
-        customdata=[s["detail"] for s in spokes],
+        r=rr, theta=tt, customdata=dd,
+        mode="lines+markers",
         fill="toself",
         fillcolor="rgba(0,229,255,0.07)",
         line=dict(color="#00e5ff", width=2),
         marker=dict(size=7, color="#00e5ff"),
-        hovertemplate="<b>%{theta}</b>  %{r:.0f}<br>%{customdata}<extra></extra>",
+        cliponaxis=False,
+        hovertemplate="<b>%{theta}</b>  %{customdata[1]}<br>%{customdata[0]}<extra></extra>",
         name="Quant",
     ))
     fig.update_layout(
