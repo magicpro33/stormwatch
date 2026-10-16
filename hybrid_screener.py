@@ -1185,12 +1185,12 @@ def render_hybrid_screener() -> None:
     _up, _dn = getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "CAT_DOWN_COL", "▼ Down")
     if _up in display.columns:
         _cat_cfg[_up] = st.column_config.Column(
-            _up, width="small",
-            help="Hover a tag. The note after the dash is what that icon means.")
+            _up, width="medium",
+            help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means.")
     if _dn in display.columns:
         _cat_cfg[_dn] = st.column_config.Column(
-            _dn, width="small",
-            help="Hover a tag. The note after the dash is what that icon means.")
+            _dn, width="medium",
+            help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means.")
     try:
         styled = display.style.map(_color_score, subset=["Score"]) if "Score" in display.columns else display
         _tsel = st.dataframe(

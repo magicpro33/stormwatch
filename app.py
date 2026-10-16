@@ -3032,11 +3032,11 @@ def _cat_col_cfgs():
     down = getattr(ce, "CAT_DOWN_COL", "▼ Down")
     return {
         up: st.column_config.Column(
-            up, width="small",
-            help="Hover a tag. The note after the dash is what that icon means."),
+            up, width="medium",
+            help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means."),
         down: st.column_config.Column(
-            down, width="small",
-            help="Hover a tag. The note after the dash is what that icon means."),
+            down, width="medium",
+            help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means."),
     }
 
 

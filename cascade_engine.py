@@ -2316,27 +2316,6 @@ def dump_catalyst_map() -> dict:
     return out
 
 
-def hint_catalyst_text(text: str) -> str:
-    """Keep each tag, and append its meaning so a hover on the cell can show it."""
-    raw = str(text or "").strip()
-    if not raw:
-        return ""
-    index = {}
-    for cid, meta in {**CATALYST_METRICS, **LOOKUP_EXTRA_METRICS}.items():
-        lab = f"{meta.get('icon', '')} {meta.get('label', '')}".strip()
-        index[lab] = CATALYST_MEANINGS.get(cid) or ""
-    bits = []
-    for part in raw.split(" · "):
-        clean = part.replace(" (filtered)", "").strip()
-        note = index.get(clean) or ""
-        if note and "—" not in clean:
-            suffix = " (filtered)" if "(filtered)" in part else ""
-            bits.append(f"{clean} — {note}{suffix}")
-        else:
-            bits.append(part)
-    return " · ".join(bits)
-
-
 def catalyst_legend_html() -> str:
     """Hoverable catalyst chips for the Scan Hub catalyst boxes."""
     import html as _html
@@ -2396,8 +2375,8 @@ def apply_catalyst_rank(df, enabled: bool, ticker_col: str = "Ticker"):
     for tk in tks:
         pack = assemble_catalysts(
             (mapping.get(tk) or {}).get("keys"), news.get(tk))
-        ups.append(hint_catalyst_text(pack["up"]))
-        downs.append(hint_catalyst_text(pack["down"]))
+        ups.append(pack["up"])
+        downs.append(pack["down"])
         scores.append(pack["score"])
     out = df.copy()
     if "Catalysts" in out.columns:
