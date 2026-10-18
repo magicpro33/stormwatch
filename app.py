@@ -4104,19 +4104,36 @@ if _main == "Stock Lookup":
     st.divider()
     st.subheader("⭐ Watchlist")
 
-    # Persistence has three layers, weakest to strongest:
-    #   1. data/watchlist.json on the server — survives tab close and restarts,
-    #      but Streamlit Cloud wipes it whenever the container is rebuilt.
-    #   2. the ?wl= URL parameter — bookmark the page and the list rides along,
-    #      surviving redeploys and following you to another device/browser.
-    #   3. the JSON backup file — a manual, permanent copy.
-    # On load, anything in the URL that is missing from the file is restored.
-    try:
-        _wl_param = st.query_params.get("wl", "")
-    except Exception:
-        _wl_param = ""
-    if _wl_param and not st.session_state.get("_wl_restored"):
+    # Persistence has three layers:
+    #   1. watchlist.json — full rows (ticker, scanner, saved date, price then,
+    #      note, scan snapshot), written to the app data dir, the user profile,
+    #      and temp so a restart still finds one copy.
+    #   2. the page URL — ?wl= is the ticker list, ?wld= is the full rows
+    #      gzipped. Bookmarking survives a Streamlit Cloud rebuild.
+    #   3. the JSON backup file — a manual copy of every stored field.
+    # On load, the full URL copy is merged into the file. A name-only link
+    # adds tickers that are missing; it does not replace a saved row.
+    def _wl_qp(name):
+        try:
+            val = st.query_params.get(name, "")
+        except Exception:
+            return ""
+        if isinstance(val, (list, tuple)):
+            val = val[0] if val else ""
+        return str(val or "")
+
+    _wl_param = _wl_qp("wl")
+    if not st.session_state.get("_wl_restored"):
         st.session_state["_wl_restored"] = True
+        _full_n = 0
+        _packed = _wl_qp("wld")
+        if _packed and hasattr(ce, "watchlist_unpack") and hasattr(ce, "watchlist_merge_rows"):
+            try:
+                _rows = ce.watchlist_unpack(_packed)
+                if _rows:
+                    _full_n = int(ce.watchlist_merge_rows(_rows, overwrite=False) or 0)
+            except Exception as _pe:
+                log_exc("watchlist_url_restore", _pe)
         _have = {str(w.get("ticker", "")).strip().upper() for w in ce.watchlist_load()}
         _restored = []
         for _t in [x.strip().upper() for x in _wl_param.split(",") if x.strip()]:
@@ -4126,21 +4143,40 @@ if _main == "Stock Lookup":
                     ce.watchlist_add(_t, float(_d.Close.iloc[-1]) if not _d.empty else float("nan"),
                                      source="Stock Lookup")
                     _restored.append(_t)
+                    _have.add(_t)
                 except Exception:
                     continue
-        if _restored:
+        if _full_n:
+            st.success(f"↩️ Restored {_full_n} watchlist row(s) from your link, "
+                       "including scanner, saved date, price, note, and scan data.")
+        elif _restored:
             st.success(f"↩️ Restored {len(_restored)} saved ticker(s) from your link: "
                        + ", ".join(_restored))
 
     wl = ce.watchlist_load()
-    # keep the URL in step so the current list is always bookmarkable
+    # Keep the URL in step so a bookmark stores the full rows, not just names.
     try:
-        _cur = ",".join(sorted(w["ticker"] for w in wl))
-        if _cur != st.query_params.get("wl", ""):
+        _load_ok = ce.watchlist_load_ok() if hasattr(ce, "watchlist_load_ok") else True
+        _cur = ",".join(sorted(
+            str(w.get("ticker") or "").strip().upper()
+            for w in wl if isinstance(w, dict) and w.get("ticker")))
+        _pack = ce.watchlist_pack(wl) if wl and hasattr(ce, "watchlist_pack") else ""
+        _old_wl, _old_pack = _wl_qp("wl"), _wl_qp("wld")
+        _sig = _cur + "\n" + _pack
+        if st.session_state.get("_wl_url_sig") == _sig:
+            pass
+        elif not wl and not _load_ok and (_old_wl or _old_pack):
+            pass
+        elif _cur != _old_wl or (_pack and _pack != _old_pack) or (not _cur and (_old_wl or _old_pack)):
             if _cur:
                 st.query_params["wl"] = _cur
-            elif "wl" in st.query_params:
-                del st.query_params["wl"]
+                if _pack:
+                    st.query_params["wld"] = _pack
+            else:
+                for _k in ("wl", "wld"):
+                    if _k in st.query_params:
+                        del st.query_params[_k]
+            st.session_state["_wl_url_sig"] = _sig
     except Exception:
         pass
     if wl:
@@ -4154,10 +4190,10 @@ if _main == "Stock Lookup":
             st.rerun()
     if not wl:
         st.caption("Nothing saved yet — every stock you look up is saved here "
-                   "automatically, with its price snapshotted so you can score "
-                   "your calls later. The list is stored on the server and in "
-                   "this page's URL, so bookmarking keeps it. Have a backup "
-                   "JSON? Open **Manage watchlist** below to load it.")
+                   "automatically, with its price, scanner, date, note, and scan "
+                   "snapshot. That whole row is stored on disk and in this page's "
+                   "URL, so a restart or a bookmark keeps it. Have a backup JSON? "
+                   "Open **Manage watchlist** below to load it.")
         wdf = None
     else:
         wdf = pd.DataFrame(wl)
@@ -4262,13 +4298,17 @@ if _main == "Stock Lookup":
     # ── Backup / restore — always visible, even with an empty list ──
     with st.expander("Manage watchlist", expanded=False):
         st.caption("Select rows on the list above to open or remove them. "
-                   "This section is only the backup file — the list is also "
-                   "saved on the server and in this page's URL.")
+                   "The backup file stores every field — ticker, scanner, saved "
+                   "date, price then, note, and scan snapshot. The same row is "
+                   "already saved on disk and in this page's URL.")
         bc1, bc2 = st.columns(2)
         try:
             import json as _json
+            _wl_bytes = (ce.watchlist_to_json(wl).encode("utf-8")
+                         if hasattr(ce, "watchlist_to_json")
+                         else _json.dumps(wl, indent=2).encode("utf-8"))
             bc1.download_button("⬇️ Backup watchlist (JSON)",
-                                _json.dumps(wl, indent=2).encode("utf-8"),
+                                _wl_bytes,
                                 file_name=f"watchlist_{asof}.json",
                                 mime="application/json", width="stretch",
                                 key="wl_backup", disabled=not wl)
@@ -4280,21 +4320,26 @@ if _main == "Stock Lookup":
             try:
                 import json as _json
                 _items = _json.loads(_up.read().decode("utf-8"))
-                _have = {str(w.get("ticker", "")).strip().upper() for w in ce.watchlist_load()}
-                _n = 0
-                for _it in _items:
-                    _t = str(_it.get("ticker", "")).strip().upper()
-                    if _t and _t not in _have:
-                        _note = str(_it.get("note", "") or "")
-                        _src = (ce.watchlist_source_label(_it.get("source"), _note)
-                                if hasattr(ce, "watchlist_source_label")
-                                else (str(_it.get("source") or "") or (
-                                    "ShakeOut" if _note == "shakeout coil" else "Stock Lookup")))
-                        ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
-                                         note=_note, source=_src,
-                                         added=_it.get("added") or "",
-                                         scan=_it.get("scan") or None)
-                        _n += 1
+                if not isinstance(_items, list):
+                    raise ValueError("backup must be a list of watchlist rows")
+                if hasattr(ce, "watchlist_merge_rows"):
+                    _n = int(ce.watchlist_merge_rows(_items, overwrite=True) or 0)
+                else:
+                    _have = {str(w.get("ticker", "")).strip().upper() for w in ce.watchlist_load()}
+                    _n = 0
+                    for _it in _items:
+                        _t = str(_it.get("ticker", "")).strip().upper()
+                        if _t and _t not in _have:
+                            _note = str(_it.get("note", "") or "")
+                            _src = (ce.watchlist_source_label(_it.get("source"), _note)
+                                    if hasattr(ce, "watchlist_source_label")
+                                    else (str(_it.get("source") or "") or (
+                                        "ShakeOut" if _note == "shakeout coil" else "Stock Lookup")))
+                            ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
+                                             note=_note, source=_src,
+                                             added=_it.get("added") or "",
+                                             scan=_it.get("scan") or None)
+                            _n += 1
                 st.session_state["_wl_uploaded"] = True
                 st.success(f"Restored {_n} ticker(s) from backup.")
                 st.rerun()

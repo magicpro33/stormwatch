@@ -3833,42 +3833,302 @@ def _watchlist_ticker(item) -> str:
     return str((item or {}).get("ticker") or "").strip().upper()
 
 
-def watchlist_load() -> list:
+_WATCHLIST_LOAD_OK = True
+_WATCHLIST_MIRRORED = False
+
+
+def watchlist_load_ok() -> bool:
+    """False when a watchlist file exists but none of the copies could be read."""
+    return bool(_WATCHLIST_LOAD_OK)
+
+
+def _watchlist_store_paths() -> list:
+    """Every place a restart might look: profile, repo data/, and temp.
+
+    A Streamlit rebuild can wipe one of these. Saving the same full rows to
+    each writable copy means the next start still finds the scanner tag,
+    saved date, price, note, and scan snapshot.
+    """
+    import tempfile
+    paths = []
     try:
-        with open(_data_read_path(WATCHLIST_PATH)) as f:
-            items = json.load(f)
-        if not isinstance(items, list):
-            return []
-        dirty = False
-        for w in items:
-            if not isinstance(w, dict):
-                continue
-            label = watchlist_source_label(w.get("source"), w.get("note"))
-            if w.get("source") != label:
-                w["source"] = label
-                dirty = True
-        if dirty:
-            try:
-                watchlist_save(items)
-            except Exception as e:
-                _log_exc("watchlist_load.backfill", e)
-        return items
+        from mw_paths import user_data_dir
+        paths.append(os.path.join(user_data_dir(), "data", "watchlist.json"))
     except Exception:
+        pass
+    paths.append(WATCHLIST_PATH)
+    paths.append(os.path.join(tempfile.gettempdir(), "mw_" + os.path.basename(WATCHLIST_PATH)))
+    out, seen = [], set()
+    for path in paths:
+        try:
+            ap = os.path.abspath(path)
+        except Exception:
+            continue
+        if ap not in seen:
+            seen.add(ap)
+            out.append(ap)
+    return out
+
+
+def _watchlist_blank(v) -> bool:
+    if v is None:
+        return True
+    if isinstance(v, str):
+        return not v.strip()
+    if isinstance(v, (list, dict, tuple)):
+        return len(v) == 0
+    try:
+        num = float(v)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(v, float) and not np.isfinite(num)
+
+
+def _watchlist_json_safe(v):
+    """Drop NaN and numpy types so the file and the bookmark both reload."""
+    if v is None or isinstance(v, (str, bool, int)):
+        return v
+    if isinstance(v, float):
+        return None if not np.isfinite(v) else v
+    if isinstance(v, np.bool_):
+        return bool(v)
+    if isinstance(v, np.integer):
+        return int(v)
+    if isinstance(v, np.floating):
+        num = float(v)
+        return None if not np.isfinite(num) else num
+    if isinstance(v, dict):
+        return {str(k): _watchlist_json_safe(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_watchlist_json_safe(x) for x in v]
+    return str(v)
+
+
+def _watchlist_rows_text(items) -> str:
+    safe = _watchlist_json_safe(items if isinstance(items, list) else [])
+    return json.dumps(safe, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def _watchlist_read_copies():
+    """(mtime, rows) for every readable watchlist copy, oldest first."""
+    found = []
+    saw_file = False
+    for path in _watchlist_store_paths():
+        try:
+            if not os.path.isfile(path):
+                continue
+            saw_file = True
+            mtime = os.path.getmtime(path)
+            with open(path, encoding="utf-8") as f:
+                items = json.load(f)
+        except Exception:
+            continue
+        if isinstance(items, list):
+            found.append((mtime, items))
+    found.sort(key=lambda pair: pair[0])
+    return found, saw_file
+
+
+def _watchlist_fill_row(dst: dict, src: dict, overwrite: bool) -> bool:
+    """Copy saved fields onto dst. Returns True when dst changed.
+
+    Blank incoming values never erase a stored field. `overwrite` replaces
+    a stored value (backup restore). A reconstructed name-only row — no
+    scan, no note, generic source — also takes the saved price and date
+    from a richer incoming row so a ticker-only restart does not stick.
+    """
+    changed = False
+    src_scan = src.get("scan") if isinstance(src.get("scan"), dict) else {}
+    dst_scan = dst.get("scan") if isinstance(dst.get("scan"), dict) else {}
+    thin = (not dst_scan) and _watchlist_blank(dst.get("note")) and (
+        _is_generic_wl_source(dst.get("source")) or _watchlist_blank(dst.get("source")))
+    richer = bool(src_scan) or not _watchlist_blank(src.get("note")) or (
+        not _is_generic_wl_source(src.get("source")) and not _watchlist_blank(src.get("source")))
+    take_identity = overwrite or (thin and richer)
+    for key, val in src.items():
+        if key == "ticker" or _watchlist_blank(val):
+            continue
+        if take_identity or _watchlist_blank(dst.get(key)):
+            if dst.get(key) != val:
+                dst[key] = val
+                changed = True
+    return changed
+
+
+def watchlist_load() -> list:
+    """Newest saved list, with blank fields filled from any older full copy.
+
+    Membership comes from the newest file that actually has tickers, so a
+    removed ticker stays removed and a stray empty copy cannot wipe the rest.
+    Older copies only fill scanner, date, price, note, and scan when the
+    newest row is missing them.
+    """
+    global _WATCHLIST_LOAD_OK, _WATCHLIST_MIRRORED
+    found, saw_file = _watchlist_read_copies()
+    if not found:
+        _WATCHLIST_LOAD_OK = not saw_file
         return []
+    _WATCHLIST_LOAD_OK = True
+
+    def _has_tickers(rows) -> bool:
+        return any(isinstance(r, dict) and _watchlist_ticker(r) for r in rows)
+
+    base_i = len(found) - 1
+    if not _has_tickers(found[-1][1]):
+        for i in range(len(found) - 2, -1, -1):
+            if _has_tickers(found[i][1]):
+                base_i = i
+                break
+    newest = found[base_i][1]
+    by = {}
+    items = []
+    for raw in newest:
+        if not isinstance(raw, dict):
+            continue
+        row = _watchlist_json_safe(raw)
+        if not isinstance(row, dict):
+            continue
+        ticker = _watchlist_ticker(row)
+        if not ticker or ticker in by:
+            continue
+        row["ticker"] = ticker
+        items.append(row)
+        by[ticker] = row
+    for _mtime, older in found[:base_i]:
+        for raw in older:
+            if not isinstance(raw, dict):
+                continue
+            ticker = _watchlist_ticker(raw)
+            cur = by.get(ticker)
+            if cur is None:
+                continue
+            _watchlist_fill_row(cur, _watchlist_json_safe(raw) or {}, overwrite=False)
+    dirty = False
+    for row in items:
+        label = watchlist_source_label(row.get("source"), row.get("note"))
+        if row.get("source") != label:
+            row["source"] = label
+            dirty = True
+    if dirty or _watchlist_rows_text(items) != _watchlist_rows_text(newest) or not _WATCHLIST_MIRRORED:
+        try:
+            if watchlist_save(items):
+                _WATCHLIST_MIRRORED = True
+        except Exception as e:
+            _log_exc("watchlist_load.backfill", e)
+    for row in items:
+        if "price_at_add" in row and row.get("price_at_add") is None:
+            row["price_at_add"] = float("nan")
+    return items
 
 
 def watchlist_save(items: list) -> bool:
-    try:
-        path = _data_write_path(WATCHLIST_PATH)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(items, f, indent=1)
-        os.replace(tmp, path)
-        return True
-    except Exception as e:
-        _log_exc("watchlist_save", e)
+    """Write the full row list to every watchlist copy that will take it."""
+    safe = _watchlist_json_safe(items if isinstance(items, list) else [])
+    if not isinstance(safe, list):
         return False
+    # Keep missing prices as null on disk. Callers still see NaN after load.
+    ok = False
+    payload = json.dumps(safe, indent=1, allow_nan=False)
+    for path in _watchlist_store_paths():
+        tmp = path + ".tmp"
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(payload)
+            os.replace(tmp, path)
+            ok = True
+        except Exception as e:
+            _log_exc("watchlist_save", e)
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
+    return ok
+
+
+def watchlist_to_json(items, indent=2) -> str:
+    """Pretty JSON of every stored field. NaN prices become null."""
+    safe = _watchlist_json_safe(items if isinstance(items, list) else [])
+    return json.dumps(safe, indent=indent, allow_nan=False)
+
+
+def watchlist_pack(items) -> str:
+    """URL-safe gzip of the full watchlist, stable across reruns."""
+    import base64
+    import gzip
+    raw = _watchlist_rows_text(items).encode("utf-8")
+    blob = gzip.compress(raw, compresslevel=6, mtime=0)
+    return base64.urlsafe_b64encode(blob).decode("ascii").rstrip("=")
+
+
+def watchlist_unpack(blob) -> list:
+    """Inverse of watchlist_pack. Empty when the bookmark is not a full copy."""
+    import base64
+    import gzip
+    text = str(blob or "").strip()
+    if not text:
+        return []
+    pad = "=" * (-len(text) % 4)
+    raw = gzip.decompress(base64.urlsafe_b64decode(text + pad))
+    items = json.loads(raw.decode("utf-8"))
+    return items if isinstance(items, list) else []
+
+
+def watchlist_merge_rows(rows, overwrite: bool = False) -> int:
+    """Insert saved rows or fill fields the file is missing.
+
+    Returns how many tickers were added or updated. Existing non-blank
+    fields stay unless overwrite is set (backup restore) or the stored row
+    is only a ticker reconstructed as Stock Lookup.
+    """
+    if not isinstance(rows, list):
+        return 0
+    items = watchlist_load()
+    by = {}
+    for row in items:
+        if isinstance(row, dict):
+            ticker = _watchlist_ticker(row)
+            if ticker:
+                by[ticker] = row
+    changed_n = 0
+    dirty = False
+    for raw in rows:
+        if isinstance(raw, str):
+            raw = {"ticker": raw}
+        if not isinstance(raw, dict):
+            continue
+        clean = _watchlist_json_safe(raw)
+        if not isinstance(clean, dict):
+            continue
+        ticker = _watchlist_ticker(clean)
+        if not ticker:
+            continue
+        clean["ticker"] = ticker
+        added = watchlist_normalize_added(clean.get("added"))
+        if added:
+            clean["added"] = added
+        elif "added" in clean:
+            clean.pop("added", None)
+        if not _watchlist_blank(clean.get("source")) or not _watchlist_blank(clean.get("note")):
+            clean["source"] = watchlist_source_label(clean.get("source"), clean.get("note"))
+        cur = by.get(ticker)
+        if cur is None:
+            if _watchlist_blank(clean.get("added")):
+                clean["added"] = watchlist_stamp_date()
+            if _watchlist_blank(clean.get("source")):
+                clean["source"] = watchlist_source_label("", clean.get("note"))
+            items.append(clean)
+            by[ticker] = clean
+            changed_n += 1
+            dirty = True
+            continue
+        if _watchlist_fill_row(cur, clean, overwrite=overwrite):
+            changed_n += 1
+            dirty = True
+    if dirty:
+        watchlist_save(items)
+    return changed_n
 
 
 def watchlist_entry(ticker: str):
