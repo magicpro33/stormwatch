@@ -1617,6 +1617,61 @@ def fetch_fuel(ticker: str) -> dict:
 # ----------------------------------------------------------------------------
 # Signal engine
 # ----------------------------------------------------------------------------
+def ignition_watch_fields(r, rank=None) -> dict:
+    """Every Ignition chart field worth keeping on the watchlist.
+
+    Built from the scan result, not from whichever columns happen to be
+    on screen, so Compact view saves the same card as the full table.
+    """
+    if not isinstance(r, dict):
+        return {}
+    fuel = r.get("fuel") or {}
+
+    def _num(v, nd=None):
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return None
+        if x != x:
+            return None
+        return round(x, nd) if nd is not None else x
+
+    spf = fuel.get("short_pct_float")
+    row = {
+        "#": rank,
+        "Score": _num(r.get("score"), 1),
+        "NightlyRank": _num(r.get("pre_rank"), 0),
+        "Ignition": _num(r.get("ignition_score"), 1),
+        "Fuel": _num(r.get("fuel_score"), 1),
+        "Price": _num(r.get("price"), 2),
+        "Chg %": _num(r.get("chg_pct"), 2),
+        "RVOL": _num(r.get("rvol"), 2),
+        "Surge": _num(r.get("surge"), 2),
+        "Vel %/5m": _num(r.get("velocity"), 2),
+        "Accel": _num(r.get("accel"), 2),
+        "Gap %": _num(r.get("gap_pct"), 2),
+        "VWAP+": "Y" if r.get("above_vwap") else "",
+        "HOD": "NEW" if r.get("new_hod") else ("near" if r.get("near_hod") else ""),
+        "RSI5": _num(r.get("rsi5"), 0),
+        "Short%Flt": round(float(spf) * 100, 1) if spf else None,
+        "InsiderNet$": fuel.get("insider_net_buy_usd"),
+        "News48h": fuel.get("news_count_48h"),
+        "Signals": ", ".join(str(x) for x in (r.get("reasons") or [])[:8]),
+    }
+    tags = fuel.get("catalyst_tags") or []
+    if tags:
+        row["Catalysts"] = ", ".join(str(t) for t in tags[:8])
+    if r.get("igniting"):
+        row["Igniting"] = True
+    if r.get("gap_reversal"):
+        row["Gap reversal"] = True
+    if r.get("macd_cross"):
+        row["MACD cross"] = True
+    if r.get("vwap_cross"):
+        row["VWAP cross"] = True
+    return row
+
+
 def compute_signals(ticker: str) -> dict:
     """Returns a dict of raw signals, sub-scores and the composite score."""
     s = {
@@ -3295,16 +3350,7 @@ def render_ignition_scanner_tab():
                     _r = next((r for r in ok
                                if str(r.get("ticker", "")).strip().upper() == _itk), None)
                     _px = float(_r["price"]) if _r and _r.get("price") else float("nan")
-                    _ig_scan = {}
-                    if _r:
-                        if _r.get("score") is not None:
-                            _ig_scan["Score"] = _r.get("score")
-                        _why = [str(x) for x in (_r.get("reasons") or [])[:4]]
-                        if _why:
-                            _ig_scan["Why"] = ", ".join(_why)
-                        _tags = ((_r.get("fuel") or {}).get("catalyst_tags") or [])
-                        if _tags:
-                            _ig_scan["Catalysts"] = ", ".join(str(t) for t in _tags[:6])
+                    _ig_scan = ignition_watch_fields(_r) if _r else {}
                     _ig_new = _ig_ce_row.watchlist_add(
                         _itk, _px, source="Ignition Scanner", scan=_ig_scan or None)
                 except Exception:
@@ -3369,16 +3415,7 @@ def render_ignition_scanner_tab():
                            help="Save this Ignition Scanner result to your watchlist."):
                 _r = next((r for r in ok if r["ticker"] == az_ticker), None)
                 _px = float(_r["price"]) if _r and _r.get("price") else float("nan")
-                _ig_scan = {}
-                if _r:
-                    if _r.get("score") is not None:
-                        _ig_scan["Score"] = _r.get("score")
-                    _why = [str(x) for x in (_r.get("reasons") or [])[:4]]
-                    if _why:
-                        _ig_scan["Why"] = ", ".join(_why)
-                    _tags = ((_r.get("fuel") or {}).get("catalyst_tags") or [])
-                    if _tags:
-                        _ig_scan["Catalysts"] = ", ".join(str(t) for t in _tags[:6])
+                _ig_scan = ignition_watch_fields(_r) if _r else {}
                 if _ig_ce is not None:
                     _ig_ce.watchlist_add(az_ticker, _px, source="Ignition Scanner",
                                          scan=_ig_scan or None)

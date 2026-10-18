@@ -117,7 +117,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.44"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.45"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -4009,6 +4009,16 @@ def watchlist_load() -> list:
         if row.get("source") != label:
             row["source"] = label
             dirty = True
+        scans = row.get("scans") if isinstance(row.get("scans"), dict) else {}
+        scan = row.get("scan") if isinstance(row.get("scan"), dict) else {}
+        if scan and label and label not in scans:
+            scans = dict(scans)
+            scans[label] = scan
+            row["scans"] = scans
+            dirty = True
+        elif scans and not isinstance(row.get("scans"), dict):
+            row["scans"] = scans
+            dirty = True
     if dirty or _watchlist_rows_text(items) != _watchlist_rows_text(newest) or not _WATCHLIST_MIRRORED:
         try:
             if watchlist_save(items):
@@ -4181,7 +4191,13 @@ def watchlist_normalize_added(raw) -> str:
 
 
 def watchlist_scan_snapshot(row) -> dict:
-    """JSON-safe slice of a scanner row, stored on the watchlist."""
+    """JSON-safe copy of a scanner row, stored on the watchlist.
+
+    Every scalar field is kept, including each scanner's own columns.
+    Short lists (reasons, tags) are kept too. Raw price history, nested
+    market payloads, speech text, and snippets are not — those are not
+    fields a watchlist card can show.
+    """
     if row is None:
         return {}
     try:
@@ -4191,48 +4207,242 @@ def watchlist_scan_snapshot(row) -> dict:
     out = {}
     for key, val in items.items():
         name = str(key)
-        if name.startswith("_") or name in ("Data", "Snippet", "Speech"):
+        if name.startswith("_") or name in ("Snippet", "Speech"):
             continue
-        if val is None or isinstance(val, (dict, list, tuple, set)):
+        cleaned = _watchlist_scan_value(val)
+        if cleaned is None or cleaned == "" or cleaned == []:
             continue
-        if isinstance(val, (bool, np.bool_)):
-            out[name] = bool(val)
+        if isinstance(cleaned, dict):
+            for child, item in cleaned.items():
+                dest = child if child not in out else f"{name} {child}"
+                out[dest] = item
             continue
-        if isinstance(val, (int, np.integer)) and not isinstance(val, bool):
-            out[name] = int(val)
-            continue
-        try:
-            num = float(val)
-        except (TypeError, ValueError):
-            num = None
-        if num is not None:
-            if np.isfinite(num):
-                out[name] = round(num, 4)
-            continue
-        text = str(val).strip()
-        if not text or text.lower() in ("nan", "none", "nat"):
-            continue
-        out[name] = text[:157] + "..." if len(text) > 160 else text
+        out[name] = cleaned
     return out
+
+
+def _watchlist_scan_value(val):
+    """One JSON-safe scan field. None means 'do not store'."""
+    if val is None:
+        return None
+    if isinstance(val, (np.ndarray, pd.Series, pd.DataFrame)):
+        return None
+    if isinstance(val, (bool, np.bool_)):
+        return bool(val)
+    if isinstance(val, (int, np.integer)) and not isinstance(val, bool):
+        return int(val)
+    if isinstance(val, (float, np.floating)):
+        num = float(val)
+        return round(num, 4) if np.isfinite(num) else None
+    if isinstance(val, str):
+        text = val.strip()
+        if not text or text.lower() in ("nan", "none", "nat"):
+            return None
+        return text[:500] + "..." if len(text) > 503 else text
+    if isinstance(val, dict):
+        flat = {}
+        for key, item in val.items():
+            name = str(key)
+            if name.startswith("_") or name in ("Snippet", "Speech"):
+                continue
+            cleaned = _watchlist_scan_value(item)
+            if cleaned is None or isinstance(cleaned, (dict, list)):
+                continue
+            flat[name] = cleaned
+        return flat or None
+    if isinstance(val, (list, tuple)):
+        if len(val) > 24:
+            return None
+        bits = []
+        for item in val:
+            cleaned = _watchlist_scan_value(item)
+            if cleaned is None or isinstance(cleaned, (dict, list)):
+                continue
+            bits.append(str(cleaned))
+        if not bits:
+            return None
+        text = " · ".join(bits)
+        return text[:500] + "..." if len(text) > 503 else text
+    try:
+        num = float(val)
+    except (TypeError, ValueError):
+        num = None
+    if num is not None:
+        return round(num, 4) if np.isfinite(num) else None
+    text = str(val).strip()
+    if not text or text.lower() in ("nan", "none", "nat"):
+        return None
+    return text[:500] + "..." if len(text) > 503 else text
+
+
+_WL_SCAN_GROUPS = (
+    ("Rank and score", (
+        "#", "Score", "Felix", "Fit", "StormScore", "Ignition", "Fuel",
+        "NightlyRank", "Tech", "Quality", "Tailwind", "Tests", "Adj", "Data",
+    )),
+    ("Price and range", (
+        "Price", "Live", "Chg %", "Chg%", "Gap %", "RangePos", "RangeHigh",
+        "RangeLow", "MA50", "RSI", "RSI5", "RVOL", "Surge", "VolRatio", "Vol%",
+        "Vel %/5m", "Accel", "VWAP+", "VWAP cross", "HOD", "MACD cross",
+    )),
+    ("Quality", (
+        "ROIC", "ROIC Trend", "OE Yield", "Piotroski", "P/E", "RevGrowth",
+        "OwnerEarnings", "Div Yield", "Div Rate", "MarketCap",
+    )),
+    ("Setup", (
+        "Shakeout", "Stage", "Macro", "MacroFit", "SecFlow", "Resid21", "Ret5",
+        "SuggestedStop", "Short%Flt", "Short % Float", "Days to Cover",
+        "InsiderNet$", "News48h", "First print", "Days listed", "Igniting",
+        "Gap reversal",
+    )),
+    ("Why it flagged", (
+        "Why", "Signals", "Catalysts", "▲ Up", "▼ Down", "MFI_Signal",
+    )),
+)
+
+_WL_PCT_FRACTION = {
+    "RangePos", "RevGrowth", "Short % Float", "Div Yield", "Win%", "ExpR",
+    "ROIC", "OE Yield",
+}
+_WL_PCT_POINTS = {"Chg %", "Chg%", "Gap %", "Vel %/5m", "Short%Flt", "Vol%"}
+_WL_MONEY = {
+    "Price", "Live", "SuggestedStop", "MA50", "RangeHigh", "RangeLow",
+    "InsiderNet$", "OwnerEarnings", "Div Rate",
+}
+_WL_BIG_MONEY = {"MarketCap"}
+
+
+def watchlist_format_field(key, val) -> str:
+    """Plain-language value for one saved scanner field."""
+    if isinstance(val, bool):
+        return "Yes" if val else "No"
+    if isinstance(val, dict):
+        bits = [f"{k} {watchlist_format_field(k, v)}" for k, v in val.items()]
+        return " · ".join(bits[:8])
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        num = float(val)
+        if not np.isfinite(num):
+            return ""
+        name = str(key)
+        if name in _WL_BIG_MONEY:
+            absn = abs(num)
+            if absn >= 1e12:
+                return f"${num / 1e12:.2f}T"
+            if absn >= 1e9:
+                return f"${num / 1e9:.2f}B"
+            if absn >= 1e6:
+                return f"${num / 1e6:.1f}M"
+            return f"${num:,.0f}"
+        if name in _WL_MONEY:
+            return f"${num:,.2f}"
+        if name in _WL_PCT_FRACTION and abs(num) <= 5:
+            return f"{num:.1%}"
+        if name in _WL_PCT_POINTS:
+            return f"{num:+.1f}%" if name != "Short%Flt" else f"{num:.1f}%"
+        if name in ("MacroFit", "VolRatio", "RVOL", "Surge", "P/E", "Accel"):
+            return f"{num:.2f}".rstrip("0").rstrip(".")
+        if float(num).is_integer() and abs(num) >= 10:
+            return f"{int(num)}"
+        text = f"{num:.2f}".rstrip("0").rstrip(".")
+        return text
+    return str(val).strip()
+
+
+def watchlist_scan_sections(scan) -> list:
+    """Saved fields grouped for reading. Unknown scanner columns still appear."""
+    if not isinstance(scan, dict) or not scan:
+        return []
+    used = set()
+    sections = []
+    for title, keys in _WL_SCAN_GROUPS:
+        pairs = []
+        for key in keys:
+            if key not in scan:
+                continue
+            text = watchlist_format_field(key, scan[key])
+            if not text:
+                continue
+            pairs.append((key, text))
+            used.add(key)
+        if pairs:
+            sections.append((title, pairs))
+    other = []
+    for key in sorted(scan, key=lambda k: str(k).lower()):
+        if key in used or key in ("Ticker", "ticker"):
+            continue
+        text = watchlist_format_field(key, scan[key])
+        if text:
+            other.append((str(key), text))
+    if other:
+        sections.append(("Other saved fields", other))
+    return sections
+
+
+def watchlist_scan_headline(scan) -> str:
+    """One short line for the watchlist table. The card holds the rest."""
+    if not isinstance(scan, dict) or not scan:
+        return ""
+    bits = []
+    for key in ("Score", "Felix", "StormScore", "Fit", "Shakeout", "Ignition"):
+        if key in scan and scan[key] not in ("", None):
+            bits.append(f"{key} {watchlist_format_field(key, scan[key])}")
+            break
+    for key in ("RSI", "RVOL", "Stage", "MacroFit", "Fuel", "Why", "Signals"):
+        if key in scan and scan[key] not in ("", None):
+            text = watchlist_format_field(key, scan[key])
+            if len(text) > 48:
+                text = text[:45] + "..."
+            bits.append(f"{key} {text}")
+            break
+    if bits:
+        return " · ".join(bits)
+    for key, val in scan.items():
+        if str(key) in ("Ticker", "ticker", "Sector", "Price"):
+            continue
+        text = watchlist_format_field(key, val)
+        if text:
+            if len(text) > 48:
+                text = text[:45] + "..."
+            return f"{key} {text}"
+    return ""
 
 
 def watchlist_scan_blurb(scan) -> str:
     """One line of the scan numbers saved with a watchlist row."""
-    if not isinstance(scan, dict) or not scan:
-        return ""
-    bits = []
-    for key in ("#", "Score", "StormScore", "Stage", "Shakeout", "Adj",
-                "Macro", "Vol%", "RangePos", "Win%", "ExpR", "RSI", "Why"):
-        if key not in scan or scan[key] in ("", None):
-            continue
-        val = scan[key]
-        if isinstance(val, float):
-            val = f"{val:.2f}".rstrip("0").rstrip(".")
-        bits.append(f"{key} {val}")
-    for key in ("▲ Up", "▼ Down", "Catalysts"):
-        if scan.get(key):
-            bits.append(str(scan[key]))
-    return " · ".join(bits[:8])
+    return watchlist_scan_headline(scan)
+
+
+def watchlist_saved_scans(row) -> dict:
+    """Scanner name → field dict. One ticker can keep more than one scanner."""
+    if not isinstance(row, dict):
+        return {}
+    out = {}
+    scans = row.get("scans")
+    if isinstance(scans, dict):
+        for key, val in scans.items():
+            if isinstance(val, dict) and val:
+                out[str(key)] = val
+    if not out and isinstance(row.get("scan"), dict) and row.get("scan"):
+        label = watchlist_source_label(row.get("source"), row.get("note")) or "Saved"
+        out[label] = row["scan"]
+    return out
+
+
+def _watchlist_store_scan(row: dict, snap: dict, source: str, note: str = "") -> bool:
+    """Keep this scanner's fields without erasing a different scanner's card."""
+    if not isinstance(snap, dict) or not snap:
+        return False
+    label = watchlist_source_label(source, note) or "Saved"
+    scans = dict(row.get("scans")) if isinstance(row.get("scans"), dict) else {}
+    old = row.get("scan") if isinstance(row.get("scan"), dict) else {}
+    old_label = watchlist_source_label(row.get("source"), row.get("note"))
+    if old and old_label and old_label not in scans:
+        scans[old_label] = old
+    changed = scans.get(label) != snap or row.get("scan") != snap
+    scans[label] = snap
+    row["scans"] = scans
+    row["scan"] = snap
+    return changed
 
 
 def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
@@ -4272,8 +4482,7 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
             existing["added"] = watchlist_stamp_date()
             changed = True
         snap = watchlist_scan_snapshot(scan) if scan else {}
-        if snap:
-            existing["scan"] = snap
+        if _watchlist_store_scan(existing, snap, src or existing.get("source") or "", note):
             changed = True
         if changed:
             watchlist_save(items)
@@ -4288,7 +4497,7 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
                price_at_add=px, note=note,
                source=watchlist_source_label(src, note))
     if snap:
-        row["scan"] = snap
+        _watchlist_store_scan(row, snap, row["source"], note)
     items.append(row)
     watchlist_save(items)
     return True

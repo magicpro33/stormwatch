@@ -137,7 +137,7 @@ try:
 except Exception as _dce:
     render_dividend_calendar_tab, _DC_ERR = None, _dce
 
-REQUIRED_ENGINE = "2.44"
+REQUIRED_ENGINE = "2.45"
 st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -2623,6 +2623,69 @@ def _row_price(row) -> float:
     return float("nan")
 
 
+def _render_saved_scans(items):
+    """One card per scanner, under the scorecard table.
+
+    A shared column grid cannot hold every scanner: ShakeOut, Felix, and
+    Ignition do not share fields. Each saved scanner keeps its own card.
+    """
+    if not hasattr(ce, "watchlist_saved_scans"):
+        return
+    saved = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        scans = ce.watchlist_saved_scans(item)
+        if scans:
+            saved.append((item, scans))
+    with st.expander("Saved scan fields", expanded=False):
+        st.caption("The table is the scorecard. Open a name here to read every "
+                   "field that scanner saved. A second scanner adds its own card "
+                   "instead of wiping the first.")
+        if not saved:
+            st.caption("No scanner fields yet. Looking a ticker up stores the "
+                       "name, price, and date. Open it from a scanner to keep "
+                       "that scanner's row.")
+            return
+        for item, scans in saved:
+            tk = str(item.get("ticker") or "").strip().upper()
+            names = list(scans)
+            latest = (ce.watchlist_source_label(item.get("source"), item.get("note"))
+                      if hasattr(ce, "watchlist_source_label") else "")
+            if latest in names:
+                names = [latest] + [n for n in names if n != latest]
+            head = (ce.watchlist_scan_headline(scans.get(names[0]) or {})
+                    if hasattr(ce, "watchlist_scan_headline") else "")
+            label = f"{tk} · {' · '.join(names)}"
+            if head:
+                label = f"{label} — {head}"
+            with st.expander(label, expanded=False):
+                for name in names:
+                    st.markdown(f"**{name}**")
+                    sections = (ce.watchlist_scan_sections(scans.get(name))
+                                if hasattr(ce, "watchlist_scan_sections") else [])
+                    if not sections:
+                        st.caption("No fields stored for this scanner.")
+                        continue
+                    for title, pairs in sections:
+                        st.caption(title)
+                        cards = []
+                        for field, text in pairs:
+                            cards.append(
+                                "<div style='background:#0c1829;border:1px solid #1d2b40;"
+                                "border-radius:8px;padding:8px 10px;min-width:0'>"
+                                f"<div style='color:{DIM};font-size:11px;letter-spacing:.3px'>"
+                                f"{_esc(field)}</div>"
+                                "<div style='font-weight:700;font-size:15px;margin-top:2px;"
+                                f"word-break:break-word'>{_esc(text)}</div></div>"
+                            )
+                        st.markdown(
+                            "<div style='display:grid;grid-template-columns:"
+                            "repeat(auto-fill,minmax(148px,1fr));gap:8px;margin:0 0 10px'>"
+                            + "".join(cards) + "</div>",
+                            unsafe_allow_html=True)
+
+
 def _watchlist_tag(tk: str, price, source: str, row=None) -> bool:
     """Save `tk` to the watchlist tagged with the scanner that found it."""
     if not tk:
@@ -4233,23 +4296,36 @@ if _main == "Stock Lookup":
             wdf["source"] = ""
         if "note" not in wdf.columns:
             wdf["note"] = ""
-        _src_lbl = (ce.watchlist_source_label
-                    if hasattr(ce, "watchlist_source_label") else (lambda s, n="": str(s or n or "Stock Lookup")))
-        wdf["scanner"] = [
-            str(_src_lbl(r.get("source"), r.get("note")))
-            for r in wdf.to_dict("records")
-        ]
         _norm_added = (ce.watchlist_normalize_added
                        if hasattr(ce, "watchlist_normalize_added") else (lambda v: str(v or "")))
         wdf["added"] = wdf["added"].map(_norm_added) if "added" in wdf.columns else ""
-        _blurb = (ce.watchlist_scan_blurb if hasattr(ce, "watchlist_scan_blurb")
-                  else (lambda s: ""))
-        if "scan" in wdf.columns:
-            wdf["scan_data"] = wdf["scan"].map(lambda s: _blurb(s) if isinstance(s, dict) else "")
-        else:
-            wdf["scan_data"] = ""
+        _src_lbl = (ce.watchlist_source_label
+                    if hasattr(ce, "watchlist_source_label") else (lambda s, n="": str(s or n or "Stock Lookup")))
+        _saved_scans = (ce.watchlist_saved_scans
+                        if hasattr(ce, "watchlist_saved_scans") else (lambda r: {}))
+        _headline = (ce.watchlist_scan_headline
+                     if hasattr(ce, "watchlist_scan_headline") else (lambda s: ""))
+        _scan_names = []
+        _glances = []
+        for _item in wl:
+            _scans = _saved_scans(_item) if isinstance(_item, dict) else {}
+            _names = list(_scans)
+            _latest = str(_src_lbl(_item.get("source"), _item.get("note"))) if isinstance(_item, dict) else "Stock Lookup"
+            if _latest in _names:
+                _names = [_latest] + [n for n in _names if n != _latest]
+            elif not _names:
+                _names = [_latest]
+            _scan_names.append(" · ".join(_names))
+            _head = _headline(_scans.get(_names[0]) or {}) if _scans else ""
+            if len(_scans) > 1 and _head:
+                _head = f"{len(_scans)} scanners · {_head}"
+            elif len(_scans) > 1:
+                _head = f"{len(_scans)} scanners"
+            _glances.append(_head)
+        wdf["scanner"] = _scan_names
+        wdf["scan_data"] = _glances
         show = wdf[["ticker", "sector", "scanner", "scan_data", "added", "price_at_add", "price_now", "since_add"]]
-        show.columns = ["Ticker", "Sector", "Scanner", "Scan data", "Saved", "Price then", "Price now", "Since saved"]
+        show.columns = ["Ticker", "Sector", "Scanner", "At a glance", "Saved", "Price then", "Price now", "Since saved"]
         _wl_sel_epoch = int(st.session_state.get("_wl_sel_epoch", 0) or 0)
         _wsel = st.dataframe(
             show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
@@ -4260,9 +4336,9 @@ if _main == "Stock Lookup":
             key=f"wl_table_{_wl_sel_epoch}",
             column_config={
                 "Scanner": st.column_config.Column(
-                    help="Which Scan Hub scanner (or Stock Lookup) added this ticker."),
-                "Scan data": st.column_config.Column(
-                    help="Numbers from the scan row that saved this ticker."),
+                    help="Which scanners saved this name. A second scanner is kept beside the first."),
+                "At a glance": st.column_config.Column(
+                    help="One line from the saved scan. Open Saved scan fields under the table for every column that scanner had."),
                 "Saved": st.column_config.Column(
                     help="New York session date you saved it. Weekends use the last completed session."),
                 "Since saved": st.column_config.Column(
@@ -4299,13 +4375,14 @@ if _main == "Stock Lookup":
                 st.session_state.pop(_k, None)
             st.success("Removed " + ", ".join(_sel_tks))
             st.rerun()
+        _render_saved_scans(wl)
 
     # ── Backup / restore — always visible, even with an empty list ──
     with st.expander("Manage watchlist", expanded=False):
         st.caption("Select rows on the list above to open or remove them. "
                    "The backup file stores every field — ticker, scanner, saved "
-                   "date, price then, note, and scan snapshot. The same row is "
-                   "already saved on disk and in this page's URL.")
+                   "date, price then, note, and each scanner's full row. The same "
+                   "row is already saved on disk and in this page's URL.")
         bc1, bc2 = st.columns(2)
         try:
             import json as _json
