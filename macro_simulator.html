@@ -140,6 +140,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .rfbtn{background:transparent;border:1px solid var(--ac);color:var(--ac);padding:6px 14px;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;flex-shrink:0}
 .rfbtn:hover:not(:disabled){background:rgba(0,229,255,.12)}
 .rfbtn:disabled{opacity:.45;cursor:not-allowed}
+.rfbtn.stk{border-color:var(--gold);color:var(--gold)}
+.rfbtn.stk:hover:not(:disabled){background:rgba(255,215,0,.12)}
 .scan-badge{font-size:9px;background:rgba(57,255,20,.12);border:1px solid rgba(57,255,20,.35);color:var(--ac3);border-radius:4px;padding:2px 7px;margin-left:6px;letter-spacing:.5px;font-family:'JetBrains Mono',monospace}
 /* ── ALPACA API PANEL ── */
 .apibtn{background:transparent;border:1px solid var(--bdr);color:var(--mu);padding:6px 12px;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;cursor:pointer;transition:all .2s;flex-shrink:0}
@@ -301,7 +303,8 @@ footer a:hover{color:var(--ac)}
   </div>
   <span class="lb-time" id="lb-time"></span>
   <button class="apibtn" id="apibtn" onclick="toggleApiPanel()" title="Connect your Alpaca Market Data API key for direct, proxy-free stock prices">&#128273; API</button>
-  <button class="rfbtn" id="rfbtn" onclick="doRefresh()" disabled>&#8635; REFRESH</button>
+  <button class="rfbtn" id="rfbtn" onclick="doRefresh('metrics')" disabled>&#8635; REFRESH</button>
+  <button class="rfbtn stk" id="stkbtn" onclick="doRefresh('stocks')" hidden disabled>&#8635; REFRESH STOCKS</button>
 </div>
 <div class="edit-hint">&#9998; Tip: any macro value that looks off? Click it to type the exact number from a quick web search &mdash; your entry sticks and won&#39;t be overwritten on refresh.</div>
 <div class="api-panel" id="api-panel">
@@ -353,8 +356,7 @@ footer a:hover{color:var(--ac)}
   <div class="scard" id="usdjpy-card"><div class="slbl">USD/JPY Rate <span class="hlp-wrap"><span class="hlp" tabindex="0">?</span><div class="hlp-tip"><strong>USD/JPY Exchange Rate</strong>How many yen buy one dollar. Live from Yahoo JPY=X. Friday Oct 16 2026 close was 157.99. A fast drop toward 145 with a BOJ hike is the carry-unwind tell.<div class="tip-why">Why it matters: A falling USD/JPY (yen strengthening fast) signals the carry trade unwinding -- leveraged funds rush to buy back yen, forcing liquidation of the risk assets (tech stocks, BTC, EM) that carry funded. Below 145 with a BOJ hike = danger zone.</div></div></span><button class="rbtn" onclick="rv('sl-usdjpy',1580)">RST</button></div><div id="v-usdjpy" class="sval editable" onclick="editVal('usdjpy')" title="Click to type exact value">158.0</div><input type="range" min="1000" max="1800" value="1580" id="sl-usdjpy" oninput="scheduleUpd()"><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--mu);margin-top:3px"><span>100</span><span>180</span></div><div id="carry-display" style="margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:10px"></div></div>
 </div>
 <div class="fp"><div class="pt">Macro Signal Dashboard &mdash; 10 Signals (Groman Core 5 + Spread &middot; Carry &middot; VIX &middot; Copper/Gold &middot; Credit)</div><div class="sgg" id="sigs"></div><div style="font-size:10px;color:var(--mu);margin-top:5px">Groman core (Dollar, Stocks, 10Y, Gold, Bitcoin) all GREEN = QE confirmed &bull; All RED = plan failing &bull; VIX, Copper/Gold &amp; Credit are live market-confirmation signals &mdash; watch for divergence between model and market</div></div>
-<div class="g2"><div class="panel"><div class="pt">S&amp;P 500 &mdash; 12-Month Projection</div><div class="cw"><canvas id="spxC"></canvas></div></div><div class="panel"><div class="pt" id="asset-pt">Asset Class 12M Return (%)</div><div class="cw"><canvas id="assetC"></canvas></div></div></div>
-<div class="g2"><div class="panel"><div class="pt">Sector Rotation Radar</div><div class="cw"><canvas id="sectorC"></canvas></div></div><div class="panel"><div class="pt">Yield Curve: Current vs 12M Projected</div><div class="cw"><canvas id="yieldC"></canvas></div></div></div>
+<div class="g2"><div class="panel"><div class="pt">S&amp;P 500 &mdash; 12-Month Projection</div><div class="cw"><canvas id="spxC"></canvas></div></div><div class="panel"><div class="pt">Sector Rotation Radar</div><div class="cw"><canvas id="sectorC"></canvas></div></div></div>
 <div class="fp"><div class="pt">Projected Moves &mdash; Key Instruments (Click for Details)</div><div id="obs"></div></div>
 <div class="mbar" id="mbar"></div>
 <div class="fp"><div class="pt">Macro Event Timeline</div><div class="tl" id="tl"></div></div>
@@ -1610,7 +1612,7 @@ function setLive(el){
    if (node && LIVE_MACRO[k] != null) node.value = LIVE_MACRO[k];
  });
  upd();
- doRefresh();
+ doRefresh('metrics');
 }
 
 function liveRegimeKey(){
@@ -1923,27 +1925,22 @@ function updSigs(v){
 
 function initCharts(){
  if (typeof Chart === 'undefined') return;
- const canv = ['spxC','assetC','sectorC','yieldC'].every(id => document.getElementById(id));
- if (!canv) return;
  try {
  const mo=['Now','M+1','M+2','M+3','M+4','M+5','M+6','M+7','M+8','M+9','M+10','M+11'];
  const co={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#6b7fa3',font:{family:'JetBrains Mono',size:10}}}},scales:{x:{grid:{color:'rgba(30,45,69,.7)'},ticks:{color:'#6b7fa3',font:{family:'JetBrains Mono',size:9}}},y:{grid:{color:'rgba(30,45,69,.7)'},ticks:{color:'#6b7fa3',font:{family:'JetBrains Mono',size:9}}}}};
- CH.spx=new Chart(document.getElementById('spxC'),{type:'line',data:{labels:mo,datasets:[
+ const spxEl=document.getElementById('spxC');
+ if(spxEl) CH.spx=new Chart(spxEl,{type:'line',data:{labels:mo,datasets:[
   {label:'Bull',data:[],borderColor:'#39ff14',borderWidth:2,pointRadius:2,tension:.4,fill:false},
   {label:'Projected',data:[],borderColor:'#00e5ff',borderWidth:2.5,pointRadius:3,tension:.4,fill:false},
   {label:'Bear',data:[],borderColor:'#ff3b5c',borderWidth:2,pointRadius:2,tension:.4,fill:false},
  ]},options:co});
- CH.asset=new Chart(document.getElementById('assetC'),{type:'bar',data:{labels:['S&P 500','Gold','Bitcoin','Oil','10Y Bond','USD'],datasets:[{label:'12M Return %',data:[],backgroundColor:[]}]},options:{...co,indexAxis:'y'}});
- CH.sector=new Chart(document.getElementById('sectorC'),{type:'radar',data:{labels:['Financials','Energy','Technology','Materials','Utilities','Healthcare','Real Estate','Cons Def'],datasets:[{label:'Sector Score',data:[],borderColor:'#00e5ff',backgroundColor:'rgba(0,229,255,.07)',pointBackgroundColor:'#00e5ff'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#6b7fa3'}}},scales:{r:{grid:{color:'rgba(30,45,69,.7)'},ticks:{color:'#6b7fa3',backdropColor:'transparent',font:{size:7}},pointLabels:{color:'#e8edf5',font:{size:9,family:'JetBrains Mono'}},min:0,max:100}}}});
- CH.yield=new Chart(document.getElementById('yieldC'),{type:'line',data:{labels:['1M','3M','6M','1Y','2Y','5Y','10Y','20Y','30Y'],datasets:[
-  {label:'Current',data:[],borderColor:'#00e5ff',borderWidth:2,tension:.4,fill:false,pointRadius:3},
-  {label:'12M Proj',data:[],borderColor:'#39ff14',borderWidth:2,tension:.4,fill:false,borderDash:[5,3],pointRadius:3},
- ]},options:co});
+ const secEl=document.getElementById('sectorC');
+ if(secEl) CH.sector=new Chart(secEl,{type:'radar',data:{labels:['Financials','Energy','Technology','Materials','Utilities','Healthcare','Real Estate','Cons Def'],datasets:[{label:'Sector Score',data:[],borderColor:'#00e5ff',backgroundColor:'rgba(0,229,255,.07)',pointBackgroundColor:'#00e5ff'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#6b7fa3'}}},scales:{r:{grid:{color:'rgba(30,45,69,.7)'},ticks:{color:'#6b7fa3',backdropColor:'transparent',font:{size:7}},pointLabels:{color:'#e8edf5',font:{size:9,family:'JetBrains Mono'}},min:0,max:100}}}});
  } catch (e) { console.warn('initCharts', e); }
 }
 
 function updCharts(v,k){
- if (!CH.spx || !CH.asset || !CH.sector || !CH.yield) return;
+ if (!CH.spx && !CH.sector) return;
  // Anchor projection at LIVE S&P 500 level (falls back to baseline when offline)
  const spx0 = LIVE_IDX.spx || BASE_IDX.spx;
  const bullPath=[1,1.0267,1.0644,1.1022,1.1422,1.1911,1.2356,1.2711,1.3067,1.3378,1.3756,1.4156];
@@ -1969,41 +1966,8 @@ function updCharts(v,k){
   const n=leverNudge(v,'spx')/100;
   proj=proj.map((p,i)=>Math.round(p*(1+n*(i/11))));
  }
- CH.spx.data.datasets[0].data=bull;CH.spx.data.datasets[1].data=proj;CH.spx.data.datasets[2].data=bear;CH.spx.update('none');
- const RET={
- //               [S&P, Gold,  BTC,  Oil, Bond,  USD]
- // July 2 2026: WTI $68 (falling), DXY 101.3 (rising), Gold $4100 (from $5595 ATH)
- // KEY: strong DXY = INVERSE to gold, BTC, commodities -- confirmed by live data
- bull:   [ 16,  20,  58, -22,  12, -10],
- bear:   [ -8,  -5, -42,  38, -20,   8],  // bear = DXY spike -> gold FALLS (dollar dominates)
- qe:     [ 22,  32,  72,  -5,  16, -14],
- stag:   [-10,  22, -28,  42, -32,   8],
- base:   [  6,   8,  12,  -5,  -3,   2],  // July 2026: oil falling, DXY rising slight
- strong: [ -5, -15, -30,  -8, -10,  18],  // Strong dollar: kills gold/BTC, USD ETF wins
- // CARRY: BOJ shock hike + USD/JPY crash -> forced deleveraging of carry-funded risk assets
- // Gold dips briefly (margin-call selling of everything) then recovers on safe-haven flows: net +10
- // Bonds RALLY hard (flight to quality, yields plunge) -- biggest positive in this scenario
- // BTC crashes on leveraged unwind (Aug 2024 precedent); USD (DXY) falls as JPY (13.6% weight) surges
- carry:  [-12,  10, -35,  -8,  20,  -8],
- // INFLATE: hard money wins. Bond figure is 12m NOMINAL if the long end stays pinned; real value still bleeds over the hold.
- inflate:[ 12,  38,  55,  30,   4, -16],
- debase:[  8,  42,  48,   8,  15,  -7],
- diesel: [ -4,  10, -18,  28, -16,   4],
- // Oct 16 2026 sketch from the live tape: crude stays bid, AI/BTC give back, gold a small bid. Not a forecast.
- stress: [ -6,   4, -18,  22,  -8,   2],
-}; let r=RET[k]||RET.base;
- if(k==='debase' && DEBASE_FC){
-  const f=DEBASE_FC;
-  r=[Math.round(f.spx),Math.round(f.gold),Math.round(f.btc),Math.round(f.oil),Math.round(f.bond10),Math.round(f.usd)];
- } else {
-  const bk=['spx','gold','btc','oil','bond10','usd'];
-  r=r.map((x,i)=>Math.round(x+leverNudge(v,bk[i])));
- }
- const _apt=document.getElementById('asset-pt');
- if(_apt) _apt.textContent=k==='debase'?'Asset class — 12m nominal vs live baseline':'Asset Class 12M Return (%)';
- CH.asset.data.datasets[0].data=r;
- CH.asset.data.datasets[0].backgroundColor=r.map((rv,i)=>rv>=0?['#39ff14','#ffd700','#f97316','#6b7fa3','#a855f7','#22d3ee'][i]:['#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c','#ff3b5c'][i]);
- CH.asset.update('none');
+ if(CH.spx){ CH.spx.data.datasets[0].data=bull;CH.spx.data.datasets[1].data=proj;CH.spx.data.datasets[2].data=bear;CH.spx.update('none'); }
+ if(!CH.sector) return;
  const SD={
  // [Financials, Energy, Technology, Materials, Utilities, Healthcare, Real Estate, Consumer Def]
  // Strong dollar: Tech/Materials HURT (overseas EPS), Financials/Healthcare/Defense WIN
@@ -2030,45 +1994,6 @@ function updCharts(v,k){
   sd=sd.map((x,i)=>Math.max(0,Math.min(100,Math.round(x+add[i]))));
  }
  CH.sector.data.datasets[0].data=sd;CH.sector.update('none');
- const y2   = v.y2 || (v.y10 - 0.26);
- const y10  = v.y10;
- const ycSp = y10 - y2;  // local yield curve spread (renamed to avoid redeclaring sp)
- const y1m  = +(v.fed + 0.05).toFixed(2);
- const y3m  = +(v.fed + 0.10).toFixed(2);
- const y6m  = +(v.fed + 0.15).toFixed(2);
- const y1y  = +(y2 - 0.35).toFixed(2);
- const y5y  = +(y2 + ycSp * 0.55).toFixed(2);
- const y20y = +(y10 + 0.25).toFixed(2);
- const y30y = +(y10 + 0.45).toFixed(2);
- const yc = [y1m, y3m, y6m, y1y, y2, y5y, y10, y20y, y30y];
- const shifts = {
-   bull: [-0.80,-0.80,-0.70,-0.65,-0.55,-0.40,-0.25,-0.15,-0.10],
-   bear: [ 0.30, 0.30, 0.25, 0.20, 0.15, 0.25, 0.35, 0.45, 0.50],
-   qe:   [-1.20,-1.20,-1.10,-1.00,-0.90,-0.65,-0.45,-0.30,-0.20],
-   stag: [ 0.05, 0.05, 0.08, 0.05, 0.00, 0.60, 1.20, 1.60, 1.80],
-   base: [-0.20,-0.18,-0.15,-0.12,-0.10,-0.05, 0.00, 0.05, 0.08],
-   strong:[ 0.10, 0.10, 0.10, 0.08, 0.05, 0.15, 0.30, 0.40, 0.45], // hawkish hold + term premium
-   carry: [-0.60,-0.60,-0.55,-0.55,-0.50,-0.45,-0.40,-0.30,-0.25], // flight-to-quality bond rally
-   inflate:[-1.30,-1.30,-1.20,-1.05,-0.85,-0.55,-0.30,-0.15, 0.00], // front-end slashed, long end pinned by QE (yield-curve control)
-   diesel:[ 0.15, 0.15, 0.12, 0.10, 0.08, 0.20, 0.35, 0.45, 0.50], // sticky goods CPI, term premium up
-   debase:[ -0.10,-0.10,-0.08,-0.05,-0.03, 0.00, 0.00, 0.00, 0.00], // cap is already the slider; do not cut yields again
-   stress:[ 0.10, 0.10, 0.08, 0.05, 0.00, 0.10, 0.15, 0.20, 0.25], // December hike priced; long end already near 5.1
- };
- const sh = shifts[k] || shifts.base;
- let yp = yc.map((y,i) => +(y + sh[i]).toFixed(2));
- if(k==='debase' && DEBASE_FC && DEBASE_FC.capMode==='breaks'){
-  yp[6]=+DEBASE_FC.yEff.toFixed(2);
-  yp[7]=+(DEBASE_FC.yEff+0.25).toFixed(2);
-  yp[8]=+(DEBASE_FC.yEff+0.45).toFixed(2);
- } else if((v.ycc||0)>=1){
-  const cap=capState(v);
-  if(cap.mode==='holds'||cap.mode==='strained'||cap.mode==='breaks'){
-   yp[6]=+cap.yEff.toFixed(2);
-   yp[7]=+(cap.yEff+0.25).toFixed(2);
-   yp[8]=+(cap.yEff+0.45).toFixed(2);
-  }
- }
- CH.yield.data.datasets[0].data=yc;CH.yield.data.datasets[1].data=yp;CH.yield.update('none');
 }
 
 function updBars(k){
@@ -3275,7 +3200,7 @@ async function saveAlpaca(){
     try { localStorage.setItem('macro_sim_alpaca', JSON.stringify(ALPACA)); } catch(_){}
     st.style.color='var(--ac3)'; st.textContent='✓ Connected — SPY snapshot OK. Refreshing with Alpaca feed...';
     syncApiUI();
-    doRefresh();
+    doRefresh('stocks');
   } catch(e){
     st.style.color='var(--red)';
     st.textContent='✗ ' + e.message + (e.name==='AbortError'?' (timeout)':'') + ' — check keys; paper-account keys work.';
@@ -3361,21 +3286,32 @@ async function alpacaMacroFromETF(){
 }
 
 // ── Main refresh ─────────────────────────────────────────────
-async function doRefresh(){
+// 'all' = first page load (metrics + stocks). 'metrics' = sliders and pulse only.
+// 'stocks' = ticker prices only, after the first load has finished.
+let BOOT_DONE = false;
+async function doRefresh(mode){
   if (busy) return;
+  if (mode !== 'all' && mode !== 'metrics' && mode !== 'stocks') mode = BOOT_DONE ? 'metrics' : 'all';
+  const wantMacro = mode !== 'stocks';
+  const wantStocks = mode !== 'metrics';
   busy = true;
   const btn = document.getElementById('rfbtn');
+  const stk = document.getElementById('stkbtn');
   if (btn) btn.disabled = true;
+  if (stk) stk.disabled = true;
   setDot('spin');
   setProgress(0);
-  liveCount = 0; macroLive = 0;
+  if (wantStocks) liveCount = 0;
+  if (wantMacro) macroLive = 0;
   NET_ERRS.length = 0;
   lastVia = '';
   let alpacaHits = 0;
   let macroMissing = ['oil','yield','y2','dxy','fed'];
+  const proxied = new Set();
 
   try {
 
+  if (wantMacro) {
   // ── Phase 1: Macro + index series ──────────────────────────
   // Money Maker injects MW_MACRO.prints (no CORS). Browser Yahoo/FRED fill gaps.
   setStat('Fetching macro data (oil · yields · dollar · gold · VIX · BTC)...');
@@ -3425,7 +3361,6 @@ async function doRefresh(){
 
   const doneM = new Set(), doneI = new Set();
   const macroSrc = {}; // key → 'yahoo' | 'fred' | 'stooq' | 'etf-proxy' | 'stormwatch'
-  const proxied  = new Set();
 
   // 0. Server prints (Money Maker) — authoritative; skips iframe CORS entirely
   {
@@ -3521,8 +3456,11 @@ async function doRefresh(){
   setProgress(14);
   updPulse();
   upd(); // paint live sliders/pulse immediately — don't wait for every stock
+  if (stk) stk.hidden = false;
+  } // end metrics
 
   // ── Phase 2: Stock prices ──────────────────────────────────
+  if (wantStocks) {
   // Priority: Alpaca (direct) → Yahoo (now that spark/quote parse) → Stooq.
   const DEAD_TKS = new Set(['RIDE','NKLA']); // delisted; keep cards, skip fetch
   const remaining = new Set(allTickers().filter(t => !DEAD_TKS.has(t)));
@@ -3569,6 +3507,7 @@ async function doRefresh(){
     };
     await Promise.all([runChunk(), runChunk()]);
   }
+  } // end stocks
 
   setProgress(100);
 
@@ -3598,7 +3537,17 @@ async function doRefresh(){
     ? ` ⓘ ${proxyKeys.map(k=>({oil:'WTI',yield:'10Y',y2:'2Y',dxy:'DXY',gold:'gold'}[k]||k)).join('/')} approximated via ETF proxy (real feed unavailable)`
     : '';
 
-  if (liveCount > 40){
+  if (mode === 'metrics'){
+    setDot(criticalMissing.length ? 'err' : '');
+    setStat(`${macroStr}${viaStr}${lockNote}${macroWarn}${proxyNote}`);
+    setTime(`Metrics ${ds} ${ts}`, criticalMissing.length ? 'stale' : '');
+  } else if (mode === 'stocks'){
+    setDot(liveCount > 0 ? '' : 'err');
+    setStat(liveCount > 0
+      ? `${liveCount}/${allTickers().length} stock prices updated${viaStr}`
+      : `Stock prices unavailable${viaStr}`);
+    setTime(`Stocks ${ds} ${ts}`, liveCount > 0 ? '' : 'stale');
+  } else if (liveCount > 40){
     setDot(criticalMissing.length ? 'err' : '');
     const aStr = alpacaHits > 0 ? ` (${alpacaHits} via Alpaca)` : '';
     setStat(`${macroStr} · ${liveCount}/${allTickers().length} stocks live${aStr}${viaStr}${lockNote}${macroWarn}${proxyNote}`);
@@ -3623,7 +3572,15 @@ async function doRefresh(){
     setStat('Refresh failed — ' + (e && e.message ? e.message : e) + '. Hit REFRESH to retry.');
     setTime('Error', 'stale');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '⟳ REFRESH'; }
+    if (mode === 'all') BOOT_DONE = true;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = BOOT_DONE ? '⟳ REFRESH METRICS' : '⟳ REFRESH';
+    }
+    if (stk) {
+      if (BOOT_DONE) stk.hidden = false;
+      stk.disabled = false;
+    }
     busy = false;
   }
 }
@@ -3675,7 +3632,7 @@ window.addEventListener('load',()=>{
     const el=document.getElementById(id);
     if(el) el.addEventListener('input',function(){ scheduleUpd(); });
   });
-  doRefresh();    // then fetch live data in background; upd() called again when done
+  doRefresh('all'); // first paint loads metrics and stock prices; later refreshes split the two
 });
 // ── Expose ALL functions called from HTML attributes ────────────
 window.rv          = rv;
