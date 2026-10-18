@@ -117,7 +117,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.43"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.44"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -6071,14 +6071,90 @@ def news_catalysts(tickers: list, sectors: dict | None = None) -> dict:
     return out
 
 
-def felix_scan(top: int = 20) -> pd.DataFrame:
+def lens_book_order(core, sectors, tilts, macro_mult, top, confirm=1.0):
+    """Indexes for a macro-lens book. `core` is the untouched ranking score.
+
+    A named lens with a confirmed tape uses the same sector quotas as the
+    cascade scan: each leading sector gets a share of the list, capped so
+    one sector cannot take it, and names inside a sector stay in `core`
+    order. The finished book is also sorted by `core`. An off lens, an
+    empty playbook, or a tape that does not confirm skips the quotas and
+    just multiplies by the (already shrunk) sector factor.
+    """
+    core = np.asarray(core, dtype=float)
+    sec_arr = np.asarray(sectors)
+    macro_mult = np.asarray(macro_mult, dtype=float)
+    top = int(top)
+    confirm = 1.0 if confirm is None else float(confirm)
+    if top <= 0 or core.size == 0:
+        return np.array([], dtype=int)
+    finite = np.isfinite(core)
+    if not tilts or confirm < 0.50:
+        score = core * (macro_mult if tilts else 1.0)
+        score = np.where(finite, score, -np.inf)
+        n = int(min(top, np.isfinite(score).sum()))
+        if n <= 0:
+            return np.array([], dtype=int)
+        return np.argsort(-score)[:n]
+
+    leads = {s: t for s, t in tilts.items() if t >= 1.0}
+    if not leads:
+        leads = dict(sorted(tilts.items(), key=lambda kv: -kv[1])[:4])
+    weight_sum = sum(leads.values()) or 1.0
+    cap = max(2, int(np.ceil(top * 0.35)))
+    quota = {}
+    for s, t in leads.items():
+        q = int(round(top * (t / weight_sum)))
+        quota[s] = min(max(q, 1), cap)
+
+    chosen = []
+    picked_mask = np.zeros(len(core), dtype=bool)
+    for s in sorted(leads, key=lambda x: -leads[x]):
+        sec_ix = np.where((sec_arr == s) & finite)[0]
+        if not len(sec_ix):
+            continue
+        sec_ix = sec_ix[np.argsort(-core[sec_ix])][:quota[s]]
+        chosen.extend(sec_ix.tolist())
+        picked_mask[sec_ix] = True
+        if len(chosen) >= top:
+            break
+    if len(chosen) < top:
+        from collections import Counter
+        sec_count = Counter(sec_arr[chosen].tolist())
+        fill_score = np.where(picked_mask | ~finite, -np.inf, core) * macro_mult
+        for gi in np.argsort(-fill_score):
+            if len(chosen) >= top:
+                break
+            if picked_mask[gi] or not finite[gi]:
+                continue
+            s = sec_arr[gi]
+            if sec_count[s] >= cap:
+                continue
+            chosen.append(int(gi))
+            picked_mask[gi] = True
+            sec_count[s] += 1
+    chosen = chosen[:top]
+    if not chosen:
+        return np.array([], dtype=int)
+    chosen = np.array(chosen, dtype=int)
+    return chosen[np.argsort(-core[chosen])]
+
+
+def felix_scan(top: int = 20, apply_macro: bool = False,
+               regime_override: str | None = None,
+               node_closes: pd.DataFrame | None = None,
+               pressure_gauge=None,
+               only_sectors: list | None = None) -> tuple:
     """🎩 Felix — the investment-banker quality checklist from the hybrid
     screener, run across the entire nightly dump. Five tests: return on
     capital (ROIC), moat (proxied by ROIC + its trend — the dump carries no
     gross margin), cash (owner-earnings yield), stability (Piotroski), sane
-    price (hard P/E gate 0-50). Regime-agnostic by design — quality doesn't
-    rotate with the weather. Weights mirror the screener preset exactly:
-    ROIC x5, OE_Yield x4, Piotroski x4, ROIC_Trend x2, growth x1 each."""
+    price (hard P/E gate 0-50). Weights mirror the screener preset exactly:
+    ROIC x5, OE_Yield x4, Piotroski x4, ROIC_Trend x2, growth x1 each.
+
+    The Felix number never includes the macro lens. When `apply_macro` is
+    on, the lens only decides which quality names make the book, the same
+    way it re-orders Cascade and Best Odds. Returns (frame, regime)."""
     panel, tickers, sectors, mdv, dts = load_dump_panel()
     funds = dump_fundamentals_all()
     px = panel["c"][-1]
@@ -6105,8 +6181,46 @@ def felix_scan(top: int = 20) -> pd.DataFrame:
              + 2 * _pct(rt)
              + 1 * _pct(np.clip(rg, -1, 3))
              + 1 * _pct(np.clip(eg, -2, 5))) / 17 * 100
-    score = np.where(ok, score, -np.inf)
-    order = np.argsort(-score)[:top]
+    if only_sectors:
+        want = {str(s) for s in only_sectors}
+        ok = ok & np.array([str(s) in want for s in sectors])
+    core = np.where(ok, score, -np.inf)
+    sec_arr = np.array(sectors)
+    if not apply_macro:
+        regime = dict(regime="off",
+                      label="🚫 Macro lens off — Felix quality only",
+                      drivers=["macro lens disabled — ranking on the Felix score"],
+                      confirm=1.0)
+        tilts, confirm = {}, 1.0
+        macro_mult = np.ones(len(sec_arr), dtype=float)
+    elif regime_override and regime_override in REGIME_LABELS:
+        regime = dict(regime=regime_override,
+                      label=REGIME_LABELS[regime_override],
+                      drivers=["manual scenario override — matched to the "
+                               "lens you picked, not live detection"],
+                      confirm=1.0)
+        tilts = SECTOR_TILTS.get(regime["regime"], {})
+        confirm = 1.0
+    else:
+        regime = (macro_regime(node_closes, pressure_gauge)
+                  if node_closes is not None else
+                  dict(regime="base", label=REGIME_LABELS["base"],
+                       drivers=["no price history — lens left neutral"],
+                       confirm=1.0))
+        tilts = SECTOR_TILTS.get(regime["regime"], {})
+        confirm = float(regime.get("confirm") or 1.0)
+    if apply_macro and tilts:
+        try:
+            industries = dump_industries()
+            if len(industries) != len(sec_arr):
+                industries = np.array([""] * len(sec_arr), dtype="U64")
+        except Exception:
+            industries = np.array([""] * len(sec_arr), dtype="U64")
+        macro_mult = lens_multipliers(regime["regime"], sec_arr, industries, confirm)
+    elif apply_macro:
+        macro_mult = np.ones(len(sec_arr), dtype=float)
+    order = lens_book_order(core, sec_arr, tilts if apply_macro else {},
+                            macro_mult, top, confirm if apply_macro else 1.0)
     # tests: a missing input can never PASS a test (isfinite guard)
     tests = ((np.isfinite(roic) & (roic >= 0.15)).astype(int)
              + (np.isfinite(pio) & (pio >= 7)).astype(int)
@@ -6115,15 +6229,21 @@ def felix_scan(top: int = 20) -> pd.DataFrame:
     have = (np.isfinite(roic).astype(int) + np.isfinite(oe).astype(int)
             + np.isfinite(pio).astype(int) + np.isfinite(rt).astype(int)
             + np.isfinite(rg).astype(int) + np.isfinite(eg).astype(int))
-    return pd.DataFrame({
-        "Ticker": tickers[order], "Sector": np.array(sectors)[order],
-        "Price": px[order].round(2), "Felix": np.round(score[order], 1),
+    frame = {
+        "Ticker": tickers[order], "Sector": sec_arr[order],
+        "Price": px[order].round(2), "Felix": np.round(core[order], 1),
         "Tests": [f"{t}/4" for t in tests[order]],
         "Data": [f"{h}/6" for h in have[order]],
         "ROIC": roic[order], "OE Yield": oe[order],
         "Piotroski": pio[order], "ROIC Trend": rt[order],
         "P/E": pe[order], "RevGrowth": rg[order],
-    }).reset_index(drop=True)
+    }
+    if apply_macro:
+        frame["MacroFit"] = np.round(macro_mult[order], 2)
+    df = pd.DataFrame(frame).reset_index(drop=True)
+    regime["n_sectors"] = int(df.Sector.nunique()) if not df.empty else 0
+    regime["eligible"] = int(ok.sum())
+    return df, regime
 
 
 # ═════════ 🇯🇵 yen carry trade monitor ═════════

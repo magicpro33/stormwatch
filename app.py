@@ -137,7 +137,7 @@ try:
 except Exception as _dce:
     render_dividend_calendar_tab, _DC_ERR = None, _dce
 
-REQUIRED_ENGINE = "2.43"
+REQUIRED_ENGINE = "2.44"
 st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -469,11 +469,11 @@ HELP = {
         "live Yahoo profile the IGNITION Analyze tab uses. Description and "
         "governance scores are not ratings — they do not change the analog "
         "forecast or the analyzer scores.",
-    "macro_lens": "A playbook overlaid on a ranking. Off = no tilt. "
+    "macro_lens": "A playbook overlaid on a ranking, including Felix. Off = no tilt. "
         "Auto = the live regime, shrunk when the tape does not confirm the "
         "lead sector. A named lens applies the full sector + industry book "
-        "— it does not change quality scores, analog odds, or APEX gates. "
-        "Full win/lose playbooks live in the Lenses tab.",
+        "— it does not change the Felix score, cascade score, analog odds, "
+        "or APEX gates. Full win/lose playbooks live in the Lenses tab.",
 }
 
 CREATOR_NAME = "AIupscale"
@@ -798,8 +798,12 @@ def _poc_scan(asof: str, stages: tuple, top: int, accum_len: int,
 
 
 @st.cache_data(ttl=1800, show_spinner="🎩 Running the five-test quality checklist on all 5,700 stocks…")
-def _felix_scan(asof: str, top: int = 20):
-    return ce.felix_scan(top=top)
+def _felix_scan(asof: str, top: int = 20, apply_macro: bool = False,
+                override=None, gauge=None):
+    closes = _history() if apply_macro else None
+    return ce.felix_scan(top=top, apply_macro=apply_macro,
+                         regime_override=override, node_closes=closes,
+                         pressure_gauge=gauge)
 
 
 @st.cache_data(ttl=1800, show_spinner="🔮 Forecasting the shortlist and ranking by odds of gain…")
@@ -3343,9 +3347,10 @@ def _render_scan_hub_help():
             "Ranks the whole nightly dump — about 5,700 names.",
             "Four engines, one list. Cascade Score mixes technicals, quality, "
             "and cascade-wave tailwind. Best Odds ranks analog bounce chances. "
-            "Felix is balance-sheet quality only. Macro-only ranks scenario fit "
-            "with no flow. A macro lens then tilts the order toward that "
-            "regime's winning sectors.",
+            "Felix is the balance-sheet checklist. Macro-only ranks scenario fit "
+            "with no flow. A macro lens can re-order any of them, including Felix, "
+            "toward that regime's winning sectors. The Felix score itself stays "
+            "the quality checklist.",
             "You want a cross-market shortlist, not a single pattern.",
             color="#FFD15C")
         _help_card(
@@ -4415,7 +4420,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
     _METHOD_CAPTIONS = [
         "Flow + technicals + quality",
         "Historical odds of gain",
-        "Balance sheet only",
+        "Balance sheet, optional lens",
         "Scenario fit only, no flow",
     ]
 
@@ -4445,7 +4450,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _lh, _lb = st.columns([1.35, 1], vertical_alignment="center")
             _lh.markdown("**Macro lens**")
             if _lb.button("🧭 Recommend lens", key="macro_advise",
-                          width="stretch", disabled=(_method == "felix"),
+                          width="stretch",
                           help="Weigh the market, the tape and the headlines, "
                                "then recommend which scenario fits."):
                 st.session_state["macro_advice_on"] = True
@@ -4456,12 +4461,16 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 _lens_choices = [o for o in _lens_choices if o != _LENS_OFF]
             _lens_label = st.selectbox(
                 "Macro lens", _lens_choices, key="top20_lens",
-                disabled=(_method == "felix"), label_visibility="collapsed",
+                label_visibility="collapsed",
                 help=HELP["macro_lens"])
             _lens = _scn_opts.get(_lens_label)
-            if _method == "felix":
-                st.caption("Felix is quality-only — lens, sectors and session "
-                           "do not apply.")
+            if _method == "felix" and (_lens == "off"):
+                st.caption("Quality checklist only. Pick a lens to spread the "
+                           "list across that playbook's leading sectors. The "
+                           "Felix score itself does not change.")
+            elif _method == "felix":
+                st.caption("The lens decides which quality names make the book. "
+                           "They stay ordered by the Felix score.")
             elif _lens == "off":
                 st.caption("No sector tilt. Pure ranking. Playbooks are in "
                            "🔭 Lenses.")
@@ -4473,8 +4482,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                 st.caption(_cd0.get("thesis") or _cd0.get("leads", ""))
 
             _advice = None
-            if (st.session_state.get("macro_advice_on")
-                    and _method != "felix"):
+            if st.session_state.get("macro_advice_on"):
                 try:
                     _advice = _macro_advice(
                         asof, _gauge,
@@ -4521,10 +4529,10 @@ if _main == "Scan Hub" and _hub == "TOP20":
                             "Headlines are capped at 2 points — news confirms "
                             "the tape, it never outvotes it.")
 
-            _apply_macro = not (_method == "felix" or _lens == "off")
+            _apply_macro = _lens != "off"
             _override = (_lens if (_apply_macro and _lens not in (None, "off"))
                          else None)
-            if _apply_macro and _method != "felix":
+            if _apply_macro:
                 _rk = _override or (
                     ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
                     if _lens is None else None)
@@ -4548,7 +4556,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                         st.caption("Full playbooks, comparisons, and sector "
                                    "multipliers are in the 🔭 Lenses tab.")
 
-    _apply_macro = not (_method == "felix" or _lens == "off")
+    _apply_macro = _lens != "off"
     _override = _lens if (_apply_macro and _lens not in (None, "off")) else None
     if _method == "macro" and _override is None:
         try:
@@ -4654,10 +4662,9 @@ if _main == "Scan Hub" and _hub == "TOP20":
         _eng_txt = {"cascade": "cascade score", "forecast": "odds of gain",
                     "felix": "the Felix quality checklist",
                     "macro": "scenario fit alone"}[_method]
-        if _method == "felix":
-            _lens_txt = "no macro lens (quality only)"
-        elif not _apply_macro:
-            _lens_txt = "no macro lens"
+        if not _apply_macro:
+            _lens_txt = ("no macro lens (Felix score only)" if _method == "felix"
+                         else "no macro lens")
         elif _lens is None:
             _lens_txt = "the auto-detected regime"
         else:
@@ -4669,7 +4676,8 @@ if _main == "Scan Hub" and _hub == "TOP20":
             f"Ranking the top <b>{_top_n}</b> by "
             f"<b style='color:{ACCENT};'>{_eng_txt}</b>, "
             f"through <b style='color:{ACCENT};'>{_lens_txt}</b>"
-            f"{f', limited to {len(_sec_filter)} sectors ({_t_lbl})' if (_sec_filter and _method != 'felix') else ''}."
+            f"{f', limited to {len(_sec_filter)} sectors ({_t_lbl})' if (_sec_filter and _method != 'felix') else ''}"
+            f"{'. The Felix score stays the quality checklist' if (_method == 'felix' and _apply_macro) else ''}."
             f"</div>")
 
         _t20_cat = _catalysts_section("top20", pill=False)
@@ -4692,6 +4700,14 @@ if _main == "Scan Hub" and _hub == "TOP20":
             st.info("Hit **Run scan** to build the ranked list. Nothing is fetched until then.")
         elif st.session_state.get("top20_mode") != _method:
             st.info("You changed how stocks are ranked. The list below is the previous "
+                    "scan. Hit **Run scan** to rebuild.")
+        _now_lens = "off" if not _apply_macro else (_override or "auto")
+        _snap_now = st.session_state.get("top20_snap") or {}
+        if (st.session_state.get("top20_go")
+                and st.session_state.get("top20_mode") == _method == "felix"
+                and _snap_now.get("mode") == "felix"
+                and _snap_now.get("lens_key") not in (None, _now_lens)):
+            st.info("You changed the macro lens. The list below is the previous "
                     "scan. Hit **Run scan** to rebuild.")
         if _t20_ready and _b2.button(
                 "📡 Live prices", key="top20_live", width="stretch",
@@ -4887,62 +4903,102 @@ if _main == "Scan Hub" and _hub == "TOP20":
         _snap = st.session_state.get("top20_snap") or {}
         if _snap.get("mode") == "felix":
             f20 = _snap.get("df")
+            freg = _snap.get("reg") or {}
             if f20 is None:
                 f20 = pd.DataFrame()
         else:
             try:
-                f20 = _felix_scan(asof, int(_top_n))
+                f20, freg = _felix_scan(
+                    asof, int(_top_n), bool(_apply_macro), _override, _gauge)
             except Exception as e:
                 st.error(f"Felix scan failed: {e}")
-                f20 = pd.DataFrame()
+                f20, freg = pd.DataFrame(), {}
             st.session_state["top20_snap"] = {
                 "mode": "felix",
+                "lens_key": "off" if not _apply_macro else (_override or "auto"),
                 "df": f20.copy() if isinstance(f20, pd.DataFrame) else pd.DataFrame(),
+                "reg": freg if isinstance(freg, dict) else {},
             }
         if not f20.empty:
-            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:4px solid {_T20_GOLD};border-radius:10px;padding:10px 14px;margin:8px 0;">
-                <span style="font-weight:700;">🎩 Felix mode — quality checklist leaderboard</span><br>
-                <span style="color:{DIM};font-size:12px;">Only ~3% of US stocks pass all five
-                tests. Tests column: ROIC ≥ 15% · Piotroski ≥ 7 · OE yield ≥ 4% · ROIC trend
-                improving (the P/E ≤ 50 gate already filtered everyone here).</span></div>""",
-                unsafe_allow_html=True)
+            _freg = freg if isinstance(freg, dict) else {}
+            _flens = _freg.get("regime") not in (None, "", "off")
+            if _flens:
+                _why = _esc(" · ".join(str(d) for d in (_freg.get("drivers") or [])))
+                _manual = "manual scenario" in " ".join(
+                    str(d) for d in (_freg.get("drivers") or []))
+                _conf = ""
+                if (not _manual) and _freg.get("confirm") is not None:
+                    _conf = f" · tape confirm {float(_freg['confirm']):.0%}"
+                _detail = (
+                    "The Felix score is still the quality checklist "
+                    "(ROIC, owner earnings, Piotroski, trend, growth, P/E ≤ 50). "
+                    "The lens only chooses which of those names make this book"
+                    + (f" — {_why}" if _why else "")
+                    + f". {int(_freg.get('n_sectors') or 0)} sectors in the list{_conf}."
+                )
+                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-left:4px solid {_T20_GOLD};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                    <span style="font-weight:700;">🎩 Felix + lens: {_esc(_freg.get('label',''))}</span><br>
+                    <span style="color:{DIM};font-size:12px;">{_detail}</span></div>""",
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-left:4px solid {_T20_GOLD};border-radius:10px;padding:10px 14px;margin:8px 0;">
+                    <span style="font-weight:700;">🎩 Felix mode — quality checklist leaderboard</span><br>
+                    <span style="color:{DIM};font-size:12px;">Only ~3% of US stocks pass all five
+                    tests. Tests column: ROIC ≥ 15% · Piotroski ≥ 7 · OE yield ≥ 4% · ROIC trend
+                    improving (the P/E ≤ 50 gate already filtered everyone here).</span></div>""",
+                    unsafe_allow_html=True)
             _f = f20.copy()
             _f, _lmeta = _apply_live(_f)
             _live_banner(_lmeta)
             _f = _with_catalysts(_f, _t20_cat, safe_key="top20")
+            _ffmt = {
+                "Price": "${:,.2f}", "Felix": "{:.1f}",
+                "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
+                "Piotroski": "{:.0f}", "ROIC Trend": "{:+.2f}",
+                "P/E": "{:.1f}", "RevGrowth": "{:+.0%}",
+            }
+            if "MacroFit" in _f.columns:
+                _ffmt["MacroFit"] = "{:.2f}"
+            _fsty = _f.style.format(_live_fmt(_f, _ffmt), na_rep="—")
+            _fsty = _fsty.map(lambda v: _css_sign(v - 0.15, dead=0.0) if isinstance(v, float) else "",
+                              subset=["ROIC"])
+            _fsty = _fsty.map(lambda v: f"color:{GREEN};font-weight:600" if v == "4/4"
+                              else (f"color:{DIM}" if v in ("2/4", "3/4") else f"color:{RED}"),
+                              subset=["Tests"])
+            _fsty = _fsty.map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
+                                         else (f"color:{RED};font-weight:600"
+                                               if isinstance(v, str) and v[:1] in "0123"
+                                               else f"color:{DIM}")), subset=["Data"])
+            if "MacroFit" in _f.columns:
+                _fsty = _fsty.map(
+                    lambda v: f"color:{GREEN};font-weight:600"
+                    if isinstance(v, (int, float)) and v > 1.0
+                    else (f"color:{RED}" if isinstance(v, (int, float)) and v < 1.0 else ""),
+                    subset=["MacroFit"])
+            _fcols = (["Ticker", "Sector", "Price"]
+                      + (["Live", "Chg%", "Src"] if "Live" in _f.columns else [])
+                      + (["Felix", "MacroFit"] if "MacroFit" in _f.columns else [])
+                      + ["ROIC", "OE Yield", "Piotroski", "ROIC Trend",
+                         "P/E", "RevGrowth"])
+            _fcfg = {
+                "#": _rank_col_cfg(),
+                "Felix": st.column_config.Column(help="Weighted checklist score, mirroring the screener preset exactly: ROIC x5, OE Yield x4, Piotroski x4, ROIC Trend x2, growth x1 each — percentile-ranked, P/E-gated. The macro lens does not change this number."),
+                "MacroFit": st.column_config.Column(help="This sector's multiplier under the lens. Above 1.00 means the playbook favors the sector. It changes who makes the list, not the Felix score."),
+                "Tests": st.column_config.Column(help="How many of the four measurable quality bars this stock clears. A missing input can never pass a test."),
+                "Data": st.column_config.Column(help="How many of the 6 Felix inputs (ROIC, OE yield, Piotroski, ROIC trend, revenue growth, earnings growth) this stock actually has. Missing inputs rank at the BOTTOM, never as average."),
+                "OE Yield": st.column_config.Column(help="Owner-earnings yield — real cash generated relative to price. Revenue is vanity, cash is sanity."),
+                "ROIC Trend": st.column_config.Column(help="Direction of return on capital — a real moat keeps returns from eroding."),
+            }
             with st.container(key="t20_tbl_fx"):
                 _fsel = st.dataframe(
-                    _f.style.format(_live_fmt(_f, {
-                        "Price": "${:,.2f}", "Felix": "{:.1f}",
-                        "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
-                        "Piotroski": "{:.0f}", "ROIC Trend": "{:+.2f}",
-                        "P/E": "{:.1f}", "RevGrowth": "{:+.0%}"}), na_rep="—")
-                    .map(lambda v: _css_sign(v - 0.15, dead=0.0) if isinstance(v, float) else "",
-                         subset=["ROIC"])
-                    .map(lambda v: f"color:{GREEN};font-weight:600" if v == "4/4"
-                         else (f"color:{DIM}" if v in ("2/4", "3/4") else f"color:{RED}"),
-                         subset=["Tests"])
-                    .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
-                                    else (f"color:{RED};font-weight:600"
-                                          if isinstance(v, str) and v[:1] in "0123"
-                                          else f"color:{DIM}")), subset=["Data"]),
+                    _fsty,
                     width="stretch", hide_index=True, height=740,
                     on_select="rerun", selection_mode="single-row", key="felix_table",
                     column_order=_order_with_cat(
-                        ["Ticker", "Sector", "Price"]
-                        + (["Live", "Chg%", "Src"] if "Live" in _f.columns else [])
-                        + ["ROIC", "OE Yield", "Piotroski", "ROIC Trend",
-                           "P/E", "RevGrowth"],
-                        _f),
-                    column_config={
-                        "#": _rank_col_cfg(),
-                        "Felix": st.column_config.Column(help="Weighted checklist score, mirroring the screener preset exactly: ROIC x5, OE Yield x4, Piotroski x4, ROIC Trend x2, growth x1 each — percentile-ranked, P/E-gated."),
-                        "Tests": st.column_config.Column(help="How many of the four measurable quality bars this stock clears. A missing input can never pass a test."),
-                        "Data": st.column_config.Column(help="How many of the 6 Felix inputs (ROIC, OE yield, Piotroski, ROIC trend, revenue growth, earnings growth) this stock actually has. Missing inputs rank at the BOTTOM, never as average."),
-                        "OE Yield": st.column_config.Column(help="Owner-earnings yield — real cash generated relative to price. Revenue is vanity, cash is sanity."),
-                        "ROIC Trend": st.column_config.Column(help="Direction of return on capital — a real moat keeps returns from eroding."),
-                    })
+                        [c for c in _fcols if c in _f.columns], _f),
+                    column_config=_fcfg)
             st.caption("👆 Tap a row for the chart, cards, and company profile below.")
             _scan_hub_pick_and_show(_fsel, _f, "t20_inline", "t20az", source="TOP20")
     if st.session_state.get("top20_go") and st.session_state.get("top20_mode", "cascade") == "cascade":
@@ -6621,7 +6677,7 @@ if _main == "Cascade Map" and _map == "Guide":
         ("Landing zone", "The middle 80% of analog outcomes (10th to 90th percentile). Its WIDTH is the risk."),
         ("Pop / crash odds", "Share of analogs that gained/lost 15%+ in 21 sessions, with the lift vs an average stock's base rate."),
         ("Macro regime", "The app's live read of the environment from oil, the dollar, VIX, gold, and the pressure gauge. Eight playbooks: Easy Money, Hot Inflation, Risk-On Calm, Fear / Risk-Off, Rising Dollar, Debasement, Reserve Reset, No Clear Driver. Full win/lose writeups live in the 🔭 Lenses tab."),
-        ("Macro lens", "A playbook overlaid on Top 20 or APEX. It re-orders names that already passed the filter; it does not change quality scores, analog odds, or APEX gates. Off ignores a detected regime; Auto uses the live call; a named lens is a what-if."),
+        ("Macro lens", "A playbook overlaid on Top 20, including Felix, or APEX. It re-orders names that already passed the filter. It does not change the Felix score, cascade score, analog odds, or APEX gates. Off ignores a detected regime; Auto uses the live call; a named lens is a what-if."),
         ("MacroFit", "Sector × industry multiplier from the current lens. Auto shrinks it toward 1.00 when the live tape does not confirm the lead sector."),
         ("Pressure gauge", "Net Fed liquidity + stablecoin flows + credit spreads combined into −3…+3. Positive = money looking for a home."),
         ("RVOL", "Recent volume vs its own average. 2.5x+ means attention arrived."),
