@@ -2309,12 +2309,68 @@ def render_ignition_scanner_tab():
             return "--"
 
 
-    def mrow(label, tooltip, value):
+    def az_tag_inv(v, hi, lo, fmt="{:.2f}", suffix=""):
+        try:
+            fv = float(v)
+            col = "#ff4444" if fv >= hi else ("#d0b040" if fv >= lo else "#4dd880")
+            return f"<span style='font-family:Space Mono,monospace;color:{col}'>{fmt.format(fv)}{suffix}</span>"
+        except Exception:
+            return "--"
+
+
+    def _az_esc(text):
+        return (str(text).replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+    def metric_scale(value, vmin, vmax, good, ok, caption, higher=True, neg_bad=False):
+        """Color band from Stock Lookup. Green is the good range."""
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return ""
+        if not np.isfinite(v):
+            return ""
+        span = max(float(vmax) - float(vmin), 1e-9)
+
+        def _pct(x):
+            return max(0.0, min(100.0, (float(x) - float(vmin)) / span * 100.0))
+
+        def _band(a, b, color):
+            left, right = _pct(a), _pct(b)
+            return (f"<div style='position:absolute;left:{min(left, right):.1f}%;"
+                    f"width:{max(abs(right - left), 0):.1f}%;top:0;bottom:0;"
+                    f"background:{color}'></div>")
+
+        if higher:
+            in_good = v >= good
+            in_ok = v >= ok
+            zones = _band(ok, good, "rgba(208,176,64,.45)") + _band(good, vmax, "rgba(77,216,128,.5)")
+        else:
+            in_good = v <= good
+            in_ok = v <= ok
+            zones = _band(vmin, good, "rgba(77,216,128,.5)") + _band(good, ok, "rgba(208,176,64,.45)")
+        if neg_bad and v < 0:
+            in_good = in_ok = False
+        color = "#4dd880" if in_good else ("#d0b040" if in_ok else "#ff4444")
+        mark = _pct(0 if (neg_bad and v < 0) else v)
+        cap = _az_esc(caption)
+        return (
+            f"<div title='{cap}' style='position:relative;height:12px;background:#122540;"
+            f"border-radius:4px;overflow:hidden'>{zones}"
+            f"<div style='position:absolute;left:calc({mark:.1f}% - 2px);top:0;width:4px;"
+            f"height:12px;background:{color}'></div></div>"
+            f"<div style='font-size:10px;color:#9aa8bd;margin-top:2px;line-height:1.2'>{cap}</div>"
+        )
+
+
+    def mrow(label, tooltip, value, scale=""):
         return (f"<tr style='border-bottom:1px solid #122540'>"
-                f"<td style='padding:8px 10px;font-size:13px;color:#b0c8e8;width:40%'>"
+                f"<td style='padding:8px 10px;font-size:13px;color:#b0c8e8;width:34%'>"
                 f"<span title='{tooltip}' style='cursor:help;border-bottom:1px dashed #1e3a5f'>{label}</span></td>"
-                f"<td style='padding:8px 10px;font-size:13px;font-family:Space Mono,monospace;color:#ffffff'>{value}</td>"
-                f"</tr>")
+                f"<td style='padding:8px 8px;font-size:13px;font-family:Space Mono,monospace;"
+                f"color:#ffffff;width:28%;white-space:nowrap'>{value}</td>"
+                f"<td style='padding:6px 8px;width:38%;vertical-align:middle'>{scale}</td></tr>")
 
 
     def az_section(title):
@@ -3395,6 +3451,7 @@ def render_ignition_scanner_tab():
         with az_col2:
             _ig_ce = None
             _ig_on = False
+            _ig_src = ""
             try:
                 import cascade_engine as _ig_ce
                 _ig_ent = next(
@@ -3409,23 +3466,30 @@ def render_ignition_scanner_tab():
                     else (str((_ig_ent or {}).get("source") or "").strip() or "Stock Lookup"))
             except Exception:
                 _ig_ce = None
-            if _ig_on and _ig_src:
-                st.caption(f"⭐ {az_ticker} on watchlist · {_ig_src}")
-            elif st.button("⭐ Watchlist", key="ig_wl_add", width="stretch",
-                           help="Save this Ignition Scanner result to your watchlist."):
+            _wl_label = "⭐ Update watchlist" if _ig_on else "⭐ Add to watchlist"
+            if st.button(_wl_label, key="ig_wl_add", width="stretch",
+                         help="Save this Ignition result on your watchlist: "
+                              "score, fuel, signals, and the rest of the scan row."):
                 _r = next((r for r in ok if r["ticker"] == az_ticker), None)
                 _px = float(_r["price"]) if _r and _r.get("price") else float("nan")
                 _ig_scan = ignition_watch_fields(_r) if _r else {}
-                if _ig_ce is not None:
-                    _ig_ce.watchlist_add(az_ticker, _px, source="Ignition Scanner",
-                                         scan=_ig_scan or None)
+                if _ig_ce is None:
+                    st.error("Watchlist storage is unavailable.")
+                else:
+                    _ig_new = _ig_ce.watchlist_add(
+                        az_ticker, _px, source="Ignition Scanner",
+                        scan=_ig_scan or None)
                     st.session_state["wl_source"] = "Ignition Scanner"
                     st.session_state["lk_tk"] = az_ticker
                     try:
-                        st.toast(f"⭐ {az_ticker} saved from Ignition Scanner")
+                        st.toast(
+                            f"⭐ {az_ticker} "
+                            f"{'saved to' if _ig_new else 'updated on'} your watchlist")
                     except Exception:
                         pass
                     st.rerun()
+            if _ig_on and _ig_src:
+                st.caption(f"On watchlist · {_ig_src}")
 
         # ── helper renderers ────────────────────────────────────────────
         # helpers and fetch_analyzer defined at module level
@@ -3751,13 +3815,27 @@ def render_ignition_scanner_tab():
                 mc_str = f"${mcap/1e9:.2f}B" if mcap >= 1e9 else f"${mcap/1e6:.1f}M"
                 val_rows.append(mrow("Market Cap", "Total market value = share price × shares outstanding. Determines if this is micro/small/mid/large cap.", mc_str))
             if pe is not None:
-                val_rows.append(mrow("P/E Ratio", "Price-to-Earnings. How much investors pay per dollar of earnings. High P/E = growth expectations.", az_tag(pe, 0, 25, "{:.1f}", "x") if pe < 100 else f"<span style='font-family:Space Mono,monospace;color:#d0b040'>{pe:.1f}x</span>"))
+                val_rows.append(mrow(
+                    "P/E Ratio", "Price per dollar of trailing earnings.",
+                    az_tag_inv(pe, 40, 25, "{:.1f}", "x"),
+                    metric_scale(pe, 0, 60, 25, 40, "good under 25x",
+                                 higher=False, neg_bad=True)))
             if fwpe is not None:
-                val_rows.append(mrow("Forward P/E", "P/E based on next 12 months estimated earnings. Lower than trailing P/E = growth expected.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{fwpe:.1f}x</span>"))
+                val_rows.append(mrow(
+                    "Forward P/E", "P/E on next-12-month estimates. Below trailing = growth expected.",
+                    f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{fwpe:.1f}x</span>",
+                    metric_scale(fwpe, 0, 60, 25, 40, "good under 25x",
+                                 higher=False, neg_bad=True)))
             if pb is not None:
-                val_rows.append(mrow("P/B Ratio", "Price-to-Book. Below 1.0 = trading below asset value. Above 3.0 = premium for brand/growth.", az_tag(pb, 0, 3, "{:.2f}", "x")))
+                val_rows.append(mrow(
+                    "P/B Ratio", "Below 1 = under book value; above 3 = premium.",
+                    az_tag_inv(pb, 6, 3, "{:.2f}", "x"),
+                    metric_scale(pb, 0, 10, 3, 6, "good under 3x", higher=False)))
             if ps is not None:
-                val_rows.append(mrow("P/S Ratio", "Price-to-Sales. Below 2x = reasonable. Above 10x = high growth premium.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{ps:.2f}x</span>"))
+                val_rows.append(mrow(
+                    "P/S Ratio", "Below 2x reasonable; above 10x = growth premium.",
+                    az_tag_inv(ps, 10, 5, "{:.2f}", "x"),
+                    metric_scale(ps, 0, 16, 5, 10, "good under 5x", higher=False)))
             if beta is not None:
                 val_rows.append(mrow("Beta", "Volatility vs S&P 500. 1.0 = market. 1.5 = 50% more volatile. Under 0.6 = defensive.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{beta:.2f}</span>"))
             if fl is not None:
@@ -3772,17 +3850,62 @@ def render_ignition_scanner_tab():
                 st.caption(f"Valuation unavailable — {_why}")
 
             az_section("Financial Health")
+            roce = info.get("_roce")
+            gm = info.get("_gross_margin")
+            if gm is None:
+                gm = info.get("grossMargins")
+            opm = info.get("_op_margin")
+            cfm = info.get("_cf_margin")
+            fcfm = info.get("_fcf_margin")
+
+            def _has(v):
+                try:
+                    return v is not None and np.isfinite(float(v))
+                except (TypeError, ValueError):
+                    return False
+
             hlth_rows = []
-            if pm  is not None: hlth_rows.append(mrow("Profit Margin", "Net income / revenue. Expanding = pricing power.", az_tag(pm * 100, 15, 5, "{:.1f}", "%")))
-            if om  is not None: hlth_rows.append(mrow("Operating Margin", "EBIT / revenue. Core business efficiency before interest and taxes.", az_tag(om * 100, 15, 5, "{:.1f}", "%")))
-            if roe is not None: hlth_rows.append(mrow("Return on Equity", "Net income / shareholders equity. Above 15% = strong.", az_tag(roe * 100, 15, 8, "{:.1f}", "%")))
-            if roa is not None: hlth_rows.append(mrow("Return on Assets", "Net income / total assets. Above 5% = solid.", az_tag(roa * 100, 8, 3, "{:.1f}", "%")))
-            if deq is not None:
-                hlth_rows.append(mrow("D/E Ratio", "Total debt / equity. High D/E amplifies gains and losses. Capital-intensive sectors carry more.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{deq:.1f}%</span>"))
-            if cr is not None:
-                hlth_rows.append(mrow("Current Ratio", "Current assets / current liabilities. Above 1.5 = comfortable. Below 1.0 = short-term risk.", az_tag(cr, 1.5, 1.0, "{:.2f}")))
+            if _has(roce): hlth_rows.append(mrow("ROCE", "Return on Capital Employed: operating income / (total assets − current liabilities). 15%+ is elite.", az_tag(roce * 100, 15, 8, "{:.1f}", "%"), metric_scale(roce * 100, 0, 40, 15, 8, "good 15%+")))
+            if _has(gm): hlth_rows.append(mrow("Gross Margin", "Gross profit / revenue — the moat test. 60%+ means pricing power.", az_tag(gm * 100, 50, 30, "{:.1f}", "%"), metric_scale(gm * 100, 0, 80, 50, 30, "good 50%+")))
+            if _has(opm): hlth_rows.append(mrow("Operating Margin", "Operating income / revenue — what's left after running the business.", az_tag(opm * 100, 15, 5, "{:.1f}", "%"), metric_scale(opm * 100, 0, 40, 15, 5, "good 15%+")))
+            elif _has(om): hlth_rows.append(mrow("Operating Margin", "Operating income / revenue.", az_tag(om * 100, 15, 5, "{:.1f}", "%"), metric_scale(om * 100, 0, 40, 15, 5, "good 15%+")))
+            if _has(cfm): hlth_rows.append(mrow("Cash Flow Margin", "Operating cash flow / revenue — earnings are an opinion, cash is a fact.", az_tag(cfm * 100, 15, 8, "{:.1f}", "%"), metric_scale(cfm * 100, 0, 40, 15, 8, "good 15%+")))
+            if _has(fcfm): hlth_rows.append(mrow("FCF Margin", "Free cash flow / revenue — cash left after capex.", az_tag(fcfm * 100, 10, 5, "{:.1f}", "%"), metric_scale(fcfm * 100, 0, 30, 10, 5, "good 10%+")))
+            if _has(pm): hlth_rows.append(mrow("Profit Margin", "Net income / revenue.", az_tag(pm * 100, 15, 5, "{:.1f}", "%"), metric_scale(pm * 100, 0, 40, 15, 5, "good 15%+")))
+            if _has(roe): hlth_rows.append(mrow("ROE", "Return on equity.", az_tag(roe * 100, 15, 8, "{:.1f}", "%"), metric_scale(roe * 100, 0, 40, 15, 8, "good 15%+")))
+            if _has(roa): hlth_rows.append(mrow("ROA", "Return on assets.", az_tag(roa * 100, 8, 4, "{:.1f}", "%"), metric_scale(roa * 100, 0, 20, 8, 4, "good 8%+")))
+            if _has(deq): hlth_rows.append(mrow("Debt / Equity", "Leverage — lower is safer.", az_tag_inv(deq, 150, 80, "{:.0f}", "%"), metric_scale(deq, 0, 250, 80, 150, "good under 80%", higher=False)))
+            if _has(cr): hlth_rows.append(mrow("Current Ratio", "Short-term assets / liabilities. Above 1.5 healthy.", az_tag(cr, 1.5, 1.0, "{:.2f}", "x"), metric_scale(cr, 0, 3, 1.5, 1.0, "good 1.5x+")))
             if hlth_rows:
                 st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(hlth_rows)}</tbody></table>", unsafe_allow_html=True)
+            scan_rows = []
+            for lab, key, hi, lo, fmt, suf, tip, scale in (
+                ("Piotroski", "_scan_piotroski", 7, 5, "{:.0f}", "/9", "9-point fundamental health score from the nightly scan. 7+ = fortress.", (0, 9, 7, 5, "good 7+")),
+                ("Golden Cross", "_scan_golden_cross", 1, 0.5, "{:.1f}", "", "1 = 50MA above 200MA in the nightly scan.", (0, 1, 1, 0.5, "good 1")),
+                ("ROIC", "_scan_roic", 0.15, 0.08, "{:.1%}", "", "Return on invested capital.", None),
+                ("MFI", "_scan_mfi", 55, 45, "{:.0f}", "", "Money Flow Index from the nightly scan.", (0, 100, 55, 45, "good 55+")),
+                ("Squeeze Score", "_scan_squeeze_score", 60, 40, "{:.0f}", "", "Nightly short-squeeze composite.", (0, 100, 60, 40, "good 60+")),
+                ("Clean Setup", "_scan_clean_setup", 60, 40, "{:.0f}", "", "Clean Setup preset score from the nightly scan.", (0, 100, 60, 40, "good 60+")),
+            ):
+                v = info.get(key)
+                if key == "_scan_squeeze_score" and v is None:
+                    v = info.get("_scan_squeeze")
+                try:
+                    v = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if not np.isfinite(v):
+                    continue
+                if key == "_scan_roic":
+                    bar = metric_scale(v * 100, 0, 40, 15, 8, "good 15%+")
+                else:
+                    bar = metric_scale(v, scale[0], scale[1], scale[2], scale[3], scale[4])
+                scan_rows.append(mrow(lab, tip, az_tag(v, hi, lo, fmt, suf), bar))
+            if scan_rows:
+                az_section("Nightly Scan Signals")
+                st.markdown(
+                    f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(scan_rows)}</tbody></table>",
+                    unsafe_allow_html=True)
 
             if am:
                 az_section("Analyst Consensus")
