@@ -302,6 +302,12 @@ def _menu_category_css() -> str:
         "color:#9AF7C4 !important;font-weight:800 !important;"
         "letter-spacing:.6px !important;}"
     )
+    rules.append(
+        "[class*='_thatbiz'] label, [class*='_thatbiz'] label p, "
+        "[class*='_thatbiz'] label span {"
+        "color:#E8C872 !important;font-weight:800 !important;"
+        "letter-spacing:.6px !important;}"
+    )
     # Section labels and Basic/Advanced choices. Selected chip stays dark on orange.
     for key, col in (
         ("apex_ui_mode", "#FFD15C"),
@@ -2773,6 +2779,8 @@ _HUB_KEEP_TOGGLES = {
     "hs_use_cat", "kw_use_cat", "te_use_cat", "top20_use_cat",
     "apex_safe_ai", "poc_safe_ai", "sw_safe_ai",
     "hs_safe_ai", "kw_safe_ai", "te_safe_ai", "top20_safe_ai",
+    "apex_thatbiz", "poc_thatbiz", "sw_thatbiz",
+    "kw_thatbiz", "te_thatbiz", "top20_thatbiz",
 }
 
 _HUB_KEEP_BUTTON_SUFFIXES = (
@@ -2842,7 +2850,8 @@ def _hub_keep_is_toggle(k: str) -> bool:
     """Bools that are real checkboxes / toggles — safe to persist."""
     if k in _HUB_KEEP_TOGGLES:
         return True
-    if "_tog_" in k or k.endswith(("_filter", "_toggle", "_use_cat", "_safe_ai")):
+    if "_tog_" in k or k.endswith(
+            ("_filter", "_toggle", "_use_cat", "_safe_ai", "_thatbiz")):
         return True
     return False
 
@@ -3011,7 +3020,7 @@ def _t20_box(text, color=_T20_BLUE):
 
 def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
                        pill_key: str | None = None):
-    """Catalyst rank toggle plus the SAFE FROM AI service filter."""
+    """Catalyst rank toggle plus That Business and SAFE FROM AI filters."""
     ctx = _hub_pill(pill_key) if pill else st.container()
     with ctx:
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
@@ -3030,6 +3039,15 @@ def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
         with ai_col:
             _md_html("<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>")
             st.toggle(
+                "That Business",
+                key=f"{key}_thatbiz",
+                help=getattr(ce, "THATBIZ_HELP",
+                             "Keep companies with pricing power, a hard-to-copy "
+                             "moat, and no mountain of debt."),
+            )
+            if _thatbiz_on(key):
+                st.caption("On — pricing power, hard-to-copy moat, no mountain of debt.")
+            st.toggle(
                 "SAFE FROM AI",
                 key=f"{key}_safe_ai",
                 help=getattr(ce, "SAFE_FROM_AI_HELP",
@@ -3042,6 +3060,20 @@ def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
 
 def _safe_ai_on(key: str) -> bool:
     return bool(st.session_state.get(f"{key}_safe_ai"))
+
+
+def _thatbiz_on(key: str) -> bool:
+    return bool(st.session_state.get(f"{key}_thatbiz"))
+
+
+def _filter_hid_msg(key: str, noun: str = "name") -> str:
+    bits = []
+    if _thatbiz_on(key):
+        bits.append("That Business")
+    if _safe_ai_on(key):
+        bits.append("SAFE FROM AI")
+    who = " and ".join(bits) if bits else "Filters"
+    return f"{who} hid every {noun} on this list."
 
 
 def _apply_safe_ai(df, key: str, ticker_col: str = "Ticker"):
@@ -3070,6 +3102,28 @@ def _apply_safe_ai(df, key: str, ticker_col: str = "Ticker"):
     return out
 
 
+def _apply_thatbiz(df, key: str, ticker_col: str = "Ticker"):
+    """Keep three-question names when that scanner's switch is on."""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    if not _thatbiz_on(key):
+        return df
+    n0 = len(df)
+    try:
+        out = ce.filter_that_business(df, True, ticker_col)
+    except Exception as e:
+        log_exc("that_business", e)
+        st.caption("That Business could not read dump fundamentals.")
+        return df
+    dropped = n0 - len(out)
+    if dropped:
+        st.caption(
+            f"That Business hid {dropped} "
+            f"{'company' if dropped == 1 else 'companies'} "
+            "that fail pricing power, moat, or fortress.")
+    return out
+
+
 def _with_rank(df):
     """Stamp a 1-based rank on the current list order."""
     try:
@@ -3083,6 +3137,9 @@ def _with_catalysts(df, on, ticker_col="Ticker", safe_key=None):
         return df
     if safe_key:
         df = _apply_safe_ai(df, safe_key, ticker_col)
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+            return df
+        df = _apply_thatbiz(df, safe_key, ticker_col)
         if df is None or not isinstance(df, pd.DataFrame) or df.empty:
             return df
     if on:
@@ -3559,6 +3616,12 @@ def _render_scan_hub_help():
                "from headlines on the listed names. Stock Lookup runs a "
                "deeper search (calendar, upgrades, insiders, more news) and "
                "still splits every hit ▲ Up vs ▼ Down.")
+    st.markdown("#### That Business")
+    st.caption("The switch next to Catalysts keeps companies that pass the "
+               "three questions: can it raise prices without losing customers, "
+               "does it own something hard to copy, and does it NOT owe a "
+               "mountain of debt. Same dump test as the Hybrid That Business "
+               "preset. Hybrid itself still uses the preset button, not this switch.")
     st.markdown("#### SAFE FROM AI")
     st.caption("The switch next to Catalysts hides companies that sell a "
                "service AI is replacing: IT outsourcing and consulting, call "
@@ -5409,7 +5472,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
             _uni_n = None
 
         _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
-        _hub_sec("5 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+        _hub_sec("5 · Catalysts", "#A78BFA", "tape flags and list filters")
         _apex_cat = _catalysts_section("apex", cat_color="#A78BFA", pill_key="apex_cat_box")
         _apex_sig = (
             str(_tf), _sec_key, float(_min_score), int(_top_n),
@@ -5479,7 +5542,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
             else:
                 _show = _with_catalysts(_res.copy(), _apex_cat, safe_key="apex")
                 if _show is None or _show.empty:
-                    st.info("SAFE FROM AI hid every name on this list.")
+                    st.info(_filter_hid_msg("apex"))
                 else:
                     _m1, _m2, _m3 = st.columns(3)
                     _m1.metric("Names found", len(_show))
@@ -5876,7 +5939,7 @@ if _main == "Scan Hub" and _hub == "POC Future":
         _poc_sig = (tuple(_stage_pick or ["TRIGGERED"]), int(_poc_top),
                     int(_accum), float(_rng), int(_poc_fresh),
                     tuple(sorted(_sec_filter)) if _sec_filter else ())
-        _hub_sec("3 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+        _hub_sec("3 · Catalysts", "#A78BFA", "tape flags and list filters")
         _poc_cat = _catalysts_section("poc", cat_color="#A78BFA", pill_key="poc_cat_box")
         if st.button("🎯 Scan for setups", type="primary", key="poc_go",
                      width="stretch"):
@@ -5911,7 +5974,7 @@ if _main == "Scan Hub" and _hub == "POC Future":
             else:
                 _pdf = _with_catalysts(_pdf, _poc_cat, safe_key="poc")
                 if _pdf is None or _pdf.empty:
-                    st.info("SAFE FROM AI hid every setup on this list.")
+                    st.info(_filter_hid_msg("poc", "setup"))
                 else:
                     _cnt = _pdf.Stage.value_counts().to_dict()
                     st.markdown(f"""<div style="background:#0c1829;border:1px solid #3d6a94;
@@ -6035,7 +6098,7 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                                   help="Last nightly-dump close.")
         _kw_top = _k3.selectbox("How many", [25, 50, 100, 200, 500],
                                 index=1, key="kw_top")
-        _hub_sec("2 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+        _hub_sec("2 · Catalysts", "#A78BFA", "tape flags and list filters")
         _kw_cat = _catalysts_section("kw", pill=False, cat_color="#A78BFA")
 
         if st.button("🔎 Search the dump", type="primary", key="kw_go",
@@ -6083,49 +6146,52 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
         else:
             _kdf = _drop_blank_cols(_kdf)
             _kdf = _with_catalysts(_kdf, _kw_cat, safe_key="kw")
-            _qshow = (_ksnap.get("query")
+            if _kdf is None or _kdf.empty:
+                st.info(_filter_hid_msg("kw"))
+            else:
+                _qshow = (_ksnap.get("query")
                       if isinstance(_ksnap, dict) and _ksnap.get("query")
                       else str(_kw_q or "").strip())
-            _md_html(
-                f"<div style='background:#0c1829;border:1px solid #3d6a94;"
-                f"border-left:5px solid #C5D4FF;border-radius:10px;"
-                f"padding:10px 14px;margin:8px 0;'>"
-                f"<b>{len(_kdf)} match{'es' if len(_kdf) != 1 else ''}</b> for "
-                f"<b style='color:#C5D4FF;'>{_esc(_qshow)}</b>"
-                f"<span style='color:{DIM};font-size:12px;'> · dump last close "
-                f"${float(_ksnap.get('lo', _kw_lo)):,.2f}–"
-                f"${float(_ksnap.get('hi', _kw_hi)):,.2f}</span></div>")
-            _korder = _order_with_cat(
-                [c for c in ["Ticker", "Name", "Sector", "Price",
-                             "Where", "Snippet"] if c in _kdf.columns],
-                _kdf)
-            _ksel = st.dataframe(
-                _kdf.style.format(
-                    {k: v for k, v in {"Price": "${:,.2f}"}.items()
-                     if k in _kdf.columns}, na_rep="—"),
-                width="stretch", hide_index=True,
-                height=_fit_list_height(len(_kdf)),
-                on_select="rerun", selection_mode="single-row",
-                key="kw_table",
-                column_order=_korder or None,
-                column_config={
-                    "#": _rank_col_cfg(),
-                    **_cat_col_cfgs(),
-                    "Name": st.column_config.Column(help="Dump company name."),
-                    "Where": st.column_config.Column(
-                        help="Name = ticker or company name. Summary = "
-                             "business description. Both when the phrase "
-                             "appears in each."),
-                    "Snippet": st.column_config.Column(
-                        width="large",
-                        help="The matching stretch of the business "
-                             "summary, or the name when only the name hit."),
-                    "Price": st.column_config.Column(
-                        help="Last close in the nightly dump."),
-                })
-            st.caption("👆 Tap a row to load the full Stock Lookup below the list.")
-            _scan_hub_pick_and_show(_ksel, _kdf, "kw_inline", "kwaz",
-                                   source="Key Word Search", full_lookup=True)
+                _md_html(
+                    f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+                    f"border-left:5px solid #C5D4FF;border-radius:10px;"
+                    f"padding:10px 14px;margin:8px 0;'>"
+                    f"<b>{len(_kdf)} match{'es' if len(_kdf) != 1 else ''}</b> for "
+                    f"<b style='color:#C5D4FF;'>{_esc(_qshow)}</b>"
+                    f"<span style='color:{DIM};font-size:12px;'> · dump last close "
+                    f"${float(_ksnap.get('lo', _kw_lo)):,.2f}–"
+                    f"${float(_ksnap.get('hi', _kw_hi)):,.2f}</span></div>")
+                _korder = _order_with_cat(
+                    [c for c in ["Ticker", "Name", "Sector", "Price",
+                                 "Where", "Snippet"] if c in _kdf.columns],
+                    _kdf)
+                _ksel = st.dataframe(
+                    _kdf.style.format(
+                        {k: v for k, v in {"Price": "${:,.2f}"}.items()
+                         if k in _kdf.columns}, na_rep="—"),
+                    width="stretch", hide_index=True,
+                    height=_fit_list_height(len(_kdf)),
+                    on_select="rerun", selection_mode="single-row",
+                    key="kw_table",
+                    column_order=_korder or None,
+                    column_config={
+                        "#": _rank_col_cfg(),
+                        **_cat_col_cfgs(),
+                        "Name": st.column_config.Column(help="Dump company name."),
+                        "Where": st.column_config.Column(
+                            help="Name = ticker or company name. Summary = "
+                                 "business description. Both when the phrase "
+                                 "appears in each."),
+                        "Snippet": st.column_config.Column(
+                            width="large",
+                            help="The matching stretch of the business "
+                                 "summary, or the name when only the name hit."),
+                        "Price": st.column_config.Column(
+                            help="Last close in the nightly dump."),
+                    })
+                st.caption("👆 Tap a row to load the full Stock Lookup below the list.")
+                _scan_hub_pick_and_show(_ksel, _kdf, "kw_inline", "kwaz",
+                                       source="Key Word Search", full_lookup=True)
     else:
         st.info("Type a keyword and hit **Search the dump**. Nothing is fetched until then.")
 
@@ -6161,7 +6227,7 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
             placeholder="greenland · drug prices · china · tariffs",
             help="Search the same live remarks. Returns the same word chart, "
                  "but only sources and words that mention this phrase.")
-        _hub_sec("2 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+        _hub_sec("2 · Catalysts", "#A78BFA", "tape flags and list filters")
         _te_cat = _catalysts_section("te", pill=False, cat_color="#A78BFA")
         _te_b1, _te_b2 = st.columns(2)
         if _te_b1.button("🔎 Scan speeches", type="primary", key="te_go",
@@ -6304,99 +6370,103 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
                 else:
                     _tdf = _tdf.copy()
                     _tdf = _apply_safe_ai(_tdf, "te")
-                    _te_tks = [str(t).strip().upper() for t in _tdf.Ticker]
-                    _rfc1, _rfc2 = st.columns([4, 1],
-                                              vertical_alignment="bottom")
-                    _rfc1.caption(
-                        f"{len(_tdf)} name{'s' if len(_tdf) != 1 else ''} — "
-                        "Current is the live quote. Change is vs the price "
-                        "the first time this ticker hit a Trump Effect list.")
-                    if _rfc2.button("🔄 Refresh prices", width="stretch",
-                                    key="te_px_btn"):
-                        st.session_state["_te_px_nonce"] = int(
-                            st.session_state.get("_te_px_nonce", 0) or 0) + 1
-                        st.toast(
-                            f"🔄 Pulling live prices for {len(_te_tks)} "
-                            f"ticker(s)…")
-                        st.rerun()
-                    _te_nonce = int(st.session_state.get("_te_px_nonce", 0)
-                                    or 0)
-                    try:
-                        _te_live, _ = _live_quotes(tuple(_te_tks), _te_nonce)
-                    except Exception as _tlq:
-                        log_exc("trump_list_live_quotes", _tlq)
-                        _te_live, _ = ce.live_quotes(_te_tks, use_dump=True)
-                    _te_seed = {}
-                    for _r in _tdf.itertuples(index=False):
-                        _tk = str(_r.Ticker).strip().upper()
-                        _now = _te_live.get(_tk)
-                        if _now is None or not np.isfinite(float(_now or np.nan)):
+                    _tdf = _apply_thatbiz(_tdf, "te")
+                    if _tdf is None or _tdf.empty:
+                        st.info(_filter_hid_msg("te"))
+                    else:
+                        _te_tks = [str(t).strip().upper() for t in _tdf.Ticker]
+                        _rfc1, _rfc2 = st.columns([4, 1],
+                                                  vertical_alignment="bottom")
+                        _rfc1.caption(
+                            f"{len(_tdf)} name{'s' if len(_tdf) != 1 else ''} — "
+                            "Current is the live quote. Change is vs the price "
+                            "the first time this ticker hit a Trump Effect list.")
+                        if _rfc2.button("🔄 Refresh prices", width="stretch",
+                                        key="te_px_btn"):
+                            st.session_state["_te_px_nonce"] = int(
+                                st.session_state.get("_te_px_nonce", 0) or 0) + 1
+                            st.toast(
+                                f"🔄 Pulling live prices for {len(_te_tks)} "
+                                f"ticker(s)…")
+                            st.rerun()
+                        _te_nonce = int(st.session_state.get("_te_px_nonce", 0)
+                                        or 0)
+                        try:
+                            _te_live, _ = _live_quotes(tuple(_te_tks), _te_nonce)
+                        except Exception as _tlq:
+                            log_exc("trump_list_live_quotes", _tlq)
+                            _te_live, _ = ce.live_quotes(_te_tks, use_dump=True)
+                        _te_seed = {}
+                        for _r in _tdf.itertuples(index=False):
+                            _tk = str(_r.Ticker).strip().upper()
+                            _now = _te_live.get(_tk)
+                            if _now is None or not np.isfinite(float(_now or np.nan)):
+                                try:
+                                    _now = float(_r.Price)
+                                except Exception:
+                                    _now = np.nan
+                            _te_seed[_tk] = _now
+                        _te_seen = ce.trump_list_ensure(_te_seed)
+                        def _te_nowpx(t):
+                            t = str(t).strip().upper()
+                            v = _te_live.get(t)
                             try:
-                                _now = float(_r.Price)
+                                v = float(v)
                             except Exception:
-                                _now = np.nan
-                        _te_seed[_tk] = _now
-                    _te_seen = ce.trump_list_ensure(_te_seed)
-                    def _te_nowpx(t):
-                        t = str(t).strip().upper()
-                        v = _te_live.get(t)
-                        try:
-                            v = float(v)
-                        except Exception:
-                            return np.nan
-                        return v if np.isfinite(v) else np.nan
-                    def _te_chg(t):
-                        t = str(t).strip().upper()
-                        now = _te_nowpx(t)
-                        then = (_te_seen.get(t) or {}).get("price_at_add")
-                        try:
-                            then = float(then)
-                        except Exception:
-                            return np.nan
-                        if not (np.isfinite(now) and np.isfinite(then)
-                                and then > 0):
-                            return np.nan
-                        return now / then - 1.0
-                    _tdf["Current"] = _tdf.Ticker.map(_te_nowpx)
-                    _tdf["Change"] = _tdf.Ticker.map(_te_chg)
-                    _tdf = _with_catalysts(_tdf, _te_cat)
-                    _te_fmt = {k: v for k, v in {
-                        "Price": "${:,.2f}", "Current": "${:,.2f}",
-                        "Change": "{:+.1%}",
-                    }.items() if k in _tdf.columns}
-                    _te_styled = _tdf.style.format(_te_fmt, na_rep="—")
-                    if "Change" in _tdf.columns:
-                        _te_styled = _te_styled.map(
-                            lambda v: _css_sign(v, dead=0.002),
-                            subset=["Change"])
-                    _tsel = st.dataframe(
-                        _te_styled,
-                        width="stretch", hide_index=True,
-                        height=_fit_list_height(len(_tdf)),
-                        on_select="rerun", selection_mode="single-row",
-                        key="te_table",
-                        column_order=_order_with_cat(
-                            [c for c in [
-                                "Ticker", "Name", "Sector", "Price",
-                                "Current", "Change", "Where", "Snippet"]
-                             if c in _tdf.columns],
-                            _tdf) or None,
-                        column_config={
-                            "#": _rank_col_cfg(),
-                            **_cat_col_cfgs(),
-                            "Price": st.column_config.Column(
-                                help="Last close in the nightly dump."),
-                            "Current": st.column_config.Column(
-                                help="Live Alpaca/Yahoo quote. Refresh to "
-                                     "pull a new print."),
-                            "Change": st.column_config.Column(
-                                help="Percent from the first time this "
-                                     "ticker appeared on a Trump Effect "
-                                     "list to the current live price."),
-                        })
-                    _scan_hub_pick_and_show(
-                        _tsel, _tdf, "te_inline", "teaz",
-                        source="Trump Effect", full_lookup=True)
+                                return np.nan
+                            return v if np.isfinite(v) else np.nan
+                        def _te_chg(t):
+                            t = str(t).strip().upper()
+                            now = _te_nowpx(t)
+                            then = (_te_seen.get(t) or {}).get("price_at_add")
+                            try:
+                                then = float(then)
+                            except Exception:
+                                return np.nan
+                            if not (np.isfinite(now) and np.isfinite(then)
+                                    and then > 0):
+                                return np.nan
+                            return now / then - 1.0
+                        _tdf["Current"] = _tdf.Ticker.map(_te_nowpx)
+                        _tdf["Change"] = _tdf.Ticker.map(_te_chg)
+                        _tdf = _with_catalysts(_tdf, _te_cat)
+                        _te_fmt = {k: v for k, v in {
+                            "Price": "${:,.2f}", "Current": "${:,.2f}",
+                            "Change": "{:+.1%}",
+                        }.items() if k in _tdf.columns}
+                        _te_styled = _tdf.style.format(_te_fmt, na_rep="—")
+                        if "Change" in _tdf.columns:
+                            _te_styled = _te_styled.map(
+                                lambda v: _css_sign(v, dead=0.002),
+                                subset=["Change"])
+                        _tsel = st.dataframe(
+                            _te_styled,
+                            width="stretch", hide_index=True,
+                            height=_fit_list_height(len(_tdf)),
+                            on_select="rerun", selection_mode="single-row",
+                            key="te_table",
+                            column_order=_order_with_cat(
+                                [c for c in [
+                                    "Ticker", "Name", "Sector", "Price",
+                                    "Current", "Change", "Where", "Snippet"]
+                                 if c in _tdf.columns],
+                                _tdf) or None,
+                            column_config={
+                                "#": _rank_col_cfg(),
+                                **_cat_col_cfgs(),
+                                "Price": st.column_config.Column(
+                                    help="Last close in the nightly dump."),
+                                "Current": st.column_config.Column(
+                                    help="Live Alpaca/Yahoo quote. Refresh to "
+                                         "pull a new print."),
+                                "Change": st.column_config.Column(
+                                    help="Percent from the first time this "
+                                         "ticker appeared on a Trump Effect "
+                                         "list to the current live price."),
+                            })
+                        _scan_hub_pick_and_show(
+                            _tsel, _tdf, "te_inline", "teaz",
+                            source="Trump Effect", full_lookup=True)
         if _sdf is not None and not _sdf.empty:
             with st.expander("Sources scanned", expanded=bool(_te_qhit)):
                 st.dataframe(

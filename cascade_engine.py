@@ -2565,6 +2565,210 @@ def filter_safe_from_ai(df, enabled: bool = True, ticker_col: str = "Ticker"):
     return out.reset_index(drop=True)
 
 
+# ── That Business (three questions) ──────────────────────────────────
+# Same gates as the Hybrid "That Business" preset: pricing power, a
+# hard-to-copy moat, and not a mountain of debt. Dump-only; cached per
+# records mtime. Walk-forward on stock_data.json.gz (2025-08-18 →
+# 2026-10-16): fortress/low-D/E was the 21d edge; high D/E lagged.
+THATBIZ_PP_MIN = 0.38
+THATBIZ_MOAT_MIN = 0.42
+THATBIZ_FORT_MIN = 0.48
+THATBIZ_MCAP_MIN = 1_000_000_000.0
+THATBIZ_F_MIN = 3.0
+THATBIZ_HELP = (
+    "Keep companies that pass the three questions: can it raise prices "
+    "without losing customers (pricing power)? Does it own something "
+    "hard to copy (moat)? Does it NOT owe a mountain of debt (fortress)? "
+    "Min $1B, owner earnings not negative. Banks/REITs scored as levered. "
+    "Same test as the Hybrid That Business preset."
+)
+_THATBIZ_MOAT_IND = {
+    "beverages - non-alcoholic", "beverages - brewers", "beverages - wineries & distilleries",
+    "tobacco", "household & personal products", "confectioners", "packaged foods",
+    "discount stores", "grocery stores", "credit services",
+    "software - infrastructure", "software - application", "software - services",
+    "medical devices", "diagnostics & research", "drug manufacturers - general",
+    "medical instruments & supplies", "biotechnology",
+    "waste management", "railroads", "restaurants",
+    "footwear & accessories", "apparel - luxury",
+    "internet content & information", "internet retail",
+    "semiconductors", "semiconductor equipment & materials",
+    "information technology services", "asset management",
+    "financial data & stock exchanges", "insurance - property & casualty",
+    "utilities - regulated electric", "utilities - regulated water", "utilities - regulated gas",
+    "specialty industrial machinery", "building products & equipment",
+    "consumer electronics",
+}
+_THATBIZ_LICENCE_IND = {
+    "waste management", "railroads", "credit services",
+    "financial data & stock exchanges",
+    "utilities - regulated electric", "utilities - regulated water", "utilities - regulated gas",
+    "software - infrastructure", "semiconductors",
+}
+_THATBIZ_COMMODITY_IND = {
+    "oil & gas e&p", "oil & gas drilling", "oil & gas midstream", "oil & gas integrated",
+    "oil & gas equipment & services", "thermal coal", "coking coal", "uranium",
+    "steel", "aluminum", "copper", "other industrial metals & mining",
+    "gold", "silver", "other precious metals & mining",
+    "airlines", "auto manufacturers", "recreational vehicles",
+    "marine shipping", "trucking", "farm & heavy construction machinery",
+    "lumber & wood production", "paper & paper products",
+    "chemicals", "agricultural inputs",
+}
+_THATBIZ_LEVERED_IND = {
+    "banks - diversified", "banks - regional", "mortgage finance",
+    "capital markets", "reit - mortgage", "reit - office", "reit - retail",
+    "reit - residential", "reit - industrial", "reit - healthcare facilities",
+    "reit - hotel & motel", "reit - specialty", "reit - diversified",
+}
+_THATBIZ_CACHE = {}
+
+
+def _thatbiz_num(v) -> float:
+    try:
+        x = float(v)
+        return x if np.isfinite(x) else np.nan
+    except (TypeError, ValueError):
+        return np.nan
+
+
+def _thatbiz_clip01(x, lo, hi) -> float:
+    if not np.isfinite(x) or hi <= lo:
+        return np.nan
+    return float(np.clip((x - lo) / (hi - lo), 0.0, 1.0))
+
+
+def thatbiz_scores(row: dict, analyzer: dict | None = None) -> tuple[float, float, float]:
+    """Return (PricingPower, MoatScore, Fortress) in 0–1. NaN if unknown."""
+    an = analyzer if isinstance(analyzer, dict) else {}
+    gm = _thatbiz_num(row.get("GrossMargin"))
+    if not np.isfinite(gm):
+        gm = _thatbiz_num(an.get("grossMargins"))
+    opm = _thatbiz_num(row.get("operatingMargins", an.get("operatingMargins")))
+    pm = _thatbiz_num(row.get("profitMargins", an.get("profitMargins")))
+    roic_raw = _thatbiz_num(row.get("ROIC"))
+    roic = float(np.clip(roic_raw, -1.0, 0.80)) if np.isfinite(roic_raw) else np.nan
+    trend = _thatbiz_num(row.get("ROIC_Trend"))
+    oe = _thatbiz_num(row.get("OE_Yield"))
+    fsc = _thatbiz_num(row.get("Piotroski"))
+    rev = _thatbiz_num(row.get("RevenueGrowth"))
+    de = _thatbiz_num(row.get("debtToEquity", an.get("debtToEquity")))
+    cr = _thatbiz_num(row.get("currentRatio", an.get("currentRatio")))
+    if not np.isfinite(cr):
+        cr = _thatbiz_num(an.get("quickRatio"))
+    ptb = _thatbiz_num(row.get("priceToBook", an.get("priceToBook")))
+    ind = str(row.get("Industry") or an.get("industry") or "").strip().lower()
+
+    gm_s = _thatbiz_clip01(gm, 0.25, 0.65)
+    op_s = _thatbiz_clip01(opm, 0.04, 0.30)
+    pm_s = _thatbiz_clip01(pm, 0.02, 0.20)
+    parts = [x for x in (gm_s, op_s, pm_s) if np.isfinite(x)]
+    pp = float(np.mean(parts)) if parts else np.nan
+    if np.isfinite(rev) and rev < -0.08 and np.isfinite(pp):
+        pp *= 0.55
+    if ind in _THATBIZ_MOAT_IND and np.isfinite(pp):
+        pp = min(1.0, pp + 0.08)
+    if ind in _THATBIZ_COMMODITY_IND and np.isfinite(pp):
+        pp *= 0.70
+    if np.isfinite(roic) and roic >= 0.20 and ind in _THATBIZ_MOAT_IND and np.isfinite(pp):
+        pp = max(pp, 0.55)
+
+    ro_s = _thatbiz_clip01(roic, 0.08, 0.22)
+    tr_s = _thatbiz_clip01(trend, -0.04, 0.06)
+    moat = np.nan
+    if np.isfinite(ro_s) or np.isfinite(tr_s):
+        moat = 0.75 * (ro_s if np.isfinite(ro_s) else 0.0) + 0.25 * (
+            tr_s if np.isfinite(tr_s) else 0.5)
+    if ind in _THATBIZ_MOAT_IND and np.isfinite(moat):
+        moat = min(1.0, moat + 0.12)
+    if ind in _THATBIZ_LICENCE_IND and np.isfinite(moat):
+        moat = min(1.0, moat + 0.10)
+    if ind in _THATBIZ_COMMODITY_IND and np.isfinite(moat):
+        moat *= 0.65
+
+    de_use = de
+    if (np.isfinite(de) and de > 150 and np.isfinite(roic) and roic > 0.18
+            and ((np.isfinite(ptb) and ptb > 10) or (np.isfinite(gm) and gm > 0.45))):
+        de_use = min(de, 90.0)
+    if ind in _THATBIZ_LEVERED_IND and np.isfinite(de_use):
+        de_use = max(de_use, 180.0)
+    de_s = (1.0 - _thatbiz_clip01(de_use, 25.0, 180.0)) if np.isfinite(de_use) else np.nan
+    cr_s = _thatbiz_clip01(cr, 0.80, 1.60)
+    if (not np.isfinite(de_s) and np.isfinite(cr) and cr >= 1.0
+            and (not np.isfinite(oe) or oe >= 0)):
+        de_s = 0.55
+    if np.isfinite(de_s) and np.isfinite(cr_s):
+        fort = 0.70 * de_s + 0.30 * cr_s
+    elif np.isfinite(de_s):
+        fort = de_s
+    elif np.isfinite(cr_s):
+        fort = cr_s
+    else:
+        fort = np.nan
+    if np.isfinite(oe) and oe < 0 and np.isfinite(fort):
+        fort *= 0.72
+    if np.isfinite(fsc) and fsc <= 2 and np.isfinite(fort):
+        fort *= 0.80
+    return (
+        float(pp) if np.isfinite(pp) else np.nan,
+        float(moat) if np.isfinite(moat) else np.nan,
+        float(fort) if np.isfinite(fort) else np.nan,
+    )
+
+
+def thatbiz_passes(rec: dict) -> bool:
+    """True when the dump row clears the three-question gates."""
+    if not isinstance(rec, dict):
+        return False
+    an = rec.get("_analyzer") if isinstance(rec.get("_analyzer"), dict) else {}
+    pp, moat, fort = thatbiz_scores(rec, an)
+    mcap = _thatbiz_num(rec.get("MarketCap", an.get("marketCap")))
+    oe = _thatbiz_num(rec.get("OE_Yield"))
+    fsc = _thatbiz_num(rec.get("Piotroski"))
+    if not (np.isfinite(pp) and pp >= THATBIZ_PP_MIN):
+        return False
+    if not (np.isfinite(moat) and moat >= THATBIZ_MOAT_MIN):
+        return False
+    if not (np.isfinite(fort) and fort >= THATBIZ_FORT_MIN):
+        return False
+    if not (np.isfinite(mcap) and mcap >= THATBIZ_MCAP_MIN):
+        return False
+    if np.isfinite(oe) and oe < 0:
+        return False
+    if np.isfinite(fsc) and fsc < THATBIZ_F_MIN:
+        return False
+    return True
+
+
+def thatbiz_pass_tickers() -> set:
+    """Tickers that pass the three questions on the current dump."""
+    recs = _dump_records_cache()
+    mt = _RECORDS_CACHE.get("mt")
+    hit = _THATBIZ_CACHE.get("hit")
+    if hit and hit[0] == mt:
+        return hit[1]
+    good = set()
+    for tk, rec in (recs or {}).items():
+        if thatbiz_passes(rec):
+            good.add(str(tk).upper())
+    _THATBIZ_CACHE["hit"] = (mt, good)
+    return good
+
+
+def filter_that_business(df, enabled: bool = True, ticker_col: str = "Ticker"):
+    """Keep names that pass pricing power, moat, and fortress. No-op when off."""
+    if not enabled or df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    if ticker_col not in df.columns:
+        return df
+    good = thatbiz_pass_tickers()
+    if not good:
+        return df
+    tk = df[ticker_col].astype(str).str.strip().str.upper()
+    out = df.loc[tk.isin(good)].copy()
+    return out.reset_index(drop=True)
+
+
 def dump_fundamentals(ticker: str) -> dict:
     """One stock's nightly-dump fundamentals (NaNs dropped)."""
     panel, tickers, sectors, mdv, dts = load_dump_panel()

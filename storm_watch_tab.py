@@ -631,7 +631,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         shakeout ≥ <b>{min_sh}/5</b>.</div>""",
         unsafe_allow_html=True)
 
-    _hub_sec("5 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+    _hub_sec("5 · Catalysts", "#A78BFA", "tape flags and list filters")
     with st.container(border=True, key="sw_cat_box"):
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:
@@ -649,6 +649,14 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             st.markdown(
                 "<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>",
                 unsafe_allow_html=True)
+            thatbiz = st.toggle(
+                "That Business",
+                key="sw_thatbiz",
+                help="Keep companies with pricing power, a hard-to-copy moat, "
+                     "and no mountain of debt. Same dump test as the Hybrid "
+                     "That Business preset.")
+            if thatbiz:
+                st.caption("On — pricing power, hard-to-copy moat, no mountain of debt.")
             safe_ai = st.toggle(
                 "SAFE FROM AI",
                 key="sw_safe_ai",
@@ -723,8 +731,19 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                 pass
             st.caption("Catalysts unavailable for this list — dump or news feed failed.")
     _dropped = 0
+    _tb_dropped = 0
     try:
         import cascade_engine as ce
+        if thatbiz:
+            _n0 = len(show) if show is not None else 0
+            show = ce.filter_that_business(show, True)
+            view = ce.filter_that_business(view, True)
+            _tb_dropped = _n0 - (len(show) if show is not None else 0)
+            if _tb_dropped:
+                st.caption(
+                    f"That Business hid {_tb_dropped} "
+                    f"{'company' if _tb_dropped == 1 else 'companies'} "
+                    "that fail pricing power, moat, or fortress.")
         if safe_ai:
             _n0 = len(show) if show is not None else 0
             show = ce.filter_safe_from_ai(show, True)
@@ -759,8 +778,13 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         c4.metric("Live factors", str(len(LIVE_FACTORS)))
 
     if view is None or view.empty:
+        _hid = []
+        if thatbiz and _tb_dropped:
+            _hid.append("That Business")
         if safe_ai and _dropped:
-            st.info("SAFE FROM AI hid every name on this list.")
+            _hid.append("SAFE FROM AI")
+        if _hid:
+            st.info(" and ".join(_hid) + " hid every name on this list.")
         else:
             st.info("No names match those filters — lower the shakeout minimum or add sectors.")
         _render_backtest(bt)
