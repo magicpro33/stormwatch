@@ -633,7 +633,7 @@ def _grid(
     return ordered
 
 
-def _flow_chart(fills: list, title: str) -> None:
+def _flow_chart(fills: list, title: str, key: str = "cc_flow") -> None:
     nets = defaultdict(float)
     for fill in fills:
         signed = fill["notional"] if fill["side"] == "Buy" else -fill["notional"]
@@ -655,12 +655,12 @@ def _flow_chart(fills: list, title: str) -> None:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color=INK),
-        height=300,
+        height=320,
         margin=dict(l=8, r=8, t=40, b=8),
         yaxis=dict(gridcolor="#1d2b40", zerolinecolor="#4a7aa0", tickprefix="$", separatethousands=True),
         xaxis=dict(gridcolor="#1d2b40"),
     )
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, width="stretch", key=key)
 
 
 def _position_nets(positions: list) -> list[tuple[str, float, int, int]]:
@@ -936,9 +936,28 @@ def _draw_tape(payload: dict) -> None:
             + " — more than 2,000 fills in a few minutes, so the public API would return stale prints. Their open book is still listed."
         )
     if fills:
-        _flow_chart(fills, f"Net buy minus sell · {payload['lookback']}")
+        _flow_chart(fills, f"Net buy minus sell · {payload['lookback']}",
+                    key="cc_tape_chart")
     else:
-        st.caption("No fills in this window for the current filters. They may be holding. Open books shows the positions.")
+        books = []
+        for earner in payload["earners"]:
+            book = payload["books"].get(earner["address"]) or {}
+            for pos in book.get("positions") or []:
+                if _coin_ok(pos["coin"]):
+                    books.append(pos)
+        nets = _position_nets(books)
+        if nets:
+            _flow_chart(
+                [{"coin": c, "side": "Buy" if v >= 0 else "Sell",
+                  "notional": abs(v)} for c, v, _, _ in nets],
+                "Net open notional · long positive, short negative",
+                key="cc_tape_chart",
+            )
+            st.caption("No fills in this window — chart is open-book net. "
+                       "They may be holding.")
+        else:
+            st.caption("No fills in this window for the current filters. "
+                       "They may be holding. Open books shows the positions.")
     shown = fills[:250]
     if not shown:
         return
@@ -997,8 +1016,10 @@ def _draw_books(payload: dict, limit: int | None = None, chart: bool = True) -> 
     nets = _position_nets(positions)
     if chart and nets:
         _flow_chart(
-            [{"coin": c, "side": "Buy" if v >= 0 else "Sell", "notional": abs(v)} for c, v, _, _ in nets],
+            [{"coin": c, "side": "Buy" if v >= 0 else "Sell", "notional": abs(v)}
+             for c, v, _, _ in nets],
             "Net open notional · long positive, short negative",
+            key="cc_books_chart",
         )
     if nets:
         agree = []

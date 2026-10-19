@@ -5,10 +5,12 @@ Debt / GDP: Treasury total public debt ÷ BEA GDP via FRED GFDEGDQ188S.
 Dollar since 2020: CPI-U purchasing power via FRED CPIAUCSL.
 Debt-clock pills: Treasury Debt to the Penny + FRED population, spending,
 interest, and deficit series.
+Foreign holders: Treasury TIC SLT Table 5 (major foreign holders).
 """
 from __future__ import annotations
 
 import html as html_mod
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
@@ -28,6 +30,14 @@ LINE = "#3d6a94"
 M2_SID = "M2SL"
 DEBT_SID = "GFDEGDQ188S"
 CPI_SID = "CPIAUCSL"
+TIC_SLT5 = ("https://ticdata.treasury.gov/resource-center/"
+            "data-chart-center/tic/Documents/slt_table5.txt")
+TIC_SKIP = {
+    "all other", "grand total", "of which: foreign official",
+    "of which: foreign official treasury bills",
+    "of which: foreign official t-bonds & notes",
+    "of which: foreign official t-bonds and notes",
+}
 
 # Income-taxpayers (not all returns). Same ~140M denominator debt clocks use.
 TAXPAYERS = 140_000_000
@@ -76,6 +86,82 @@ def _treasury_debt_daily() -> pd.Series:
     s = pd.Series({pd.Timestamp(x["record_date"]):
                    float(x["tot_pub_debt_out_amt"]) for x in rows})
     return s.sort_index().dropna()
+
+
+def _tic_name(raw: str) -> str:
+    name = " ".join(str(raw or "").replace(",", " ").split())
+    if name.lower().startswith("china"):
+        return "China"
+    if name.lower() in ("korea south", "korea, south"):
+        return "South Korea"
+    return name
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner="Loading foreign holders…")
+def _tic_foreign_holders() -> dict:
+    """Treasury TIC SLT Table 5 — major foreign holders, billions of dollars."""
+    import requests
+    r = requests.get(TIC_SLT5, timeout=20, headers={"User-Agent": "MoneyWeather/nerd-hut"})
+    r.raise_for_status()
+    lines = [ln.strip() for ln in r.text.splitlines() if ln.strip()]
+    header_i = next((i for i, ln in enumerate(lines) if ln.lower().startswith("country")), None)
+    if header_i is None:
+        return {}
+    countries = []
+    total = official = None
+    asof = None
+    header = lines[header_i].split()
+    if len(header) >= 2:
+        asof = header[1]
+    for ln in lines[header_i + 1:]:
+        low = ln.lower()
+        if low.startswith("notes") or low.startswith("the data") or low.startswith("link:"):
+            break
+        tokens = ln.replace(",", " ").split()
+        nums, name_parts = [], []
+        for tok in tokens:
+            try:
+                nums.append(float(tok))
+            except ValueError:
+                name_parts.append(tok)
+        if not nums or not name_parts:
+            continue
+        name = " ".join(name_parts)
+        val = nums[0]
+        key = name.lower()
+        if key == "grand total":
+            total = val
+            continue
+        if key.startswith("of which: foreign official") and "bill" not in key and "bond" not in key:
+            official = val
+            continue
+        if key in TIC_SKIP or key.startswith("of which"):
+            continue
+        countries.append((_tic_name(name), val))
+    countries.sort(key=lambda kv: kv[1], reverse=True)
+    return {"asof": asof, "total": total, "official": official, "countries": countries}
+
+
+def _live_project(snap: dict) -> dict:
+    """Walk the last official debt print forward using the last daily change."""
+    out = dict(snap)
+    debt = snap.get("debt")
+    added = snap.get("added")
+    asof = snap.get("debt_asof")
+    if debt is None or added is None or asof is None:
+        return out
+    if not np.isfinite(debt) or not np.isfinite(added):
+        return out
+    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    start = pd.Timestamp(asof).tz_localize(None)
+    days = max(0.0, (now - start).total_seconds() / 86400.0)
+    live = debt + added * days
+    out["debt"] = live
+    people = snap.get("people")
+    if people:
+        out["per_cit"] = live / people
+    out["per_tax"] = live / TAXPAYERS
+    return out
 
 
 def _at_or_before(s: pd.Series, ts) -> float | None:
@@ -248,6 +334,7 @@ def _css() -> None:
 .ch-msub{{font-size:12px;color:{DIM};margin-top:4px;line-height:1.35}}
 .st-key-ch_m2{{border-left:5px solid {ACCENT} !important;border-radius:10px}}
 .st-key-ch_debt{{border-left:5px solid {BLUE} !important;border-radius:10px}}
+.st-key-ch_foreign{{border-left:5px solid {GOLD} !important;border-radius:10px}}
 </style>"""
     )
 
@@ -402,14 +489,105 @@ def _debt_pills(snap: dict) -> None:
     ])
 
 
-def render_charts_tab() -> None:
-    _css()
+def _holder_bars(rows: list[tuple[str, float]]) -> None:
+    import plotly.graph_objects as go
+    names = [n for n, _ in rows][::-1]
+    vals = [v / 1000.0 for _, v in rows][::-1]
+    fig = go.Figure(go.Bar(
+        x=vals, y=names, orientation="h",
+        marker_color=GOLD,
+        hovertemplate="%{y}<br>$%{x:.2f}T<extra></extra>",
+    ))
+    fig.update_layout(
+        height=max(280, 28 * len(rows) + 48),
+        template="plotly_dark",
+        paper_bgcolor=PAPER,
+        plot_bgcolor=NAVY,
+        font=dict(color=INK, family="JetBrains Mono, monospace", size=12),
+        showlegend=False,
+        margin=dict(l=8, r=12, t=8, b=8),
+        xaxis=dict(title="Trillions of dollars", gridcolor="#1e3a5f",
+                   zeroline=False, ticksuffix="T", tickprefix="$"),
+        yaxis=dict(gridcolor="#1e3a5f", zeroline=False),
+    )
+    st.plotly_chart(fig, width="stretch", key="ch_foreign_fig")
+
+
+def _foreign_holders(snap: dict) -> None:
+    _sec("Foreign holders of U.S. debt", GOLD)
+    tic = {}
+    try:
+        tic = _tic_foreign_holders() or {}
+    except Exception:
+        tic = {}
+    countries = list(tic.get("countries") or [])
+    total_b = tic.get("total")
+    total = (total_b * 1e9) if total_b is not None else None
+    debt = snap.get("debt")
+    share = (total / debt * 100.0) if (total and debt) else None
+    by_name = {n.lower(): v for n, v in countries}
+
+    def _c(name: str):
+        v = by_name.get(name.lower())
+        return None if v is None else v * 1e9
+
+    japan, uk, china = _c("Japan"), _c("United Kingdom"), _c("China")
+    asof = tic.get("asof") or ""
+    month = ""
+    if asof:
+        try:
+            month = pd.Timestamp(asof).strftime("%b %Y")
+        except Exception:
+            month = str(asof)
+    lead = "Japan leads" if japan else "Top holders"
+    follow = []
+    if uk:
+        follow.append("UK")
+    if china:
+        follow.append("China")
+    trail = ""
+    if follow:
+        trail = f", followed by {' and '.join(follow)}" if len(follow) <= 2 \
+            else f", followed by {', '.join(follow[:-1])}, and {follow[-1]}"
+    sub = f"{lead}{trail}."
+    if month:
+        sub = f"{sub} {month}."
+    _pills([
+        {"label": "Foreign holders",
+         "value": _fmt_scale(total, digits=1),
+         "sub": (f"{_fmt_pct(share)} of U.S. debt. {sub}"
+                 if share is not None else sub),
+         "color": GOLD, "feature": True, "icon": "🌍"},
+        {"label": "Japan",
+         "value": _fmt_scale(japan, digits=1),
+         "sub": "Largest foreign holder",
+         "color": ACCENT, "icon": "🇯🇵"},
+        {"label": "United Kingdom",
+         "value": _fmt_scale(uk, digits=1),
+         "sub": "Second",
+         "color": BLUE, "icon": "🇬🇧"},
+        {"label": "China",
+         "value": _fmt_scale(china, digits=1),
+         "sub": "Third",
+         "color": RED, "icon": "🇨🇳"},
+    ])
+    top = countries[:10]
+    if top:
+        _holder_bars(top)
+    elif total is None:
+        st.error("Could not load foreign holders.")
+
+
+def _render_nerd_body() -> None:
     with st.container(border=True, key="ch_dollar"):
         _dollar_since_2020()
 
-    snap = _debt_snapshot()
+    snap = _live_project(_debt_snapshot())
     with st.container(border=True, key="ch_debt_snap"):
         _debt_pills(snap)
+
+    with st.container(border=True, key="ch_foreign"):
+        _foreign_holders(snap)
 
     with st.container(border=True, key="ch_m2"):
         _sec("M2", ACCENT)
@@ -463,3 +641,17 @@ def render_charts_tab() -> None:
             hover="%{x|%b %Y}<br>%{y:.1f}% of GDP<extra></extra>",
         )
         st.plotly_chart(fig, width="stretch", key="ch_debt_fig")
+
+
+if hasattr(st, "fragment"):
+    @st.fragment(run_every=timedelta(seconds=30))
+    def _nerd_hut_live() -> None:
+        _render_nerd_body()
+else:
+    def _nerd_hut_live() -> None:
+        _render_nerd_body()
+
+
+def render_charts_tab() -> None:
+    _css()
+    _nerd_hut_live()

@@ -273,8 +273,14 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     border-radius: 22px !important;
     padding: 16px 18px 18px 18px !important;
     margin: 10px 0 16px 0 !important;
+    overflow: visible !important;
     box-shadow: 0 0 0 1px rgba(232,119,34,0.10),
                 0 0 28px rgba(232,119,34,0.18) !important;
+}
+div[data-testid="stPlotlyChart"],
+div[data-testid="stPlotlyChart"] > div {
+    overflow: visible !important;
+    min-height: 280px;
 }
 .st-key-mw_nav {
     border-color: rgba(232,119,34,0.58) !important;
