@@ -2767,6 +2767,7 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
 _HUB_KEEP_FLAGS = {
     "top20_go", "t20_live", "sw_go", "apex_run", "poc_run", "kw_run", "te_run",
     "macro_advice_on", "hs_gate_thatbiz",
+    "top20_advice_on", "apex_advice_on", "sw_advice_on",
 }
 
 # Real checkboxes / toggles — the only bools safe to persist.
@@ -2779,19 +2780,23 @@ _HUB_KEEP_TOGGLES = {
     "hs_use_cat", "kw_use_cat", "te_use_cat", "top20_use_cat",
     "apex_safe_ai", "poc_safe_ai", "sw_safe_ai",
     "hs_safe_ai", "kw_safe_ai", "te_safe_ai", "top20_safe_ai",
-    "apex_thatbiz", "poc_thatbiz", "sw_thatbiz",
+    "apex_thatbiz", "poc_thatbiz", "sw_thatbiz", "hs_thatbiz",
     "kw_thatbiz", "te_thatbiz", "top20_thatbiz",
 }
 
 _HUB_KEEP_BUTTON_SUFFIXES = (
     "_btn", "_table", "_csv", "_go", "_run", "_scan",
     "_clear", "_live", "_search", "_hot", "_download",
+    "_advise",
 )
 
 _HUB_KEEP_SKIP = {
     "top20_go", "top20_snap", "top20_mode", "top20_run_secs", "t20_live",
     "t20_inline", "t20_inline_tk", "top20_run", "top20_live", "top20_hot_btn",
-    "macro_advise", "macro_apply", "top20_table", "forecast_table", "macro_table", "felix_table",
+    "macro_advise", "macro_apply",
+    "top20_advise", "top20_apply", "apex_advise", "apex_apply",
+    "sw_advise", "sw_apply",
+    "top20_table", "forecast_table", "macro_table", "felix_table",
     "apex_run", "apex_snap", "apex_run_tf", "apex_run_secs",
     "apex_inline", "apex_inline_tk", "apex_go", "apex_hot", "apex_table", "apex_csv",
     "poc_run", "poc_snap", "poc_run_sig", "poc_inline", "poc_inline_tk",
@@ -2820,6 +2825,8 @@ _HUB_BUTTON_KEYS = {
     "hs_run", "hs_hot_btn", "hs_dl_csv",
     "sw_run", "sw_clear", "sw_hot_btn", "sw_download",
     "macro_advise", "macro_apply",
+    "top20_advise", "top20_apply", "apex_advise", "apex_apply",
+    "sw_advise", "sw_apply",
     "top20_run", "top20_live", "top20_hot_btn",
     "apex_go", "apex_hot", "apex_csv",
     "poc_go", "poc_hot_btn",
@@ -3016,6 +3023,183 @@ def _t20_head(title, color=ACCENT, sub="", big=True):
 
 def _t20_box(text, color=_T20_BLUE):
     _md_html(f'<div class="t20-box" style="--bc:{color}">{_esc(text)}</div>')
+
+
+def _rank_filters_html(key: str) -> str:
+    """', with Catalysts and SAFE FROM AI' — only the switches that are on."""
+    extra = []
+    if st.session_state.get(f"{key}_use_cat"):
+        extra.append("<b style='color:#A78BFA;'>Catalysts</b>")
+    if st.session_state.get(f"{key}_thatbiz"):
+        extra.append("<b style='color:#E8C872;'>3 Magic Rules</b>")
+    if st.session_state.get(f"{key}_safe_ai"):
+        extra.append("<b style='color:#6EE7B7;'>SAFE FROM AI</b>")
+    if not extra:
+        return ""
+    if len(extra) == 1:
+        return f", with {extra[0]}"
+    if len(extra) == 2:
+        return f", with {extra[0]} and {extra[1]}"
+    return f", with {', '.join(extra[:-1])}, and {extra[-1]}"
+
+
+def _render_macro_lens_block(prefix: str, asof, closes, gauge, *,
+                             include_off: bool = True, help_extra: str = "",
+                             felix_mode: bool = False):
+    """Macro lens + Recommend for one scanner. Never reads another tab's lens.
+
+    Returns dict with token ('off' | None=auto | regime key), apply_macro,
+    override, regkey, confirm, tilts, label.
+    """
+    pending = st.session_state.pop(f"_{prefix}_lens_pending", None)
+    if prefix == "top20":
+        legacy = st.session_state.pop("_scenario_pending", None)
+        pending = pending or legacy
+    if pending:
+        st.session_state[f"{prefix}_lens"] = pending
+
+    off_lbl = "🚫 Off — no macro tilt"
+    auto_lbl = "📡 Auto — detect the live regime"
+    opts = {}
+    if include_off:
+        opts[off_lbl] = "off"
+    opts[auto_lbl] = None
+    opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
+
+    lh, lb = st.columns([1.35, 1], vertical_alignment="center")
+    lh.markdown("**Macro lens**")
+    if lb.button("🧭 Recommend lens", key=f"{prefix}_advise", width="stretch",
+                 help="Weigh the market, the tape and the headlines, "
+                      "then recommend which scenario fits."):
+        st.session_state[f"{prefix}_advice_on"] = True
+        st.session_state[f"{prefix}_advice_nonce"] = (
+            int(st.session_state.get(f"{prefix}_advice_nonce", 0) or 0) + 1)
+        if prefix == "top20":
+            st.session_state["macro_advice_on"] = True
+            st.session_state["macro_advice_nonce"] = (
+                st.session_state[f"{prefix}_advice_nonce"])
+
+    label = st.selectbox(
+        "Macro lens", list(opts), key=f"{prefix}_lens",
+        label_visibility="collapsed",
+        help=HELP["macro_lens"] + (help_extra or ""))
+    token = opts.get(label)
+    if felix_mode and token == "off":
+        st.caption("Quality checklist only. Pick a lens to spread the "
+                   "list across that playbook's leading sectors. The "
+                   "Felix score itself does not change.")
+    elif felix_mode:
+        st.caption("The lens decides which quality names make the book. "
+                   "They stay ordered by the Felix score.")
+    elif token == "off":
+        st.caption("No sector tilt. Pure ranking. Playbooks are in 🔭 Lenses.")
+    elif token is None:
+        st.caption("Uses the regime detected now. Playbooks are in 🔭 Lenses.")
+    else:
+        cd0 = ce.REGIME_CARDS.get(token, {})
+        st.caption(cd0.get("thesis") or cd0.get("leads", ""))
+
+    advice_on = bool(st.session_state.get(f"{prefix}_advice_on")
+                     or (prefix == "top20" and st.session_state.get("macro_advice_on")))
+    if advice_on:
+        nonce = int(st.session_state.get(f"{prefix}_advice_nonce")
+                    or st.session_state.get("macro_advice_nonce") or 0)
+        try:
+            advice = _macro_advice(asof, gauge, nonce)
+        except Exception as ae:
+            advice = None
+            st.error(f"Advisor failed: {ae}")
+        if advice:
+            cc = {"high": GREEN, "medium": "#d0b040",
+                  "low": DIM}[advice["confidence"]]
+            _md_html(
+                f"<div style='background:#081325;border:1px solid #1d2b40;"
+                f"border-left:5px solid {cc};border-radius:12px;"
+                f"padding:12px 16px;margin:6px 0;'>"
+                f"<div style='font-size:12px;color:{DIM};letter-spacing:1px;"
+                f"text-transform:uppercase;'>Recommended · "
+                f"{_esc(advice['confidence'])} confidence</div>"
+                f"<div style='font-size:17px;font-weight:800;"
+                f"margin:3px 0 5px;'>{_esc(advice['label'])}</div>"
+                f"<div style='color:{DIM};font-size:12px;'>Margin "
+                f"{_esc(advice['margin'])} pts · "
+                f"{_esc(advice['n_articles'])} headlines read · "
+                f"{_esc(advice['stamp'])}</div></div>")
+            rl = ce.REGIME_NAMES.get(advice["recommended"])
+            if rl and st.button(f"✅ Use {rl}", key=f"{prefix}_apply",
+                                width="stretch"):
+                st.session_state[f"_{prefix}_lens_pending"] = rl
+                st.session_state[f"{prefix}_advice_on"] = False
+                if prefix == "top20":
+                    st.session_state["macro_advice_on"] = False
+                st.rerun()
+            with st.expander("🔍 The evidence behind this call"):
+                ev = pd.DataFrame(advice["evidence"])
+                if not ev.empty:
+                    ev["Argues for"] = ev.regime.map(
+                        lambda r: ce.REGIME_NAMES.get(r, r))
+                    ev = ev.rename(columns={
+                        "signal": "Signal", "reading": "Reading",
+                        "weight": "Weight"})
+                    st.dataframe(
+                        ev[["Signal", "Reading", "Argues for", "Weight"]]
+                        .style.format({"Weight": "{:.1f}"}),
+                        width="stretch", hide_index=True)
+                st.caption(
+                    "Headlines are capped at 2 points — news confirms "
+                    "the tape, it never outvotes it.")
+
+    apply_macro = token != "off"
+    override = token if (apply_macro and token not in (None, "off")) else None
+    confirm = 1.0
+    regkey = override
+    if apply_macro and regkey is None:
+        try:
+            pack = ce.macro_regime(closes, pressure_gauge=gauge)
+            regkey = pack.get("regime")
+            confirm = float(pack.get("confirm") or 1.0)
+        except Exception:
+            regkey = "base"
+            confirm = 1.0
+    tilts = (ce.SECTOR_TILTS.get(regkey) or None) if regkey else None
+    if not apply_macro:
+        label_txt = ("no macro lens (Felix score only)" if felix_mode
+                     else "no macro lens")
+    elif token is None:
+        pretty = ce.REGIME_NAMES.get(regkey, regkey) if regkey else "auto"
+        label_txt = f"auto · {pretty}"
+    else:
+        label_txt = ce.REGIME_NAMES.get(token, token)
+
+    if regkey and apply_macro:
+        cd = ce.REGIME_CARDS.get(regkey)
+        if cd:
+            _md_html(
+                f"<div style='display:flex;align-items:center;gap:10px;"
+                f"background:#081325;border-left:3px solid {ACCENT};"
+                f"padding:8px 14px;margin:6px 0;font-size:13px;'>"
+                f"<span style='font-size:17px;'>{cd['emoji']}</span>"
+                f"<span><b>{_esc(cd['name'])}</b>"
+                f"<span style='color:{DIM};font-size:12px;'> — "
+                f"{_esc(cd.get('thesis') or '')}</span>"
+                f"<br><span style='color:{GREEN};'> ▲ "
+                f"{_esc(cd['leads'])}</span>"
+                f"<span style='color:{RED};'> ▼ "
+                f"{_esc(cd['lags'])}</span></span></div>")
+            with st.expander(f"📖 What {cd['name']} means — who wins, who loses"):
+                render_lens_playbook(cd, regkey, full=False)
+                st.caption("Full playbooks, comparisons, and sector "
+                           "multipliers are in the 🔭 Lenses tab.")
+
+    return {
+        "token": token,
+        "apply_macro": apply_macro,
+        "override": override,
+        "regkey": regkey if apply_macro else None,
+        "confirm": confirm,
+        "tilts": tilts,
+        "label": label_txt,
+    }
 
 
 def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
@@ -3498,8 +3682,9 @@ def _render_scan_hub_help():
             "Washout coils sitting on range lows.",
             "Finds names that already sold off a bit, sit in the lower part "
             "of the 63-day range, with RSI washed out and volatility "
-            "compressed — a coil after the shake, not strength. Macro lens "
-            "and hot-sector filters are optional.",
+            "compressed — a coil after the shake, not strength. This tab's "
+            "macro lens and Recommend button are its own, not Top 20's. "
+            "Hot-sector filters are optional in Advanced.",
             "You want mean-reversion candidates, not breakouts.",
             color="#FF8FA3")
         _help_card(
@@ -4534,7 +4719,12 @@ if _main == "Scan Hub" and _hub == "ShakeOut":
         render_storm_watch_tab(
             asof=asof, closes=closes, gauge=GAUGE,
             render_detail=lambda tk: _render_scan_hub_detail(
-                tk, "sw_inline", "swaz", closable=False))
+                tk, "sw_inline", "swaz", closable=False),
+            render_macro_lens=lambda: _render_macro_lens_block(
+                "sw", asof, closes, GAUGE,
+                help_extra=" This tab's lens only. It re-orders coils toward "
+                           "that playbook's sectors — it does not change the "
+                           "shakeout checklist."))
     _hub_keep_save("sw", ("sw_",))
 
 
@@ -4579,127 +4769,20 @@ if _main == "Scan Hub" and _hub == "TOP20":
                      "quality company fits the scenario you choose.")
     _method = _METHODS[_method_label]
 
-    _pending = st.session_state.pop("_scenario_pending", None)
-    if _pending:
-        st.session_state["top20_lens"] = _pending
-
-    _LENS_OFF = "🚫 Off — no macro tilt"
-    _LENS_AUTO = "📡 Auto — detect the live regime"
-    _scn_opts = {_LENS_OFF: "off", _LENS_AUTO: None}
-    _scn_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
     with _d2:
         with _hub_pill("t20_lens"):
-            _lh, _lb = st.columns([1.35, 1], vertical_alignment="center")
-            _lh.markdown("**Macro lens**")
-            if _lb.button("🧭 Recommend lens", key="macro_advise",
-                          width="stretch",
-                          help="Weigh the market, the tape and the headlines, "
-                               "then recommend which scenario fits."):
-                st.session_state["macro_advice_on"] = True
-                st.session_state["macro_advice_nonce"] = \
-                    st.session_state.get("macro_advice_nonce", 0) + 1
-            _lens_choices = list(_scn_opts)
-            if _method == "macro":
-                _lens_choices = [o for o in _lens_choices if o != _LENS_OFF]
-            _lens_label = st.selectbox(
-                "Macro lens", _lens_choices, key="top20_lens",
-                label_visibility="collapsed",
-                help=HELP["macro_lens"])
-            _lens = _scn_opts.get(_lens_label)
-            if _method == "felix" and (_lens == "off"):
-                st.caption("Quality checklist only. Pick a lens to spread the "
-                           "list across that playbook's leading sectors. The "
-                           "Felix score itself does not change.")
-            elif _method == "felix":
-                st.caption("The lens decides which quality names make the book. "
-                           "They stay ordered by the Felix score.")
-            elif _lens == "off":
-                st.caption("No sector tilt. Pure ranking. Playbooks are in "
-                           "🔭 Lenses.")
-            elif _lens is None:
-                st.caption("Uses the regime detected now. Playbooks are in "
-                           "🔭 Lenses.")
-            else:
-                _cd0 = ce.REGIME_CARDS.get(_lens, {})
-                st.caption(_cd0.get("thesis") or _cd0.get("leads", ""))
+            _pack = _render_macro_lens_block(
+                "top20", asof, closes, _gauge,
+                include_off=(_method != "macro"),
+                felix_mode=(_method == "felix"))
+            _lens = _pack["token"]
+            _apply_macro = _pack["apply_macro"]
+            _override = _pack["override"]
+            _lens_txt = _pack["label"]
 
-            _advice = None
-            if st.session_state.get("macro_advice_on"):
-                try:
-                    _advice = _macro_advice(
-                        asof, _gauge,
-                        st.session_state.get("macro_advice_nonce", 0))
-                except Exception as _ae:
-                    _advice = None
-                    st.error(f"Advisor failed: {_ae}")
-                if _advice:
-                    _cc = {"high": GREEN, "medium": "#d0b040",
-                           "low": DIM}[_advice["confidence"]]
-                    _md_html(
-                        f"<div style='background:#081325;border:1px solid #1d2b40;"
-                        f"border-left:5px solid {_cc};border-radius:12px;"
-                        f"padding:12px 16px;margin:6px 0;'>"
-                        f"<div style='font-size:12px;color:{DIM};letter-spacing:1px;"
-                        f"text-transform:uppercase;'>Recommended · "
-                        f"{_esc(_advice['confidence'])} confidence</div>"
-                        f"<div style='font-size:17px;font-weight:800;"
-                        f"margin:3px 0 5px;'>{_esc(_advice['label'])}</div>"
-                        f"<div style='color:{DIM};font-size:12px;'>Margin "
-                        f"{_esc(_advice['margin'])} pts · "
-                        f"{_esc(_advice['n_articles'])} headlines read · "
-                        f"{_esc(_advice['stamp'])}</div></div>")
-                    _rl = ce.REGIME_NAMES.get(_advice["recommended"])
-                    if _rl and st.button(f"✅ Use {_rl}", key="macro_apply",
-                                         width="stretch"):
-                        st.session_state["_scenario_pending"] = _rl
-                        st.session_state["macro_advice_on"] = False
-                        st.rerun()
-                    with st.expander("🔍 The evidence behind this call"):
-                        _ev = pd.DataFrame(_advice["evidence"])
-                        if not _ev.empty:
-                            _ev["Argues for"] = _ev.regime.map(
-                                lambda r: ce.REGIME_NAMES.get(r, r))
-                            _ev = _ev.rename(columns={
-                                "signal": "Signal", "reading": "Reading",
-                                "weight": "Weight"})
-                            st.dataframe(
-                                _ev[["Signal", "Reading", "Argues for",
-                                     "Weight"]]
-                                .style.format({"Weight": "{:.1f}"}),
-                                width="stretch", hide_index=True)
-                        st.caption(
-                            "Headlines are capped at 2 points — news confirms "
-                            "the tape, it never outvotes it.")
-
-            _apply_macro = _lens != "off"
-            _override = (_lens if (_apply_macro and _lens not in (None, "off"))
-                         else None)
-            if _apply_macro:
-                _rk = _override or (
-                    ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
-                    if _lens is None else None)
-                _cd = ce.REGIME_CARDS.get(_rk) if _rk else None
-                if _cd:
-                    _md_html(
-                        f"<div style='display:flex;align-items:center;gap:10px;"
-                        f"background:#081325;border-left:3px solid {ACCENT};"
-                        f"padding:8px 14px;margin:6px 0;font-size:13px;'>"
-                        f"<span style='font-size:17px;'>{_cd['emoji']}</span>"
-                        f"<span><b>{_esc(_cd['name'])}</b>"
-                        f"<span style='color:{DIM};font-size:12px;'> — "
-                        f"{_esc(_cd.get('thesis') or '')}</span>"
-                        f"<br><span style='color:{GREEN};'> ▲ "
-                        f"{_esc(_cd['leads'])}</span>"
-                        f"<span style='color:{RED};'> ▼ "
-                        f"{_esc(_cd['lags'])}</span></span></div>")
-                    with st.expander(
-                            f"📖 What {_cd['name']} means — who wins, who loses"):
-                        render_lens_playbook(_cd, _rk, full=False)
-                        st.caption("Full playbooks, comparisons, and sector "
-                                   "multipliers are in the 🔭 Lenses tab.")
-
-    _apply_macro = _lens != "off"
-    _override = _lens if (_apply_macro and _lens not in (None, "off")) else None
+    _apply_macro = _pack["apply_macro"]
+    _override = _pack["override"]
+    _lens = _pack["token"]
     if _method == "macro" and _override is None:
         try:
             _override = ce.macro_regime(closes, pressure_gauge=_gauge)["regime"]
@@ -4808,29 +4891,12 @@ if _main == "Scan Hub" and _hub == "TOP20":
         _eng_txt = {"cascade": "cascade score", "forecast": "odds of gain",
                     "felix": "the Felix quality checklist",
                     "macro": "scenario fit alone"}[_method]
-        if not _apply_macro:
-            _lens_txt = ("no macro lens (Felix score only)" if _method == "felix"
-                         else "no macro lens")
-        elif _lens is None:
-            _lens_txt = "the auto-detected regime"
-        else:
-            _lens_txt = ce.REGIME_NAMES.get(_lens, _lens)
-        _rank_extra = []
-        if _t20_cat:
-            _rank_extra.append(f"<b style='color:#A78BFA;'>Catalysts</b>")
-        if _thatbiz_on("top20"):
-            _rank_extra.append(f"<b style='color:#E8C872;'>3 Magic Rules</b>")
-        if _safe_ai_on("top20"):
-            _rank_extra.append(f"<b style='color:#6EE7B7;'>SAFE FROM AI</b>")
-        if not _rank_extra:
-            _rank_filters = ""
-        elif len(_rank_extra) == 1:
-            _rank_filters = f", with {_rank_extra[0]}"
-        elif len(_rank_extra) == 2:
-            _rank_filters = f", with {_rank_extra[0]} and {_rank_extra[1]}"
-        else:
-            _rank_filters = (f", with {', '.join(_rank_extra[:-1])}, "
-                             f"and {_rank_extra[-1]}")
+        _lens_txt = _pack.get("label") or (
+            "no macro lens (Felix score only)" if (_method == "felix" and not _apply_macro)
+            else "no macro lens" if not _apply_macro
+            else "the auto-detected regime" if _lens is None
+            else ce.REGIME_NAMES.get(_lens, _lens))
+        _rank_filters = _rank_filters_html("top20")
         _md_html(
             f"<div style='background:#16344f;border:1px solid #3d6a94;"
             f"border-left:4px solid {ACCENT};padding:10px 14px;margin:4px 0 12px;"
@@ -5365,7 +5431,30 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                     20-bar range and 50-bar profile cover a few hours of microstructure, not a
                     swing — treat these as candidates to chart, not a proven edge.</span></div>""",
                     unsafe_allow_html=True)
+        else:
+            _tf = _tf_names[0]
+            _meta = af.TIMEFRAMES[_tf]
+            _top_n = 30
+            _min_score = 80
+            _picked_secs = []
+            _sec_filter = None
+            _require_calm = True
+            _apply_rs = True
+            _min_price = 5.0
+            _min_dv = 5.0
+            _uni_n = None
 
+        _hub_sec("3 · Macro lens", "#F0A6FF", "this tab's playbook, not Top 20's")
+        with _hub_pill("apex_lens_box"):
+            _ax_pack = _render_macro_lens_block(
+                "apex", asof, closes, GAUGE,
+                help_extra=" The lens NEVER changes the APEX score or the CALM/RS "
+                           "gates — it only re-orders the names that already passed them.")
+        _ax_lens = _ax_pack["token"]
+        _ax_tilts = _ax_pack["tilts"]
+        _ax_confirm = _ax_pack["confirm"]
+
+        if _advanced:
             _ap_pending = st.session_state.pop("_apex_sectors_pending", None)
             if _ap_pending:
                 st.session_state["apex_sectors"] = _ap_pending
@@ -5373,53 +5462,6 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                 _all_secs = _apex_sector_list(asof)
             except Exception:
                 _all_secs = []
-            _hub_sec("3 · Macro lens", "#F0A6FF", "re-order names that already passed")
-            with _hub_pill("apex_lens_box"):
-                _AX_OFF = "🚫 Off — no macro tilt"
-                _AX_AUTO = "📡 Auto — detect the live regime"
-                _ax_opts = {_AX_OFF: "off", _AX_AUTO: None}
-                _ax_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
-                _ax_lens_label = st.selectbox(
-                    "Macro lens", list(_ax_opts), key="apex_lens",
-                    label_visibility="collapsed",
-                    help=HELP["macro_lens"] + " The lens NEVER changes the APEX score or "
-                         "the CALM/RS gates — it only re-orders the names that already "
-                         "passed them.")
-                _ax_lens = _ax_opts.get(_ax_lens_label)
-                _ax_confirm = 1.0
-                if _ax_lens == "off":
-                    _ax_tilts = None
-                    _ax_regkey = None
-                else:
-                    _ax_regkey = _ax_lens
-                    if _ax_regkey is None:
-                        try:
-                            _ax_pack = ce.macro_regime(
-                                closes, pressure_gauge=GAUGE)
-                            _ax_regkey = _ax_pack["regime"]
-                            _ax_confirm = float(_ax_pack.get("confirm") or 1.0)
-                        except Exception:
-                            _ax_regkey = "base"
-                    _ax_tilts = ce.SECTOR_TILTS.get(_ax_regkey) or None
-                if _ax_regkey:
-                    _axc = ce.REGIME_CARDS.get(_ax_regkey)
-                    if _axc:
-                        _md_html(
-                            f"<div style='background:#081325;border:1px solid #3d6a94;"
-                            f"border-left:5px solid #F0A6FF;border-radius:10px;"
-                            f"padding:7px 12px;margin-top:8px;font-size:12.5px;'>"
-                            f"<b>{_axc['emoji']} {_esc(_axc['name'])}</b>"
-                            f"<span style='color:{DIM};'> — {_esc(_axc.get('thesis') or '')}</span>"
-                            f"<br><span style='color:{GREEN};'> ▲ {_esc(_axc['leads'])}</span>"
-                            f"<br><span style='color:{RED};'> ▼ {_esc(_axc['lags'])}</span></div>")
-                        with st.expander(f"📖 {_axc['name']} playbook — who wins, who loses"):
-                            render_lens_playbook(_axc, _ax_regkey, full=False)
-                            st.caption("Full playbooks are in the 🔭 Lenses tab.")
-                    else:
-                        st.caption("No tilt card for this regime.")
-                else:
-                    st.caption("No tilt — pure APEX ranking.")
-
             _hub_sec("4 · Session and sectors", "#6EE7B7", "where the money is going")
             with _hub_pill("apex_sectors_box"):
                 _a_lb, _a_off, _a_lbl = flow_window_picker("apex")
@@ -5474,21 +5516,6 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                                  "most liquid names rather than all ~5,700. Larger = slower.")
                     else:
                         _uni_n = None
-        else:
-            _tf = _tf_names[0]
-            _meta = af.TIMEFRAMES[_tf]
-            _top_n = 30
-            _min_score = 80
-            _ax_lens = "off"
-            _ax_tilts = None
-            _ax_confirm = 1.0
-            _picked_secs = []
-            _sec_filter = None
-            _require_calm = True
-            _apply_rs = True
-            _min_price = 5.0
-            _min_dv = 5.0
-            _uni_n = None
 
         _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
         _hub_sec("5 · Catalysts", "#A78BFA", "tape flags and list filters")
@@ -6845,7 +6872,7 @@ if _main == "Cascade Map" and _map == "Guide":
         ("Landing zone", "The middle 80% of analog outcomes (10th to 90th percentile). Its WIDTH is the risk."),
         ("Pop / crash odds", "Share of analogs that gained/lost 15%+ in 21 sessions, with the lift vs an average stock's base rate."),
         ("Macro regime", "The app's live read of the environment from oil, the dollar, VIX, gold, and the pressure gauge. Eight playbooks: Easy Money, Hot Inflation, Risk-On Calm, Fear / Risk-Off, Rising Dollar, Debasement, Reserve Reset, No Clear Driver. Full win/lose writeups live in the 🔭 Lenses tab."),
-        ("Macro lens", "A playbook overlaid on Top 20, including Felix, or APEX. It re-orders names that already passed the filter. It does not change the Felix score, cascade score, analog odds, or APEX gates. Off ignores a detected regime; Auto uses the live call; a named lens is a what-if."),
+        ("Macro lens", "A playbook overlaid on Top 20, ShakeOut, or APEX. Each tab has its own lens and Recommend button. It re-orders names that already passed that tab's filter. It does not change the Felix score, cascade score, analog odds, shakeout checklist, or APEX gates. Off ignores a detected regime; Auto uses the live call; a named lens is a what-if."),
         ("MacroFit", "Sector × industry multiplier from the current lens. Auto shrinks it toward 1.00 when the live tape does not confirm the lead sector."),
         ("Pressure gauge", "Net Fed liquidity + stablecoin flows + credit spreads combined into −3…+3. Positive = money looking for a home."),
         ("RVOL", "Recent volume vs its own average. 2.5x+ means attention arrived."),

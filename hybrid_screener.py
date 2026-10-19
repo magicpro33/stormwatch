@@ -364,6 +364,7 @@ def _apply_preset(name: str) -> None:
     st.session_state[_k("ipo")] = False
     st.session_state[_k("ipo_days")] = 90
     st.session_state[_k("gate_thatbiz")] = False
+    st.session_state[_k("thatbiz")] = False
     _clear_metric_weights()
 
     if name == "clean":
@@ -1143,7 +1144,8 @@ def render_hybrid_screener() -> None:
         enabled[key] = bool(st.session_state.get(_k(f"tog_{key}"), False))
         weights[key] = float(st.session_state.get(_k(f"wt_{key}"), 0.0) or 0.0)
 
-    _hub_sec("4 · Catalysts", "#A78BFA", "tape flags and the AI filter")
+    _hub_sec("4 · Catalysts", "#A78BFA", "tape flags and list filters")
+    _preset_thatbiz = bool(st.session_state.get(_k("gate_thatbiz")))
     with st.container(border=True, key="hs_cat_box"):
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:
@@ -1160,6 +1162,17 @@ def render_hybrid_screener() -> None:
             st.markdown(
                 "<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>",
                 unsafe_allow_html=True)
+            thatbiz = False
+            if not _preset_thatbiz:
+                thatbiz = st.toggle(
+                    "3 Magic Rules",
+                    key=_k("thatbiz"),
+                    help=getattr(ce, "THATBIZ_HELP",
+                                 "Keep companies with pricing power, a hard-to-copy "
+                                 "moat, and no mountain of debt. Same dump test as "
+                                 "the 3 Magic Rules preset."))
+                if thatbiz:
+                    st.caption("On — pricing power, hard-to-copy moat, no mountain of debt.")
             safe_ai = st.toggle(
                 "SAFE FROM AI",
                 key=_k("safe_ai"),
@@ -1223,6 +1236,21 @@ def render_hybrid_screener() -> None:
                     "whose service AI is replacing.")
         if display is not None and display.empty:
             st.info("SAFE FROM AI hid every name on this list.")
+    if thatbiz and display is not None and not getattr(display, "empty", True):
+        _n0 = len(display)
+        try:
+            display = ce.filter_that_business(display, True)
+        except Exception:
+            pass
+        else:
+            _tb_dropped = _n0 - len(display)
+            if _tb_dropped:
+                st.caption(
+                    f"3 Magic Rules hid {_tb_dropped} "
+                    f"{'company' if _tb_dropped == 1 else 'companies'} "
+                    "that fail pricing power, moat, or fortress.")
+        if display is not None and display.empty:
+            st.info("3 Magic Rules hid every name on this list.")
     if use_cat and display is not None and not getattr(display, "empty", True):
         try:
             with st.spinner("Reading catalyst signals…"):

@@ -38,7 +38,8 @@ SCAN_UNIVERSE = 250
 
 HELP = {
     "mode": "Basic uses the backtest defaults and hides the rest. "
-            "Advanced shows every filter (macro lens, hot sectors, shakeout gate, list length).",
+            "Advanced shows hot sectors, the shakeout gate, and list length. "
+            "The macro lens is on this tab in every mode.",
     "macro_lens": "A playbook overlaid on the ranking. Off = no sector tilt. "
                   "Auto = the regime Money Maker detects live. A named lens re-orders "
                   "names toward that scenario's winners — it does not change the shakeout "
@@ -503,7 +504,7 @@ def _hub_sec(title, color, sub=""):
 
 
 def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
-                           render_detail=None):
+                           render_detail=None, render_macro_lens=None):
     mw = _in_mw()
     _hub_sec("1 · Mode", "#FFD15C", "basic or every filter")
     with st.container(border=True, key="sw_mode_box"):
@@ -516,32 +517,43 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     # ── defaults (Basic) ────────────────────────────────────────────
     min_sh = BASIC_MIN_SHAKEOUT
     n_show = BASIC_N_SHOW
-    lens_token = None          # Auto
+    lens_token = None
+    lens_txt = "no macro lens"
+    regkey = None
     sec_filter = None
     lb, off, flbl = 1, 0, "last session"
     hot_now: list[str] = []
 
+    if render_macro_lens is not None:
+        _hub_sec("2 · Macro lens", "#F0A6FF", "this tab's playbook, not Top 20's")
+        with st.container(border=True, key="sw_lens_box"):
+            pack = render_macro_lens()
+        lens_token = pack.get("token")
+        lens_txt = pack.get("label") or "no macro lens"
+        regkey = pack.get("regkey")
+    elif advanced and mw:
+        import cascade_engine as ce
+        LENS_OFF = "🚫 Off — no macro tilt"
+        LENS_AUTO = "📡 Auto — detect the live regime"
+        lens_opts = {LENS_OFF: "off", LENS_AUTO: None}
+        lens_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
+        _hub_sec("2 · Macro lens", "#F0A6FF", "tilt the ranking, not the coil")
+        with st.container(border=True, key="sw_lens_box"):
+            lens_label = st.selectbox(
+                "Macro lens", list(lens_opts), key="sw_lens",
+                label_visibility="collapsed", help=HELP["macro_lens"])
+            lens_token = lens_opts.get(lens_label)
+            if lens_token == "off":
+                st.caption("No sector tilt. Pure shakeout ranking.")
+            elif lens_token is None:
+                st.caption("Uses whichever regime is detected now. 🔭 Lenses has the playbooks.")
+            else:
+                card = ce.REGIME_CARDS.get(lens_token, {})
+                st.caption(card.get("thesis") or card.get("leads") or "")
+
     if advanced:
         if mw:
             import cascade_engine as ce
-            LENS_OFF = "🚫 Off — no macro tilt"
-            LENS_AUTO = "📡 Auto — detect the live regime"
-            lens_opts = {LENS_OFF: "off", LENS_AUTO: None}
-            lens_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
-            _hub_sec("2 · Macro lens", "#F0A6FF", "tilt the ranking, not the coil")
-            with st.container(border=True, key="sw_lens_box"):
-                lens_label = st.selectbox(
-                    "Macro lens", list(lens_opts), key="sw_lens",
-                    label_visibility="collapsed", help=HELP["macro_lens"])
-                lens_token = lens_opts.get(lens_label)
-                if lens_token == "off":
-                    st.caption("No sector tilt. Pure shakeout ranking.")
-                elif lens_token is None:
-                    st.caption("Uses whichever regime is detected now. 🔭 Lenses has the playbooks.")
-                else:
-                    card = ce.REGIME_CARDS.get(lens_token, {})
-                    st.caption(card.get("thesis") or card.get("leads") or "")
-
             _hub_sec("3 · Session and sectors", "#6EE7B7", "where the money is going")
             with st.container(border=True, key="sw_sectors_box"):
                 lb, off, flbl = _flow_window(True)
@@ -614,22 +626,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                 "How many stocks", list(range(8, 44, 4)),
                 index=1, key="sw_n_show", help=HELP["n_show"])
 
-    # recipe line
-    if mw:
+    if mw and render_macro_lens is None:
         import cascade_engine as ce
         regkey, lens_txt = _resolve_lens(lens_token, closes, gauge)
-    else:
-        regkey, lens_txt = None, "no macro lens"
-    sec_txt = (f", limited to {len(sec_filter)} sectors ({flbl})"
-               if sec_filter else "")
-    st.markdown(
-        f"""<div style="background:#0c1829;border:1px solid #3d6a94;
-        border-left:5px solid #FF8FA3;border-radius:10px;
-        padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
-        Ranking shakeout coils by <b style="color:#FF8FA3;">washout + coil at range lows</b>,
-        through <b style="color:#FF8FA3;">{lens_txt}</b>{sec_txt},
-        shakeout ≥ <b>{min_sh}/5</b>.</div>""",
-        unsafe_allow_html=True)
 
     _hub_sec("5 · Catalysts", "#A78BFA", "tape flags and list filters")
     with st.container(border=True, key="sw_cat_box"):
@@ -665,6 +664,32 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                      "bookkeeping, translation, and similar.")
             if safe_ai:
                 st.caption("On — services AI is replacing stay off this list.")
+
+    extra = []
+    if use_cat:
+        extra.append("<b style='color:#A78BFA;'>Catalysts</b>")
+    if thatbiz:
+        extra.append("<b style='color:#E8C872;'>3 Magic Rules</b>")
+    if safe_ai:
+        extra.append("<b style='color:#6EE7B7;'>SAFE FROM AI</b>")
+    if not extra:
+        rank_filters = ""
+    elif len(extra) == 1:
+        rank_filters = f", with {extra[0]}"
+    elif len(extra) == 2:
+        rank_filters = f", with {extra[0]} and {extra[1]}"
+    else:
+        rank_filters = f", with {', '.join(extra[:-1])}, and {extra[-1]}"
+    sec_txt = (f", limited to {len(sec_filter)} sectors ({flbl})"
+               if sec_filter else "")
+    st.markdown(
+        f"""<div style="background:#0c1829;border:1px solid #3d6a94;
+        border-left:5px solid #FF8FA3;border-radius:10px;
+        padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
+        Ranking shakeout coils by <b style="color:#FF8FA3;">washout + coil at range lows</b>,
+        through <b style="color:#FF8FA3;">{lens_txt}</b>{sec_txt}{rank_filters},
+        shakeout ≥ <b>{min_sh}/5</b>.</div>""",
+        unsafe_allow_html=True)
 
     b1, b2 = st.columns([2, 1])
     if b1.button("🚀 Scan shakeout coils", type="primary", key="sw_run",
