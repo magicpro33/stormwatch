@@ -680,17 +680,17 @@ def _position_nets(positions: list) -> list[tuple[str, float, int, int]]:
 
 
 def _section(options: list[str], key: str) -> str:
-    if hasattr(st, "segmented_control"):
-        sel = st.segmented_control("Section", options, key=key, label_visibility="collapsed")
-        return sel if sel in options else options[0]
-    return st.radio("Section", options, horizontal=True, key=key, label_visibility="collapsed")
+    with st.container(border=True, key=f"{key}_menu"):
+        if hasattr(st, "segmented_control"):
+            sel = st.segmented_control("Section", options, key=key, label_visibility="collapsed")
+            return sel if sel in options else options[0]
+        return st.radio("Section", options, horizontal=True, key=key, label_visibility="collapsed")
 
 
 def _header() -> None:
     _html_block(
         f"""
-        <div style="background:#0c1829;border:1px solid #1d2b40;border-left:4px solid {ACCENT};
-            border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+        <div style="background:transparent;padding:2px 4px 12px;margin-bottom:8px;">
           <div style="color:{DIM};font-size:13px;line-height:1.45;">
             Live buys and sells from Hyperliquid wallets that are actually up, plus the
             vaults Hyperliquid uses for real copy-trading. The leaderboard snapshot

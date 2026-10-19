@@ -235,7 +235,7 @@ def _css() -> None:
   .ch-pills{{grid-template-columns:repeat(2,minmax(0,1fr))}}
   .ch-hero{{grid-template-columns:1fr}}
 }}
-.ch-pill{{background:{NAVY};border:1px solid {LINE};border-radius:14px;
+.ch-pill{{background:#06101c;border:1px solid #2a4a6a;border-radius:14px;
   padding:14px 16px 12px;position:relative;min-height:92px}}
 .ch-pill.feature{{border-left:5px solid var(--mc,{RED});padding:16px 18px}}
 .ch-ico{{position:absolute;top:12px;right:14px;font-size:16px;opacity:.55}}
@@ -404,60 +404,62 @@ def _debt_pills(snap: dict) -> None:
 
 def render_charts_tab() -> None:
     _css()
-    _dollar_since_2020()
+    with st.container(border=True, key="ch_dollar"):
+        _dollar_since_2020()
 
     snap = _debt_snapshot()
-    _debt_pills(snap)
+    with st.container(border=True, key="ch_debt_snap"):
+        _debt_pills(snap)
 
-    _sec("M2", ACCENT)
-    m2 = _try_series(M2_SID)
-    if m2 is None or m2.empty:
-        st.error("Could not load M2.")
-    else:
-        last = float(m2.iloc[-1])
-        tn = last / 1000.0
-        yoy = _yoy(m2, 12)
-        d1 = _delta(m2, 1)
-        _metrics([
-            ("Latest", f"${tn:,.2f}T", _month_label(m2.index[-1]), ACCENT),
-            ("YoY", _fmt_pct(yoy, signed=True), "12-month change", ACCENT),
-            ("Month Δ",
-             f"${(d1 or 0) / 1000.0:+,.2f}T" if d1 is not None else "—",
-             "vs prior month", ACCENT),
-            ("History", f"{len(m2)} months",
-             f"{_month_label(m2.index[0])} → {_month_label(m2.index[-1])}", DIM),
-        ])
-        fig = _line_fig(
-            m2, color=ACCENT, y_title="Trillions of dollars",
-            y_prefix="$", y_suffix="T", y_mult=0.001,
-            hover="%{x|%b %Y}<br>$%{y:.2f}T<extra></extra>",
-        )
-        with st.container(border=True, key="ch_m2"):
+    with st.container(border=True, key="ch_m2"):
+        _sec("M2", ACCENT)
+        m2 = _try_series(M2_SID)
+        if m2 is None or m2.empty:
+            st.error("Could not load M2.")
+        else:
+            last = float(m2.iloc[-1])
+            tn = last / 1000.0
+            yoy = _yoy(m2, 12)
+            d1 = _delta(m2, 1)
+            _metrics([
+                ("Latest", f"${tn:,.2f}T", _month_label(m2.index[-1]), ACCENT),
+                ("YoY", _fmt_pct(yoy, signed=True), "12-month change", ACCENT),
+                ("Month Δ",
+                 f"${(d1 or 0) / 1000.0:+,.2f}T" if d1 is not None else "—",
+                 "vs prior month", ACCENT),
+                ("History", f"{len(m2)} months",
+                 f"{_month_label(m2.index[0])} → {_month_label(m2.index[-1])}", DIM),
+            ])
+            fig = _line_fig(
+                m2, color=ACCENT, y_title="Trillions of dollars",
+                y_prefix="$", y_suffix="T", y_mult=0.001,
+                hover="%{x|%b %Y}<br>$%{y:.2f}T<extra></extra>",
+            )
             st.plotly_chart(fig, width="stretch", key="ch_m2_fig")
 
-    _sec("Total public debt / GDP", BLUE)
-    debt = snap.get("d2g")
-    if debt is None or debt.empty:
-        st.error("Could not load debt / GDP.")
-        return
-    last = float(debt.iloc[-1])
-    yoy_pp = _delta(debt, 4)
-    d1 = _delta(debt, 1)
-    yoy_col = RED if (yoy_pp or 0) >= 0 else GREEN
-    d1_col = RED if (d1 or 0) >= 0 else GREEN
-    peak = float(debt.max())
-    _metrics([
-        ("Quarterly print", f"{last:.1f}%", _quarter_label(debt.index[-1]), BLUE),
-        ("YoY", f"{yoy_pp:+.1f} pp" if yoy_pp is not None else "—",
-         "vs same quarter last year", yoy_col),
-        ("Quarter Δ", f"{d1:+.1f} pp" if d1 is not None else "—",
-         "vs prior quarter", d1_col),
-        ("Peak", f"{peak:.1f}%", _quarter_label(debt.idxmax()), GOLD),
-    ])
-    fig = _line_fig(
-        debt, color=BLUE, y_title="Percent of GDP",
-        y_suffix="%", y_mult=1.0,
-        hover="%{x|%b %Y}<br>%{y:.1f}% of GDP<extra></extra>",
-    )
-    with st.container(border=True, key="ch_debt"):
+    with st.container(border=True, key="ch_d2g"):
+        _sec("Total public debt / GDP", BLUE)
+        debt = snap.get("d2g")
+        if debt is None or debt.empty:
+            st.error("Could not load debt / GDP.")
+            return
+        last = float(debt.iloc[-1])
+        yoy_pp = _delta(debt, 4)
+        d1 = _delta(debt, 1)
+        yoy_col = RED if (yoy_pp or 0) >= 0 else GREEN
+        d1_col = RED if (d1 or 0) >= 0 else GREEN
+        peak = float(debt.max())
+        _metrics([
+            ("Quarterly print", f"{last:.1f}%", _quarter_label(debt.index[-1]), BLUE),
+            ("YoY", f"{yoy_pp:+.1f} pp" if yoy_pp is not None else "—",
+             "vs same quarter last year", yoy_col),
+            ("Quarter Δ", f"{d1:+.1f} pp" if d1 is not None else "—",
+             "vs prior quarter", d1_col),
+            ("Peak", f"{peak:.1f}%", _quarter_label(debt.idxmax()), GOLD),
+        ])
+        fig = _line_fig(
+            debt, color=BLUE, y_title="Percent of GDP",
+            y_suffix="%", y_mult=1.0,
+            hover="%{x|%b %Y}<br>%{y:.1f}% of GDP<extra></extra>",
+        )
         st.plotly_chart(fig, width="stretch", key="ch_debt_fig")

@@ -85,19 +85,17 @@ def _css() -> None:
   border-radius:10px;padding:16px 18px;color:{INK}}}
 .dc-res{{background:#081325;border:1px solid {LINE};border-left:4px solid {GREEN};
   border-radius:10px;padding:14px 16px}}
-.dc-sechead{{background:{NAVY};border:1px solid {LINE};border-left:5px solid var(--sc,{ACCENT});
-  border-radius:10px;padding:9px 14px;margin:18px 0 8px;font-size:15px;font-weight:800;
-  color:var(--sc,{ACCENT});letter-spacing:.02em}}
+.dc-sechead{{background:transparent;border:none;padding:4px 2px 8px;margin:14px 0 8px;
+  font-size:15px;font-weight:800;color:var(--sc,{ACCENT});letter-spacing:.02em}}
 .dc-sechead small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
-.dc-sechead.lg{{font-size:21px;padding:12px 18px}}
+.dc-sechead.lg{{font-size:21px;padding:6px 2px 10px}}
 .dc-sechead.lg small{{font-size:14px}}
-.dc-sechead.xl{{font-size:28px;padding:14px 20px;border-left-width:8px}}
+.dc-sechead.xl{{font-size:24px;padding:4px 8px 10px;text-align:center}}
 .dc-sechead.xl small{{font-size:15px}}
 .dc-cinfo{{font-size:15px;font-weight:500;color:{DIM};margin-top:6px;letter-spacing:0}}
 .dc-cinfo b{{color:{INK};font-family:ui-monospace,monospace}}
-.dc-title{{background:linear-gradient(90deg,{STEEL},{NAVY});border:1px solid {LINE};
-  border-left:6px solid #FFB020;border-radius:12px;padding:12px 18px;margin:4px 0 10px;
-  font-size:20px;font-weight:800;color:#FFB020}}
+.dc-title{{background:transparent;border:none;padding:4px 8px 8px;margin:2px 0 14px;
+  text-align:center;font-size:24px;font-weight:800;color:#FFB020;letter-spacing:.02em}}
 .dc-metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0}}
 @media(max-width:720px){{.dc-metrics{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 .dc-met{{background:{NAVY};border:1px solid {LINE};border-left:4px solid var(--mc,{ACCENT});
@@ -182,12 +180,13 @@ def _simple_table(headers, rows, cls="pj"):
 
 
 def _section(options, key):
-    if hasattr(st, "segmented_control"):
-        sel = st.segmented_control("Section", options, key=key,
-                                   label_visibility="collapsed")
-        return sel if sel in options else options[0]
-    return st.radio("Section", options, horizontal=True, key=key,
-                    label_visibility="collapsed")
+    with st.container(border=True, key=f"{key}_menu"):
+        if hasattr(st, "segmented_control"):
+            sel = st.segmented_control("Section", options, key=key,
+                                       label_visibility="collapsed")
+            return sel if sel in options else options[0]
+        return st.radio("Section", options, horizontal=True, key=key,
+                        label_visibility="collapsed")
 
 
 def _ycolor(y):
