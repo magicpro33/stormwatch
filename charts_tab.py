@@ -406,6 +406,9 @@ def render_charts_tab() -> None:
     _css()
     _dollar_since_2020()
 
+    snap = _debt_snapshot()
+    _debt_pills(snap)
+
     _sec("M2", ACCENT)
     m2 = _try_series(M2_SID)
     if m2 is None or m2.empty:
@@ -431,9 +434,6 @@ def render_charts_tab() -> None:
         )
         with st.container(border=True, key="ch_m2"):
             st.plotly_chart(fig, width="stretch", key="ch_m2_fig")
-
-    snap = _debt_snapshot()
-    _debt_pills(snap)
 
     _sec("Total public debt / GDP", BLUE)
     debt = snap.get("d2g")
