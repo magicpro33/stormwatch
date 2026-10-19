@@ -1163,7 +1163,7 @@ def render_hybrid_screener() -> None:
         enabled[key] = bool(st.session_state.get(_k(f"tog_{key}"), False))
         weights[key] = float(st.session_state.get(_k(f"wt_{key}"), 0.0) or 0.0)
 
-    _hub_sec("4 · Catalysts", "#A78BFA", "tape flags and list filters")
+    _hub_sec("4 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
     _preset_thatbiz = bool(st.session_state.get(_k("gate_thatbiz")))
     with st.container(border=True, key="hs_cat_box"):
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")

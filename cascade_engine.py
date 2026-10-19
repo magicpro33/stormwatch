@@ -1262,7 +1262,7 @@ def load_dump_panel():
                     panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
                     out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
                     _PANEL_CACHE["panel"] = (mt, out)
-                    _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
+                    _PANEL_CACHE["tick_ix"] = (mt, _tick_ix_map(z["tickers"]))
                     _PANEL_CACHE["last_date"] = last
                     if "recent_ok" in z.files:
                         _PANEL_CACHE["recent_ok"] = (mt, z["recent_ok"].astype(bool))
@@ -1389,7 +1389,7 @@ def load_dump_panel():
     out = (panel, tickers, sectors, mdv, pd.to_datetime(all_d))
     _PANEL_CACHE.clear()
     _PANEL_CACHE["panel"] = (mt, out)
-    _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(tickers)})
+    _PANEL_CACHE["tick_ix"] = (mt, _tick_ix_map(tickers))
     _PANEL_CACHE["funds"] = (mt, funds)
     _PANEL_CACHE["industries"] = (mt, industries)
     _PANEL_CACHE["recent_ok"] = (mt, np.asarray(recent_ok, dtype=bool))
@@ -1412,7 +1412,7 @@ def _np_load_dump():
         out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
         mt = os.path.getmtime(_p)
         _PANEL_CACHE["panel"] = (mt, out)
-        _PANEL_CACHE["tick_ix"] = (mt, {t: i for i, t in enumerate(z["tickers"])})
+        _PANEL_CACHE["tick_ix"] = (mt, _tick_ix_map(z["tickers"]))
         if "recent_ok" in z.files:
             _PANEL_CACHE["recent_ok"] = (mt, z["recent_ok"].astype(bool))
         if "last_ok" in z.files:
@@ -1477,6 +1477,25 @@ def refresh_dump(force: bool = False):
         _FORCE_DUMP_FETCH = False
 
 
+def _tick_ix_map(tickers) -> dict:
+    """Dump ticker → column index, plus BRK.B / BRK-B aliases."""
+    ix = {}
+    for i, raw in enumerate(tickers):
+        key = str(raw).strip().upper()
+        if not key:
+            continue
+        ix.setdefault(key, i)
+        if "." in key and "=" not in key:
+            left, _, right = key.partition(".")
+            if len(right) == 1 and right.isalpha():
+                ix.setdefault(f"{left}-{right}", i)
+        elif key.count("-") == 1:
+            left, _, right = key.partition("-")
+            if len(right) == 1 and right.isalpha():
+                ix.setdefault(f"{left}.{right}", i)
+    return ix
+
+
 def _ticker_index(ticker: str):
     """Row index of a ticker in the dump panel. Case/whitespace tolerant so
     every caller path (search box, row-select, URL, future callers) resolves
@@ -1485,7 +1504,19 @@ def _ticker_index(ticker: str):
     hit = _PANEL_CACHE.get("tick_ix")
     if not hit:
         return None
-    return hit[1].get(str(ticker).strip().upper())
+    ix = hit[1]
+    key = str(ticker).strip().upper()
+    if key in ix:
+        return ix[key]
+    if "." in key and "=" not in key:
+        left, _, right = key.partition(".")
+        if len(right) == 1 and right.isalpha():
+            return ix.get(f"{left}-{right}")
+    if key.count("-") == 1:
+        left, _, right = key.partition("-")
+        if len(right) == 1 and right.isalpha():
+            return ix.get(f"{left}.{right}")
+    return None
 
 
 def dump_fundamentals_all():
@@ -2772,12 +2803,12 @@ def filter_that_business(df, enabled: bool = True, ticker_col: str = "Ticker"):
 def dump_fundamentals(ticker: str) -> dict:
     """One stock's nightly-dump fundamentals (NaNs dropped)."""
     panel, tickers, sectors, mdv, dts = load_dump_panel()
-    ix = np.where(tickers == ticker)[0]
-    if not len(ix):
+    j = _ticker_index(ticker)
+    if j is None:
         return {}
     fa = dump_fundamentals_all()
-    out = {f: float(fa[f][ix[0]]) for f in FUND_FIELDS if np.isfinite(fa[f][ix[0]])}
-    out["Sector"] = str(sectors[ix[0]])
+    out = {f: float(fa[f][j]) for f in FUND_FIELDS if np.isfinite(fa[f][j])}
+    out["Sector"] = str(sectors[j])
     return out
 
 

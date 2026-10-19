@@ -544,7 +544,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     hot_now: list[str] = []
 
     if render_macro_lens is not None:
-        _hub_sec("2 · Macro lens", "#F0A6FF", "this tab's playbook, not Top 20's")
+        _hub_sec("2 · Macro lens", "#F0A6FF", "tilt the ranking, not the coil")
         with st.container(border=True, key="sw_lens_box"):
             pack = render_macro_lens()
         lens_token = pack.get("token")
@@ -649,7 +649,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         import cascade_engine as ce
         regkey, lens_txt = _resolve_lens(lens_token, closes, gauge)
 
-    _hub_sec("5 · Catalysts", "#A78BFA", "tape flags and list filters")
+    _hub_sec("5 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
     with st.container(border=True, key="sw_cat_box"):
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:

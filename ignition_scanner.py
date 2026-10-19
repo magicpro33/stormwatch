@@ -908,17 +908,65 @@ def _bars_ok(df, n):
     return df is not None and len(df) >= n
 
 
+def _vendor_symbol(ticker: str) -> str:
+    """Alpaca / Yahoo share-class form: BRK.B → BRK-B."""
+    t = str(ticker or "").strip().upper()
+    if "." in t and "=" not in t:
+        left, _, right = t.partition(".")
+        if len(right) == 1 and right.isalpha() and left.replace("-", "").isalnum():
+            return f"{left}-{right}"
+    return t
+
+
+def _symbol_forms(ticker: str) -> list[str]:
+    """Dump spelling first, then Alpaca/Yahoo, then the raw ticker."""
+    raw = str(ticker or "").strip().upper()
+    if not raw:
+        return []
+    forms = [raw]
+    vend = _vendor_symbol(raw)
+    if vend not in forms:
+        forms.append(vend)
+    if raw.count("-") == 1:
+        left, _, right = raw.partition("-")
+        dotted = f"{left}.{right}"
+        if len(right) == 1 and dotted not in forms:
+            forms.append(dotted)
+    return forms
+
+
+def _warm_data_chain():
+    """Load the nightly dump on the main thread before a parallel scan.
+
+    Without this, watchlist / scanner-list scans fan out 12 threads that all
+    try to inflate the dump at once, miss, and fall through to Yahoo — which
+    then rate-limits and every name comes back empty.
+    """
+    try:
+        import cascade_engine as ce
+        ce.load_dump_panel()
+    except Exception:
+        pass
+    try:
+        load_screener_dump(SCREENER_URL_DEFAULT)
+    except Exception:
+        pass
+
+
 def _dump_daily_bars(ticker: str, n: int = 120):
     """Daily OHLCV from the nightly dump panel. None if the dump isn't loaded."""
     try:
         import cascade_engine as ce
-        d = ce.dump_ohlcv(ticker)
-        if d is None or d.empty:
-            return None
-        d = d.tail(int(n))
-        return d if len(d) else None
+        for sym in _symbol_forms(ticker):
+            d = ce.dump_ohlcv(sym)
+            if d is None or d.empty:
+                continue
+            d = d.tail(int(n))
+            if len(d):
+                return d
     except Exception:
         return None
+    return None
 
 
 def _finite_num(v):
@@ -937,37 +985,38 @@ def fetch_intraday(ticker: str):
     Dump is daily-only, so live bars are Alpaca (when keys are set) then Yahoo.
     Thin tickers can come back nearly empty on the free IEX feed, so anything
     insufficient falls back to Yahoo, and the better source wins."""
+    live_forms = list(dict.fromkeys(
+        [_vendor_symbol(ticker)] + _symbol_forms(ticker)))
     m1_a = m5_a = None
     _ak = alpaca_keys()
     if _ak:
-        try:
-            k, s = _ak
-            today = datetime.now(timezone.utc) - timedelta(hours=24)
-            week = datetime.now(timezone.utc) - timedelta(days=7)
-            m1_a = _alpaca_bars(ticker, "1Min", today.strftime("%Y-%m-%dT%H:%M:%SZ"), k, s)
-            m5_a = _alpaca_bars(ticker, "5Min", week.strftime("%Y-%m-%dT%H:%M:%SZ"), k, s)
-            if m1_a is not None:
-                last_day = m1_a.index[-1].date()
-                m1_a = m1_a[m1_a.index.date == last_day]
-        except Exception:
-            m1_a = m5_a = None
-    if _bars_ok(m1_a, 6):
-        return m1_a, m5_a
-
+        k, s = _ak
+        today = datetime.now(timezone.utc) - timedelta(hours=24)
+        week = datetime.now(timezone.utc) - timedelta(days=7)
+        for sym in live_forms:
+            try:
+                m1_a = _alpaca_bars(sym, "1Min", today.strftime("%Y-%m-%dT%H:%M:%SZ"), k, s)
+                m5_a = _alpaca_bars(sym, "5Min", week.strftime("%Y-%m-%dT%H:%M:%SZ"), k, s)
+                if m1_a is not None and len(m1_a):
+                    last_day = m1_a.index[-1].date()
+                    m1_a = m1_a[m1_a.index.date == last_day]
+                if _bars_ok(m1_a, 6):
+                    return m1_a, m5_a
+            except Exception:
+                m1_a = m5_a = None
     m1_y = m5_y = None
-    try:
-        def _do():
-            tk = yf.Ticker(ticker)
-            a = flatten_cols(tk.history(period="1d", interval="1m", prepost=False))
-            b = flatten_cols(tk.history(period="5d", interval="5m", prepost=False))
-            return a, b
-        m1_y, m5_y = _yf(_do)
-    except Exception:
-        m1_y = m5_y = None
-    if _bars_ok(m1_y, 6):
-        return m1_y, m5_y
-
-    # Neither source is sufficient: return whichever has the most bars
+    for sym in live_forms:
+        try:
+            def _do(s=sym):
+                tk = yf.Ticker(s)
+                a = flatten_cols(tk.history(period="1d", interval="1m", prepost=False))
+                b = flatten_cols(tk.history(period="5d", interval="5m", prepost=False))
+                return a, b
+            m1_y, m5_y = _yf(_do)
+            if _bars_ok(m1_y, 6):
+                return m1_y, m5_y
+        except Exception:
+            m1_y = m5_y = None
     a_n = len(m1_a) if m1_a is not None else 0
     y_n = len(m1_y) if m1_y is not None else 0
     return (m1_a, m5_a) if a_n >= y_n else (m1_y, m5_y)
@@ -986,24 +1035,27 @@ def fetch_daily(ticker: str):
     d_a = None
     _ak = alpaca_keys()
     if _ak:
-        try:
-            k, s = _ak
-            start = datetime.now(timezone.utc) - timedelta(days=100)
-            d_a = _alpaca_bars(ticker, "1Day", start.strftime("%Y-%m-%dT%H:%M:%SZ"), k, s)
-        except Exception:
-            d_a = None
-    if _bars_ok(d_a, 21):
-        return d_a
+        k, s = _ak
+        start = datetime.now(timezone.utc) - timedelta(days=100)
+        for sym in dict.fromkeys([_vendor_symbol(ticker)] + _symbol_forms(ticker)):
+            try:
+                d_a = _alpaca_bars(sym, "1Day", start.strftime("%Y-%m-%dT%H:%M:%SZ"), k, s)
+                if _bars_ok(d_a, 21):
+                    return d_a
+            except Exception:
+                d_a = None
     d_y = None
-    try:
-        d_y = _yf(lambda: flatten_cols(yf.Ticker(ticker).history(period="3mo", interval="1d")))
-    except Exception:
-        d_y = None
-    if _bars_ok(d_y, 21):
-        return d_y
+    for sym in dict.fromkeys([_vendor_symbol(ticker)] + _symbol_forms(ticker)):
+        try:
+            d_y = _yf(lambda s=sym: flatten_cols(
+                yf.Ticker(s).history(period="3mo", interval="1d")))
+            if _bars_ok(d_y, 21):
+                return d_y
+        except Exception:
+            d_y = None
     cands = [(len(x) if x is not None else 0, x) for x in (d_d, d_a, d_y)]
     cands.sort(key=lambda t: t[0], reverse=True)
-    return cands[0][1]
+    return cands[0][1] if cands else None
 
 
 # ----------------------------------------------------------------------------
@@ -1183,7 +1235,11 @@ def _dump_seed(ticker: str) -> dict:
     seed = {}
     try:
         import cascade_engine as ce
-        fund = ce.dump_fundamentals(ticker) or {}
+        fund = {}
+        for sym in _symbol_forms(ticker):
+            fund = ce.dump_fundamentals(sym) or {}
+            if fund:
+                break
         spf = _finite_num(fund.get("ShortPctFloat"))
         if spf is not None:
             seed["short_pct_float"] = spf if spf <= 1.5 else spf / 100.0
@@ -1195,18 +1251,23 @@ def _dump_seed(ticker: str) -> dict:
             seed["_dump_earn_growth"] = eg
         if fund.get("Sector"):
             seed["sector"] = str(fund["Sector"])
-        ohlc = ce.dump_ohlcv(ticker)
+        ohlc = _dump_daily_bars(ticker, 252)
         if ohlc is not None and not ohlc.empty and "High" in ohlc.columns:
-            hi = _finite_num(ohlc["High"].tail(252).max())
+            hi = _finite_num(ohlc["High"].max())
             if hi is not None:
                 seed["high_52w"] = hi
     except Exception:
         pass
     try:
         dump = load_screener_dump(SCREENER_URL_DEFAULT)
-        sym = str(ticker).strip().upper()
-        if dump is not None and not dump.empty and sym in dump.index:
-            row = dump.loc[sym]
+        row = None
+        for sym in _symbol_forms(ticker):
+            if dump is not None and not dump.empty and sym in dump.index:
+                row = dump.loc[sym]
+                if isinstance(row, pd.DataFrame):
+                    row = row.iloc[0]
+                break
+        if row is not None:
             name = _row_pick(row, "name", "shortName", "company", "Company")
             if name:
                 seed["name"] = str(name)
@@ -1365,11 +1426,13 @@ def fetch_fuel(ticker: str) -> dict:
         v = seed.get(k)
         if v not in (None, "") and out.get(k) in (None, ""):
             out[k] = v
+    dump_ready = any(out.get(k) not in (None, "") for k in
+                     ("short_pct_float", "sector", "high_52w", "float_shares"))
     try:
-        tk = _yf(lambda: yf.Ticker(ticker))
+        tk = _yf(lambda: yf.Ticker(_vendor_symbol(ticker)))
         info = {}
         try:
-            info = _yf(lambda: tk.info or {})
+            info = {} if dump_ready else (_yf(lambda: tk.info or {}) or {})
             if not info or len(info) < 3:
                 if out.get("short_pct_float") is None and not out.get("sector"):
                     out["data_issues"].append(
@@ -1689,86 +1752,95 @@ def compute_signals(ticker: str) -> dict:
     fuel = fetch_fuel(ticker)
     s["fuel"] = fuel
 
-    if m1 is None or len(m1) < 6 or daily is None or len(daily) < 5:
+    live = m1 is not None and len(m1) >= 6
+    daily_ok = daily is not None and len(daily) >= 5
+    if not live and daily_ok:
+        s["price"] = float(daily["Close"].iloc[-1])
+        if len(daily) >= 2:
+            prev = float(daily["Close"].iloc[-2])
+            s["chg_pct"] = (s["price"] / prev - 1.0) * 100.0 if prev else None
+        s["reasons"].append("nightly dump daily — no live 1m bars")
+    elif not live or not daily_ok:
         s["error"] = "no data"
         return s
 
-    close = m1["Close"]
-    s["price"] = float(close.iloc[-1])
+    if live:
+        close = m1["Close"]
+        s["price"] = float(close.iloc[-1])
 
-    # --- Date-aware previous close ------------------------------------
-    # Alpaca and Yahoo differ on whether the last daily bar is today's
-    # partial bar. Select the last bar strictly BEFORE the intraday
-    # session date instead of blindly using iloc[-2].
-    session_date = m1.index[-1].date()
-    try:
-        prior = daily[daily.index.date < session_date]
-    except Exception:
-        prior = daily.iloc[:-1] if len(daily) >= 2 else daily
-    if len(prior) >= 1:
-        prev_close = float(prior["Close"].iloc[-1])
-    else:
-        prev_close = float(daily["Close"].iloc[-1])
-    s["chg_pct"] = (s["price"] / prev_close - 1.0) * 100.0 if prev_close else None
+        # --- Date-aware previous close ------------------------------------
+        # Alpaca and Yahoo differ on whether the last daily bar is today's
+        # partial bar. Select the last bar strictly BEFORE the intraday
+        # session date instead of blindly using iloc[-2].
+        session_date = m1.index[-1].date()
+        try:
+            prior = daily[daily.index.date < session_date]
+        except Exception:
+            prior = daily.iloc[:-1] if len(daily) >= 2 else daily
+        if len(prior) >= 1:
+            prev_close = float(prior["Close"].iloc[-1])
+        else:
+            prev_close = float(daily["Close"].iloc[-1])
+        s["chg_pct"] = (s["price"] / prev_close - 1.0) * 100.0 if prev_close else None
 
-    # --- RVOL: cumulative volume today vs trailing average, curve-adjusted ---
-    # Baseline uses only completed prior days (date-aware, never today's
-    # partial bar). Adaptive window: up to 20 days, fewer for new listings.
-    base = prior if len(prior) >= 5 else daily.iloc[:-1]
-    win = min(20, len(base))
-    avg_daily_vol = float(base["Volume"].iloc[-win:].mean()) if win > 0 else 0.0
-    cum_vol = float(m1["Volume"].sum())
-    # True elapsed minutes from bar timestamps — illiquid tickers have gaps
-    # in their 1m bars, so len(m1) undercounts and would inflate RVOL.
-    try:
-        elapsed = int((m1.index[-1] - m1.index[0]).total_seconds() // 60) + 1
-        elapsed = max(elapsed, len(m1), 1)
-    except Exception:
-        elapsed = max(len(m1), 1)
-    expected = avg_daily_vol * expected_vol_fraction(elapsed)
-    s["rvol"] = cum_vol / expected if expected > 0 else 0.0
+        # --- RVOL: cumulative volume today vs trailing average, curve-adjusted ---
+        # Baseline uses only completed prior days (date-aware, never today's
+        # partial bar). Adaptive window: up to 20 days, fewer for new listings.
+        base = prior if len(prior) >= 5 else daily.iloc[:-1]
+        win = min(20, len(base))
+        avg_daily_vol = float(base["Volume"].iloc[-win:].mean()) if win > 0 else 0.0
+        cum_vol = float(m1["Volume"].sum())
+        # True elapsed minutes from bar timestamps — illiquid tickers have gaps
+        # in their 1m bars, so len(m1) undercounts and would inflate RVOL.
+        try:
+            elapsed = int((m1.index[-1] - m1.index[0]).total_seconds() // 60) + 1
+            elapsed = max(elapsed, len(m1), 1)
+        except Exception:
+            elapsed = max(len(m1), 1)
+        expected = avg_daily_vol * expected_vol_fraction(elapsed)
+        s["rvol"] = cum_vol / expected if expected > 0 else 0.0
 
-    # --- Opening gap vs yesterday's close ---
-    open_px = float(m1["Open"].iloc[0])
-    s["gap_pct"] = (open_px / prev_close - 1.0) * 100.0 if prev_close else 0.0
+        # --- Opening gap vs yesterday's close ---
+        open_px = float(m1["Open"].iloc[0])
+        s["gap_pct"] = (open_px / prev_close - 1.0) * 100.0 if prev_close else 0.0
 
-    # --- Bar-level surge: last 3 one-minute bars vs session average bar ---
-    avg_bar = float(m1["Volume"].iloc[:-3].mean()) if len(m1) > 6 else float(m1["Volume"].mean())
-    last3 = float(m1["Volume"].iloc[-3:].mean())
-    s["surge"] = last3 / avg_bar if avg_bar > 0 else 0.0
+        # --- Bar-level surge: last 3 one-minute bars vs session average bar ---
+        avg_bar = float(m1["Volume"].iloc[:-3].mean()) if len(m1) > 6 else float(m1["Volume"].mean())
+        last3 = float(m1["Volume"].iloc[-3:].mean())
+        s["surge"] = last3 / avg_bar if avg_bar > 0 else 0.0
 
-    # --- Velocity and acceleration on 1m closes ---
-    if len(close) >= 11:
-        vel_now = (close.iloc[-1] / close.iloc[-6] - 1.0) * 100.0
-        vel_prev = (close.iloc[-6] / close.iloc[-11] - 1.0) * 100.0
-        s["velocity"] = float(vel_now)
-        s["accel"] = float(vel_now - vel_prev)
-    else:
-        s["velocity"] = (close.iloc[-1] / close.iloc[0] - 1.0) * 100.0
+        # --- Velocity and acceleration on 1m closes ---
+        if len(close) >= 11:
+            vel_now = (close.iloc[-1] / close.iloc[-6] - 1.0) * 100.0
+            vel_prev = (close.iloc[-6] / close.iloc[-11] - 1.0) * 100.0
+            s["velocity"] = float(vel_now)
+            s["accel"] = float(vel_now - vel_prev)
+        else:
+            s["velocity"] = (close.iloc[-1] / close.iloc[0] - 1.0) * 100.0
 
-    # --- VWAP ---
-    vw = vwap(m1)
-    s["above_vwap"] = bool(close.iloc[-1] > vw.iloc[-1])
-    if len(close) >= 6:
-        was_below = bool((close.iloc[-6:-1] < vw.iloc[-6:-1]).any())
-        s["vwap_cross"] = s["above_vwap"] and was_below
+        # --- VWAP ---
+        vw = vwap(m1)
+        s["above_vwap"] = bool(close.iloc[-1] > vw.iloc[-1])
+        if len(close) >= 6:
+            was_below = bool((close.iloc[-6:-1] < vw.iloc[-6:-1]).any())
+            s["vwap_cross"] = s["above_vwap"] and was_below
 
-    # --- High of day ---
-    hod = float(m1["High"].max())
-    recent_high = float(m1["High"].iloc[-3:].max())
-    s["new_hod"] = recent_high >= hod * 0.9999
-    s["near_hod"] = s["price"] >= hod * 0.995
+        # --- High of day ---
+        hod = float(m1["High"].max())
+        recent_high = float(m1["High"].iloc[-3:].max())
+        s["new_hod"] = recent_high >= hod * 0.9999
+        s["near_hod"] = s["price"] >= hod * 0.995
 
-    # --- RSI / MACD on 5m bars ---
-    if m5 is not None and len(m5) > 30:
-        r = rsi(m5["Close"])
-        s["rsi5"] = float(r.iloc[-1])
-        macd_line, sig_line = macd(m5["Close"])
-        s["macd_bull"] = bool(macd_line.iloc[-1] > sig_line.iloc[-1])
-        if len(macd_line) >= 4:
-            s["macd_cross"] = s["macd_bull"] and bool(
-                (macd_line.iloc[-4:-1] <= sig_line.iloc[-4:-1]).any()
-            )
+        # --- RSI / MACD on 5m bars ---
+        if m5 is not None and len(m5) > 30:
+            r = rsi(m5["Close"])
+            s["rsi5"] = float(r.iloc[-1])
+            macd_line, sig_line = macd(m5["Close"])
+            s["macd_bull"] = bool(macd_line.iloc[-1] > sig_line.iloc[-1])
+            if len(macd_line) >= 4:
+                s["macd_cross"] = s["macd_bull"] and bool(
+                    (macd_line.iloc[-4:-1] <= sig_line.iloc[-4:-1]).any()
+                )
 
     # ------------------------------------------------------------------
     # IGNITION sub-score (0-100)
@@ -2005,7 +2077,7 @@ def _watchlist_tickers():
     for row in rows:
         if not isinstance(row, dict):
             continue
-        tk = str(row.get("ticker") or "").strip().upper()
+        tk = str(row.get("ticker") or row.get("Ticker") or "").strip().upper()
         if tk and tk not in seen:
             seen.add(tk)
             out.append(tk)
@@ -2300,6 +2372,7 @@ def render_ignition_scanner_tab():
             n = max(int(total), 1)
             bar.progress(min(done / n, 1.0), text=f"Scanning… ({done}/{total})")
 
+        _warm_data_chain()
         results = scan_tickers_parallel(tickers, progress_cb=_scan_progress)
         ig_progress_slot.empty()
         st.session_state["ig_last_results"] = results
@@ -2829,14 +2902,14 @@ def render_ignition_scanner_tab():
             try:
                 k, s = _ak
                 start = (datetime.now(timezone.utc) - timedelta(days=400)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                h_alp = _alpaca_bars(ticker, "1Day", start, k, s)
+                h_alp = _alpaca_bars(_vendor_symbol(ticker), "1Day", start, k, s)
                 if h_alp is not None and len(h_alp) >= 50:
                     hist = h_alp
                     hist_src = "alpaca"
             except Exception:
                 pass
 
-        tk = _yf(lambda: yf.Ticker(ticker))
+        tk = _yf(lambda: yf.Ticker(_vendor_symbol(ticker)))
         if hist.empty:
             try:
                 h = _yf(lambda: tk.history(period="1y", interval="1d"))
@@ -2856,9 +2929,14 @@ def render_ignition_scanner_tab():
         _dump_filled = False
         try:
             dump = load_screener_dump(SCREENER_URL_DEFAULT)
-            sym = str(ticker).upper()
-            if dump is not None and not dump.empty and sym in dump.index:
-                row = dump.loc[sym]
+            row = None
+            for sym in _symbol_forms(ticker):
+                if dump is not None and not dump.empty and sym in dump.index:
+                    row = dump.loc[sym]
+                    if isinstance(row, pd.DataFrame):
+                        row = row.iloc[0]
+                    break
+            if row is not None:
                 for scan_key, info_key in SCAN_FIELD_MAP.items():
                     val = row.get(scan_key) if hasattr(row, "get") else (
                         row[scan_key] if scan_key in row.index else None

@@ -3694,8 +3694,10 @@ def _render_scan_hub_help():
     _hub_title("❓ Help", "#F4F8FF")
     st.caption("A short map of Scan Hub: what each scanner is for, what a "
                "macro lens does, and what the catalyst icons mean.")
+    if st.session_state.get("hub_help_sec") == "Catalysts":
+        st.session_state["hub_help_sec"] = "Catalysts and Filters"
     sec = st.radio(
-        "Jump to", ["Scanners", "Lenses", "Catalysts"],
+        "Jump to", ["Scanners", "Lenses", "Catalysts and Filters"],
         horizontal=True, key="hub_help_sec")
 
     if sec == "Scanners":
@@ -3737,9 +3739,9 @@ def _render_scan_hub_help():
             "Washout coils sitting on range lows.",
             "Finds names that already sold off a bit, sit in the lower part "
             "of the 63-day range, with RSI washed out and volatility "
-            "compressed — a coil after the shake, not strength. This tab's "
-            "macro lens and Recommend button are its own, not Top 20's. "
-            "Hot-sector filters are optional in Advanced.",
+            "compressed — a coil after the shake, not strength. Macro lens "
+            "and Recommend sit on this tab. Hot-sector filters are optional "
+            "in Advanced.",
             "You want mean-reversion candidates, not breakouts.",
             color="#FF8FA3")
         _help_card(
@@ -3850,7 +3852,7 @@ def _render_scan_hub_help():
                 )
         return
 
-    _hub_sec("Catalysts", "#A78BFA", "signed tags that re-rank the list")
+    _hub_sec("Catalysts and Filters", "#A78BFA", "signed tags that re-rank the list")
     st.caption("Turn on Add Catalysts on a scanner to tag the list and rank "
                "by net score — not by how many tags a name has. Positive "
                "scores float up; negative scores sink. Tape flags are read "
@@ -4926,7 +4928,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
                         })
     _secs_key = tuple(sorted(_sec_filter)) if _sec_filter else ()
 
-    _t20_head("3 · Size and run", "#FF9B6A", "how many names, then go")
+    _t20_head("3 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
     with _hub_pill("t20_run"):
         if _method == "forecast":
             _n1, _n2 = st.columns([1, 2], gap="medium")
@@ -5501,7 +5503,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
             _min_dv = 5.0
             _uni_n = None
 
-        _hub_sec("3 · Macro lens", "#F0A6FF", "this tab's playbook, not Top 20's")
+        _hub_sec("3 · Macro lens", "#F0A6FF", "tilt names that already passed")
         with _hub_pill("apex_lens_box"):
             _ax_pack = _render_macro_lens_block(
                 "apex", asof, closes, GAUGE,
@@ -5575,7 +5577,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                         _uni_n = None
 
         _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
-        _hub_sec("5 · Catalysts", "#A78BFA", "tape flags and list filters")
+        _hub_sec("5 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
         _apex_cat = _catalysts_section("apex", cat_color="#A78BFA", pill_key="apex_cat_box")
         _apex_sig = (
             str(_tf), _sec_key, float(_min_score), int(_top_n),
@@ -6042,7 +6044,7 @@ if _main == "Scan Hub" and _hub == "POC Future":
         _poc_sig = (tuple(_stage_pick or ["TRIGGERED"]), int(_poc_top),
                     int(_accum), float(_rng), int(_poc_fresh),
                     tuple(sorted(_sec_filter)) if _sec_filter else ())
-        _hub_sec("3 · Catalysts", "#A78BFA", "tape flags and list filters")
+        _hub_sec("3 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
         _poc_cat = _catalysts_section("poc", cat_color="#A78BFA", pill_key="poc_cat_box")
         if st.button("🎯 Scan for setups", type="primary", key="poc_go",
                      width="stretch"):
@@ -6201,7 +6203,7 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                                   help="Last nightly-dump close.")
         _kw_top = _k3.selectbox("How many", [25, 50, 100, 200, 500],
                                 index=1, key="kw_top")
-        _hub_sec("2 · Catalysts", "#A78BFA", "tape flags and list filters")
+        _hub_sec("2 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
         _kw_cat = _catalysts_section("kw", pill=False, cat_color="#A78BFA")
 
         if st.button("🔎 Search the dump", type="primary", key="kw_go",
@@ -6330,7 +6332,7 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
             placeholder="greenland · drug prices · china · tariffs",
             help="Search the same live remarks. Returns the same word chart, "
                  "but only sources and words that mention this phrase.")
-        _hub_sec("2 · Catalysts", "#A78BFA", "tape flags and list filters")
+        _hub_sec("2 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
         _te_cat = _catalysts_section("te", pill=False, cat_color="#A78BFA")
         _te_b1, _te_b2 = st.columns(2)
         if _te_b1.button("🔎 Scan speeches", type="primary", key="te_go",
