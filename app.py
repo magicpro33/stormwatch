@@ -3020,7 +3020,7 @@ def _t20_box(text, color=_T20_BLUE):
 
 def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
                        pill_key: str | None = None):
-    """Catalyst rank toggle plus That Business and SAFE FROM AI filters."""
+    """Catalyst rank toggle plus 3 Magic Rules and SAFE FROM AI filters."""
     ctx = _hub_pill(pill_key) if pill else st.container()
     with ctx:
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
@@ -3039,7 +3039,7 @@ def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
         with ai_col:
             _md_html("<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>")
             st.toggle(
-                "That Business",
+                "3 Magic Rules",
                 key=f"{key}_thatbiz",
                 help=getattr(ce, "THATBIZ_HELP",
                              "Keep companies with pricing power, a hard-to-copy "
@@ -3069,7 +3069,7 @@ def _thatbiz_on(key: str) -> bool:
 def _filter_hid_msg(key: str, noun: str = "name") -> str:
     bits = []
     if _thatbiz_on(key):
-        bits.append("That Business")
+        bits.append("3 Magic Rules")
     if _safe_ai_on(key):
         bits.append("SAFE FROM AI")
     who = " and ".join(bits) if bits else "Filters"
@@ -3103,7 +3103,7 @@ def _apply_safe_ai(df, key: str, ticker_col: str = "Ticker"):
 
 
 def _apply_thatbiz(df, key: str, ticker_col: str = "Ticker"):
-    """Keep three-question names when that scanner's switch is on."""
+    """Keep 3 Magic Rules names when that scanner's switch is on."""
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return df
     if not _thatbiz_on(key):
@@ -3113,12 +3113,12 @@ def _apply_thatbiz(df, key: str, ticker_col: str = "Ticker"):
         out = ce.filter_that_business(df, True, ticker_col)
     except Exception as e:
         log_exc("that_business", e)
-        st.caption("That Business could not read dump fundamentals.")
+        st.caption("3 Magic Rules could not read dump fundamentals.")
         return df
     dropped = n0 - len(out)
     if dropped:
         st.caption(
-            f"That Business hid {dropped} "
+            f"3 Magic Rules hid {dropped} "
             f"{'company' if dropped == 1 else 'companies'} "
             "that fail pricing power, moat, or fortress.")
     return out
@@ -3507,7 +3507,7 @@ def _render_scan_hub_help():
             "The dump filter suite with named presets.",
             "Same metrics as the standalone hybrid screener: ROIC, owner-earnings "
             "yield, Piotroski, volume, range position, and more. Presets jump "
-            "you to That Business (pricing power, hard-to-copy moat, not a "
+            "you to 3 Magic Rules (pricing power, hard-to-copy moat, not a "
             "mountain of debt), Clean Setup, Felix quality, short-squeeze, "
             "range-low, volume, breakout, insider, or recent IPO. Toggle "
             "factors and weights in Advanced.",
@@ -3616,11 +3616,11 @@ def _render_scan_hub_help():
                "from headlines on the listed names. Stock Lookup runs a "
                "deeper search (calendar, upgrades, insiders, more news) and "
                "still splits every hit ▲ Up vs ▼ Down.")
-    st.markdown("#### That Business")
+    st.markdown("#### 3 Magic Rules")
     st.caption("The switch next to Catalysts keeps companies that pass the "
                "three questions: can it raise prices without losing customers, "
                "does it own something hard to copy, and does it NOT owe a "
-               "mountain of debt. Same dump test as the Hybrid That Business "
+               "mountain of debt. Same dump test as the Hybrid 3 Magic Rules "
                "preset. Hybrid itself still uses the preset button, not this switch.")
     st.markdown("#### SAFE FROM AI")
     st.caption("The switch next to Catalysts hides companies that sell a "
@@ -4788,18 +4788,22 @@ if _main == "Scan Hub" and _hub == "TOP20":
 
     _t20_head("3 · Size and run", "#FF9B6A", "how many names, then go")
     with _hub_pill("t20_run"):
-        _n1, _n2 = st.columns([1, 2], gap="medium")
-        _top_n = _n1.selectbox("How many stocks", list(range(20, 55, 5)),
-                               index=0, key="top20_count",
-                               help="Length of the results list.")
         if _method == "forecast":
+            _n1, _n2 = st.columns([1, 2], gap="medium")
+            _top_n = _n1.selectbox("How many stocks", list(range(20, 55, 5)),
+                                   index=0, key="top20_count",
+                                   help="Length of the results list.")
             _scan_all = _n2.toggle(
                 "Scan the entire universe (~5,700 stocks)", value=True,
                 key="forecast_all_toggle",
                 help="ON: forecast every tradeable stock. OFF: a 120-name cascade shortlist.")
         else:
             _scan_all = True
-            _n2.caption("Results list length. The scan covers the full nightly dump.")
+            _top_n = st.selectbox("How many stocks", list(range(20, 55, 5)),
+                                  index=0, key="top20_count",
+                                  help="Length of the results list.")
+
+        _t20_cat = _catalysts_section("top20", pill=False)
 
         _eng_txt = {"cascade": "cascade score", "forecast": "odds of gain",
                     "felix": "the Felix quality checklist",
@@ -4811,6 +4815,22 @@ if _main == "Scan Hub" and _hub == "TOP20":
             _lens_txt = "the auto-detected regime"
         else:
             _lens_txt = ce.REGIME_NAMES.get(_lens, _lens)
+        _rank_extra = []
+        if _t20_cat:
+            _rank_extra.append(f"<b style='color:#A78BFA;'>Catalysts</b>")
+        if _thatbiz_on("top20"):
+            _rank_extra.append(f"<b style='color:#E8C872;'>3 Magic Rules</b>")
+        if _safe_ai_on("top20"):
+            _rank_extra.append(f"<b style='color:#6EE7B7;'>SAFE FROM AI</b>")
+        if not _rank_extra:
+            _rank_filters = ""
+        elif len(_rank_extra) == 1:
+            _rank_filters = f", with {_rank_extra[0]}"
+        elif len(_rank_extra) == 2:
+            _rank_filters = f", with {_rank_extra[0]} and {_rank_extra[1]}"
+        else:
+            _rank_filters = (f", with {', '.join(_rank_extra[:-1])}, "
+                             f"and {_rank_extra[-1]}")
         _md_html(
             f"<div style='background:#16344f;border:1px solid #3d6a94;"
             f"border-left:4px solid {ACCENT};padding:10px 14px;margin:4px 0 12px;"
@@ -4819,10 +4839,9 @@ if _main == "Scan Hub" and _hub == "TOP20":
             f"<b style='color:{ACCENT};'>{_eng_txt}</b>, "
             f"through <b style='color:{ACCENT};'>{_lens_txt}</b>"
             f"{f', limited to {len(_sec_filter)} sectors ({_t_lbl})' if (_sec_filter and _method != 'felix') else ''}"
+            f"{_rank_filters}"
             f"{'. The Felix score stays the quality checklist' if (_method == 'felix' and _apply_macro) else ''}."
             f"</div>")
-
-        _t20_cat = _catalysts_section("top20", pill=False)
 
         _t20_ready = bool(st.session_state.get("top20_go")
                           and (st.session_state.get("t20_inline")

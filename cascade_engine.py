@@ -2565,8 +2565,8 @@ def filter_safe_from_ai(df, enabled: bool = True, ticker_col: str = "Ticker"):
     return out.reset_index(drop=True)
 
 
-# ── That Business (three questions) ──────────────────────────────────
-# Same gates as the Hybrid "That Business" preset: pricing power, a
+# ── 3 Magic Rules (three questions) ──────────────────────────────────
+# Same gates as the Hybrid "3 Magic Rules" preset: pricing power, a
 # hard-to-copy moat, and not a mountain of debt. Dump-only; cached per
 # records mtime. Walk-forward on stock_data.json.gz (2025-08-18 →
 # 2026-10-16): fortress/low-D/E was the 21d edge; high D/E lagged.
@@ -2580,7 +2580,7 @@ THATBIZ_HELP = (
     "without losing customers (pricing power)? Does it own something "
     "hard to copy (moat)? Does it NOT owe a mountain of debt (fortress)? "
     "Min $1B, owner earnings not negative. Banks/REITs scored as levered. "
-    "Same test as the Hybrid That Business preset."
+    "Same test as the Hybrid 3 Magic Rules preset."
 )
 _THATBIZ_MOAT_IND = {
     "beverages - non-alcoholic", "beverages - brewers", "beverages - wineries & distilleries",
@@ -2756,7 +2756,7 @@ def thatbiz_pass_tickers() -> set:
 
 
 def filter_that_business(df, enabled: bool = True, ticker_col: str = "Ticker"):
-    """Keep names that pass pricing power, moat, and fortress. No-op when off."""
+    """Keep names that pass the 3 Magic Rules. No-op when off."""
     if not enabled or df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return df
     if ticker_col not in df.columns:

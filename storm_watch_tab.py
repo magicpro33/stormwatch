@@ -650,11 +650,11 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                 "<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>",
                 unsafe_allow_html=True)
             thatbiz = st.toggle(
-                "That Business",
+                "3 Magic Rules",
                 key="sw_thatbiz",
                 help="Keep companies with pricing power, a hard-to-copy moat, "
                      "and no mountain of debt. Same dump test as the Hybrid "
-                     "That Business preset.")
+                     "3 Magic Rules preset.")
             if thatbiz:
                 st.caption("On — pricing power, hard-to-copy moat, no mountain of debt.")
             safe_ai = st.toggle(
@@ -741,7 +741,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             _tb_dropped = _n0 - (len(show) if show is not None else 0)
             if _tb_dropped:
                 st.caption(
-                    f"That Business hid {_tb_dropped} "
+                    f"3 Magic Rules hid {_tb_dropped} "
                     f"{'company' if _tb_dropped == 1 else 'companies'} "
                     "that fail pricing power, moat, or fortress.")
         if safe_ai:
@@ -780,7 +780,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     if view is None or view.empty:
         _hid = []
         if thatbiz and _tb_dropped:
-            _hid.append("That Business")
+            _hid.append("3 Magic Rules")
         if safe_ai and _dropped:
             _hid.append("SAFE FROM AI")
         if _hid:

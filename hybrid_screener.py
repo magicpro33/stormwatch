@@ -197,7 +197,7 @@ EXCHANGES = {
 REV_GROWTH_STEPS = [0, 15, 30, 45, 60, 75, 90]
 
 _METRIC_GROUPS = [
-    ("That business (three questions)",
+    ("3 Magic Rules (three questions)",
      ["PricingPower", "MoatScore", "Fortress"]),
     ("Fundamental",
      ["OE_Yield", "ROIC", "ROIC_Trend", "GrossMargin",
@@ -217,7 +217,7 @@ def _k(name: str) -> str:
     return f"hs_{name}"
 
 
-# Same three-question scores the Scan Hub That Business filter uses.
+# Same three-question scores the Scan Hub 3 Magic Rules filter uses.
 _THATBIZ_PP_MIN = ce.THATBIZ_PP_MIN
 _THATBIZ_MOAT_MIN = ce.THATBIZ_MOAT_MIN
 _THATBIZ_FORT_MIN = ce.THATBIZ_FORT_MIN
@@ -976,7 +976,7 @@ def render_hybrid_screener() -> None:
     _hub_sec("1 · Presets", "#F0A6FF", "jump to a named screen")
     with st.container(border=True, key="hs_presets_box"):
         _preset_btns = [
-            ("thatbiz", "🏰 That Business",
+            ("thatbiz", "✨ 3 Magic Rules",
              "The three questions: can it raise prices without losing customers? "
              "Does it own something hard to copy? Does it NOT owe a mountain of "
              "debt? Pricing power + moat + fortress (low leverage). Min $1B, "
@@ -1248,7 +1248,7 @@ def render_hybrid_screener() -> None:
         )
     if st.session_state.get(_k("gate_thatbiz")):
         st.caption(
-            "That Business — 1) raise prices without losing customers (pricing "
+            "3 Magic Rules — 1) raise prices without losing customers (pricing "
             "power) · 2) owns something hard to copy (moat) · 3) does **not** "
             "owe a mountain of debt (fortress). Gates: $1B+ market cap, all "
             "three scores above the dump-tested floors, owner earnings not "
@@ -1278,7 +1278,7 @@ def render_hybrid_screener() -> None:
                 f"P/E: **{diag.get('pe', 0)}** → "
                 f"revenue: **{diag.get('rev', 0)}** → "
                 f"IPO: **{diag.get('ipo', 0)}**"
-                + (f" → that-business: **{diag.get('thatbiz', 0)}**"
+                + (f" → 3 Magic Rules: **{diag.get('thatbiz', 0)}**"
                    if st.session_state.get(_k("gate_thatbiz")) else "")
             )
         return
