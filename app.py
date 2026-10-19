@@ -2760,7 +2760,7 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
 # Run / result flags — bools, but not widgets. Keep them in session_state.
 _HUB_KEEP_FLAGS = {
     "top20_go", "t20_live", "sw_go", "apex_run", "poc_run", "kw_run", "te_run",
-    "macro_advice_on",
+    "macro_advice_on", "hs_gate_thatbiz",
 }
 
 # Real checkboxes / toggles — the only bools safe to persist.
@@ -2796,6 +2796,7 @@ _HUB_KEEP_SKIP = {
     "hs_inline", "hs_run", "hs_hot_btn", "hs_chart_table", "hs_chart_handled",
     "hs_preset_clean", "hs_preset_felix", "hs_preset_squeeze", "hs_preset_lowpos",
     "hs_preset_volume", "hs_preset_breakout", "hs_preset_insider", "hs_preset_ipo",
+    "hs_preset_thatbiz",
     "hs_dl_csv",
     "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk", "kw_go",
     "te_run", "te_snap", "te_words", "te_speeches", "te_inline", "te_inline_tk",
@@ -3449,9 +3450,10 @@ def _render_scan_hub_help():
             "The dump filter suite with named presets.",
             "Same metrics as the standalone hybrid screener: ROIC, owner-earnings "
             "yield, Piotroski, volume, range position, and more. Presets jump "
-            "you to Clean Setup, Felix quality, short-squeeze, range-low, "
-            "volume, breakout, insider, or recent IPO. Toggle factors and "
-            "weights in Advanced.",
+            "you to That Business (pricing power, hard-to-copy moat, not a "
+            "mountain of debt), Clean Setup, Felix quality, short-squeeze, "
+            "range-low, volume, breakout, insider, or recent IPO. Toggle "
+            "factors and weights in Advanced.",
             "You want to build or reuse a fundamental + tape checklist.",
             color="#F0A6FF")
         _help_card(

@@ -126,6 +126,27 @@ METRICS = {
                 "of tape (or a full year). Proxy for a recent IPO — older dumps "
                 "do not store Yahoo's official first-trade date.",
     },
+    "PricingPower": {
+        "label": "Pricing power",
+        "weight": 5,
+        "desc": "Can it raise prices without losing customers? Gross + operating "
+                "margin, habit/necessity industries, and not shrinking revenue. 1.0 "
+                "is a product close to a necessity with no real substitute.",
+    },
+    "MoatScore": {
+        "label": "Moat (hard to copy)",
+        "weight": 5,
+        "desc": "Does it own something genuinely hard to copy? High ROIC, a "
+                "widening ROIC trend, and licence / network / brand industries. "
+                "The wall around the pricing power.",
+    },
+    "Fortress": {
+        "label": "Fortress (low debt)",
+        "weight": 5,
+        "desc": "Does it NOT owe a mountain of money? Inverse D/E, current ratio, "
+                "and cash earnings. Old debt rolled at higher cost is the quiet "
+                "killer — this score is high when leverage is low.",
+    },
 }
 
 ALL_SECTORS = [
@@ -176,6 +197,8 @@ EXCHANGES = {
 REV_GROWTH_STEPS = [0, 15, 30, 45, 60, 75, 90]
 
 _METRIC_GROUPS = [
+    ("That business (three questions)",
+     ["PricingPower", "MoatScore", "Fortress"]),
     ("Fundamental",
      ["OE_Yield", "ROIC", "ROIC_Trend", "GrossMargin",
       "RevenueGrowth", "EarningsGrowth", "Piotroski"]),
@@ -192,6 +215,152 @@ _METRIC_GROUPS = [
 
 def _k(name: str) -> str:
     return f"hs_{name}"
+
+
+# ── Three questions ("How to find that business") ──────────────────────
+# Walk-forward on stock_data.json.gz (2025-08-18 → 2026-10-16, 11 steps):
+# fortress/low-D/E was the only rule with a 21d edge (Q5−Q1 +1.3%/21d;
+# high D/E Q5 −0.72% vs low D/E Q1 +1.15%). Gross margin and ROIC lagged
+# this tape (quality lag), so they stay as *business* filters, not as
+# 21-day momentum. High-ROIC habit names (Costco) get a pricing-power
+# floor so a warehouse/membership model is not failed for a 13% GM.
+_THATBIZ_PP_MIN = 0.38
+_THATBIZ_MOAT_MIN = 0.42
+_THATBIZ_FORT_MIN = 0.48
+_THATBIZ_MCAP_MIN = 1_000_000_000.0
+_THATBIZ_F_MIN = 3.0
+
+_MOAT_IND = {
+    "beverages - non-alcoholic", "beverages - brewers", "beverages - wineries & distilleries",
+    "tobacco", "household & personal products", "confectioners", "packaged foods",
+    "discount stores", "grocery stores", "credit services",
+    "software - infrastructure", "software - application", "software - services",
+    "medical devices", "diagnostics & research", "drug manufacturers - general",
+    "medical instruments & supplies", "biotechnology",
+    "waste management", "railroads", "restaurants",
+    "footwear & accessories", "apparel - luxury",
+    "internet content & information", "internet retail",
+    "semiconductors", "semiconductor equipment & materials",
+    "information technology services", "asset management",
+    "financial data & stock exchanges", "insurance - property & casualty",
+    "utilities - regulated electric", "utilities - regulated water", "utilities - regulated gas",
+    "specialty industrial machinery", "building products & equipment",
+    "consumer electronics",
+}
+_LICENCE_IND = {
+    "waste management", "railroads", "credit services",
+    "financial data & stock exchanges",
+    "utilities - regulated electric", "utilities - regulated water", "utilities - regulated gas",
+    "software - infrastructure", "semiconductors",
+}
+_COMMODITY_IND = {
+    "oil & gas e&p", "oil & gas drilling", "oil & gas midstream", "oil & gas integrated",
+    "oil & gas equipment & services", "thermal coal", "coking coal", "uranium",
+    "steel", "aluminum", "copper", "other industrial metals & mining",
+    "gold", "silver", "other precious metals & mining",
+    "airlines", "auto manufacturers", "recreational vehicles",
+    "marine shipping", "trucking", "farm & heavy construction machinery",
+    "lumber & wood production", "paper & paper products",
+    "chemicals", "agricultural inputs",
+}
+_LEVERED_IND = {
+    "banks - diversified", "banks - regional", "mortgage finance",
+    "capital markets", "reit - mortgage", "reit - office", "reit - retail",
+    "reit - residential", "reit - industrial", "reit - healthcare facilities",
+    "reit - hotel & motel", "reit - specialty", "reit - diversified",
+}
+
+
+def _tb_num(v) -> float:
+    try:
+        x = float(v)
+        return x if np.isfinite(x) else np.nan
+    except (TypeError, ValueError):
+        return np.nan
+
+
+def _tb_clip01(x, lo, hi) -> float:
+    if not np.isfinite(x) or hi <= lo:
+        return np.nan
+    return float(np.clip((x - lo) / (hi - lo), 0.0, 1.0))
+
+
+def _thatbiz_scores(row: dict, analyzer: dict | None = None) -> tuple[float, float, float]:
+    """Return (PricingPower, MoatScore, Fortress) in 0–1. NaN if unknown."""
+    an = analyzer if isinstance(analyzer, dict) else {}
+    gm = _tb_num(row.get("GrossMargin"))
+    if not np.isfinite(gm):
+        gm = _tb_num(an.get("grossMargins"))
+    opm = _tb_num(row.get("operatingMargins", an.get("operatingMargins")))
+    pm = _tb_num(row.get("profitMargins", an.get("profitMargins")))
+    roic = float(np.clip(_tb_num(row.get("ROIC")), -1.0, 0.80)) if np.isfinite(_tb_num(row.get("ROIC"))) else np.nan
+    trend = _tb_num(row.get("ROIC_Trend"))
+    oe = _tb_num(row.get("OE_Yield"))
+    fsc = _tb_num(row.get("Piotroski"))
+    rev = _tb_num(row.get("RevenueGrowth"))
+    de = _tb_num(row.get("debtToEquity", an.get("debtToEquity")))
+    cr = _tb_num(row.get("currentRatio", an.get("currentRatio")))
+    if not np.isfinite(cr):
+        cr = _tb_num(an.get("quickRatio"))
+    ptb = _tb_num(row.get("priceToBook", an.get("priceToBook")))
+    ind = str(row.get("Industry") or an.get("industry") or "").strip().lower()
+
+    gm_s = _tb_clip01(gm, 0.25, 0.65)
+    op_s = _tb_clip01(opm, 0.04, 0.30)
+    pm_s = _tb_clip01(pm, 0.02, 0.20)
+    parts = [x for x in (gm_s, op_s, pm_s) if np.isfinite(x)]
+    pp = float(np.mean(parts)) if parts else np.nan
+    if np.isfinite(rev) and rev < -0.08 and np.isfinite(pp):
+        pp *= 0.55
+    if ind in _MOAT_IND and np.isfinite(pp):
+        pp = min(1.0, pp + 0.08)
+    if ind in _COMMODITY_IND and np.isfinite(pp):
+        pp *= 0.70
+    # Costco-style: habit industry + elite ROIC is pricing power even with a thin GM.
+    if np.isfinite(roic) and roic >= 0.20 and ind in _MOAT_IND and np.isfinite(pp):
+        pp = max(pp, 0.55)
+
+    ro_s = _tb_clip01(roic, 0.08, 0.22)
+    tr_s = _tb_clip01(trend, -0.04, 0.06)
+    moat = np.nan
+    if np.isfinite(ro_s) or np.isfinite(tr_s):
+        moat = 0.75 * (ro_s if np.isfinite(ro_s) else 0.0) + 0.25 * (tr_s if np.isfinite(tr_s) else 0.5)
+    if ind in _MOAT_IND and np.isfinite(moat):
+        moat = min(1.0, moat + 0.12)
+    if ind in _LICENCE_IND and np.isfinite(moat):
+        moat = min(1.0, moat + 0.10)
+    if ind in _COMMODITY_IND and np.isfinite(moat):
+        moat *= 0.65
+
+    de_use = de
+    # Buybacks shrink book equity so Yahoo D/E looks like a mountain. Cap it
+    # when ROIC and margins say the business is earning far more than it owes.
+    if (np.isfinite(de) and de > 150 and np.isfinite(roic) and roic > 0.18
+            and ((np.isfinite(ptb) and ptb > 10) or (np.isfinite(gm) and gm > 0.45))):
+        de_use = min(de, 90.0)
+    if ind in _LEVERED_IND and np.isfinite(de_use):
+        de_use = max(de_use, 180.0)
+    de_s = (1.0 - _tb_clip01(de_use, 25.0, 180.0)) if np.isfinite(de_use) else np.nan
+    cr_s = _tb_clip01(cr, 0.80, 1.60)
+    if not np.isfinite(de_s) and np.isfinite(cr) and cr >= 1.0 and (not np.isfinite(oe) or oe >= 0):
+        de_s = 0.55
+    if np.isfinite(de_s) and np.isfinite(cr_s):
+        fort = 0.70 * de_s + 0.30 * cr_s
+    elif np.isfinite(de_s):
+        fort = de_s
+    elif np.isfinite(cr_s):
+        fort = cr_s
+    else:
+        fort = np.nan
+    if np.isfinite(oe) and oe < 0 and np.isfinite(fort):
+        fort *= 0.72
+    if np.isfinite(fsc) and fsc <= 2 and np.isfinite(fort):
+        fort *= 0.80
+    return (
+        float(pp) if np.isfinite(pp) else np.nan,
+        float(moat) if np.isfinite(moat) else np.nan,
+        float(fort) if np.isfinite(fort) else np.nan,
+    )
 
 
 # ── Sector section — same data/widgets Top 20 uses, so hot sectors and the
@@ -303,6 +472,7 @@ def _ensure_defaults() -> None:
         "RangePosScore", "RSI", "MACD", "GoldenCross", "MFISweetSpot",
         "NoBearDiv", "MA50Proximity", "ShortSqueeze", "DividendScore",
         "CleanSetupScore", "GrossMargin", "IPOAge",
+        "PricingPower", "MoatScore", "Fortress",
     }
     for key, cfg in METRICS.items():
         tog, wt = _k(f"tog_{key}"), _k(f"wt_{key}")
@@ -330,6 +500,7 @@ def _apply_preset(name: str) -> None:
     st.session_state[_k("rev_filter")] = False
     st.session_state[_k("ipo")] = False
     st.session_state[_k("ipo_days")] = 90
+    st.session_state[_k("gate_thatbiz")] = False
     _clear_metric_weights()
 
     if name == "clean":
@@ -489,6 +660,23 @@ def _apply_preset(name: str) -> None:
         st.session_state[_k("wt_PCV")] = 2.0
         st.session_state[_k("tog_MFI")] = True
         st.session_state[_k("wt_MFI")] = 1.0
+    elif name == "thatbiz":
+        # Three questions: pricing power, hard-to-copy moat, not a mountain
+        # of debt. 0–1 scores so weights mean the same thing; raw ROIC/GM
+        # stay off the sum (scale would drown the rules). Hard gates in
+        # _run_screen keep all three questions from being optional.
+        st.session_state[_k("max_price")] = 1000
+        st.session_state[_k("min_score")] = 7.0
+        st.session_state[_k("top_n")] = 40
+        st.session_state[_k("gate_thatbiz")] = True
+        st.session_state[_k("tog_PricingPower")] = True
+        st.session_state[_k("wt_PricingPower")] = 5.0
+        st.session_state[_k("tog_MoatScore")] = True
+        st.session_state[_k("wt_MoatScore")] = 5.0
+        st.session_state[_k("tog_Fortress")] = True
+        st.session_state[_k("wt_Fortress")] = 5.0
+        st.session_state[_k("tog_Piotroski")] = True
+        st.session_state[_k("wt_Piotroski")] = 1.0
     st.rerun()
 
 
@@ -517,6 +705,25 @@ def _load_universe() -> tuple[pd.DataFrame, str]:
         if not rec.get("Ticker"):
             continue
         row = {k: v for k, v in rec.items() if k not in drop}
+        an = rec.get("_analyzer") if isinstance(rec.get("_analyzer"), dict) else {}
+        if an:
+            if row.get("Industry") in (None, "", "N/A"):
+                row["Industry"] = an.get("industry") or ""
+            for an_key, dst in (
+                ("debtToEquity", "debtToEquity"),
+                ("currentRatio", "currentRatio"),
+                ("operatingMargins", "operatingMargins"),
+                ("profitMargins", "profitMargins"),
+                ("priceToBook", "priceToBook"),
+                ("grossMargins", "grossMargins"),
+            ):
+                if dst not in row or row.get(dst) in (None, "", "N/A"):
+                    if an.get(an_key) is not None:
+                        row[dst] = an.get(an_key)
+        pp, moat, fort = _thatbiz_scores(row, an)
+        row["PricingPower"] = pp
+        row["MoatScore"] = moat
+        row["Fortress"] = fort
         n = 0
         first = row.get("FirstTradeDate") or ""
         tk = str(row.get("Ticker") or "").upper()
@@ -560,6 +767,9 @@ def _load_universe() -> tuple[pd.DataFrame, str]:
         "DaysToCover", "ShortChange",
         "DividendYieldPct", "DividendRate", "DividendPayoutRatio", "DividendScore",
         "CleanSetupScore", "GrossMargin", "IPOAge", "DaysListed", "Sessions",
+        "PricingPower", "MoatScore", "Fortress",
+        "debtToEquity", "currentRatio", "operatingMargins", "profitMargins",
+        "priceToBook",
     ]
     for col in zero_cols:
         if col not in df.columns:
@@ -711,6 +921,24 @@ def _format_display(screened: pd.DataFrame, enabled: dict) -> pd.DataFrame:
             lambda x: f"{int(x)}" if pd.notnull(x) else "—")
     if "FirstTrade" in display.columns:
         display["First print"] = display["FirstTrade"].fillna("").astype(str)
+    if "GrossMargin" in display.columns:
+        display["GrossMargin"] = display["GrossMargin"].apply(
+            lambda x: f"{x:.0%}" if pd.notnull(x) else "—")
+    if "debtToEquity" in display.columns:
+        display["D/E"] = display["debtToEquity"].apply(
+            lambda x: f"{x:.0f}" if pd.notnull(x) else "—")
+    if "currentRatio" in display.columns:
+        display["Current ratio"] = display["currentRatio"].apply(
+            lambda x: f"{x:.2f}" if pd.notnull(x) else "—")
+    if "PricingPower" in display.columns:
+        display["Pricing power"] = display["PricingPower"].apply(
+            lambda x: f"{x:.2f}" if pd.notnull(x) else "—")
+    if "MoatScore" in display.columns:
+        display["Moat"] = display["MoatScore"].apply(
+            lambda x: f"{x:.2f}" if pd.notnull(x) else "—")
+    if "Fortress" in display.columns:
+        display["Fortress"] = display["Fortress"].apply(
+            lambda x: f"{x:.2f}" if pd.notnull(x) else "—")
 
     skip = {"Ticker", "Sector", "MarketCap", "OwnerEarnings",
             "RevenueGrowth", "EarningsGrowth", "RangePct", "RangePos",
@@ -728,6 +956,8 @@ def _format_display(screened: pd.DataFrame, enabled: dict) -> pd.DataFrame:
         "DividendFrequency", "DividendScore", "CleanSetupScore",
         "GrossMargin", "IPOAge", "DaysListed", "Sessions", "FirstTradeDate",
         "_exchanges", "_exchange",
+        "PricingPower", "MoatScore", "operatingMargins", "profitMargins",
+        "priceToBook", "debtToEquity", "currentRatio", "grossMargins", "Industry",
     }
     hidden += [c for c in always if c in display.columns and c not in hidden]
     if not enabled.get("MFI") and "MFI_Signal" in display.columns:
@@ -736,6 +966,19 @@ def _format_display(screened: pd.DataFrame, enabled: dict) -> pd.DataFrame:
         hidden += [c for c in ("Short % Float", "Days to Cover") if c in display.columns]
     if not enabled.get("DividendScore"):
         hidden += [c for c in ("Div Yield", "Div Rate") if c in display.columns]
+    _thatbiz_on = any(enabled.get(k) for k in ("PricingPower", "MoatScore", "Fortress"))
+    if _thatbiz_on:
+        for c in ("GrossMargin", "ROIC", "OE_Yield", "Piotroski"):
+            if c in hidden:
+                hidden.remove(c)
+        for c in ("Pricing power", "Moat", "Fortress", "D/E", "Current ratio"):
+            if c in hidden:
+                hidden.remove(c)
+        hidden += [c for c in ("PricingPower", "MoatScore", "debtToEquity",
+                               "currentRatio") if c in display.columns]
+    else:
+        hidden += [c for c in ("Pricing power", "Moat", "D/E", "Current ratio")
+                   if c in display.columns]
     return display.drop(columns=hidden, errors="ignore")
 
 
@@ -802,7 +1045,25 @@ def _run_screen(settings: dict) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     else:
         in_ipo = pd.Series(True, index=df.index)
 
-    mask = under_price & ma_ok & above_score & in_range & in_pe & in_rev & in_ipo
+    if settings.get("thatbiz"):
+        mcap = pd.to_numeric(df.get("MarketCap", pd.Series(np.nan, index=df.index)), errors="coerce")
+        pp = pd.to_numeric(df.get("PricingPower", pd.Series(np.nan, index=df.index)), errors="coerce")
+        moat = pd.to_numeric(df.get("MoatScore", pd.Series(np.nan, index=df.index)), errors="coerce")
+        fort = pd.to_numeric(df.get("Fortress", pd.Series(np.nan, index=df.index)), errors="coerce")
+        oe = pd.to_numeric(df.get("OE_Yield", pd.Series(np.nan, index=df.index)), errors="coerce")
+        fsc = pd.to_numeric(df.get("Piotroski", pd.Series(np.nan, index=df.index)), errors="coerce")
+        in_thatbiz = (
+            mcap.notna() & (mcap >= _THATBIZ_MCAP_MIN)
+            & pp.notna() & (pp >= _THATBIZ_PP_MIN)
+            & moat.notna() & (moat >= _THATBIZ_MOAT_MIN)
+            & fort.notna() & (fort >= _THATBIZ_FORT_MIN)
+            & (oe.isna() | (oe >= 0.0))
+            & (fsc.isna() | (fsc >= _THATBIZ_F_MIN))
+        )
+    else:
+        in_thatbiz = pd.Series(True, index=df.index)
+
+    mask = under_price & ma_ok & above_score & in_range & in_pe & in_rev & in_ipo & in_thatbiz
     if settings.get("use_ipo") and "DaysListed" in df.columns:
         screened = df[mask].sort_values(
             ["DaysListed", "Score"], ascending=[True, False], na_position="last")
@@ -822,6 +1083,7 @@ def _run_screen(settings: dict) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         "pe": int(in_pe.sum()),
         "rev": int(in_rev.sum()),
         "ipo": int(in_ipo.sum()),
+        "thatbiz": int(in_thatbiz.sum()),
         "err": "",
     }
     return df, screened, diag
@@ -850,8 +1112,13 @@ def render_hybrid_screener() -> None:
 
     _hub_sec("1 · Presets", "#F0A6FF", "jump to a named screen")
     with st.container(border=True, key="hs_presets_box"):
-        presets = st.columns(8)
         _preset_btns = [
+            ("thatbiz", "🏰 That Business",
+             "The three questions: can it raise prices without losing customers? "
+             "Does it own something hard to copy? Does it NOT owe a mountain of "
+             "debt? Pricing power + moat + fortress (low leverage). Min $1B, "
+             "banks/REITs scored down. Confirmed on the nightly dump: low D/E "
+             "was the only 21-day edge; high debt is the quiet killer."),
             ("clean", "📐 Clean Setup", "Trend + flag + RSI band. Strongest preset in the suite."),
             ("felix", "🎩 Felix", "ROIC, moat, cash, Piotroski, P/E ≤ 50."),
             ("squeeze", "🎯 Short Squeeze", "High short interest + quality + above MA50."),
@@ -864,11 +1131,13 @@ def render_hybrid_screener() -> None:
              "Proxy for a recent IPO — the scan keeps ~1 year of prices, so a "
              "short tape usually means the name just started trading. Newest first."),
         ]
-        for col, (key, label, help_) in zip(presets, _preset_btns):
-            if col.button(label, width="stretch", key=_k(f"preset_{key}"), help=help_):
-                _apply_preset(key)
-                st.session_state.pop("_hs_display", None)
-                st.rerun()
+        for group in (_preset_btns[:5], _preset_btns[5:]):
+            presets = st.columns(len(group))
+            for col, (key, label, help_) in zip(presets, group):
+                if col.button(label, width="stretch", key=_k(f"preset_{key}"), help=help_):
+                    _apply_preset(key)
+                    st.session_state.pop("_hs_display", None)
+                    st.rerun()
 
     _hub_sec("2 · Filters", "#7FD4FF", "narrow the universe")
     with st.container(border=True, key="hs_filters_box"):
@@ -1058,6 +1327,7 @@ def render_hybrid_screener() -> None:
             "rev_min": rev_min,
             "use_ipo": use_ipo,
             "ipo_days": ipo_days,
+            "thatbiz": bool(st.session_state.get(_k("gate_thatbiz"))),
             "enabled": enabled,
             "weights": weights,
         }
@@ -1113,6 +1383,15 @@ def render_hybrid_screener() -> None:
             "Recent listings are ranked by first print in the dump, newest "
             "first. This is a tape-length proxy, not an official IPO calendar."
         )
+    if st.session_state.get(_k("gate_thatbiz")):
+        st.caption(
+            "That Business — 1) raise prices without losing customers (pricing "
+            "power) · 2) owns something hard to copy (moat) · 3) does **not** "
+            "owe a mountain of debt (fortress). Gates: $1B+ market cap, all "
+            "three scores above the dump-tested floors, owner earnings not "
+            "negative. Banks and REITs are scored as levered; buyback-inflated "
+            "D/E is capped so Visa / Mastercard / Colgate still pass."
+        )
 
     m1, m2, m3, m4 = st.columns(4)
     raw = st.session_state.get("_hs_raw")
@@ -1136,6 +1415,8 @@ def render_hybrid_screener() -> None:
                 f"P/E: **{diag.get('pe', 0)}** → "
                 f"revenue: **{diag.get('rev', 0)}** → "
                 f"IPO: **{diag.get('ipo', 0)}**"
+                + (f" → that-business: **{diag.get('thatbiz', 0)}**"
+                   if st.session_state.get(_k("gate_thatbiz")) else "")
             )
         return
 
@@ -1170,6 +1451,8 @@ def render_hybrid_screener() -> None:
 
     order = [c for c in [
         "#", "Ticker", "Sector", "Price",
+        "Pricing power", "Moat", "Fortress", "GrossMargin", "ROIC",
+        "D/E", "Current ratio", "OE_Yield", "Piotroski",
         getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "CAT_DOWN_COL", "▼ Down"),
         "First print", "Days listed",
         "MarketCap", "P/E",
@@ -1183,6 +1466,18 @@ def render_hybrid_screener() -> None:
             help="Scan rank. 1 is first on this list. Click the header to sort."),
     }
     _up, _dn = getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "CAT_DOWN_COL", "▼ Down")
+    if "Pricing power" in display.columns:
+        _cat_cfg["Pricing power"] = st.column_config.Column(
+            "Pricing power", width="small",
+            help="Can it raise prices without losing customers? Habit, necessity, no substitute.")
+    if "Moat" in display.columns:
+        _cat_cfg["Moat"] = st.column_config.Column(
+            "Moat", width="small",
+            help="Does it own something genuinely hard to copy? Brand, network, licence.")
+    if "Fortress" in display.columns:
+        _cat_cfg["Fortress"] = st.column_config.Column(
+            "Fortress", width="small",
+            help="Does it NOT owe a mountain of money? High = low leverage. The quiet killer.")
     if _up in display.columns:
         _cat_cfg[_up] = st.column_config.Column(
             _up, width="medium",
