@@ -775,6 +775,20 @@ for _b in _VOL_CURVE:
 del _acc, _b
 
 
+def _daily_rvol(daily) -> float:
+    """5-day vs 63-day average volume — same dump RVOL as Stock Lookup."""
+    if daily is None or getattr(daily, "empty", True):
+        return 0.0
+    if "Volume" not in getattr(daily, "columns", []):
+        return 0.0
+    v = pd.to_numeric(daily["Volume"], errors="coerce").dropna()
+    if len(v) < 10:
+        return 0.0
+    base = float(v.tail(min(63, len(v))).mean())
+    rec = float(v.tail(min(5, len(v))).mean())
+    return rec / base if base > 0 else 0.0
+
+
 def expected_vol_fraction(minutes_elapsed: int) -> float:
     """Cumulative fraction of a typical day's volume expected by N minutes
     into the session, following the U-shaped curve above."""
@@ -945,6 +959,7 @@ def _warm_data_chain():
     try:
         import cascade_engine as ce
         ce.load_dump_panel()
+        ce._dump_records_cache()
     except Exception:
         pass
     try:
@@ -1082,9 +1097,17 @@ def _dump_df_from_engine() -> pd.DataFrame | None:
         for i, tk in enumerate(tickers):
             sym = str(tk).upper()
             rec = recs.get(sym) or {}
+            pack = rec.get("_analyzer") if isinstance(rec.get("_analyzer"), dict) else {}
             row = {k: v for k, v in rec.items()
                    if k not in ("_hist", "_analyzer", "Ticker")
                    and not isinstance(v, (dict, list))}
+            for pk, pv in pack.items():
+                if pv is None or isinstance(pv, (dict, list)):
+                    continue
+                row.setdefault(pk, pv)
+            if pack.get("targetMeanPrice") not in (None, ""):
+                row.setdefault("target_mean", pack["targetMeanPrice"])
+                row.setdefault("targetMeanPrice", pack["targetMeanPrice"])
             row["ticker"] = sym
             row.setdefault("sector", str(sectors[i]) if sectors is not None else "")
             if np.isfinite(last[i]):
@@ -1256,6 +1279,31 @@ def _dump_seed(ticker: str) -> dict:
             hi = _finite_num(ohlc["High"].max())
             if hi is not None:
                 seed["high_52w"] = hi
+        pack = ce.dump_analyzer_pack(ticker) or {}
+        tgt = _finite_num(pack.get("targetMeanPrice"))
+        if tgt is not None:
+            seed["target_mean"] = tgt
+        nm = pack.get("shortName") or pack.get("longName")
+        if nm:
+            seed.setdefault("name", str(nm))
+        flt = _finite_num(pack.get("floatShares"))
+        if flt is not None:
+            seed.setdefault("float_shares", flt)
+        hi_p = _finite_num(pack.get("fiftyTwoWeekHigh"))
+        if hi_p is not None:
+            seed.setdefault("high_52w", hi_p)
+        spf_p = _finite_num(pack.get("shortPercentOfFloat"))
+        if spf_p is not None and seed.get("short_pct_float") is None:
+            seed["short_pct_float"] = spf_p if spf_p <= 1.5 else spf_p / 100.0
+        dtc_p = _finite_num(pack.get("shortRatio"))
+        if dtc_p is not None and seed.get("days_to_cover") is None:
+            seed["days_to_cover"] = round(dtc_p, 1)
+        if pack.get("sector") and not seed.get("sector"):
+            seed["sector"] = str(pack["sector"])
+        inst_p = _finite_num(pack.get("heldPercentInstitutions"))
+        if inst_p is not None:
+            seed.setdefault("inst_pct",
+                            round(inst_p * 100, 1) if inst_p <= 1.5 else round(inst_p, 1))
     except Exception:
         pass
     try:
@@ -1422,12 +1470,14 @@ def fetch_fuel(ticker: str) -> dict:
     }
     seed = _dump_seed(ticker)
     for k in ("short_pct_float", "float_shares", "high_52w", "name",
-              "target_mean", "days_to_cover", "sector"):
+              "target_mean", "days_to_cover", "sector", "inst_pct"):
         v = seed.get(k)
         if v not in (None, "") and out.get(k) in (None, ""):
             out[k] = v
-    dump_ready = any(out.get(k) not in (None, "") for k in
-                     ("short_pct_float", "sector", "high_52w", "float_shares"))
+    # Skip the live Yahoo profile only when the dump already has a price
+    # target. Sector/short% alone is not enough — the slim panel does not
+    # store analyst targets, and skipping .info left every scan card at "--".
+    dump_ready = out.get("target_mean") is not None
     try:
         tk = _yf(lambda: yf.Ticker(_vendor_symbol(ticker)))
         info = {}
@@ -1759,7 +1809,10 @@ def compute_signals(ticker: str) -> dict:
         if len(daily) >= 2:
             prev = float(daily["Close"].iloc[-2])
             s["chg_pct"] = (s["price"] / prev - 1.0) * 100.0 if prev else None
+        s["rvol"] = _daily_rvol(daily)
         s["reasons"].append("nightly dump daily — no live 1m bars")
+        if s["rvol"]:
+            s["reasons"].append("dump RVOL (5d/63d)")
     elif not live or not daily_ok:
         s["error"] = "no data"
         return s
@@ -1841,6 +1894,8 @@ def compute_signals(ticker: str) -> dict:
                 s["macd_cross"] = s["macd_bull"] and bool(
                     (macd_line.iloc[-4:-1] <= sig_line.iloc[-4:-1]).any()
                 )
+        if not s["rvol"]:
+            s["rvol"] = _daily_rvol(daily)
 
     # ------------------------------------------------------------------
     # IGNITION sub-score (0-100)
@@ -2854,286 +2909,9 @@ def render_ignition_scanner_tab():
 
     @st.cache_data(ttl=900, show_spinner="Loading analysis…")
     def fetch_analyzer(ticker):
-        """Fetch full analyst data for the Stock Analyzer section.
-
-        Data priority chain:
-          1. Nightly dump for daily history and fundamentals
-          2. Alpaca API keys for daily history if the dump is thin
-          3. yfinance last — remaining history, news-adjacent fields, EPS
-        """
-        SCAN_FIELD_MAP = {
-            # scan dump key → info key we'd populate
-            "rsi":            "_scan_rsi",
-            "short_squeeze":  "_scan_squeeze_score",
-            "golden_cross":   "_scan_golden_cross",
-            "mfi_sweet_spot": "_scan_mfi",
-            "obv":            "_scan_obv",
-            "score":          "_scan_composite_score",
-            "piotroski":      "_scan_piotroski",
-            "price":          "_scan_price",
-            "short_pct_float":"shortPercentOfFloat",
-            "short_ratio":    "shortRatio",
-            "beta":           "beta",
-            "pe_ratio":       "trailingPE",
-            "forward_pe":     "forwardPE",
-            "profit_margin":  "profitMargins",
-            "operating_margin":"operatingMargins",
-            "roe":            "returnOnEquity",
-            "roa":            "returnOnAssets",
-            "revenue_growth": "revenueGrowth",
-            "earnings_growth":"earningsGrowth",
-            "current_ratio":  "currentRatio",
-            "market_cap":     "marketCap",
-            "float_shares":   "floatShares",
-            "target_mean":    "targetMeanPrice",
-            "target_low":     "targetLowPrice",
-            "target_high":    "targetHighPrice",
-        }
-
-        # ── Step 1: Price history — dump, then Alpaca, then Yahoo ────────
-        hist = pd.DataFrame()
-        hist_src = ""
-        h_d = _dump_daily_bars(ticker, 400)
-        if h_d is not None and len(h_d) >= 50:
-            hist = h_d
-            hist_src = "dump"
-        _ak = alpaca_keys()
-        if hist.empty and _ak:
-            try:
-                k, s = _ak
-                start = (datetime.now(timezone.utc) - timedelta(days=400)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                h_alp = _alpaca_bars(_vendor_symbol(ticker), "1Day", start, k, s)
-                if h_alp is not None and len(h_alp) >= 50:
-                    hist = h_alp
-                    hist_src = "alpaca"
-            except Exception:
-                pass
-
-        tk = _yf(lambda: yf.Ticker(_vendor_symbol(ticker)))
-        if hist.empty:
-            try:
-                h = _yf(lambda: tk.history(period="1y", interval="1d"))
-                if h is not None and not h.empty:
-                    if isinstance(h.columns, pd.MultiIndex):
-                        h.columns = h.columns.get_level_values(0)
-                    hist = h
-                    hist_src = "yahoo"
-            except Exception:
-                pass
-
-        # ── Step 2: Fundamentals — dump first, yfinance fills holes ──────
-        info = {}
-        _issues = []
-        if hist.empty:
-            _issues.append("price history: no bars from dump, Alpaca, or Yahoo (new listing, delisted, or feed outage)")
-        _dump_filled = False
-        try:
-            dump = load_screener_dump(SCREENER_URL_DEFAULT)
-            row = None
-            for sym in _symbol_forms(ticker):
-                if dump is not None and not dump.empty and sym in dump.index:
-                    row = dump.loc[sym]
-                    if isinstance(row, pd.DataFrame):
-                        row = row.iloc[0]
-                    break
-            if row is not None:
-                for scan_key, info_key in SCAN_FIELD_MAP.items():
-                    val = row.get(scan_key) if hasattr(row, "get") else (
-                        row[scan_key] if scan_key in row.index else None
-                    )
-                    if val is not None and (info_key.startswith("_scan_") or not info.get(info_key)):
-                        info[info_key] = val
-                        _dump_filled = True
-        except Exception:
-            pass
-        try:
-            import cascade_engine as ce
-            dfund = ce.dump_fundamentals(ticker) or {}
-            _dfund_map = {
-                "ShortPctFloat": "shortPercentOfFloat",
-                "DaysToCover": "shortRatio",
-                "P/E": "trailingPE",
-                "RevenueGrowth": "revenueGrowth",
-                "EarningsGrowth": "earningsGrowth",
-                "MarketCap": "marketCap",
-            }
-            for src, dst in _dfund_map.items():
-                v = _finite_num(dfund.get(src))
-                if v is not None and not info.get(dst):
-                    info[dst] = v
-                    _dump_filled = True
-            if dfund.get("Sector") and not info.get("sector"):
-                info["sector"] = dfund["Sector"]
-                _dump_filled = True
-        except Exception:
-            pass
-
-        try:
-            yinfo = _yf(lambda: tk.info or {})
-            if not yinfo or len(yinfo) < 3:
-                if not info:
-                    _issues.append("fundamentals: yfinance returned empty (rate-limited or symbol has no profile)")
-            for k, v in (yinfo or {}).items():
-                if v in (None, "", []):
-                    continue
-                if not info.get(k):
-                    info[k] = v
-        except Exception as _ie:
-            if not info:
-                _msg = str(_ie)[:80]
-                if "404" in _msg or "Not Found" in _msg:
-                    _issues.append("fundamentals: not published for this symbol (ETFs/funds have no fundamentals)")
-                elif "429" in _msg or "rate" in _msg.lower():
-                    _issues.append("fundamentals: yfinance rate limit — wait a few seconds and press Refresh")
-                else:
-                    _issues.append(f"fundamentals: {_msg}")
-
-        info["_hist_source"] = hist_src
-        if _dump_filled:
-            info["_from_scan_dump"] = True
-
-        # ── Step 4: Quarterly EPS history (actual vs estimate) ───────────
-        # Returns a list of dicts: [{quarter, actual, estimate, surprise_pct}, ...]
-        # ordered oldest → newest. Empty list if unavailable.
-        eps_history = []
-        try:
-            # yfinance >= 0.2 exposes earnings_history (actual vs estimate per quarter)
-            eh = _yf(lambda: getattr(tk, "earnings_history", None))
-            if eh is not None and hasattr(eh, "empty") and not eh.empty:
-                eh = eh.copy()
-                # Columns vary by version: epsActual/epsEstimate or epsactual/epsestimate
-                cols = {c.lower(): c for c in eh.columns}
-                act_col = cols.get("epsactual") or cols.get("eps_actual")
-                est_col = cols.get("epsestimate") or cols.get("eps_estimate")
-                sur_col = cols.get("surprisepercent") or cols.get("surprise_percent")
-                # Index is usually the quarter date
-                for idx, row in eh.iterrows():
-                    actual   = row.get(act_col) if act_col else None
-                    estimate = row.get(est_col) if est_col else None
-                    surprise = row.get(sur_col) if sur_col else None
-                    if actual is None and estimate is None:
-                        continue
-                    # Surprise % — compute if not provided
-                    if surprise is None and actual is not None and estimate not in (None, 0):
-                        try:
-                            surprise = (float(actual) - float(estimate)) / abs(float(estimate)) * 100
-                        except Exception:
-                            surprise = None
-                    # Quarter label
-                    q_label = str(idx)
-                    try:
-                        q_dt = pd.to_datetime(idx, errors="coerce")
-                        if pd.notna(q_dt):
-                            q_label = q_dt.strftime("%b %Y")
-                    except Exception:
-                        pass
-                    eps_history.append({
-                        "quarter":  q_label,
-                        "actual":   float(actual) if actual is not None else None,
-                        "estimate": float(estimate) if estimate is not None else None,
-                        "surprise": float(surprise) if surprise is not None else None,
-                    })
-                # Keep most recent 8 quarters, oldest → newest
-                eps_history = eps_history[-8:]
-        except Exception:
-            eps_history = []
-            _issues.append("EPS history: earnings data not returned (thin analyst coverage or rate limit)")
-
-        # Fallback: derive quarterly EPS from the income statement if
-        # earnings_history was empty. We deliberately do NOT use
-        # tk.quarterly_earnings / tk.earnings here — yfinance has deprecated
-        # that property (it warns "not available via API, look for Net Income
-        # in Ticker.income_stmt") and the underlying scraper it falls back to
-        # is unmaintained and has caused interpreter-level crashes in this
-        # environment. income_stmt is the modern, supported replacement.
-        if not eps_history:
-            try:
-                qis = _yf(lambda: getattr(tk, "quarterly_income_stmt", None))
-                if qis is not None and hasattr(qis, "empty") and not qis.empty:
-                    # Rows are line items (e.g. "Net Income", "Diluted EPS"),
-                    # columns are quarter-end dates, newest first.
-                    row_idx = {str(i).strip().lower(): i for i in qis.index}
-                    eps_row = row_idx.get("diluted eps") or row_idx.get("basic eps")
-                    if eps_row is not None:
-                        for col in qis.columns:
-                            val = qis.loc[eps_row, col]
-                            if pd.isna(val):
-                                continue
-                            try:
-                                q_dt = pd.to_datetime(col, errors="coerce")
-                                q_label = q_dt.strftime("%b %Y") if pd.notna(q_dt) else str(col)
-                            except Exception:
-                                q_label = str(col)
-                            eps_history.append({
-                                "quarter":  q_label,
-                                "actual":   float(val),
-                                "estimate": None,
-                                "surprise": None,
-                            })
-                        # Statement columns are newest→oldest; reverse to oldest→newest
-                        eps_history = list(reversed(eps_history))[-8:]
-            except Exception:
-                pass
-            if not eps_history:
-                _issues.append("EPS history: income statement EPS line item not available for this symbol")
-
-        # ── Forward EPS estimates (analyst consensus, as far out as available) ─
-        # Sources, in priority order:
-        #   1. tk.earnings_estimate  — next quarter (0q), current quarter (+1q),
-        #      current year (0y), next year (+1y) consensus avg
-        #   2. info forwardEps / epsCurrentYear / epsNextYear  — annual estimates
-        # Returns oldest→newest list: [{period, estimate, n_analysts, is_forward}]
-        eps_forward = []
-        try:
-            ee = _yf(lambda: getattr(tk, "earnings_estimate", None))
-            if ee is not None and hasattr(ee, "empty") and not ee.empty:
-                # Rows indexed by period: '0q','+1q','0y','+1y' (current/next qtr/yr)
-                period_labels = {
-                    "0q":  "Next Qtr",
-                    "+1q": "Qtr After",
-                    "0y":  "This Year",
-                    "+1y": "Next Year",
-                }
-                cols = {c.lower(): c for c in ee.columns}
-                avg_col = cols.get("avg") or cols.get("average")
-                num_col = cols.get("numberofanalysts") or cols.get("numberofanalystopinions")
-                # Keep a logical order: quarters first, then years
-                for pk in ["0q", "+1q", "0y", "+1y"]:
-                    if pk in ee.index:
-                        row = ee.loc[pk]
-                        est = row.get(avg_col) if avg_col else None
-                        nan = row.get(num_col) if num_col else None
-                        if est is not None and pd.notna(est):
-                            eps_forward.append({
-                                "period":     period_labels.get(pk, pk),
-                                "estimate":   float(est),
-                                "n_analysts": int(nan) if (nan is not None and pd.notna(nan)) else None,
-                                "is_forward": True,
-                            })
-        except Exception:
-            pass
-
-        # Fallback / supplement: annual forward EPS from info fields
-        if not eps_forward:
-            try:
-                cy = info.get("epsCurrentYear")
-                ny = info.get("epsNextYear") or info.get("forwardEps")
-                fwd = info.get("forwardEps")
-                if cy is not None:
-                    eps_forward.append({"period": "This Year (est)", "estimate": float(cy),
-                                        "n_analysts": info.get("numberOfAnalystOpinions"), "is_forward": True})
-                if ny is not None and ny != cy:
-                    eps_forward.append({"period": "Next Year (est)", "estimate": float(ny),
-                                        "n_analysts": info.get("numberOfAnalystOpinions"), "is_forward": True})
-                elif fwd is not None and not eps_forward:
-                    eps_forward.append({"period": "Forward (est)", "estimate": float(fwd),
-                                        "n_analysts": info.get("numberOfAnalystOpinions"), "is_forward": True})
-            except Exception:
-                pass
-
-        if _issues:
-            info["_data_issues"] = _issues
-        return info, hist, eps_history, eps_forward
+        """Same Stock Analyzer chain as Stock Lookup: dump pack → Alpaca → Yahoo."""
+        import cascade_engine as ce
+        return ce.fetch_analyzer(ticker)
 
 
     # ----------------------------------------------------------------------------
@@ -3728,62 +3506,81 @@ def render_ignition_scanner_tab():
         aus   = ((am - px) / px * 100) if (am and px and px > 0) else None
         rng52 = ((px - lo52) / (hi52 - lo52) * 100) if (hi52 and lo52 and hi52 != lo52) else None
 
-        # ── Technicals from history ──────────────────────────────────────
+        # ── Technicals from history (same bar-count gates as Stock Lookup) ─
         rsi_v = ma50_v = ma200_v = macd_v = macd_s = vol_avg = vol_td = None
         pct1d = pct5d = pct1m = pct3m = atr = None
         bb_upper = bb_mid = bb_lower = None
 
-        if not hist.empty and len(hist) >= 35:  # MACD needs 26+9=35 minimum
-            cl = hist["Close"].dropna()
-            vl = hist["Volume"].dropna()
-            try:
-                dlt = cl.diff(); g = dlt.clip(lower=0).rolling(14).mean()
-                ls = (-dlt.clip(upper=0)).rolling(14).mean()
-                rs3 = (100 - (100 / (1 + g / ls.replace(0, np.nan)))).dropna()
-                rsi_v = float(rs3.iloc[-1]) if not rs3.empty else None
-            except Exception: pass
-            try:
-                e12 = cl.ewm(span=12, adjust=False).mean()
-                e26 = cl.ewm(span=26, adjust=False).mean()
-                ml = e12 - e26; sl = ml.ewm(span=9, adjust=False).mean()
-                macd_v = float(ml.iloc[-1]); macd_s = float(sl.iloc[-1])
-            except Exception: pass
-            try:
-                if len(cl) >= 50:  ma50_v  = float(cl.rolling(50).mean().iloc[-1])
-                if len(cl) >= 200: ma200_v = float(cl.rolling(200).mean().iloc[-1])
-            except Exception: pass
-            try:
-                if len(vl) >= 21:
-                    vol_avg = float(vl.iloc[-21:-1].mean())  # exclude today's partial bar
-                    # Derive today's vol from RVOL scan signal to avoid false 'Low' mid-day
-                    if scan_r and scan_r.get("rvol") and vol_avg > 0:
-                        vol_td = vol_avg * scan_r["rvol"] * expected_vol_fraction(390)
-                    else:
-                        vol_td = None
-            except Exception: pass
-            try:
-                if len(cl) >= 2:  pct1d = (float(cl.iloc[-1]) - float(cl.iloc[-2])) / float(cl.iloc[-2]) * 100
-                if len(cl) >= 6:  pct5d = (float(cl.iloc[-1]) - float(cl.iloc[-6])) / float(cl.iloc[-6]) * 100
-                if len(cl) >= 22: pct1m = (float(cl.iloc[-1]) - float(cl.iloc[-22])) / float(cl.iloc[-22]) * 100
-                if len(cl) >= 66: pct3m = (float(cl.iloc[-1]) - float(cl.iloc[-66])) / float(cl.iloc[-66]) * 100
-            except Exception: pass
-            try:
-                # ATR (14-day Average True Range)
-                hi = hist["High"].dropna(); lo = hist["Low"].dropna()
-                tr = pd.concat([hi - lo,
-                                (hi - cl.shift()).abs(),
-                                (lo - cl.shift()).abs()], axis=1).max(axis=1)
-                atr = float(tr.rolling(14).mean().iloc[-1])
-            except Exception: pass
-            try:
-                # Bollinger Bands (20-day, 2 std)
-                if len(cl) >= 20:
-                    bm = cl.rolling(20).mean()
-                    bstd = cl.rolling(20).std()
-                    bb_mid = float(bm.iloc[-1])
-                    bb_upper = float((bm + 2 * bstd).iloc[-1])
-                    bb_lower = float((bm - 2 * bstd).iloc[-1])
-            except Exception: pass
+        if not hist.empty:
+            _hcols = {str(c).lower(): c for c in hist.columns}
+            _cl_c = _hcols.get("close")
+            cl = pd.to_numeric(hist[_cl_c], errors="coerce").dropna() if _cl_c else pd.Series(dtype=float)
+            _vl_c = _hcols.get("volume")
+            vl = pd.to_numeric(hist[_vl_c], errors="coerce").dropna() if _vl_c else pd.Series(dtype=float)
+            if len(cl) >= 15:
+                try:
+                    dlt = cl.diff()
+                    g = dlt.clip(lower=0)
+                    ls = (-dlt.clip(upper=0))
+                    avg_g = g.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+                    avg_l = ls.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+                    r3 = (100 - 100 / (1 + avg_g / avg_l.replace(0, np.nan))).dropna()
+                    rsi_v = float(r3.iloc[-1]) if not r3.empty else None
+                except Exception:
+                    pass
+            if len(cl) >= 26:
+                try:
+                    e12 = cl.ewm(span=12, adjust=False).mean()
+                    e26 = cl.ewm(span=26, adjust=False).mean()
+                    ml = e12 - e26
+                    macd_v = float(ml.iloc[-1])
+                    macd_s = float(ml.ewm(span=9, adjust=False).mean().iloc[-1])
+                except Exception:
+                    pass
+            if len(cl) >= 50:
+                ma50_v = float(cl.rolling(50).mean().iloc[-1])
+            if len(cl) >= 200:
+                ma200_v = float(cl.rolling(200).mean().iloc[-1])
+            if len(vl) >= 21:
+                vol_avg = float(vl.iloc[-21:-1].mean())
+                if scan_r and scan_r.get("rvol") and vol_avg > 0:
+                    vol_td = vol_avg * scan_r["rvol"] * expected_vol_fraction(390)
+                else:
+                    vol_td = float(vl.iloc[-1])
+            _last = float(cl.iloc[-1]) if len(cl) else None
+            if _last and _last != 0:
+                for att, nn in (("pct1d", 2), ("pct5d", 6), ("pct1m", 22), ("pct3m", 66)):
+                    if len(cl) >= nn:
+                        base = float(cl.iloc[-nn])
+                        if base:
+                            locals_v = (_last - base) / base * 100
+                            if att == "pct1d":
+                                pct1d = locals_v
+                            elif att == "pct5d":
+                                pct5d = locals_v
+                            elif att == "pct1m":
+                                pct1m = locals_v
+                            else:
+                                pct3m = locals_v
+            _hi_c, _lo_c = _hcols.get("high"), _hcols.get("low")
+            if _hi_c and _lo_c and _cl_c and len(cl) >= 15:
+                try:
+                    hlc = hist[[_hi_c, _lo_c, _cl_c]].apply(pd.to_numeric, errors="coerce")
+                    tr = pd.concat([
+                        hlc[_hi_c] - hlc[_lo_c],
+                        (hlc[_hi_c] - hlc[_cl_c].shift()).abs(),
+                        (hlc[_lo_c] - hlc[_cl_c].shift()).abs(),
+                    ], axis=1).max(axis=1)
+                    _atr_s = tr.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean().dropna()
+                    atr = float(_atr_s.iloc[-1]) if not _atr_s.empty else None
+                except Exception:
+                    pass
+            if len(cl) >= 20:
+                bm = cl.rolling(20).mean()
+                bstd = cl.rolling(20).std()
+                bb_mid = float(bm.iloc[-1])
+                bb_upper = float((bm + 2 * bstd).iloc[-1])
+                bb_lower = float((bm - 2 * bstd).iloc[-1])
 
         # ── Signal pills ─────────────────────────────────────────────────
         pills_html = ""
@@ -3794,8 +3591,11 @@ def render_ignition_scanner_tab():
             else:            pills_html += az_pill("RSI Neutral", None)
         if macd_v is not None and macd_s is not None:
             pills_html += az_pill("MACD Bullish" if macd_v > macd_s else "MACD Bearish", macd_v > macd_s)
-        if ma50_v and ma200_v:
+        if ma50_v is not None and ma200_v is not None:
             pills_html += az_pill("Golden Cross" if ma50_v > ma200_v else "Death Cross", ma50_v > ma200_v)
+        elif info.get("_scan_golden_cross") is not None:
+            pills_html += az_pill("Golden Cross" if info["_scan_golden_cross"] >= 1 else "No Golden Cross",
+                                 info["_scan_golden_cross"] >= 1)
         if vol_avg and vol_td:
             if vol_td > vol_avg * 1.5: pills_html += az_pill("High Volume", True)
             elif vol_td < vol_avg * 0.5: pills_html += az_pill("Low Volume", None)
@@ -3815,7 +3615,8 @@ def render_ignition_scanner_tab():
         m3.metric("Fuel", f"{fuel_sc:.0f}" if fuel_sc is not None else "--")
         m4.metric("RVOL", f"{rvol:.1f}x" if rvol else "--")
         m5.metric("52W Pos", f"{rng52:.0f}%" if rng52 is not None else "--")
-        m6.metric("Target", f"${am:.2f}" if am else "--", delta=f"{aus:.1f}%" if aus else None)
+        m6.metric("Target", f"${am:.2f}" if am else "--",
+                  delta=f"{aus:.1f}%" if aus is not None else None)
 
         st.markdown(
             f"<div style='margin:6px 0 4px;font-family:Plus Jakarta Sans,sans-serif'>"

@@ -1163,7 +1163,7 @@ def render_hybrid_screener() -> None:
         enabled[key] = bool(st.session_state.get(_k(f"tog_{key}"), False))
         weights[key] = float(st.session_state.get(_k(f"wt_{key}"), 0.0) or 0.0)
 
-    _hub_sec("4 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
+    _hub_sec("4 · Catalysts and Filters", "#A78BFA")
     _preset_thatbiz = bool(st.session_state.get(_k("gate_thatbiz")))
     with st.container(border=True, key="hs_cat_box"):
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
@@ -1199,6 +1199,37 @@ def render_hybrid_screener() -> None:
                              "Hide companies that sell a service AI is replacing."))
             if safe_ai:
                 st.caption("On — services AI is replacing stay off this list.")
+
+    extra = []
+    if use_cat:
+        extra.append("<b style='color:#A78BFA;'>Catalysts</b>")
+    if thatbiz:
+        extra.append("<b style='color:#E8C872;'>3 Magic Rules</b>")
+    if safe_ai:
+        extra.append("<b style='color:#6EE7B7;'>SAFE FROM AI</b>")
+    if not extra:
+        rank_filters = ""
+    elif len(extra) == 1:
+        rank_filters = f", with {extra[0]}"
+    elif len(extra) == 2:
+        rank_filters = f", with {extra[0]} and {extra[1]}"
+    else:
+        rank_filters = f", with {', '.join(extra[:-1])}, and {extra[-1]}"
+    eng = "3 Magic Rules" if _preset_thatbiz else "hybrid score"
+    sec_txt = (f", limited to {len(sectors_filter)} sectors"
+               if sectors_filter else "")
+    ma_txt = ("" if ma50_mode == "off"
+              else f", {ma50_mode} the 50-day MA")
+    st.markdown(
+        f"<div style='background:#16344f;border:1px solid #3d6a94;"
+        f"border-left:4px solid #F0A6FF;padding:10px 14px;margin:4px 0 12px;"
+        f"font-size:13.5px;border-radius:8px;'>"
+        f"Ranking the top <b>{int(top_n)}</b> by "
+        f"<b style='color:#F0A6FF;'>{eng}</b>, "
+        f"{exchange}, max ${int(max_price):,}, score ≥ {float(min_score):g}"
+        f"{ma_txt}{sec_txt}{rank_filters}."
+        f"</div>",
+        unsafe_allow_html=True)
 
     run = st.button("🚀 Run Screener", type="primary", width="stretch", key=_k("run"))
 

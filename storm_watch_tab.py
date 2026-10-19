@@ -649,7 +649,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         import cascade_engine as ce
         regkey, lens_txt = _resolve_lens(lens_token, closes, gauge)
 
-    _hub_sec("5 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
+    _hub_sec("5 · Catalysts and Filters", "#A78BFA")
     with st.container(border=True, key="sw_cat_box"):
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:

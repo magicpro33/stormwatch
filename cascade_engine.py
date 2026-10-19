@@ -4855,13 +4855,26 @@ def dump_analyzer_pack(ticker: str) -> dict:
     dict read. Returns {} for dumps written before this existed, in which case
     fetch_analyzer just falls back to the live path as it always did.
     """
-    j = _ticker_index(ticker)
-    if j is None:
-        return {}
+    rec = _dump_record(ticker)
+    return (rec or {}).get("_analyzer") or {}
+
+
+def _dump_record(ticker: str) -> dict:
+    """One nightly-dump JSON record, alias-tolerant (BRK.B / BRK-B)."""
     try:
         raw = _dump_records_cache()
-        rec = raw.get(str(ticker).strip().upper())
-        return (rec or {}).get("_analyzer") or {}
+        key = str(ticker).strip().upper()
+        rec = raw.get(key)
+        if rec:
+            return rec
+        j = _ticker_index(key)
+        if j is None:
+            return {}
+        hit = _PANEL_CACHE.get("panel")
+        if not hit:
+            return {}
+        tks = hit[1][1]
+        return raw.get(str(tks[j]).strip().upper()) or {}
     except Exception:
         return {}
 
@@ -4891,6 +4904,15 @@ def _dump_records_cache() -> dict:
             continue
         rec = {k: v for k, v in r.items() if k != "_hist"}
         by[tk] = rec
+        # BRK.B in the dump must also resolve as BRK-B (and the reverse).
+        if "." in tk and "=" not in tk:
+            left, _, right = tk.partition(".")
+            if len(right) == 1 and right.isalpha():
+                by.setdefault(f"{left}-{right}", rec)
+        elif tk.count("-") == 1:
+            left, _, right = tk.partition("-")
+            if len(right) == 1 and right.isalpha():
+                by.setdefault(f"{left}.{right}", rec)
     _RECORDS_CACHE.clear()
     _RECORDS_CACHE["mt"] = mt
     _RECORDS_CACHE["by_ticker"] = by

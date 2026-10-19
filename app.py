@@ -3091,6 +3091,15 @@ def _rank_filters_html(key: str) -> str:
     return f", with {', '.join(extra[:-1])}, and {extra[-1]}"
 
 
+def _rank_banner(body: str, color: str | None = None):
+    """Settings recap above a scanner's run button — same block Top 20 uses."""
+    c = color or ACCENT
+    _md_html(
+        f"<div style='background:#16344f;border:1px solid #3d6a94;"
+        f"border-left:4px solid {c};padding:10px 14px;margin:4px 0 12px;"
+        f"font-size:13.5px;border-radius:8px;'>{body}</div>")
+
+
 def _render_macro_lens_block(prefix: str, asof, closes, gauge, *,
                              include_off: bool = True, help_extra: str = "",
                              felix_mode: bool = False):
@@ -4928,13 +4937,12 @@ if _main == "Scan Hub" and _hub == "TOP20":
                         })
     _secs_key = tuple(sorted(_sec_filter)) if _sec_filter else ()
 
-    _t20_head("3 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
+    _t20_head("3 · Catalysts and Filters", "#A78BFA")
     with _hub_pill("t20_run"):
         if _method == "forecast":
             _n1, _n2 = st.columns([1, 2], gap="medium")
             _top_n = _n1.selectbox("How many stocks", list(range(20, 55, 5)),
-                                   index=0, key="top20_count",
-                                   help="Length of the results list.")
+                                   index=0, key="top20_count")
             _scan_all = _n2.toggle(
                 "Scan the entire universe (~5,700 stocks)", value=True,
                 key="forecast_all_toggle",
@@ -4942,8 +4950,7 @@ if _main == "Scan Hub" and _hub == "TOP20":
         else:
             _scan_all = True
             _top_n = st.selectbox("How many stocks", list(range(20, 55, 5)),
-                                  index=0, key="top20_count",
-                                  help="Length of the results list.")
+                                  index=0, key="top20_count")
 
         _t20_cat = _catalysts_section("top20", pill=False)
 
@@ -4956,17 +4963,13 @@ if _main == "Scan Hub" and _hub == "TOP20":
             else "the auto-detected regime" if _lens is None
             else ce.REGIME_NAMES.get(_lens, _lens))
         _rank_filters = _rank_filters_html("top20")
-        _md_html(
-            f"<div style='background:#16344f;border:1px solid #3d6a94;"
-            f"border-left:4px solid {ACCENT};padding:10px 14px;margin:4px 0 12px;"
-            f"font-size:13.5px;border-radius:8px;'>"
+        _rank_banner(
             f"Ranking the top <b>{_top_n}</b> by "
             f"<b style='color:{ACCENT};'>{_eng_txt}</b>, "
             f"through <b style='color:{ACCENT};'>{_lens_txt}</b>"
             f"{f', limited to {len(_sec_filter)} sectors ({_t_lbl})' if (_sec_filter and _method != 'felix') else ''}"
             f"{_rank_filters}"
-            f"{'. The Felix score stays the quality checklist' if (_method == 'felix' and _apply_macro) else ''}."
-            f"</div>")
+            f"{'. The Felix score stays the quality checklist' if (_method == 'felix' and _apply_macro) else ''}.")
 
         _t20_ready = bool(st.session_state.get("top20_go")
                           and (st.session_state.get("t20_inline")
@@ -5577,7 +5580,7 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
                         _uni_n = None
 
         _sec_key = (tuple(sorted(_picked_secs)), str(_ax_lens))
-        _hub_sec("5 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
+        _hub_sec("5 · Catalysts and Filters", "#A78BFA")
         _apex_cat = _catalysts_section("apex", cat_color="#A78BFA", pill_key="apex_cat_box")
         _apex_sig = (
             str(_tf), _sec_key, float(_min_score), int(_top_n),
@@ -5585,6 +5588,22 @@ if _main == "Scan Hub" and _hub == "Apex Flow":
             float(_min_dv), bool(_meta["validated"]),
             int(_uni_n) if _uni_n is not None else 0,
         )
+        _ax_lens_txt = _ax_pack.get("label") or "no macro lens"
+        _ax_gates = []
+        if _require_calm:
+            _ax_gates.append("CALM")
+        if _apply_rs:
+            _ax_gates.append("RS")
+        _ax_gate_txt = (f", {' + '.join(_ax_gates)} gates" if _ax_gates else "")
+        _ax_sec_txt = (f", limited to {len(_sec_filter)} sectors"
+                       if _sec_filter else "")
+        _rank_banner(
+            f"Ranking the top <b>{int(_top_n)}</b> by "
+            f"<b style='color:{ACCENT};'>APEX score</b> ≥ {int(_min_score)}, "
+            f"through <b style='color:{ACCENT};'>{_esc(_ax_lens_txt)}</b>, "
+            f"{_esc(_tf)} bars{_ax_gate_txt}{_ax_sec_txt}"
+            f"{_rank_filters_html('apex')}.",
+            "#7FD4FF")
         _go = st.button("⚡ Run APEX scan", key="apex_go", type="primary", width="stretch")
         if _go:
             st.session_state["apex_run"] = True
@@ -5988,6 +6007,7 @@ if _main == "Scan Hub" and _hub == "POC Future":
 
         if _poc_basic:
             _sec_filter = None
+            _p_lbl = "last session"
         else:
             _poc_pending = st.session_state.pop("_poc_sectors_pending", None)
             if _poc_pending:
@@ -6029,23 +6049,20 @@ if _main == "Scan Hub" and _hub == "POC Future":
                 if _sec_filter:
                     st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_poc_secs)} sectors.")
 
-                _stage_txt = ", ".join(_stage_pick or ["TRIGGERED"]).title()
-                _sec_txt = (f"{len(_sec_filter)} hot/selected sectors ({_p_lbl})"
-                            if _sec_filter else "every sector")
-                st.markdown(
-                    f"""<div style="background:#0c1829;border:1px solid #3d6a94;
-                    border-left:5px solid #6EE7B7;border-radius:10px;
-                    padding:9px 14px;margin:8px 0 10px;font-size:13.5px;">
-                    Hunting <b style="color:#6EE7B7;">{_stage_txt}</b>
-                    · coil {_accum} bars / {_rng:.1f} ATR
-                    · {_sec_txt}.</div>""",
-                    unsafe_allow_html=True)
-
         _poc_sig = (tuple(_stage_pick or ["TRIGGERED"]), int(_poc_top),
                     int(_accum), float(_rng), int(_poc_fresh),
                     tuple(sorted(_sec_filter)) if _sec_filter else ())
-        _hub_sec("3 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
+        _hub_sec("3 · Catalysts and Filters", "#A78BFA")
         _poc_cat = _catalysts_section("poc", cat_color="#A78BFA", pill_key="poc_cat_box")
+        _poc_stage = ", ".join(_stage_pick or ["TRIGGERED"]).title()
+        _poc_sec_txt = (f", limited to {len(_sec_filter)} sectors ({_p_lbl})"
+                        if _sec_filter else "")
+        _rank_banner(
+            f"Hunting <b style='color:{ACCENT};'>{_esc(_poc_stage)}</b> "
+            f"by POC reclaim, coil {_accum} bars / {_rng:.1f} ATR, "
+            f"fresh within {_poc_fresh} bars, top <b>{int(_poc_top)}</b>"
+            f"{_poc_sec_txt}{_rank_filters_html('poc')}.",
+            "#6EE7B7")
         if st.button("🎯 Scan for setups", type="primary", key="poc_go",
                      width="stretch"):
             st.session_state["poc_run"] = True
@@ -6203,8 +6220,15 @@ if _main == "Scan Hub" and _hub == "Key Word Search":
                                   help="Last nightly-dump close.")
         _kw_top = _k3.selectbox("How many", [25, 50, 100, 200, 500],
                                 index=1, key="kw_top")
-        _hub_sec("2 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
+        _hub_sec("2 · Catalysts and Filters", "#A78BFA")
         _kw_cat = _catalysts_section("kw", pill=False, cat_color="#A78BFA")
+        _kw_qshow = str(_kw_q or "").strip() or "a keyword"
+        _rank_banner(
+            f"Searching the dump for <b style='color:{ACCENT};'>{_esc(_kw_qshow)}</b>, "
+            f"${float(_kw_lo):,.0f}–${float(_kw_hi):,.0f}, "
+            f"top <b>{int(_kw_top)}</b>"
+            f"{_rank_filters_html('kw')}.",
+            "#C5D4FF")
 
         if st.button("🔎 Search the dump", type="primary", key="kw_go",
                      width="stretch"):
@@ -6332,8 +6356,16 @@ if _main == "Scan Hub" and _hub == "Trump Effect":
             placeholder="greenland · drug prices · china · tariffs",
             help="Search the same live remarks. Returns the same word chart, "
                  "but only sources and words that mention this phrase.")
-        _hub_sec("2 · Catalysts and Filters", "#A78BFA", "tape flags and list filters")
+        _hub_sec("2 · Catalysts and Filters", "#A78BFA")
         _te_cat = _catalysts_section("te", pill=False, cat_color="#A78BFA")
+        _te_qshow = str(_te_q or "").strip()
+        _te_qbit = (f", phrase <b style='color:{ACCENT};'>{_esc(_te_qshow)}</b>"
+                    if _te_qshow else "")
+        _rank_banner(
+            f"Scanning speeches <b>{_esc(str(_te_from))}</b> → "
+            f"<b>{_esc(str(_te_to))}</b>, up to <b>{int(_te_n)}</b> sources"
+            f"{_te_qbit}{_rank_filters_html('te')}.",
+            "#2DD4BF")
         _te_b1, _te_b2 = st.columns(2)
         if _te_b1.button("🔎 Scan speeches", type="primary", key="te_go",
                          width="stretch"):
