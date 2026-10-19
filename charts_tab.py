@@ -28,9 +28,6 @@ LINE = "#3d6a94"
 M2_SID = "M2SL"
 DEBT_SID = "GFDEGDQ188S"
 CPI_SID = "CPIAUCSL"
-M2_URL = f"https://fred.stlouisfed.org/series/{M2_SID}"
-DEBT_URL = f"https://fred.stlouisfed.org/series/{DEBT_SID}"
-CPI_URL = f"https://fred.stlouisfed.org/series/{CPI_SID}"
 
 # Income-taxpayers (not all returns). Same ~140M denominator debt clocks use.
 TAXPAYERS = 140_000_000
@@ -47,9 +44,9 @@ def _html(markup: str) -> None:
         st.markdown(markup.replace("$", "&#36;"), unsafe_allow_html=True)
 
 
-def _sec(title: str, color: str, sub: str = "") -> None:
-    sm = f"<small> {_esc(sub)}</small>" if sub else ""
-    _html(f'<div class="hub-sec lg" style="--sc:{color}">{_esc(title)}{sm}</div>')
+def _sec(title: str, color: str) -> None:
+    """Simple section title only — no source line, series id, or subtitle."""
+    _html(f'<div class="hub-sec lg" style="--sc:{color}">{_esc(title)}</div>')
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner="Loading FRED series…")
@@ -249,8 +246,6 @@ def _css() -> None:
   font-variant-numeric:tabular-nums}}
 .ch-pill.feature .ch-mval{{font-size:38px}}
 .ch-msub{{font-size:12px;color:{DIM};margin-top:4px;line-height:1.35}}
-.ch-src{{color:{DIM};font-size:12px;margin:2px 0 18px;line-height:1.45}}
-.ch-src a{{color:{BLUE}}}
 .st-key-ch_m2{{border-left:5px solid {ACCENT} !important;border-radius:10px}}
 .st-key-ch_debt{{border-left:5px solid {BLUE} !important;border-radius:10px}}
 </style>"""
@@ -258,7 +253,7 @@ def _css() -> None:
 
 
 def _dollar_since_2020() -> None:
-    _sec("Your dollar since 2020", RED, "CPI-U purchasing power")
+    _sec("Your dollar since 2020", RED)
     cpi = _try_series(CPI_SID)
     m2 = _try_series(M2_SID)
     c0 = _at_or_before(cpi, "2020-01-31")
@@ -281,20 +276,14 @@ def _dollar_since_2020() -> None:
          "color": RED, "feature": True},
         {"label": "$1 today buys",
          "value": cents if left is not None else "—",
-         "sub": "of a January 2020 dollar (CPI-U)",
+         "sub": "of a January 2020 dollar",
          "color": ACCENT},
         {"label": "Prices since 2020",
          "value": _fmt_pct(infl, signed=True),
-         "sub": (f"CPI-U · M2 {m2_up:+.0f}%" if m2_up is not None
-                 else "CPI-U, Jan 2020 → now"),
+         "sub": (f"M2 {m2_up:+.0f}%" if m2_up is not None
+                 else "Jan 2020 → now"),
          "color": GOLD},
     ], grid="ch-hero")
-    _html(
-        f"<div class='ch-src'>Source: BLS CPI-U "
-        f"<a href='{CPI_URL}' target='_blank' rel='noopener'>{CPI_SID}</a> "
-        f"via FRED. Lost % = 1 − (CPI Jan 2020 / CPI now). "
-        f"M2 change is the same window on {M2_SID}.</div>"
-    )
 
 
 def _debt_snapshot() -> dict:
@@ -367,7 +356,7 @@ def _debt_snapshot() -> dict:
 
 
 def _debt_pills(snap: dict) -> None:
-    _sec("Federal debt snapshot", BLUE, "Treasury Debt to the Penny")
+    _sec("Federal debt snapshot", BLUE)
     added = snap.get("added")
     added_col = GREEN if (added is not None and added < 0) else RED
     def_abs = snap.get("deficit")
@@ -379,7 +368,7 @@ def _debt_pills(snap: dict) -> None:
     _pills([
         {"label": "Debt per citizen",
          "value": _fmt_usd(snap.get("per_cit")),
-         "sub": f"Every American's share · {pop_m:.0f}M people" if pop_m else "Population from FRED POPTHM",
+         "sub": f"Every American's share · {pop_m:.0f}M people" if pop_m else "Every American's share",
          "color": ACCENT, "icon": "👤"},
         {"label": "Debt per taxpayer",
          "value": _fmt_usd(snap.get("per_tax")),
@@ -387,57 +376,40 @@ def _debt_pills(snap: dict) -> None:
          "color": ACCENT, "icon": "$"},
         {"label": "Added today (est.)",
          "value": (f"${added / 1e9:+.1f}B" if added is not None and np.isfinite(added) else "—"),
-         "sub": f"Change vs prior Treasury print · {debt_day}",
+         "sub": f"vs prior day · {debt_day}",
          "color": added_col, "icon": "↗"},
         {"label": "Interest per day",
          "value": _fmt_scale(snap.get("int_day"), digits=1),
-         "sub": (f"NIPA interest, annualized ÷ 365 · {_quarter_label(snap['int_asof'])}"
-                 if snap.get("int_asof") is not None else "Federal interest outlays / 365"),
+         "sub": (_quarter_label(snap["int_asof"]) if snap.get("int_asof") is not None else ""),
          "color": RED, "icon": "🏦"},
         {"label": "Federal spending",
          "value": _fmt_scale(snap.get("spend"), digits=2),
-         "sub": (f"Current expenditures, annualized · {_quarter_label(snap['spend_asof'])}"
-                 if snap.get("spend_asof") is not None else "FRED FGEXPND"),
+         "sub": (_quarter_label(snap["spend_asof"]) if snap.get("spend_asof") is not None else ""),
          "color": RED, "icon": "📜"},
         {"label": "Annual deficit",
          "value": _fmt_scale(def_abs, digits=2),
-         "sub": (f"Trailing 12-month federal deficit · {_month_label(snap['def_asof'])}"
-                 if snap.get("def_asof") is not None else "FRED monthly deficit"),
+         "sub": (f"Last 12 months · {_month_label(snap['def_asof'])}"
+                 if snap.get("def_asof") is not None else "Last 12 months"),
          "color": RED, "icon": "↘"},
         {"label": "Debt-to-GDP ratio",
          "value": _fmt_pct(snap.get("ratio")),
-         "sub": "Live Treasury debt ÷ latest BEA GDP",
+         "sub": "Latest print",
          "color": RED, "icon": "📊"},
         {"label": "Total public debt",
          "value": _fmt_scale(snap.get("debt"), digits=2),
-         "sub": f"Treasury Debt to the Penny · {debt_day}",
+         "sub": debt_day,
          "color": BLUE, "icon": "🇺🇸"},
     ])
-    _html(
-        "<div class='ch-src'>Debt stock and daily change: U.S. Treasury "
-        "<a href='https://fiscaldata.treasury.gov/datasets/debt-to-the-penny/' "
-        "target='_blank' rel='noopener'>Debt to the Penny</a>. "
-        "Population: FRED POPTHM. Taxpayers: ~140M income-tax payers "
-        "(same convention as public debt clocks). "
-        "Spending: FRED FGEXPND. Interest: FRED A091RC1Q027SBEA. "
-        "Deficit: FRED MTSDS133FMS, last 12 months. "
-        "Debt/GDP uses the live Treasury print over BEA GDP, so it can "
-        "read a point or two above the quarterly FRED ratio on the chart.</div>"
-    )
 
 
 def render_charts_tab() -> None:
     _css()
-    st.caption("Official U.S. prints from FRED and Treasury Fiscal Data — "
-               "the dollar first, then the money supply, then the debt.")
-
     _dollar_since_2020()
 
-    # ── M2 ───────────────────────────────────────────────────────────
-    _sec("M2 Money Stock", ACCENT, f"Federal Reserve H.6 · FRED {M2_SID}")
+    _sec("M2", ACCENT)
     m2 = _try_series(M2_SID)
     if m2 is None or m2.empty:
-        st.error(f"Could not load M2 ({M2_SID}).")
+        st.error("Could not load M2.")
     else:
         last = float(m2.iloc[-1])
         tn = last / 1000.0
@@ -459,21 +431,14 @@ def render_charts_tab() -> None:
         )
         with st.container(border=True, key="ch_m2"):
             st.plotly_chart(fig, width="stretch", key="ch_m2_fig")
-        _html(
-            f"<div class='ch-src'>Source: Board of Governors of the Federal Reserve "
-            f"System, M2 <a href='{M2_URL}' target='_blank' rel='noopener'>{M2_SID}</a> "
-            f"— seasonally adjusted, monthly, billions of dollars (shown in trillions). "
-            f"Retrieved from FRED, Federal Reserve Bank of St. Louis.</div>"
-        )
 
-    # ── Debt clock + history ─────────────────────────────────────────
     snap = _debt_snapshot()
     _debt_pills(snap)
 
-    _sec("Total public debt / GDP", BLUE, f"Treasury + BEA · FRED {DEBT_SID}")
+    _sec("Total public debt / GDP", BLUE)
     debt = snap.get("d2g")
     if debt is None or debt.empty:
-        st.error(f"Could not load debt/GDP ({DEBT_SID}).")
+        st.error("Could not load debt / GDP.")
         return
     last = float(debt.iloc[-1])
     yoy_pp = _delta(debt, 4)
@@ -496,10 +461,3 @@ def render_charts_tab() -> None:
     )
     with st.container(border=True, key="ch_debt"):
         st.plotly_chart(fig, width="stretch", key="ch_debt_fig")
-    _html(
-        f"<div class='ch-src'>Source: U.S. Treasury total public debt "
-        f"(GFDEBTN) ÷ BEA nominal GDP, published as "
-        f"<a href='{DEBT_URL}' target='_blank' rel='noopener'>{DEBT_SID}</a> "
-        f"— quarterly, percent of GDP. Federal debt (not IMF general government). "
-        f"Retrieved from FRED.</div>"
-    )
