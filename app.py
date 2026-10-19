@@ -137,6 +137,13 @@ try:
 except Exception as _dce:
     render_dividend_calendar_tab, _DC_ERR = None, _dce
 
+try:
+    _ch = _load_local_mod("charts_tab")
+    render_charts_tab = _ch.render_charts_tab
+    _CH_ERR = None
+except Exception as _che:
+    render_charts_tab, _CH_ERR = None, _che
+
 REQUIRED_ENGINE = "2.45"
 st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
@@ -270,7 +277,8 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 
 # One bright font color per menu category so the bars don't read as one cream strip.
 _MENU_CAT_COLORS = {
-    "mw_main": ["#FFD15C", "#7FD4FF", "#6EE7B7", "#F0A6FF", "#2DD4BF", "#C5D4FF"],
+    "mw_main": ["#FFD15C", "#7FD4FF", "#6EE7B7", "#F0A6FF", "#2DD4BF",
+               "#C5D4FF", "#FFB020"],
     "mw_hub": ["#FFD15C", "#7FD4FF", "#6EE7B7", "#FF8FA3", "#F0A6FF",
                "#C8F542", "#C5D4FF", "#2DD4BF", "#F4F8FF"],
     "mw_map": ["#7FD4FF", "#FF8FA3", "#FFD15C", "#6EE7B7", "#F0A6FF",
@@ -3971,7 +3979,7 @@ def _try_closes():
 
 
 _MAIN = ["Scan Hub", "Stock Lookup", "Dividend Calender", "Crypto Copycat",
-         "Macro Sim", "Cascade Map"]
+         "Macro Sim", "Cascade Map", "Charts"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
         "Ignition Scanner", "Key Word Search", "Trump Effect", "Help"]
 _MAP = ["Market Weather", "Cascade Pressure", "Cascade Sentinels", "Forced Flows",
@@ -5757,6 +5765,13 @@ if _main == "Dividend Calender":
         st.error(f"Dividend Calender failed to load: {_DC_ERR}")
     else:
         render_dividend_calendar_tab()
+
+if _main == "Charts":
+    _hub_title("📈 Charts", "#FFB020")
+    if _CH_ERR is not None or render_charts_tab is None:
+        st.error(f"Charts failed to load: {_CH_ERR}")
+    else:
+        render_charts_tab()
 
 if _main == "Crypto Copycat":
     _hub_title("₿ Crypto Copycat", "#F0A6FF")
