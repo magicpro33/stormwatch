@@ -1988,6 +1988,63 @@ def _hub_sec(title, color, sub=""):
         unsafe_allow_html=True)
 
 
+_IG_SRC_PRESET = "Preset / Custom"
+_IG_SRC_WATCH = "Stock Lookup watchlist"
+_IG_SRC_DUMP = "Scan over 5000 stocks"
+_IG_FEED_CAP = 250
+
+
+def _watchlist_tickers():
+    """Tickers currently on the Stock Lookup watchlist, newest list order."""
+    try:
+        import cascade_engine as ce
+        rows = ce.watchlist_load() or []
+    except Exception:
+        return []
+    out, seen = [], set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        tk = str(row.get("ticker") or "").strip().upper()
+        if tk and tk not in seen:
+            seen.add(tk)
+            out.append(tk)
+    return out
+
+
+def _scanner_feed_lists():
+    """Scanner result lists registered this session for Ignition to run."""
+    bag = st.session_state.get("ig_feed_lists")
+    if not isinstance(bag, dict):
+        return {}
+    feeds = {}
+    for label, tickers in bag.items():
+        name = str(label or "").strip()
+        if not name:
+            continue
+        clean, seen = [], set()
+        for raw in tickers or []:
+            tk = str(raw).strip().upper()
+            if tk and tk not in seen and tk.lower() not in ("nan", "none", ""):
+                seen.add(tk)
+                clean.append(tk)
+        if clean:
+            feeds[name] = clean
+    return feeds
+
+
+def _source_option_label(option, feeds, watch_n):
+    if option == _IG_SRC_WATCH:
+        unit = "name" if watch_n == 1 else "names"
+        return f"{option} · {watch_n} {unit}"
+    tickers = feeds.get(option) or []
+    if tickers:
+        n = len(tickers)
+        unit = "name" if n == 1 else "names"
+        return f"{option} · {n} {unit}"
+    return option
+
+
 def render_ignition_scanner_tab():
     """Scan Hub tab — IGNITION momentum scanner.
 
@@ -2083,7 +2140,8 @@ def render_ignition_scanner_tab():
 
     ig_progress_slot = st.empty()
 
-    _hub_sec("2 · Watchlist", "#7FD4FF", "a preset list or the whole dump")
+    _hub_sec("2 · Watchlist", "#7FD4FF",
+             "a preset, your watchlist, or a scanner list")
     with st.container(border=True, key="ig_watch_box"):
         all_presets_mode = st.toggle(
             "Scan ALL presets",
@@ -2094,15 +2152,23 @@ def render_ignition_scanner_tab():
                  "best opportunity across your entire watchlist right now.",
         )
 
+        feeds = _scanner_feed_lists()
+        watch_tks = _watchlist_tickers()
+        source_opts = [_IG_SRC_PRESET, _IG_SRC_WATCH, _IG_SRC_DUMP] + list(feeds)
+        cur_src = st.session_state.get("ig_source")
+        if cur_src not in source_opts:
+            st.session_state["ig_source"] = _IG_SRC_PRESET
         source = st.radio(
             "Watchlist source",
-            ["Preset / Custom", "Scan over 5000 stocks"],
+            source_opts,
             index=0,
             disabled=all_presets_mode,
             key="ig_source",
-            help="Preset / Custom: scan a hand-picked sector list. "
-                 "Scan over 5000 stocks: nightly dump pre-ranks the whole universe, "
-                 "then live-scans the top candidates. Disabled when Scan ALL presets is on.",
+            format_func=lambda opt: _source_option_label(opt, feeds, len(watch_tks)),
+            help="Preset / Custom: a sector list. Stock Lookup watchlist: every "
+                 "name on your saved list. Scan over 5000 stocks: nightly dump "
+                 "pre-ranks the universe, then live-scans the top candidates. "
+                 "After you run another scanner, its list shows up here.",
         )
 
         screener_mode = False
@@ -2122,7 +2188,7 @@ def render_ignition_scanner_tab():
                 f"ALL PRESETS: {len(tickers)} stocks across "
                 f"{len(PRESETS)} sectors (ETFs excluded)."
             )
-        elif source == "Scan over 5000 stocks":
+        elif source == _IG_SRC_DUMP:
             screener_mode = True
             min_price = st.number_input(
                 "Min price filter", value=1.0, step=0.5,
@@ -2131,6 +2197,25 @@ def render_ignition_scanner_tab():
             )
             tickers = []
             st.caption("Dump pre-rank + live scan run only when you hit Scan.")
+        elif source == _IG_SRC_WATCH:
+            tickers = watch_tks[:_IG_FEED_CAP]
+            if not watch_tks:
+                st.caption("Watchlist is empty — save names from Stock Lookup "
+                           "or any scanner, then Scan.")
+            elif len(watch_tks) > _IG_FEED_CAP:
+                st.caption(
+                    f"Stock Lookup watchlist · first {_IG_FEED_CAP} of "
+                    f"{len(watch_tks)} names.")
+            else:
+                st.caption(f"Stock Lookup watchlist · {len(tickers)} names.")
+        elif source in feeds:
+            raw_tks = feeds[source]
+            tickers = raw_tks[:_IG_FEED_CAP]
+            extra = (f" First {_IG_FEED_CAP} of {len(raw_tks)}."
+                     if len(raw_tks) > _IG_FEED_CAP else "")
+            st.caption(
+                f"Using the latest {source} list ({len(tickers)} names). "
+                f"Run that scanner again to refresh.{extra}")
         else:
             preset_names = ["Custom"] + list(PRESETS.keys())
             # Pick a random sector on very first load (not on every rerun)
@@ -2189,6 +2274,10 @@ def render_ignition_scanner_tab():
         st.session_state["ig_alerted"] = set()
 
     should_scan = bool(refresh_clicked)
+
+    if should_scan and not screener_mode and not tickers:
+        st.warning("No tickers on this list. Pick another source or fill the watchlist.")
+        should_scan = False
 
     if should_scan:
         if screener_mode:
@@ -3044,6 +3133,8 @@ def render_ignition_scanner_tab():
             ("Custom", "Select Custom to show the ticker entry box. Hidden for named presets to keep the sidebar clean.", "hidden unless Custom"),
             ("Scan ALL presets", "Combines all 8 presets into one scan (187 unique stocks), ETFs excluded. Shows top N by Score.", "ETFs excluded"),
             ("Nightly Screener", "Downloads your nightly dump once per calendar day, pre-ranks all tickers, picks top N candidates, live-scans them. Watchlist pinned for the day.", "dump once/day"),
+            ("Stock Lookup watchlist", "Every name currently on your saved watchlist. Same list Stock Lookup shows.", "saved names"),
+            ("Scanner lists", "After you run TOP20, Apex, ShakeOut, Hybrid, POC, Key Word, or Trump Effect, that generated list appears here. Re-run the scanner to refresh it.", "grows after each scan"),
             ("Results slider", "5-30: how many stocks to display after the scan, ranked by Score.", "5-30 stocks"),
         ]),
         ("Price range analysis", "#29b6c8", [

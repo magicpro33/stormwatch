@@ -2717,12 +2717,60 @@ def _watchlist_tag(tk: str, price, source: str, row=None) -> bool:
     return added
 
 
+_IG_FEED_LABELS = {
+    "top20": "TOP20",
+    "apex": "Apex Flow",
+    "poc": "POC Future",
+    "kw": "Key Word Search",
+    "te": "Trump Effect",
+}
+
+
+def _tickers_from_scan(df, ticker_col: str = "Ticker"):
+    """Ordered unique tickers from a generated scanner table."""
+    if df is None or not isinstance(df, pd.DataFrame) or getattr(df, "empty", True):
+        return []
+    col = ticker_col if ticker_col in df.columns else None
+    if col is None:
+        for name in ("Ticker", "ticker", "Symbol", "symbol"):
+            if name in df.columns:
+                col = name
+                break
+    if col is None:
+        return []
+    out, seen = [], set()
+    for raw in df[col].astype(str):
+        tk = str(raw).strip().upper()
+        if tk and tk not in seen and tk.lower() not in ("nan", "none", ""):
+            seen.add(tk)
+            out.append(tk)
+    return out
+
+
+def _register_scan_list(label, df, ticker_col: str = "Ticker"):
+    """Remember a scanner's current list so Ignition can run it."""
+    name = str(label or "").strip()
+    if not name:
+        return
+    tickers = _tickers_from_scan(df, ticker_col)
+    bag = st.session_state.get("ig_feed_lists")
+    if not isinstance(bag, dict):
+        bag = {}
+    if tickers:
+        bag[name] = tickers
+    else:
+        bag.pop(name, None)
+    st.session_state["ig_feed_lists"] = bag
+
+
 def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
                             ticker_col: str = "Ticker", source: str = "",
                             full_lookup: bool = False) -> None:
     """On a table row click, open the Hybrid-style stock cards under it.
     The last ticker for this scanner is kept so the chart returns after
     switching Scan Hub tabs (the dataframe selection itself resets)."""
+    if source:
+        _register_scan_list(source, df, ticker_col)
     persist = f"{state_key}_tk"
     rows = sel.selection.rows if sel and getattr(sel, "selection", None) else []
     tk = None
@@ -3317,15 +3365,22 @@ def _with_rank(df):
 
 
 def _with_catalysts(df, on, ticker_col="Ticker", safe_key=None):
+    label = _IG_FEED_LABELS.get(safe_key) if safe_key else None
+
+    def _done(out):
+        if label:
+            _register_scan_list(label, out, ticker_col)
+        return out
+
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        return df
+        return _done(df)
     if safe_key:
         df = _apply_safe_ai(df, safe_key, ticker_col)
         if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-            return df
+            return _done(df)
         df = _apply_thatbiz(df, safe_key, ticker_col)
         if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-            return df
+            return _done(df)
     if on:
         try:
             with st.spinner("Reading catalyst signals…"):
@@ -3333,7 +3388,7 @@ def _with_catalysts(df, on, ticker_col="Ticker", safe_key=None):
         except Exception as e:
             log_exc("catalysts", e)
             st.caption("Catalysts unavailable for this list — dump or news feed failed.")
-    return _with_rank(df)
+    return _done(_with_rank(df))
 
 
 def _cat_col_cfgs():
@@ -3703,7 +3758,9 @@ def _render_scan_hub_help():
             "Live names in the money zone.",
             "A live scan (not dump-only) for ignition fuel: relative volume, "
             "velocity, VWAP, and live news catalysts. Hit Scan — nothing "
-            "fetches until then. Its catalyst pills are the live news set; "
+            "fetches until then. Watchlist source can be a sector preset, "
+            "your Stock Lookup watchlist, the whole dump, or any list another "
+            "scanner just generated. Its catalyst pills are the live news set; "
             "the dump signed tags live on the other scanners.",
             "You want what is moving right now, not yesterday's close.",
             color="#C8F542")

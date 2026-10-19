@@ -217,6 +217,25 @@ def _k(name: str) -> str:
     return f"hs_{name}"
 
 
+def _register_for_ignition(df) -> None:
+    """Expose the current Hybrid list as an Ignition watchlist source."""
+    tickers, seen = [], set()
+    if df is not None and not getattr(df, "empty", True) and "Ticker" in df.columns:
+        for raw in df["Ticker"].astype(str):
+            tk = str(raw).strip().upper()
+            if tk and tk not in seen and tk.lower() not in ("nan", "none", ""):
+                seen.add(tk)
+                tickers.append(tk)
+    bag = st.session_state.get("ig_feed_lists")
+    if not isinstance(bag, dict):
+        bag = {}
+    if tickers:
+        bag["Hybrid Screener"] = tickers
+    else:
+        bag.pop("Hybrid Screener", None)
+    st.session_state["ig_feed_lists"] = bag
+
+
 # Same three-question scores the Scan Hub 3 Magic Rules filter uses.
 _THATBIZ_PP_MIN = ce.THATBIZ_PP_MIN
 _THATBIZ_MOAT_MIN = ce.THATBIZ_MOAT_MIN
@@ -1259,6 +1278,8 @@ def render_hybrid_screener() -> None:
             pass
     if display is not None and not getattr(display, "empty", True):
         display = ce.stamp_rank(display)
+    if display is not None:
+        _register_for_ignition(display)
     diag = st.session_state.get("_hs_diag") or {}
     if display is None:
         st.info("Pick a preset or set your own weights, then click **Run Screener**.")

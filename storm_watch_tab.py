@@ -503,6 +503,25 @@ def _hub_sec(title, color, sub=""):
         unsafe_allow_html=True)
 
 
+def _register_for_ignition(df) -> None:
+    """Expose the current ShakeOut list as an Ignition watchlist source."""
+    tickers, seen = [], set()
+    if df is not None and not getattr(df, "empty", True) and "Ticker" in df.columns:
+        for raw in df["Ticker"].astype(str):
+            tk = str(raw).strip().upper()
+            if tk and tk not in seen and tk.lower() not in ("nan", "none", ""):
+                seen.add(tk)
+                tickers.append(tk)
+    bag = st.session_state.get("ig_feed_lists")
+    if not isinstance(bag, dict):
+        bag = {}
+    if tickers:
+        bag["ShakeOut"] = tickers
+    else:
+        bag.pop("ShakeOut", None)
+    st.session_state["ig_feed_lists"] = bag
+
+
 def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                            render_detail=None, render_macro_lens=None):
     mw = _in_mw()
@@ -787,6 +806,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             if "#" in show.columns:
                 show = show.drop(columns=["#"])
             show.insert(0, "#", list(range(1, len(show) + 1)))
+    _register_for_ignition(show)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("As of", info.get("as_of", "—"),
               help="Last session in the nightly dump used for this ranking.")
