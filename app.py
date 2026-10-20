@@ -297,20 +297,24 @@ div[data-testid="stPlotlyChart"] > div {
     padding: 14px 16px 10px 16px !important;
     margin: 4px 0 14px 0 !important;
     display: flex !important;
-    flex-direction: row !important;
-    flex-wrap: wrap !important;
-    align-items: center !important;
-    gap: 6px 8px !important;
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    align-items: stretch !important;
+    gap: 8px !important;
 }
 .st-key-mw_nav .st-key-mw_main,
 .st-key-mw_nav .st-key-mw_hub,
 .st-key-mw_nav .st-key-mw_map,
 .st-key-mw_nav [data-testid="stButtonGroup"],
-.st-key-mw_nav [data-testid="stSegmentedControl"],
-.st-key-mw_nav [data-baseweb="button-group"] {
-    display: contents !important;
-    width: auto !important;
+.st-key-mw_nav [data-testid="stSegmentedControl"] {
+    width: 100% !important;
     flex: 0 0 auto !important;
+}
+.st-key-mw_nav [data-baseweb="button-group"] {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 4px !important;
+    width: 100% !important;
 }
 .st-key-mw_nav [data-testid="stBaseButton-segmented_control"],
 .st-key-mw_nav [data-testid="stBaseButton-segmented_controlActive"] {
