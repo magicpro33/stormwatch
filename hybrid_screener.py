@@ -1386,7 +1386,9 @@ def render_hybrid_screener() -> None:
                         px = float("nan")
                     _hs_row = display.loc[display["Ticker"] == tk].iloc[0]
                     if ce.watchlist_add(tk, px, source="Hybrid Screener",
-                                        scan=ce.watchlist_scan_snapshot(_hs_row)):
+                                        scan=ce.watchlist_scan_snapshot(_hs_row),
+                                        settings=ce.watchlist_settings_from_state(
+                                            "Hybrid Screener", st.session_state)):
                         try:
                             st.toast(f"⭐ {tk} saved from Hybrid Screener")
                         except Exception:
@@ -1460,7 +1462,9 @@ def render_hybrid_screener() -> None:
                 _tpx = float("nan")
             _hs_row = display.iloc[_trows[0]]
             if ce.watchlist_add(_ttk, _tpx, source="Hybrid Screener",
-                                scan=ce.watchlist_scan_snapshot(_hs_row)):
+                                scan=ce.watchlist_scan_snapshot(_hs_row),
+                                settings=ce.watchlist_settings_from_state(
+                                    "Hybrid Screener", st.session_state)):
                 try:
                     st.toast(f"⭐ {_ttk} saved from Hybrid Screener")
                 except Exception:

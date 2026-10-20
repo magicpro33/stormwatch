@@ -117,7 +117,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.45"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.46"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -4456,6 +4456,185 @@ def watchlist_scan_snapshot(row) -> dict:
     return out
 
 
+def watchlist_merge_settings(snap, settings) -> dict:
+    """Copy scan-control settings onto a row snapshot as 'Setting: …' fields."""
+    out = dict(snap) if isinstance(snap, dict) else {}
+    if not isinstance(settings, dict):
+        return out
+    for key, val in settings.items():
+        name = str(key or "").strip()
+        if not name:
+            continue
+        cleaned = _watchlist_scan_value(val)
+        if cleaned is None or cleaned == "":
+            continue
+        out[f"Setting: {name}"] = cleaned
+    return out
+
+
+def _wl_setting_yn(state, *keys):
+    for key in keys:
+        if key in state:
+            return "On" if state.get(key) else "Off"
+    return None
+
+
+def _wl_setting_sectors(val):
+    if val is None:
+        return "All"
+    if isinstance(val, str):
+        text = val.strip()
+        return text or "All"
+    try:
+        seq = [str(s).strip() for s in val if str(s).strip()]
+    except TypeError:
+        return "All"
+    if not seq or len(seq) >= 11:
+        return "All"
+    if len(seq) > 8:
+        return f"{len(seq)} sectors"
+    return " · ".join(seq)
+
+
+def _wl_setting_session(state, prefix: str):
+    mode = state.get(f"{prefix}_flowmode")
+    if mode == "Range":
+        n = state.get(f"{prefix}_flowrange")
+        try:
+            return f"last {int(n)} sessions"
+        except (TypeError, ValueError):
+            return "session range"
+    pick = state.get(f"{prefix}_flowday")
+    if pick:
+        return str(pick)
+    return None
+
+
+def watchlist_settings_from_state(source: str, state) -> dict:
+    """Read the scan-control widgets for `source` from Streamlit session_state."""
+    if not isinstance(state, dict) and not hasattr(state, "get"):
+        return {}
+    src = watchlist_source_label(source) if source else ""
+    out = {}
+
+    def put(name, val):
+        if val is None or val == "":
+            return
+        if isinstance(val, (list, tuple)):
+            if not val:
+                return
+            val = " · ".join(str(x) for x in val if str(x).strip())
+            if not val:
+                return
+        out[name] = val
+
+    def cats(prefix, thatbiz_extra=None):
+        put("Catalysts", _wl_setting_yn(state, f"{prefix}_use_cat"))
+        biz_keys = [f"{prefix}_thatbiz"]
+        if thatbiz_extra:
+            biz_keys.append(thatbiz_extra)
+        if any(state.get(k) for k in biz_keys):
+            put("3 Magic Rules", "On")
+        elif any(k in state for k in biz_keys):
+            put("3 Magic Rules", "Off")
+        put("SAFE FROM AI", _wl_setting_yn(state, f"{prefix}_safe_ai"))
+
+    if src == "TOP20":
+        snap = state.get("top20_snap") if isinstance(state.get("top20_snap"), dict) else {}
+        mode = snap.get("mode") or state.get("top20_mode")
+        labels = {
+            "cascade": "Cascade Score", "forecast": "Best Odds",
+            "felix": "Felix Quality", "macro": "Macro only",
+        }
+        put("Engine", labels.get(mode) or state.get("top20_method") or mode)
+        put("Lens", state.get("top20_lens"))
+        if snap.get("lens_key") in ("off", "auto") or snap.get("lens_key"):
+            key = snap.get("lens_key")
+            if key == "off":
+                put("Lens", "Off — no macro tilt")
+            elif key == "auto":
+                put("Lens", state.get("top20_lens") or "Auto")
+        put("Session", _wl_setting_session(state, "t20"))
+        put("Sectors", _wl_setting_sectors(state.get("top20_sectors")))
+        put("Sector-flow", _wl_setting_yn(state, "top20_flow"))
+        put("How many", state.get("top20_count"))
+        if mode == "forecast" or str(state.get("top20_method") or "").startswith("🔮"):
+            put("Universe", "Entire market" if state.get("forecast_all_toggle", True)
+                else "Cascade shortlist")
+        cats("top20")
+    elif src == "Apex Flow":
+        put("Mode", state.get("apex_ui_mode"))
+        put("Timeframe", state.get("apex_tf") or "1 Day")
+        put("How many", state.get("apex_top") or 30)
+        put("Min score", state.get("apex_minscore") or 80)
+        put("Lens", state.get("apex_lens"))
+        put("Session", _wl_setting_session(state, "apex"))
+        put("Sectors", _wl_setting_sectors(state.get("apex_sectors")))
+        put("CALM only", _wl_setting_yn(state, "apex_calm"))
+        put("Relative strength", _wl_setting_yn(state, "apex_rs"))
+        put("Min price", state.get("apex_px"))
+        cats("apex")
+    elif src == "POC Future":
+        put("Mode", state.get("poc_ui_mode"))
+        put("Preset", state.get("poc_preset"))
+        put("How many", state.get("poc_top"))
+        put("Max bars since trigger", state.get("poc_fresh"))
+        put("Coil length", state.get("poc_accum"))
+        put("Max range (x ATR)", state.get("poc_rng"))
+        put("Session", _wl_setting_session(state, "poc"))
+        put("Sectors", _wl_setting_sectors(state.get("poc_sectors")))
+        cats("poc")
+    elif src == "ShakeOut":
+        put("Mode", state.get("sw_ui_mode"))
+        put("Lens", state.get("sw_lens"))
+        put("Session", _wl_setting_session(state, "sw"))
+        put("Sectors", _wl_setting_sectors(state.get("sw_sectors")))
+        put("Min shakeout", state.get("sw_min_shakeout"))
+        put("How many", state.get("sw_n_show"))
+        cats("sw")
+    elif src == "Hybrid Screener":
+        put("Universe", state.get("hs_exchange"))
+        put("Max price", state.get("hs_max_price"))
+        put("Min score", state.get("hs_min_score"))
+        put("How many", state.get("hs_top_n"))
+        put("Session", _wl_setting_session(state, "hs"))
+        put("Sectors", _wl_setting_sectors(state.get("hs_sectors")))
+        ma50 = state.get("hs_ma50")
+        put("50-day MA", None if ma50 in (None, "off") else ma50)
+        if state.get("hs_range"):
+            put("Tight range", f"{state.get('hs_range_days')}d / {state.get('hs_range_pct')}%")
+        if state.get("hs_pe_filter"):
+            put("P/E filter", state.get("hs_pe_range"))
+        if state.get("hs_rev_filter"):
+            put("Revenue growth", f"{state.get('hs_rev_min')}%+")
+        if state.get("hs_ipo"):
+            put("Recent listings", f"first print ≤ {state.get('hs_ipo_days')}d")
+        cats("hs", "hs_gate_thatbiz")
+    elif src == "Ignition Scanner":
+        put("All presets", _wl_setting_yn(state, "ig_all_presets_mode"))
+        put("Source", state.get("ig_source"))
+        put("Preset", state.get("ig_sector_preset"))
+        put("How many", state.get("ig_top_n"))
+        put("Alert threshold", state.get("ig_alert_th"))
+        put("Candidate pool", state.get("ig_pool_size"))
+        put("Min price", state.get("ig_min_price"))
+    elif src == "Key Word Search":
+        put("Keyword", state.get("kw_query"))
+        lo, hi = state.get("kw_min"), state.get("kw_max")
+        if lo is not None or hi is not None:
+            put("Price range", f"${float(lo or 0):,.0f}–${float(hi or 0):,.0f}")
+        put("How many", state.get("kw_top"))
+        cats("kw")
+    elif src == "Trump Effect":
+        put("From", str(state.get("te_from") or ""))
+        put("To", str(state.get("te_to") or ""))
+        put("Max sources", state.get("te_n"))
+        put("Phrase", state.get("te_query"))
+        put("Mode", state.get("te_mode"))
+        cats("te")
+    return out
+
+
 def _watchlist_scan_value(val):
     """One JSON-safe scan field. None means 'do not store'."""
     if val is None:
@@ -4589,6 +4768,18 @@ def watchlist_scan_sections(scan) -> list:
         return []
     used = set()
     sections = []
+    setting_pairs = []
+    for key in scan:
+        name = str(key)
+        if not name.startswith("Setting:"):
+            continue
+        text = watchlist_format_field(key, scan[key])
+        if not text:
+            continue
+        setting_pairs.append((name.split(":", 1)[-1].strip() or name, text))
+        used.add(key)
+    if setting_pairs:
+        sections.append(("Scan settings", setting_pairs))
     for title, keys in _WL_SCAN_GROUPS:
         pairs = []
         for key in keys:
@@ -4618,6 +4809,12 @@ def watchlist_scan_headline(scan) -> str:
     if not isinstance(scan, dict) or not scan:
         return ""
     bits = []
+    for key in ("Setting: Engine", "Setting: Preset", "Setting: Keyword"):
+        if key in scan and scan[key] not in ("", None):
+            text = watchlist_format_field(key, scan[key])
+            if text:
+                bits.append(text)
+            break
     for key in ("Score", "Felix", "StormScore", "Fit", "Shakeout", "Ignition"):
         if key in scan and scan[key] not in ("", None):
             bits.append(f"{key} {watchlist_format_field(key, scan[key])}")
@@ -4632,7 +4829,7 @@ def watchlist_scan_headline(scan) -> str:
     if bits:
         return " · ".join(bits)
     for key, val in scan.items():
-        if str(key) in ("Ticker", "ticker", "Sector", "Price"):
+        if str(key) in ("Ticker", "ticker", "Sector", "Price") or str(key).startswith("Setting:"):
             continue
         text = watchlist_format_field(key, val)
         if text:
@@ -4681,7 +4878,7 @@ def _watchlist_store_scan(row: dict, snap: dict, source: str, note: str = "") ->
 
 
 def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
-                  added: str = "", scan=None) -> bool:
+                  added: str = "", scan=None, settings=None) -> bool:
     """Add a ticker, or update its scanner tag if it's already saved.
 
     `source` is the Scan Hub scanner (or Stock Lookup) that found it.
@@ -4717,6 +4914,8 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
             existing["added"] = watchlist_stamp_date()
             changed = True
         snap = watchlist_scan_snapshot(scan) if scan else {}
+        if settings:
+            snap = watchlist_merge_settings(snap, settings)
         if _watchlist_store_scan(existing, snap, src or existing.get("source") or "", note):
             changed = True
         if changed:
@@ -4727,6 +4926,8 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
     except Exception:
         px = float("nan")
     snap = watchlist_scan_snapshot(scan) if scan else {}
+    if settings:
+        snap = watchlist_merge_settings(snap, settings)
     row = dict(ticker=ticker,
                added=watchlist_normalize_added(added) or watchlist_stamp_date(),
                price_at_add=px, note=note,

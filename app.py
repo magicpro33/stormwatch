@@ -144,7 +144,7 @@ try:
 except Exception as _che:
     render_charts_tab, _CH_ERR = None, _che
 
-REQUIRED_ENGINE = "2.45"
+REQUIRED_ENGINE = "2.46"
 st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -321,6 +321,22 @@ div[data-testid="stPlotlyChart"] > div {
     flex: 0 0 auto !important;
     width: auto !important;
     margin: 0 !important;
+}
+.st-key-mw_hub.mw-nav-hide,
+.st-key-mw_map.mw-nav-hide {
+    display: none !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    visibility: hidden !important;
+}
+.st-key-mw_nav_js iframe {
+    position: absolute !important;
+    width: 0 !important;
+    height: 0 !important;
+    border: 0 !important;
+    overflow: hidden !important;
 }
 .st-key-hdr_dump_row {
     display: flex !important;
@@ -2793,9 +2809,10 @@ def _render_saved_scans(items):
         if scans:
             saved.append((item, scans))
     with st.expander("Saved scan fields", expanded=False):
-        st.caption("The table is the scorecard. Open a name here to read every "
-                   "field that scanner saved. A second scanner adds its own card "
-                   "instead of wiping the first.")
+        st.caption("The table is the scorecard. Open a name here to read the "
+                   "scan settings used to find it, and every field that scanner "
+                   "saved. A second scanner adds its own card instead of wiping "
+                   "the first.")
         if not saved:
             st.caption("No scanner fields yet. Looking a ticker up stores the "
                        "name, price, and date. Open it from a scanner to keep "
@@ -2849,9 +2866,11 @@ def _watchlist_tag(tk: str, price, source: str, row=None) -> bool:
               if hasattr(ce, "watchlist_source_label") else (str(source or "").strip() or "Stock Lookup"))
     st.session_state["wl_source"] = source
     snap = ce.watchlist_scan_snapshot(row) if row is not None and hasattr(ce, "watchlist_scan_snapshot") else None
+    settings = (ce.watchlist_settings_from_state(source, st.session_state)
+                if hasattr(ce, "watchlist_settings_from_state") else None)
     try:
         added = ce.watchlist_add(tk, float(price) if price is not None else float("nan"),
-                                 source=source, scan=snap)
+                                 source=source, scan=snap, settings=settings)
     except Exception as e:
         log_exc("watchlist_tag", e)
         return False
@@ -3170,6 +3189,40 @@ def _section_bar(options, key):
         return sel if sel in options else options[0]
     return st.radio("Section", options, horizontal=True, key=key,
                     label_visibility="collapsed")
+
+
+def _nav_instant_hide():
+    """Hide Scan Hub / Cascade Map chips the instant a different main tab is hit.
+
+    Streamlit only unmounts them after the next full rerun. Pointer-down on a
+    main chip hides the extra row immediately so the bar does not lag.
+    """
+    import streamlit.components.v1 as components
+    with st.container(key="mw_nav_js"):
+        components.html(
+            """<script>
+(function () {
+  const doc = window.parent.document;
+  if (!doc || doc.documentElement.dataset.mwNavHide === "1") return;
+  doc.documentElement.dataset.mwNavHide = "1";
+  const hide = (sel) => {
+    doc.querySelectorAll(sel).forEach((el) => el.classList.add("mw-nav-hide"));
+  };
+  const onPtr = (e) => {
+    const t = e.target;
+    if (!t || !t.closest) return;
+    const btn = t.closest(".st-key-mw_main [data-testid^='stBaseButton-segmented']");
+    if (!btn) return;
+    const label = (btn.innerText || "").replace(/\\s+/g, " ").trim();
+    if (label && label !== "Scan Hub") hide(".st-key-mw_hub");
+    if (label && label !== "Cascade Map") hide(".st-key-mw_map");
+  };
+  doc.addEventListener("pointerdown", onPtr, true);
+  doc.addEventListener("touchstart", onPtr, true);
+})();
+</script>""",
+            height=0,
+        )
 
 
 _T20_BLUE = "#4aa3df"
@@ -4193,6 +4246,7 @@ with st.container(border=True, key="mw_nav"):
 _page_tone = _tab_color(_hub or _map or _main)
 _paint_box("mw_nav", _page_tone)
 _paint_box("mw_page", _page_tone)
+_nav_instant_hide()
 
 
 def _dump_asof_key() -> str:

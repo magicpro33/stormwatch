@@ -903,7 +903,8 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                 _srow = show[show.Ticker.astype(str).str.upper() == _stk]
                 added = ce.watchlist_add(
                     _stk, _spx, source="ShakeOut",
-                    scan=ce.watchlist_scan_snapshot(_srow.iloc[0]) if len(_srow) else None)
+                    scan=ce.watchlist_scan_snapshot(_srow.iloc[0]) if len(_srow) else None,
+                    settings=ce.watchlist_settings_from_state("ShakeOut", st.session_state))
                 if added:
                     try:
                         st.toast(f"⭐ {_stk} saved from ShakeOut")
@@ -944,7 +945,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                            width="stretch", help=HELP["watchlist"]):
                 try:
                     ce.watchlist_add(tk, float(row.Price), source="ShakeOut",
-                                    scan=ce.watchlist_scan_snapshot(row))
+                                    scan=ce.watchlist_scan_snapshot(row),
+                                    settings=ce.watchlist_settings_from_state(
+                                        "ShakeOut", st.session_state))
                     st.toast(f"⭐ {tk} saved from ShakeOut at ${float(row.Price):,.2f}")
                     st.rerun()
                 except Exception as we:

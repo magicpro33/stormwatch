@@ -3355,7 +3355,9 @@ def render_ignition_scanner_tab():
                     _px = float(_r["price"]) if _r and _r.get("price") else float("nan")
                     _ig_scan = ignition_watch_fields(_r) if _r else {}
                     _ig_new = _ig_ce_row.watchlist_add(
-                        _itk, _px, source="Ignition Scanner", scan=_ig_scan or None)
+                        _itk, _px, source="Ignition Scanner", scan=_ig_scan or None,
+                        settings=_ig_ce_row.watchlist_settings_from_state(
+                            "Ignition Scanner", st.session_state))
                 except Exception:
                     _ig_new = False
                 if st.session_state.get("_ig_chart_handled") != _itk:
@@ -3425,7 +3427,9 @@ def render_ignition_scanner_tab():
                 else:
                     _ig_new = _ig_ce.watchlist_add(
                         az_ticker, _px, source="Ignition Scanner",
-                        scan=_ig_scan or None)
+                        scan=_ig_scan or None,
+                        settings=_ig_ce.watchlist_settings_from_state(
+                            "Ignition Scanner", st.session_state))
                     st.session_state["wl_source"] = "Ignition Scanner"
                     st.session_state["lk_tk"] = az_ticker
                     try:
