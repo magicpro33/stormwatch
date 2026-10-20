@@ -306,33 +306,68 @@ div[data-testid="stPlotlyChart"] > div {
     margin: 8px 0 12px 0 !important;
     padding: 12px 14px 14px 14px !important;
 }
-/* Titles live inside the frames — no second glowing box */
-.hub-title, .t20-title, .dc-title,
-div[data-testid="stVerticalBlockBorderWrapper"] .hub-title,
-div[data-testid="stVerticalBlockBorderWrapper"] .hub-sec,
-div[data-testid="stVerticalBlockBorderWrapper"] .t20-title,
-div[data-testid="stVerticalBlockBorderWrapper"] .t20-head,
-div[data-testid="stVerticalBlockBorderWrapper"] .dc-title,
-div[data-testid="stVerticalBlockBorderWrapper"] .dc-sechead {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-.hub-title, .t20-title, .dc-title {
+.mw-menu-title {
+    background: #081325;
+    border: 2px solid color-mix(in srgb, var(--mc,#FFD15C) 55%, #3d6a94);
+    border-radius: 14px;
+    padding: 8px 14px;
+    margin: 0 0 10px 0;
     text-align: center;
-    margin: 2px 0 16px 0 !important;
-    padding: 4px 8px 8px !important;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    color: var(--mc,#FFD15C);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--mc,#FFD15C) 12%, transparent),
+                0 0 16px color-mix(in srgb, var(--mc,#FFD15C) 20%, transparent);
 }
 </style>""", unsafe_allow_html=True)
 
-# One bright font color per menu category so the bars don't read as one cream strip.
+# One hue per menu option. Adjacent items alternate warm / cool so they don't blend.
+_TAB_COLOR = {
+    "Scan Hub": "#FFD15C",
+    "Stock Lookup": "#7FD4FF",
+    "Dividend Calender": "#F0A6FF",
+    "Crypto Copycat": "#C8F542",
+    "Macro Sim": "#FF8FA3",
+    "Cascade Map": "#2DD4BF",
+    "Nerd Hut": "#FFB020",
+    "TOP20": "#FFD15C",
+    "Top 20 Scanner": "#FFD15C",
+    "Apex Flow": "#7FD4FF",
+    "POC Future": "#FF8FA3",
+    "ShakeOut": "#C8F542",
+    "Hybrid Screener": "#F0A6FF",
+    "Ignition Scanner": "#FFB020",
+    "Key Word Search": "#2DD4BF",
+    "Trump Effect": "#A78BFA",
+    "Help": "#F4F8FF",
+    "Market Weather": "#7FD4FF",
+    "Cascade Pressure": "#FF8FA3",
+    "Cascade Sentinels": "#C8F542",
+    "Forced Flows": "#F0A6FF",
+    "Cascade Validation Lab": "#FFB020",
+    "Lenses": "#2DD4BF",
+    "Guide": "#C5D4FF",
+    "Calendar": "#FFD15C",
+    "Calculator": "#7FD4FF",
+    "Earner tape": "#C8F542",
+    "Open books": "#7FD4FF",
+    "Copy vaults": "#F0A6FF",
+    "Crypto Helper": "#FFB020",
+}
 _MENU_CAT_COLORS = {
-    "mw_main": ["#FFD15C", "#7FD4FF", "#6EE7B7", "#F0A6FF", "#2DD4BF",
-               "#C5D4FF", "#FFB020"],
-    "mw_hub": ["#FFD15C", "#7FD4FF", "#6EE7B7", "#FF8FA3", "#F0A6FF",
-               "#C8F542", "#C5D4FF", "#2DD4BF", "#F4F8FF"],
-    "mw_map": ["#7FD4FF", "#FF8FA3", "#FFD15C", "#6EE7B7", "#F0A6FF",
-               "#2DD4BF", "#F4F8FF"],
+    "mw_main": [_TAB_COLOR[k] for k in (
+        "Scan Hub", "Stock Lookup", "Dividend Calender", "Crypto Copycat",
+        "Macro Sim", "Cascade Map", "Nerd Hut")],
+    "mw_hub": [_TAB_COLOR[k] for k in (
+        "TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
+        "Ignition Scanner", "Key Word Search", "Trump Effect", "Help")],
+    "mw_map": [_TAB_COLOR[k] for k in (
+        "Market Weather", "Cascade Pressure", "Cascade Sentinels",
+        "Forced Flows", "Cascade Validation Lab", "Lenses", "Guide")],
+    "dc_view": [_TAB_COLOR[k] for k in ("Calendar", "Calculator", "Help")],
+    "cc_view": [_TAB_COLOR[k] for k in (
+        "Earner tape", "Open books", "Copy vaults", "Crypto Helper")],
 }
 
 
@@ -391,15 +426,20 @@ def _menu_category_css() -> str:
         "color:var(--sc,#FFD15C);margin:0 0 6px}"
     )
     rules.append(
-        ".hub-title{background:transparent;border:none;padding:4px 8px 8px;"
-        "margin:2px 0 16px;text-align:center;font-size:24px;font-weight:800;"
-        "color:var(--tc,#FFD15C);letter-spacing:.02em}"
+        ".hub-title{background:#081325;"
+        "border:2px solid color-mix(in srgb,var(--tc,#FFD15C) 55%,#3d6a94);"
+        "border-radius:20px;padding:16px 22px;margin:4px 0 14px;text-align:center;"
+        "font-size:24px;font-weight:800;color:var(--tc,#FFD15C);letter-spacing:.02em;"
+        "box-shadow:0 0 0 1px color-mix(in srgb,var(--tc,#FFD15C) 12%,transparent),"
+        "0 0 24px color-mix(in srgb,var(--tc,#FFD15C) 20%,transparent)}"
     )
     rules.append(
-        ".hub-sec{background:transparent;border:none;padding:4px 2px 8px;"
-        "margin:14px 0 8px;font-size:15px;font-weight:800;"
-        "color:var(--sc,#7FD4FF);letter-spacing:.02em}"
-        ".hub-sec.lg{font-size:21px;padding:6px 2px 10px;text-align:center}"
+        ".hub-sec{background:#081325;"
+        "border:2px solid color-mix(in srgb,var(--sc,#E87722) 50%,#3d6a94);"
+        "border-radius:16px;padding:12px 18px;margin:18px 0 10px;font-size:15px;"
+        "font-weight:800;color:var(--sc,#7FD4FF);letter-spacing:.02em;"
+        "box-shadow:0 0 18px color-mix(in srgb,var(--sc,#E87722) 20%,transparent)}"
+        ".hub-sec.lg{font-size:21px;padding:14px 20px;text-align:center}"
         ".hub-sec small{font-weight:500;font-size:12px;color:#9aa8bd;margin-left:8px}"
         ".hub-sec.lg small{font-size:14px}"
     )
@@ -3048,8 +3088,33 @@ asof = ""
 GAUGE = None
 
 
+def _tab_color(name, default="#FFD15C"):
+    """Color for a menu option. Longest key match wins so 'Crypto Helper' ≠ 'Help'."""
+    raw = str(name or "")
+    if raw in _TAB_COLOR:
+        return _TAB_COLOR[raw]
+    hits = [k for k in _TAB_COLOR if k.lower() in raw.lower()]
+    if hits:
+        return _TAB_COLOR[max(hits, key=len)]
+    return default
+
+
+def _paint_box(key, color):
+    """Tint a bordered container to the selected menu option's color."""
+    _md_html(
+        f"<style>.st-key-{key}{{border-color:{color} !important;"
+        f"box-shadow:0 0 0 1px color-mix(in srgb,{color} 16%,transparent),"
+        f"0 0 28px color-mix(in srgb,{color} 22%,transparent) !important}}</style>"
+    )
+
+
 def _section_bar(options, key):
     """Only the selected section's body runs — Streamlit tabs execute every tab."""
+    cur = st.session_state.get(key)
+    if cur not in options:
+        cur = options[0]
+    color = _tab_color(cur)
+    _md_html(f'<div class="mw-menu-title" style="--mc:{color}">{_esc(cur)}</div>')
     if hasattr(st, "segmented_control"):
         sel = st.segmented_control("Section", options, key=key,
                                    label_visibility="collapsed")
@@ -3073,10 +3138,15 @@ def _hub_pill(key=None):
 def _t20_css():
     """Colored left-border section styling for the Top 20 tab only."""
     _md_html(f"""<style>
-.t20-title{{background:transparent;border:none;padding:4px 8px 8px;margin:2px 0 16px;
-  text-align:center;font-size:24px;font-weight:800;color:#FFD15C;letter-spacing:.02em}}
-.t20-head{{background:transparent;border:none;padding:4px 2px 8px;margin:16px 0 8px;
-  font-size:15px;font-weight:800;color:var(--sc,{ACCENT});letter-spacing:.02em}}
+.t20-title{{background:#081325;border:2px solid color-mix(in srgb,var(--tc,#FFD15C) 55%,#3d6a94);
+  border-radius:20px;padding:16px 22px;margin:4px 0 14px;text-align:center;font-size:24px;
+  font-weight:800;color:var(--tc,#FFD15C);letter-spacing:.02em;
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--tc,#FFD15C) 12%,transparent),
+             0 0 24px color-mix(in srgb,var(--tc,#FFD15C) 20%,transparent)}}
+.t20-head{{background:#081325;border:2px solid color-mix(in srgb,var(--sc,{ACCENT}) 50%,#3d6a94);
+  border-radius:16px;padding:12px 18px;margin:18px 0 10px;font-size:15px;font-weight:800;
+  color:var(--sc,{ACCENT});letter-spacing:.02em;
+  box-shadow:0 0 18px color-mix(in srgb,var(--sc,{ACCENT}) 20%,transparent)}}
 .t20-head.lg{{font-size:21px;padding:14px 20px}}
 .t20-head small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
 .t20-head.lg small{{font-size:14px}}
@@ -3102,8 +3172,9 @@ def _t20_css():
 </style>""")
 
 
-def _hub_title(text, color="#FFD15C"):
+def _hub_title(text, color=None):
     """Scan Hub tab banner: icon, title, and a border in that tab's color."""
+    color = _tab_color(text, color or "#FFD15C")
     _md_html(f'<div class="hub-title" style="--tc:{color}">{_esc(text)}</div>')
 
 
@@ -4055,10 +4126,17 @@ if _old_adv:
 _hub = _map = None
 with st.container(border=True, key="mw_nav"):
     _main = _section_bar(_MAIN, "mw_main")
-    if _main == "Scan Hub":
+_paint_box("mw_nav", _tab_color(_main))
+if _main == "Scan Hub":
+    with st.container(border=True, key="mw_hub_nav"):
         _hub = _section_bar(_HUB, "mw_hub")
-    elif _main == "Cascade Map":
+    _paint_box("mw_hub_nav", _tab_color(_hub))
+elif _main == "Cascade Map":
+    with st.container(border=True, key="mw_map_nav"):
         _map = _section_bar(_MAP, "mw_map")
+    _paint_box("mw_map_nav", _tab_color(_map))
+_page_tone = _tab_color(_hub or _map or _main)
+_paint_box("mw_page", _page_tone)
 
 
 def _dump_asof_key() -> str:

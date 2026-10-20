@@ -85,17 +85,22 @@ def _css() -> None:
   border-radius:10px;padding:16px 18px;color:{INK}}}
 .dc-res{{background:#081325;border:1px solid {LINE};border-left:4px solid {GREEN};
   border-radius:10px;padding:14px 16px}}
-.dc-sechead{{background:transparent;border:none;padding:4px 2px 8px;margin:14px 0 8px;
-  font-size:15px;font-weight:800;color:var(--sc,{ACCENT});letter-spacing:.02em}}
+.dc-sechead{{background:{NAVY};border:2px solid color-mix(in srgb,var(--sc,{ACCENT}) 50%,{LINE});
+  border-radius:16px;padding:12px 18px;margin:18px 0 10px;font-size:15px;font-weight:800;
+  color:var(--sc,{ACCENT});letter-spacing:.02em;
+  box-shadow:0 0 18px color-mix(in srgb,var(--sc,{ACCENT}) 20%,transparent)}}
 .dc-sechead small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
-.dc-sechead.lg{{font-size:21px;padding:6px 2px 10px}}
+.dc-sechead.lg{{font-size:21px;padding:14px 20px}}
 .dc-sechead.lg small{{font-size:14px}}
-.dc-sechead.xl{{font-size:24px;padding:4px 8px 10px;text-align:center}}
+.dc-sechead.xl{{font-size:24px;padding:16px 22px;text-align:center}}
 .dc-sechead.xl small{{font-size:15px}}
 .dc-cinfo{{font-size:15px;font-weight:500;color:{DIM};margin-top:6px;letter-spacing:0}}
 .dc-cinfo b{{color:{INK};font-family:ui-monospace,monospace}}
-.dc-title{{background:transparent;border:none;padding:4px 8px 8px;margin:2px 0 14px;
-  text-align:center;font-size:24px;font-weight:800;color:#FFB020;letter-spacing:.02em}}
+.dc-title{{background:{NAVY};border:2px solid color-mix(in srgb,#F0A6FF 55%,{LINE});
+  border-radius:20px;padding:16px 22px;margin:4px 0 14px;text-align:center;
+  font-size:24px;font-weight:800;color:#F0A6FF;letter-spacing:.02em;
+  box-shadow:0 0 0 1px color-mix(in srgb,#F0A6FF 12%,transparent),
+             0 0 24px color-mix(in srgb,#F0A6FF 20%,transparent)}}
 .dc-metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0}}
 @media(max-width:720px){{.dc-metrics{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
 .dc-met{{background:{NAVY};border:1px solid {LINE};border-left:4px solid var(--mc,{ACCENT});
@@ -179,8 +184,25 @@ def _simple_table(headers, rows, cls="pj"):
     )
 
 
+_DC_MENU_COLOR = {
+    "Calendar": "#FFD15C",
+    "Calculator": "#7FD4FF",
+    "Help": "#F4F8FF",
+}
+
+
 def _section(options, key):
     with st.container(border=True, key=f"{key}_menu"):
+        cur = st.session_state.get(key)
+        if cur not in options:
+            cur = options[0]
+        color = _DC_MENU_COLOR.get(cur, ACCENT)
+        _html(f'<div class="mw-menu-title" style="--mc:{color}">{_esc(cur)}</div>')
+        _html(
+            f"<style>.st-key-{key}_menu{{border-color:{color} !important;"
+            f"box-shadow:0 0 0 1px color-mix(in srgb,{color} 16%,transparent),"
+            f"0 0 28px color-mix(in srgb,{color} 22%,transparent) !important}}</style>"
+        )
         if hasattr(st, "segmented_control"):
             sel = st.segmented_control("Section", options, key=key,
                                        label_visibility="collapsed")

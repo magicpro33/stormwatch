@@ -679,8 +679,26 @@ def _position_nets(positions: list) -> list[tuple[str, float, int, int]]:
     return rows
 
 
+_CC_MENU_COLOR = {
+    "Earner tape": "#C8F542",
+    "Open books": "#7FD4FF",
+    "Copy vaults": "#F0A6FF",
+    "Crypto Helper": "#FFB020",
+}
+
+
 def _section(options: list[str], key: str) -> str:
     with st.container(border=True, key=f"{key}_menu"):
+        cur = st.session_state.get(key)
+        if cur not in options:
+            cur = options[0]
+        color = _CC_MENU_COLOR.get(cur, ACCENT)
+        _html_block(f'<div class="mw-menu-title" style="--mc:{color}">{_esc(cur)}</div>')
+        _html_block(
+            f"<style>.st-key-{key}_menu{{border-color:{color} !important;"
+            f"box-shadow:0 0 0 1px color-mix(in srgb,{color} 16%,transparent),"
+            f"0 0 28px color-mix(in srgb,{color} 22%,transparent) !important}}</style>"
+        )
         if hasattr(st, "segmented_control"):
             sel = st.segmented_control("Section", options, key=key, label_visibility="collapsed")
             return sel if sel in options else options[0]
