@@ -6933,6 +6933,7 @@ def forecast_all(min_n: int = 300, price_floor: float = 3.0,
     if regime and regime in SECTOR_TILTS and SECTOR_TILTS[regime]:
         # nudge each stock's odds by sector × industry tilt. Named/forecast
         # override uses full confirm. Displayed OddsUp stays the analog number.
+        tilts = SECTOR_TILTS.get(regime) or {}
         try:
             inds = dump_industries()
             _, tks, *_r = load_dump_panel()
