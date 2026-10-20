@@ -330,7 +330,7 @@ _TAB_COLOR = {
     "Crypto Copycat": "#C8F542",
     "Macro Sim": "#FF8FA3",
     "Cascade Map": "#2DD4BF",
-    "Nerd Hut": "#FFB020",
+    "Nerd Hub": "#FFB020",
     "TOP20": "#FFD15C",
     "Top 20 Scanner": "#FFD15C",
     "Apex Flow": "#7FD4FF",
@@ -358,7 +358,7 @@ _TAB_COLOR = {
 _MENU_CAT_COLORS = {
     "mw_main": [_TAB_COLOR[k] for k in (
         "Scan Hub", "Stock Lookup", "Dividend Calender", "Crypto Copycat",
-        "Macro Sim", "Cascade Map", "Nerd Hut")],
+        "Macro Sim", "Cascade Map", "Nerd Hub")],
     "mw_hub": [_TAB_COLOR[k] for k in (
         "TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
         "Ignition Scanner", "Key Word Search", "Trump Effect", "Help")],
@@ -4104,15 +4104,15 @@ def _try_closes():
 
 
 _MAIN = ["Scan Hub", "Stock Lookup", "Dividend Calender", "Crypto Copycat",
-         "Macro Sim", "Cascade Map", "Nerd Hut"]
+         "Macro Sim", "Cascade Map", "Nerd Hub"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
         "Ignition Scanner", "Key Word Search", "Trump Effect", "Help"]
 _MAP = ["Market Weather", "Cascade Pressure", "Cascade Sentinels", "Forced Flows",
         "Cascade Validation Lab", "Lenses", "Guide"]
 if st.session_state.get("mw_hub") == "Key Word":
     st.session_state["mw_hub"] = "Key Word Search"
-if st.session_state.get("mw_main") == "Charts":
-    st.session_state["mw_main"] = "Nerd Hut"
+if st.session_state.get("mw_main") in ("Charts", "Nerd Hut"):
+    st.session_state["mw_main"] = "Nerd Hub"
 if st.session_state.get("mw_main") in ("Advanced Guide", "Cascade Guide"):
     _guide_to = st.session_state.get("mw_adv") or st.session_state.get("mw_map")
     st.session_state["mw_main"] = "Cascade Map"
@@ -5901,10 +5901,10 @@ with st.container(border=True, key="mw_page"):
         else:
             render_dividend_calendar_tab()
 
-    if _main == "Nerd Hut":
-        _hub_title("🤓 Nerd Hut", "#FFB020")
+    if _main == "Nerd Hub":
+        _hub_title("🤓 Nerd Hub", "#FFB020")
         if _CH_ERR is not None or render_charts_tab is None:
-            st.error(f"Nerd Hut failed to load: {_CH_ERR}")
+            st.error(f"Nerd Hub failed to load: {_CH_ERR}")
         else:
             render_charts_tab()
 
