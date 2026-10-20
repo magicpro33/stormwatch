@@ -235,8 +235,6 @@ div[data-testid="stButton"] button[data-testid="stBaseButton-primary"]:hover {
     color: #081325 !important;
 }
 
-/* Selected menu chip: no orange fill — keep the option's own text color */
-div[data-testid="stSegmentedControl"] button[aria-checked="true"],
 div[data-testid="stRadio"] label:has(input:checked) {
     background-color: #10283f !important;
     border-color: #7eb0d4 !important;
@@ -290,15 +288,35 @@ div[data-testid="stPlotlyChart"] > div {
     overflow: visible !important;
     min-height: 280px;
 }
-.st-key-mw_nav {
+.st-key-mw_nav,
+.st-key-mw_nav.stVerticalBlock,
+.st-key-mw_nav[data-testid="stVerticalBlock"] {
     border-color: rgba(232,119,34,0.58) !important;
     box-shadow: 0 0 0 1px rgba(232,119,34,0.14),
                 0 0 34px rgba(232,119,34,0.24) !important;
     padding: 14px 16px 10px 16px !important;
     margin: 4px 0 14px 0 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 6px 8px !important;
 }
-.st-key-mw_nav [data-testid="stSegmentedControl"] {
-    margin-bottom: 6px;
+.st-key-mw_nav .st-key-mw_main,
+.st-key-mw_nav .st-key-mw_hub,
+.st-key-mw_nav .st-key-mw_map,
+.st-key-mw_nav [data-testid="stButtonGroup"],
+.st-key-mw_nav [data-testid="stSegmentedControl"],
+.st-key-mw_nav [data-baseweb="button-group"] {
+    display: contents !important;
+    width: auto !important;
+    flex: 0 0 auto !important;
+}
+.st-key-mw_nav [data-testid="stBaseButton-segmented_control"],
+.st-key-mw_nav [data-testid="stBaseButton-segmented_controlActive"] {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    margin: 0 !important;
 }
 .st-key-hdr_dump_row {
     display: flex !important;
@@ -407,7 +425,17 @@ def _menu_category_css() -> str:
                 f".st-key-{key} [data-baseweb='button-group'] > :nth-child({i}) button *{{"
                 f"color:{col} !important;}}"
             )
-        # Keep each option's color when selected — no dark-on-orange swap.
+            sel = (
+                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i})"
+                f"[data-testid='stBaseButton-segmented_controlActive'],"
+                f".st-key-{key} [data-baseweb='button-group'] > :nth-child({i})"
+                f" button[data-testid='stBaseButton-segmented_controlActive'],"
+                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i})[aria-checked='true'],"
+                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i})[aria-selected='true'],"
+                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i})[aria-pressed='true']"
+            )
+            rules.append(f"{sel}{{background:{col} !important;border-color:{col} !important;}}")
+            rules.append(f"{sel} *{{color:#081325 !important;}}")
     rules.append(
         "[class*='_safe_ai'] label, [class*='_safe_ai'] label p, "
         "[class*='_safe_ai'] label span {"
@@ -3130,6 +3158,8 @@ def _paint_box(key, color):
 
 def _section_bar(options, key):
     """Only the selected section's body runs — Streamlit tabs execute every tab."""
+    if st.session_state.get(key) not in options:
+        st.session_state[key] = options[0]
     if hasattr(st, "segmented_control"):
         sel = st.segmented_control("Section", options, key=key,
                                    label_visibility="collapsed")
@@ -4152,16 +4182,12 @@ if _old_adv:
 _hub = _map = None
 with st.container(border=True, key="mw_nav"):
     _main = _section_bar(_MAIN, "mw_main")
-_paint_box("mw_nav", _tab_color(_main))
-if _main == "Scan Hub":
-    with st.container(border=True, key="mw_hub_nav"):
+    if _main == "Scan Hub":
         _hub = _section_bar(_HUB, "mw_hub")
-    _paint_box("mw_hub_nav", _tab_color(_hub))
-elif _main == "Cascade Map":
-    with st.container(border=True, key="mw_map_nav"):
+    elif _main == "Cascade Map":
         _map = _section_bar(_MAP, "mw_map")
-    _paint_box("mw_map_nav", _tab_color(_map))
 _page_tone = _tab_color(_hub or _map or _main)
+_paint_box("mw_nav", _page_tone)
 _paint_box("mw_page", _page_tone)
 
 
@@ -5018,14 +5044,8 @@ with st.container(border=True, key="mw_page"):
             except Exception:
                 _override = "base"
 
-        _flow_na = _method == "felix"
-        if _flow_na:
-            _t_lb, _t_off, _t_lbl = 1, 0, "last session"
-            _all_secs, _picked_secs, _sec_filter = [], [], None
-            _use_flow = False
-        else:
-            _t20_head("2 · Session and sectors", "#6EE7B7", "where the money is going")
-            with _hub_pill("t20_sectors"):
+        _t20_head("2 · Session and sectors", "#6EE7B7", "where the money is going")
+        with _hub_pill("t20_sectors"):
                 _t_lb, _t_off, _t_lbl = flow_window_picker("t20")
                 _t20_pending = st.session_state.pop("_top20_sectors_pending", None)
                 if _t20_pending:
@@ -5096,6 +5116,9 @@ with st.container(border=True, key="mw_page"):
                                 "VolSurge": st.column_config.Column(help="Median dollar-volume vs its 63-day average."),
                                 "Names": st.column_config.Column(help="Liquid names in the sector."),
                             })
+        if _method == "felix":
+            _use_flow = False
+            _sec_filter = None
         _secs_key = tuple(sorted(_sec_filter)) if _sec_filter else ()
 
         _t20_head("3 · Catalysts and Filters", "#A78BFA")
