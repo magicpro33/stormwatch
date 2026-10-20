@@ -453,18 +453,18 @@ def _menu_category_css() -> str:
         ("poc_sectors_box", "#6EE7B7"),
         ("poc_cat_box", "#A78BFA"),
         ("sw_mode_box", "#FFD15C"),
-        ("sw_lens_box", "#C8F542"),
+        ("sw_lens_box", "#FF8FA3"),
         ("sw_sectors_box", "#6EE7B7"),
         ("sw_size_box", "#7FD4FF"),
         ("sw_cat_box", "#A78BFA"),
         ("t20_run", "#A78BFA"),
-        ("hs_presets_box", "#F0A6FF"),
+        ("hs_presets_box", "#C8F542"),
         ("hs_filters_box", "#7FD4FF"),
-        ("hs_cat_box", "#A78BFA"),
-        ("ig_run_box", "#C8F542"),
+        ("hs_cat_box", "#FFB020"),
+        ("ig_run_box", "#A78BFA"),
         ("ig_watch_box", "#7FD4FF"),
         ("ig_settings_box", "#C8F542"),
-        ("kw_search_box", "#C5D4FF"),
+        ("kw_search_box", "#FFD15C"),
         ("te_search_box", "#2DD4BF"),
     ):
         rules.append(
@@ -6359,7 +6359,7 @@ with st.container(border=True, key="mw_page"):
                    "then tap a row to load the full Stock Lookup — chart, cards, "
                    "analyzer, and company profile — under the list.")
 
-        _hub_sec("1 · Search", "#C5D4FF", "name and business summary")
+        _hub_sec("1 · Search", "#FFD15C", "name and business summary")
         with _hub_pill("kw_search_box"):
             _kw_q = st.text_input(
                 "Keyword or phrase", key="kw_query",
@@ -6384,7 +6384,7 @@ with st.container(border=True, key="mw_page"):
                 f"${float(_kw_lo):,.0f}–${float(_kw_hi):,.0f}, "
                 f"top <b>{int(_kw_top)}</b>"
                 f"{_rank_filters_html('kw')}.",
-                "#C5D4FF")
+                "#FFD15C")
 
             if st.button("🔎 Search the dump", type="primary", key="kw_go",
                          width="stretch"):
@@ -6512,8 +6512,8 @@ with st.container(border=True, key="mw_page"):
                 placeholder="greenland · drug prices · china · tariffs",
                 help="Search the same live remarks. Returns the same word chart, "
                      "but only sources and words that mention this phrase.")
-            _hub_sec("2 · Catalysts and Filters", "#A78BFA")
-            _te_cat = _catalysts_section("te", pill=False, cat_color="#A78BFA")
+            _hub_sec("2 · Catalysts and Filters", "#C8F542")
+            _te_cat = _catalysts_section("te", pill=False, cat_color="#C8F542")
             _te_qshow = str(_te_q or "").strip()
             _te_qbit = (f", phrase <b style='color:{ACCENT};'>{_esc(_te_qshow)}</b>"
                         if _te_qshow else "")

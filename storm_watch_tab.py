@@ -544,7 +544,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     hot_now: list[str] = []
 
     if render_macro_lens is not None:
-        _hub_sec("2 · Macro lens", "#C8F542", "tilt the ranking, not the coil")
+        _hub_sec("2 · Macro lens", "#FF8FA3", "tilt the ranking, not the coil")
         with st.container(border=True, key="sw_lens_box"):
             pack = render_macro_lens()
         lens_token = pack.get("token")
@@ -556,7 +556,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         LENS_AUTO = "📡 Auto — detect the live regime"
         lens_opts = {LENS_OFF: "off", LENS_AUTO: None}
         lens_opts.update({f"{v}": k for k, v in ce.REGIME_NAMES.items()})
-        _hub_sec("2 · Macro lens", "#C8F542", "tilt the ranking, not the coil")
+        _hub_sec("2 · Macro lens", "#FF8FA3", "tilt the ranking, not the coil")
         with st.container(border=True, key="sw_lens_box"):
             lens_label = st.selectbox(
                 "Macro lens", list(lens_opts), key="sw_lens",

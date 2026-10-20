@@ -2237,7 +2237,7 @@ def render_ignition_scanner_tab():
         unsafe_allow_html=True,
     )
 
-    _hub_sec("1 · Run", "#C8F542", "nothing fetches until you scan")
+    _hub_sec("1 · Run", "#A78BFA", "nothing fetches until you scan")
     with st.container(border=True, key="ig_run_box"):
         col_refresh, col_status = st.columns([1, 4])
         with col_refresh:

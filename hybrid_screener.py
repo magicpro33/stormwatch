@@ -993,7 +993,7 @@ def render_hybrid_screener() -> None:
     """Filters + results. Call from the Hybrid Screener tab."""
     _ensure_defaults()
 
-    _hub_sec("1 · Presets", "#F0A6FF", "jump to a named screen")
+    _hub_sec("1 · Presets", "#C8F542", "jump to a named screen")
     with st.container(border=True, key="hs_presets_box"):
         _preset_btns = [
             ("thatbiz", "✨ 3 Magic Rules",
@@ -1163,13 +1163,13 @@ def render_hybrid_screener() -> None:
         enabled[key] = bool(st.session_state.get(_k(f"tog_{key}"), False))
         weights[key] = float(st.session_state.get(_k(f"wt_{key}"), 0.0) or 0.0)
 
-    _hub_sec("4 · Catalysts and Filters", "#A78BFA")
+    _hub_sec("4 · Catalysts and Filters", "#FFB020")
     _preset_thatbiz = bool(st.session_state.get(_k("gate_thatbiz")))
     with st.container(border=True, key="hs_cat_box"):
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:
             st.markdown(
-                "<div class='mw-sec' style='--sc:#A78BFA'>Catalysts</div>",
+                "<div class='mw-sec' style='--sc:#FFB020'>Catalysts</div>",
                 unsafe_allow_html=True)
             use_cat = st.toggle(
                 "Add Catalysts to the list and rank by net up/down score",
@@ -1202,7 +1202,7 @@ def render_hybrid_screener() -> None:
 
     extra = []
     if use_cat:
-        extra.append("<b style='color:#A78BFA;'>Catalysts</b>")
+        extra.append("<b style='color:#FFB020;'>Catalysts</b>")
     if thatbiz:
         extra.append("<b style='color:#E8C872;'>3 Magic Rules</b>")
     if safe_ai:
