@@ -235,16 +235,14 @@ div[data-testid="stButton"] button[data-testid="stBaseButton-primary"]:hover {
     color: #081325 !important;
 }
 
-/* Section bar / radios / segmented: selected chip pops */
+/* Selected menu chip: no orange fill — keep the option's own text color */
 div[data-testid="stSegmentedControl"] button[aria-checked="true"],
 div[data-testid="stRadio"] label:has(input:checked) {
-    background-color: #E87722 !important;
-    color: #081325 !important;
-    border-color: #E87722 !important;
+    background-color: #10283f !important;
+    border-color: #7eb0d4 !important;
 }
 div[data-testid="stRadio"] label:has(input:checked) p,
 div[data-testid="stRadio"] label:has(input:checked) span {
-    color: #081325 !important;
     background: transparent !important;
 }
 div[data-testid="stRadio"] label p,
@@ -301,6 +299,23 @@ div[data-testid="stPlotlyChart"] > div {
 }
 .st-key-mw_nav [data-testid="stSegmentedControl"] {
     margin-bottom: 6px;
+}
+.st-key-hdr_dump_row {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 10px !important;
+}
+.st-key-hdr_dump_row > div,
+.st-key-hdr_dump_row [data-testid="stElementContainer"] {
+    width: auto !important;
+    flex: 0 0 auto !important;
+}
+.st-key-hdr_dump_row [data-testid="stButton"] button {
+    padding: 2px 12px !important;
+    min-height: 28px !important;
+    font-size: 12px !important;
 }
 .st-key-mw_page {
     border-color: rgba(232,119,34,0.52) !important;
@@ -392,13 +407,7 @@ def _menu_category_css() -> str:
                 f".st-key-{key} [data-baseweb='button-group'] > :nth-child({i}) button *{{"
                 f"color:{col} !important;}}"
             )
-        rules.append(
-            f".st-key-{key} [data-baseweb='button-group'] > button[aria-checked='true'],"
-            f".st-key-{key} [data-baseweb='button-group'] > button[aria-checked='true'] *,"
-            f".st-key-{key} [data-baseweb='button-group'] button[aria-checked='true'],"
-            f".st-key-{key} [data-baseweb='button-group'] button[aria-checked='true'] *{{"
-            f"color:#081325 !important;}}"
-        )
+        # Keep each option's color when selected — no dark-on-orange swap.
     rules.append(
         "[class*='_safe_ai'] label, [class*='_safe_ai'] label p, "
         "[class*='_safe_ai'] label span {"
@@ -411,7 +420,7 @@ def _menu_category_css() -> str:
         "color:#E8C872 !important;font-weight:800 !important;"
         "letter-spacing:.6px !important;}"
     )
-    # Section labels and Basic/Advanced choices. Selected chip stays dark on orange.
+    # Section labels and Basic/Advanced choices keep their section color.
     for key, col in (
         ("apex_ui_mode", "#FFD15C"),
         ("sw_ui_mode", "#FFD15C"),
@@ -426,11 +435,7 @@ def _menu_category_css() -> str:
             f".st-key-{key} [role='radiogroup'] label span{{"
             f"color:{col} !important;font-weight:800 !important;}}"
         )
-        rules.append(
-            f".st-key-{key} label:has(input:checked) p,"
-            f".st-key-{key} label:has(input:checked) span{{"
-            f"color:#081325 !important;}}"
-        )
+        # Selected Basic/Advanced keeps the section color, not dark-on-orange.
     rules.append(
         ".mw-sec{font-weight:800;font-size:15px;letter-spacing:.03em;"
         "color:var(--sc,#FFD15C);margin:0 0 6px}"
@@ -690,33 +695,32 @@ with _ht:
         </div>
         """, unsafe_allow_html=True)
     _dump_line = _dump_header_line()
-    _dl, _db, _ = st.columns([4.4, 1.15, 2.5], gap="small",
-                             vertical_alignment="center")
-    _dl.markdown(
-        f'<div style="color:#9aa8bd;font-size:12px;margin:0;">'
-        f"{_dump_line}</div>",
-        unsafe_allow_html=True)
-    if _db.button("Load stock info", key="hdr_load_dump",
-                  help="Download the latest nightly dump. Scanners and "
-                       "this header then use that file."):
-        with st.spinner("Loading latest nightly dump…"):
-            _new_dump = None
-            try:
-                _new_dump = ce.refresh_dump()
-            except Exception as _de:
-                log_exc("hdr_load_dump", _de)
-            st.cache_data.clear()
-        if _new_dump is not None:
-            try:
-                st.toast(f"Dump loaded · as of {pd.Timestamp(_new_dump).date()}")
-            except Exception:
-                pass
-        else:
-            try:
-                st.toast("Could not refresh the nightly dump")
-            except Exception:
-                pass
-        st.rerun()
+    with st.container(key="hdr_dump_row"):
+        st.markdown(
+            f'<div style="color:#9aa8bd;font-size:12px;margin:0;white-space:nowrap;">'
+            f"{_dump_line}</div>",
+            unsafe_allow_html=True)
+        if st.button("Load stock info", key="hdr_load_dump",
+                     help="Download the latest nightly dump. Scanners and "
+                          "this header then use that file."):
+            with st.spinner("Loading latest nightly dump…"):
+                _new_dump = None
+                try:
+                    _new_dump = ce.refresh_dump()
+                except Exception as _de:
+                    log_exc("hdr_load_dump", _de)
+                st.cache_data.clear()
+            if _new_dump is not None:
+                try:
+                    st.toast(f"Dump loaded · as of {pd.Timestamp(_new_dump).date()}")
+                except Exception:
+                    pass
+            else:
+                try:
+                    st.toast("Could not refresh the nightly dump")
+                except Exception:
+                    pass
+            st.rerun()
 
 
 # ── data ─────────────────────────────────────────────────────────────
@@ -3178,8 +3182,6 @@ def _t20_css():
 .st-key-t20_sectors [data-testid="stWidgetLabel"] p,
 .st-key-t20_sectors [data-testid="stRadio"] label p{{color:#6EE7B7 !important}}
 .st-key-t20_run [data-testid="stMarkdownContainer"] strong{{color:#A78BFA !important}}
-.st-key-t20_engine [data-testid="stRadio"] label:has(input:checked) p,
-.st-key-t20_sectors [data-testid="stRadio"] label:has(input:checked) p{{color:#081325 !important}}
 </style>""")
 
 
