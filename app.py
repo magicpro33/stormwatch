@@ -171,8 +171,8 @@ html, body, .stApp,
 [data-testid="stMain"],
 [data-testid="stMainBlockContainer"],
 section.main {
-    background-color: #000000 !important;
-    background: #000000 !important;
+    background-color: #081325 !important;
+    background: #081325 !important;
 }
 .stTabs button[data-baseweb="tab"]:focus,
 .stTabs button[data-baseweb="tab"]:focus-visible,
