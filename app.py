@@ -446,17 +446,18 @@ def _menu_category_css() -> str:
     for _pk, _pc in (
         ("apex_mode_box", "#FFD15C"),
         ("apex_tf_box", "#7FD4FF"),
-        ("apex_lens_box", "#F0A6FF"),
+        ("apex_lens_box", "#C8F542"),
         ("apex_sectors_box", "#6EE7B7"),
         ("apex_cat_box", "#A78BFA"),
         ("poc_controls", "#7FD4FF"),
         ("poc_sectors_box", "#6EE7B7"),
         ("poc_cat_box", "#A78BFA"),
         ("sw_mode_box", "#FFD15C"),
-        ("sw_lens_box", "#F0A6FF"),
+        ("sw_lens_box", "#C8F542"),
         ("sw_sectors_box", "#6EE7B7"),
         ("sw_size_box", "#7FD4FF"),
         ("sw_cat_box", "#A78BFA"),
+        ("t20_run", "#A78BFA"),
         ("hs_presets_box", "#F0A6FF"),
         ("hs_filters_box", "#7FD4FF"),
         ("hs_cat_box", "#A78BFA"),
@@ -466,7 +467,12 @@ def _menu_category_css() -> str:
         ("kw_search_box", "#C5D4FF"),
         ("te_search_box", "#2DD4BF"),
     ):
-        rules.append(f".st-key-{_pk}{{border-left:5px solid {_pc} !important}}")
+        rules.append(
+            f".st-key-{_pk}{{border-color:{_pc} !important;"
+            f"border-left:5px solid {_pc} !important;"
+            f"box-shadow:0 0 0 1px color-mix(in srgb,{_pc} 16%,transparent),"
+            f"0 0 22px color-mix(in srgb,{_pc} 20%,transparent) !important}}"
+        )
     for _slug, _pc in (
         ("_az_range", "#7FD4FF"),
         ("_az_perf", "#6EE7B7"),
@@ -3150,7 +3156,7 @@ def _t20_css():
 .st-key-t20_engine{{border-left:5px solid #7FD4FF !important;border-radius:10px}}
 .st-key-t20_lens{{border-left:5px solid #F0A6FF !important;border-radius:10px}}
 .st-key-t20_sectors{{border-left:5px solid #6EE7B7 !important;border-radius:10px}}
-.st-key-t20_run{{border-left:5px solid #FF9B6A !important;border-radius:10px}}
+.st-key-t20_run{{border-left:5px solid #A78BFA !important;border-radius:10px}}
 .st-key-t20_help{{border-left:5px solid #FFD15C;border-radius:10px;padding-left:8px}}
 [class*="st-key-t20_tbl"]{{border-left:5px solid #6EE7B7;border-radius:10px;padding-left:8px}}
 .st-key-t20_engine [data-testid="stMarkdownContainer"] strong,
@@ -3161,7 +3167,7 @@ def _t20_css():
 .st-key-t20_sectors [data-testid="stMarkdownContainer"] strong,
 .st-key-t20_sectors [data-testid="stWidgetLabel"] p,
 .st-key-t20_sectors [data-testid="stRadio"] label p{{color:#6EE7B7 !important}}
-.st-key-t20_run [data-testid="stMarkdownContainer"] strong{{color:#FF9B6A !important}}
+.st-key-t20_run [data-testid="stMarkdownContainer"] strong{{color:#A78BFA !important}}
 .st-key-t20_engine [data-testid="stRadio"] label:has(input:checked) p,
 .st-key-t20_sectors [data-testid="stRadio"] label:has(input:checked) p{{color:#081325 !important}}
 </style>""")
@@ -5081,6 +5087,7 @@ with st.container(border=True, key="mw_page"):
         _secs_key = tuple(sorted(_sec_filter)) if _sec_filter else ()
 
         _t20_head("3 · Catalysts and Filters", "#A78BFA")
+        _paint_box("t20_run", "#A78BFA")
         with _hub_pill("t20_run"):
             if _method == "forecast":
                 _n1, _n2 = st.columns([1, 2], gap="medium")
@@ -5095,7 +5102,7 @@ with st.container(border=True, key="mw_page"):
                 _top_n = st.selectbox("How many stocks", list(range(20, 55, 5)),
                                       index=0, key="top20_count")
 
-            _t20_cat = _catalysts_section("top20", pill=False)
+            _t20_cat = _catalysts_section("top20", pill=False, cat_color="#A78BFA")
 
             _eng_txt = {"cascade": "cascade score", "forecast": "odds of gain",
                         "felix": "the Felix quality checklist",
@@ -5649,7 +5656,7 @@ with st.container(border=True, key="mw_page"):
                 _min_dv = 5.0
                 _uni_n = None
 
-            _hub_sec("3 · Macro lens", "#F0A6FF", "tilt names that already passed")
+            _hub_sec("3 · Macro lens", "#C8F542", "tilt names that already passed")
             with _hub_pill("apex_lens_box"):
                 _ax_pack = _render_macro_lens_block(
                     "apex", asof, closes, GAUGE,
