@@ -197,7 +197,6 @@ def _section(options, key):
         if cur not in options:
             cur = options[0]
         color = _DC_MENU_COLOR.get(cur, ACCENT)
-        _html(f'<div class="mw-menu-title" style="--mc:{color}">{_esc(cur)}</div>')
         _html(
             f"<style>.st-key-{key}_menu{{border-color:{color} !important;"
             f"box-shadow:0 0 0 1px color-mix(in srgb,{color} 16%,transparent),"

@@ -3110,11 +3110,6 @@ def _paint_box(key, color):
 
 def _section_bar(options, key):
     """Only the selected section's body runs — Streamlit tabs execute every tab."""
-    cur = st.session_state.get(key)
-    if cur not in options:
-        cur = options[0]
-    color = _tab_color(cur)
-    _md_html(f'<div class="mw-menu-title" style="--mc:{color}">{_esc(cur)}</div>')
     if hasattr(st, "segmented_control"):
         sel = st.segmented_control("Section", options, key=key,
                                    label_visibility="collapsed")
@@ -3831,7 +3826,7 @@ def _render_scan_hub_help():
     if st.session_state.get("hub_help_sec") == "Catalysts":
         st.session_state["hub_help_sec"] = "Catalysts and Filters"
     sec = st.radio(
-        "Jump to", ["Scanners", "Lenses", "Catalysts and Filters"],
+        "Jump to", ["Scanners", "Lenses", "Catalysts and Filters", "ShakeOut"],
         horizontal=True, key="hub_help_sec")
 
     if sec == "Scanners":
@@ -3861,7 +3856,7 @@ def _render_scan_hub_help():
             color="#7FD4FF")
         _help_card(
             "🎯 POC Future",
-            "Coil, stop-sweep, reclaim the point of control — long only.",
+            "Long-only spring from a defined range.",
             "Looks for a tight accumulation range, a wick that hunts stops "
             "beyond it, then a close back through the volume-profile POC. "
             "You can watch a coil before it sweeps, or catch the reclaim "
@@ -3984,6 +3979,19 @@ def _render_scan_hub_help():
                     f"margin-top:6px'>{_esc(thesis)}</div>"
                     f"{lead_html}{lag_html}</div>"
                 )
+        return
+
+    if sec == "ShakeOut":
+        _hub_sec("🌩 ShakeOut", "#C8F542",
+                 "how this scanner was chosen — 40 methods, IS / OOS split")
+        st.caption(
+            "This section belongs to the ShakeOut scanner. It is the back-test "
+            "that picked the washout-coil stack over the other 39 methods."
+        )
+        if _SW_ERR is not None or _sw is None:
+            st.error(f"ShakeOut help failed to load: {_SW_ERR}")
+        else:
+            _sw._render_backtest(_sw._backtest())
         return
 
     _hub_sec("Catalysts and Filters", "#A78BFA", "signed tags that re-rank the list")
@@ -4940,10 +4948,8 @@ with st.container(border=True, key="mw_page"):
         GAUGE = _gauge()
         _t20_css()
         _t20_title("🏆 Top 20 Scanner")
-        _t20_box("One screener, four brains: IGNITION technicals + the macro "
-                 "simulator's quality DNA + the cascade engine's wave tailwind "
-                 "+ the live macro regime — scored across the ENTIRE nightly "
-                 "dump (all markets, ~5,700 stocks).", _T20_BLUE)
+        _t20_box("One Screener, four brains + macro lenses — scored across "
+                 "the ENTIRE market, ~5,700 stocks.", _T20_BLUE)
         try:
             _gauge = GAUGE
         except Exception:
@@ -6089,13 +6095,12 @@ with st.container(border=True, key="mw_page"):
         _hub_title("🎯 POC Future", "#6EE7B7")
         _hub_keep_restore("poc", ("poc_",))
         _try_closes()
-        st.caption("Coil, stop-sweep, reclaim the point of control — long only.")
         if _POC_ERR:
             st.error(f"⚠️ **poc_future.py missing** — {_POC_ERR}. Push it alongside "
                      "app.py, cascade_engine.py and apex_flow.py, then reboot. "
                      "The rest of the app still works.")
         else:
-            _hub_sec("1 · Controls", "#7FD4FF", "pattern, size, and the knobs")
+            _hub_sec("1 · Controls", "#7FD4FF")
             with _hub_pill("poc_controls"):
                 _poc_mode = st.radio(
                     "Controls", ["Basic", "Advanced"], horizontal=True,

@@ -525,7 +525,7 @@ def _register_for_ignition(df) -> None:
 def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                            render_detail=None, render_macro_lens=None):
     mw = _in_mw()
-    _hub_sec("1 · Mode", "#FFD15C", "basic or every filter")
+    _hub_sec("1 · Mode", "#FFD15C")
     with st.container(border=True, key="sw_mode_box"):
         mode = st.radio(
             "Mode", ["Basic", "Advanced"], horizontal=True, key="sw_ui_mode",
@@ -725,7 +725,6 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
 
     if not st.session_state.get("sw_go"):
         st.info("Hit **Scan shakeout coils** to rank the universe. Nothing runs until you do.")
-        _render_backtest(_backtest())
         return
 
     _ssnap = st.session_state.get("sw_snap") or {}
@@ -832,7 +831,6 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             st.info(" and ".join(_hid) + " hid every name on this list.")
         else:
             st.info("No names match those filters — lower the shakeout minimum or add sectors.")
-        _render_backtest(bt)
         return
 
     styler = (
@@ -958,5 +956,3 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             render_detail(tk)
         else:
             _draw_chart(tk)
-
-    _render_backtest(bt)
