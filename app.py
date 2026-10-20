@@ -164,6 +164,16 @@ if _engine_v != REQUIRED_ENGINE:
 # draw a default focus ring on the clicked tab button; this removes it
 # while leaving each app's own "active tab" highlight styling untouched.
 st.markdown("""<style>
+html, body, .stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stHeader"],
+[data-testid="stToolbar"],
+[data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+section.main {
+    background-color: #000000 !important;
+    background: #000000 !important;
+}
 .stTabs button[data-baseweb="tab"]:focus,
 .stTabs button[data-baseweb="tab"]:focus-visible,
 .stTabs [data-baseweb="tab"]:focus,
