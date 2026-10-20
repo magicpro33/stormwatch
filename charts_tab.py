@@ -32,6 +32,8 @@ DEBT_SID = "GFDEGDQ188S"
 CPI_SID = "CPIAUCSL"
 TIC_SLT5 = ("https://ticdata.treasury.gov/resource-center/"
             "data-chart-center/tic/Documents/slt_table5.txt")
+TIC_HIST = ("https://ticdata.treasury.gov/resource-center/"
+            "data-chart-center/tic/Documents/mfhhis01.txt")
 TIC_SKIP = {
     "all other", "grand total", "of which: foreign official",
     "of which: foreign official treasury bills",
@@ -140,6 +142,96 @@ def _tic_foreign_holders() -> dict:
         countries.append((_tic_name(name), val))
     countries.sort(key=lambda kv: kv[1], reverse=True)
     return {"asof": asof, "total": total, "official": official, "countries": countries}
+
+
+def _tic_december(text: str) -> dict:
+    """Year-end (December) holdings in billions from a TIC monthly table."""
+    out = {}
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    i = 0
+    while i < len(lines):
+        if not lines[i].lower().startswith("country"):
+            i += 1
+            continue
+        years = []
+        for tok in lines[i].split()[1:]:
+            try:
+                years.append(int(tok))
+            except ValueError:
+                years.append(None)
+        i += 1
+        if i < len(lines) and set(lines[i]) <= set("- "):
+            i += 1
+        block = {}
+        while i < len(lines):
+            ln = lines[i]
+            low = ln.lower()
+            if low.startswith("country"):
+                break
+            if low.startswith("notes") or low.startswith("the data") or low.startswith("of which"):
+                i += 1
+                continue
+            tokens = ln.replace('"', " ").replace(",", " ").split()
+            nums, name_parts = [], []
+            for tok in tokens:
+                try:
+                    nums.append(float(tok))
+                except ValueError:
+                    name_parts.append(tok)
+            if nums and name_parts and years:
+                block[" ".join(name_parts)] = nums
+            i += 1
+        if not years:
+            continue
+        dec_i = 0
+        year = years[dec_i]
+        if year is None:
+            continue
+        slot = out.setdefault(year, {})
+        for raw, nums in block.items():
+            key = raw.lower()
+            val = nums[dec_i] if dec_i < len(nums) else None
+            if val is None:
+                continue
+            if key == "grand total":
+                slot["total"] = val
+            elif key.startswith("japan"):
+                slot["japan"] = val
+            elif key.startswith("china"):
+                slot["china"] = val
+        if slot:
+            slot["asof"] = f"{year}-12"
+    return out
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner="Loading foreign-holder history…")
+def _tic_year_ends() -> dict:
+    """December TIC snapshots: {year: {total, japan, china, asof}} in $ billions."""
+    import requests
+    r = requests.get(TIC_HIST, timeout=20, headers={"User-Agent": "MoneyWeather/nerd-hut"})
+    r.raise_for_status()
+    return _tic_december(r.text)
+
+
+_NATION_COLOR = {
+    "Japan": ACCENT,
+    "United Kingdom": BLUE,
+    "China": RED,
+    "Belgium": GOLD,
+    "Canada": GREEN,
+    "Cayman Islands": "#F0A6FF",
+    "Luxembourg": "#2DD4BF",
+    "France": "#FF8FA3",
+    "Ireland": "#C8F542",
+    "Taiwan": "#A78BFA",
+    "Switzerland": "#C5D4FF",
+    "Singapore": "#FFB020",
+    "Hong Kong": "#6EE7B7",
+    "India": "#9B7FE0",
+    "Norway": "#4aa3df",
+}
+_NATION_FALLBACK = ("#7FD4FF", "#FF9B6A", "#6EE7B7", "#F0A6FF", "#E8C34A",
+                    "#2DD4BF", "#FF8FA3", "#C8F542")
 
 
 def _live_project(snap: dict) -> dict:
@@ -335,6 +427,10 @@ def _css() -> None:
 .st-key-ch_m2{{border-left:5px solid {ACCENT} !important;border-radius:10px}}
 .st-key-ch_debt{{border-left:5px solid {BLUE} !important;border-radius:10px}}
 .st-key-ch_foreign{{border-left:5px solid {GOLD} !important;border-radius:10px}}
+.ch-trend-h{{text-align:center;font-size:12px;font-weight:800;letter-spacing:.12em;
+  text-transform:uppercase;color:{DIM};margin:16px 0 8px}}
+.ch-trend-note{{text-align:center;color:{RED};font-size:13px;line-height:1.5;
+  margin:10px 4px 4px}}
 </style>"""
     )
 
@@ -489,13 +585,18 @@ def _debt_pills(snap: dict) -> None:
     ])
 
 
+def _nation_color(name: str, i: int = 0) -> str:
+    return _NATION_COLOR.get(name) or _NATION_FALLBACK[i % len(_NATION_FALLBACK)]
+
+
 def _holder_bars(rows: list[tuple[str, float]]) -> None:
     import plotly.graph_objects as go
     names = [n for n, _ in rows][::-1]
     vals = [v / 1000.0 for _, v in rows][::-1]
+    colors = [_nation_color(n, i) for i, n in enumerate(names)]
     fig = go.Figure(go.Bar(
         x=vals, y=names, orientation="h",
-        marker_color=GOLD,
+        marker_color=colors,
         hovertemplate="%{y}<br>$%{x:.2f}T<extra></extra>",
     ))
     fig.update_layout(
@@ -576,6 +677,70 @@ def _foreign_holders(snap: dict) -> None:
         _holder_bars(top)
     elif total is None:
         st.error("Could not load foreign holders.")
+
+    hist = {}
+    try:
+        hist = _tic_year_ends() or {}
+    except Exception:
+        hist = {}
+    gfde = _try_series("GFDEBTN")
+    years = [y for y in (2020, 2022, 2024, 2025) if y in hist and hist[y].get("total")]
+    if 2025 not in years:
+        latest_y = max((y for y in hist if hist[y].get("total")), default=None)
+        if latest_y and latest_y not in years:
+            years.append(latest_y)
+            years.sort()
+    trend = []
+    share_2020 = share_now = None
+    for y in years:
+        tot_b = hist[y].get("total")
+        if tot_b is None:
+            continue
+        tot = tot_b * 1e9
+        debt_m = _at_or_before(gfde, f"{y}-12-31")
+        pct = (tot / (debt_m * 1e6) * 100.0) if debt_m else None
+        if y == 2020:
+            share_2020 = pct
+        share_now = pct
+        trend.append({
+            "label": str(y),
+            "value": _fmt_pct(pct),
+            "sub": _fmt_scale(tot, digits=1),
+            "color": BLUE,
+        })
+    if trend:
+        _html('<div class="ch-trend-h">Foreign ownership trend</div>')
+        _pills(trend)
+
+    jap_b = (japan / 1e9) if japan else None
+    chi_b = (china / 1e9) if china else None
+    if jap_b is None and hist:
+        last = hist.get(max(hist)) or {}
+        jap_b, chi_b = last.get("japan"), last.get("china")
+    gap = None
+    if jap_b is not None and chi_b is not None:
+        gap = (jap_b - chi_b) * 1e9
+    china_until = None
+    for y in sorted(hist):
+        j, ch = hist[y].get("japan"), hist[y].get("china")
+        if j is None or ch is None:
+            continue
+        if ch > j:
+            china_until = y
+    if share is not None:
+        share_now = share
+    bits = []
+    if china_until is not None:
+        bits.append(f"China was the #1 foreign holder until {china_until + 1}.")
+    if gap is not None and gap > 0:
+        bits.append(f"Japan now holds {_fmt_scale(gap, digits=0)} more than China.")
+    if share_2020 is not None and share_now is not None:
+        bits.append(
+            f"Foreign ownership has dropped from {_fmt_pct(share_2020)} "
+            f"to {_fmt_pct(share_now)} since 2020."
+        )
+    if bits:
+        _html(f'<div class="ch-trend-note">{_esc(" ".join(bits))}</div>')
 
 
 def _render_nerd_body() -> None:
