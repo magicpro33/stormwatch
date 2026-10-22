@@ -3,9 +3,11 @@
 M2: Federal Reserve H.6 via FRED M2SL (seasonally adjusted, monthly).
 Debt / GDP: Treasury total public debt ÷ BEA GDP via FRED GFDEGDQ188S.
 Dollar since 2020: CPI-U purchasing power via FRED CPIAUCSL.
+Dollar over 100 years: CPI-U NSA (CPIAUCNS) from 1913.
 Debt-clock pills: Treasury Debt to the Penny + FRED population, spending,
 interest, and deficit series.
 Foreign holders: Treasury TIC SLT Table 5 (major foreign holders).
+Gold / silver / coins: Yahoo futures and spot (GC=F, SI=F, BTC/ETH/BNB/SOL/XRP).
 """
 from __future__ import annotations
 
@@ -20,8 +22,10 @@ ACCENT = "#E87722"
 GREEN = "#3fbf7f"
 RED = "#e05252"
 GOLD = "#e8c34a"
+SILVER = "#C5D4FF"
 BLUE = "#7FD4FF"
 DIM = "#9aa8bd"
+PURPLE = "#A78BFA"
 INK = "#F6F4E9"
 NAVY = "#0c1829"
 PAPER = "#081325"
@@ -30,6 +34,15 @@ LINE = "#3d6a94"
 M2_SID = "M2SL"
 DEBT_SID = "GFDEGDQ188S"
 CPI_SID = "CPIAUCSL"
+CPI_LONG_SID = "CPIAUCNS"
+METAL_TICKERS = ("GC=F", "SI=F")
+CRYPTO_FIVE = (
+    ("BTC-USD", "Bitcoin", ACCENT),
+    ("ETH-USD", "Ethereum", BLUE),
+    ("BNB-USD", "BNB", "#F0A6FF"),
+    ("SOL-USD", "Solana", "#2DD4BF"),
+    ("XRP-USD", "XRP", "#A78BFA"),
+)
 TIC_SLT5 = ("https://ticdata.treasury.gov/resource-center/"
             "data-chart-center/tic/Documents/slt_table5.txt")
 TIC_HIST = ("https://ticdata.treasury.gov/resource-center/"
@@ -73,6 +86,116 @@ def _try_series(sid: str) -> pd.Series:
         return s if s is not None else pd.Series(dtype=float)
     except Exception:
         return pd.Series(dtype=float)
+
+
+def _hex_rgba(color: str, a: float = 0.12) -> str:
+    h = str(color or "").lstrip("#")
+    if len(h) != 6:
+        return f"rgba(232,119,34,{a})"
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{a})"
+
+
+@st.cache_data(ttl=1800, show_spinner="Loading gold, silver, and coins…")
+def _yf_history(tickers: tuple[str, ...]) -> pd.DataFrame:
+    """Daily adjusted close for metals and coins. Cached half an hour."""
+    tickers = tuple(tickers)
+    if not tickers:
+        return pd.DataFrame()
+
+    def _pull():
+        import yfinance as yf
+        return yf.download(
+            list(tickers), period="max", auto_adjust=True,
+            progress=False, threads=False, group_by="ticker",
+        )
+
+    try:
+        from mw_yf import yf_call
+        df = yf_call(_pull)
+    except Exception:
+        df = _pull()
+    return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
+
+def _yf_close(df: pd.DataFrame, ticker: str) -> pd.Series:
+    if df is None or df.empty:
+        return pd.Series(dtype=float)
+    s = None
+    if isinstance(df.columns, pd.MultiIndex):
+        lvl0 = df.columns.get_level_values(0)
+        if ticker in lvl0:
+            sub = df[ticker]
+            s = sub["Close"] if isinstance(sub, pd.DataFrame) and "Close" in sub.columns else sub
+        elif "Close" in lvl0 and ticker in df["Close"].columns:
+            s = df["Close"][ticker]
+    elif ticker in df.columns:
+        s = df[ticker]
+    if s is None:
+        return pd.Series(dtype=float)
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+    out = pd.to_numeric(s, errors="coerce").dropna()
+    out.index = pd.to_datetime(out.index)
+    return out.sort_index()
+
+
+def _pct_ago(s: pd.Series, days: int) -> float | None:
+    if s is None or s.empty:
+        return None
+    end = pd.Timestamp(s.index[-1])
+    hit = s[s.index <= end - pd.Timedelta(days=int(days))]
+    if hit.empty:
+        if days <= 2 and len(s) >= 2:
+            b = float(s.iloc[-2])
+        else:
+            return None
+    else:
+        b = float(hit.iloc[-1])
+    a = float(s.iloc[-1])
+    if not np.isfinite(a) or not np.isfinite(b) or b == 0:
+        return None
+    return (a / b - 1.0) * 100.0
+
+
+def _fmt_px(n, digits=None) -> str:
+    if n is None or not np.isfinite(n):
+        return "—"
+    n = float(n)
+    if digits is None:
+        if abs(n) >= 1000:
+            digits = 0
+        elif abs(n) >= 100:
+            digits = 2
+        elif abs(n) >= 1:
+            digits = 2
+        else:
+            digits = 4
+    return f"${n:,.{digits}f}"
+
+
+def _spark_svg(s: pd.Series, color: str, w: int = 220, h: int = 44) -> str:
+    """Tiny price path for a snapshot card. Last ~90 prints as CSS bars.
+
+    Streamlit's st.html sanitizer strips <svg>, so this stays in div/span.
+    """
+    if s is None or len(s.dropna()) < 2:
+        return ""
+    ys = pd.to_numeric(s, errors="coerce").dropna().values[-90:]
+    if len(ys) < 2:
+        return ""
+    n = 48
+    if len(ys) > n:
+        idx = np.linspace(0, len(ys) - 1, n).astype(int)
+        ys = ys[idx]
+    mn, mx = float(ys.min()), float(ys.max())
+    span = mx - mn or 1.0
+    fill = _hex_rgba(color, 0.88)
+    bars = []
+    for v in ys:
+        pct = 10.0 + (float(v) - mn) / span * 90.0
+        bars.append(f"<span style='height:{pct:.1f}%;background:{fill}'></span>")
+    return f"<div class='ch-spark' aria-hidden='true'>{''.join(bars)}</div>"
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner="Loading Treasury debt…")
@@ -333,12 +456,14 @@ def _pills(items: list[dict], grid: str = "ch-pills") -> None:
         ico = it.get("icon") or ""
         feat = " feature" if it.get("feature") else ""
         ico_html = f"<div class='ch-ico'>{_esc(ico)}</div>" if ico else ""
+        extra = it.get("extra") or ""
         cells.append(
             f"<div class='ch-pill{feat}' style='--mc:{color}'>"
             f"{ico_html}"
             f"<div class='ch-mlbl'>{_esc(it.get('label', ''))}</div>"
             f"<div class='ch-mval'>{it.get('value', '—')}</div>"
-            f"<div class='ch-msub'>{_esc(it.get('sub', ''))}</div></div>"
+            f"<div class='ch-msub'>{_esc(it.get('sub', ''))}</div>"
+            f"{extra}</div>"
         )
     _html(f"<div class='{grid}'>{''.join(cells)}</div>")
 
@@ -349,24 +474,31 @@ def _metrics(items: list[tuple[str, str, str, str]]) -> None:
 
 
 def _line_fig(s: pd.Series, *, color: str, y_title: str, hover: str,
-              y_prefix: str = "", y_suffix: str = "", y_mult: float = 1.0):
+              y_prefix: str = "", y_suffix: str = "", y_mult: float = 1.0,
+              height: int = 420, buttons=None, slider: bool = True,
+              fill: bool = True):
     import plotly.graph_objects as go
 
     y = s.astype(float) * y_mult
-    fill = ("rgba(232,119,34,0.12)" if color == ACCENT
-            else "rgba(127,212,255,0.10)")
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=y.index, y=y.values,
         mode="lines",
         line=dict(color=color, width=2.2),
-        fill="tozeroy",
-        fillcolor=fill,
+        fill="tozeroy" if fill else None,
+        fillcolor=_hex_rgba(color, 0.14) if fill else None,
         hovertemplate=hover,
         name=y_title,
     ))
+    if buttons is None:
+        buttons = [
+            dict(count=5, label="5Y", step="year", stepmode="backward"),
+            dict(count=10, label="10Y", step="year", stepmode="backward"),
+            dict(count=20, label="20Y", step="year", stepmode="backward"),
+            dict(step="all", label="All"),
+        ]
     fig.update_layout(
-        height=420,
+        height=height,
         template="plotly_dark",
         paper_bgcolor=PAPER,
         plot_bgcolor=NAVY,
@@ -377,18 +509,13 @@ def _line_fig(s: pd.Series, *, color: str, y_title: str, hover: str,
             gridcolor="#1e3a5f",
             zeroline=False,
             rangeselector=dict(
-                buttons=[
-                    dict(count=5, label="5Y", step="year", stepmode="backward"),
-                    dict(count=10, label="10Y", step="year", stepmode="backward"),
-                    dict(count=20, label="20Y", step="year", stepmode="backward"),
-                    dict(step="all", label="All"),
-                ],
+                buttons=buttons,
                 bgcolor="#122a42",
                 activecolor=color,
                 font=dict(color=INK, size=11),
                 x=0, y=1.08, xanchor="left",
             ),
-            rangeslider=dict(visible=True, thickness=0.08,
+            rangeslider=dict(visible=slider, thickness=0.08,
                              bgcolor="#0a1624", bordercolor=LINE),
         ),
         yaxis=dict(
@@ -409,13 +536,23 @@ def _css() -> None:
         f"""<style>
 .ch-pills{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:8px 0 12px}}
 .ch-hero{{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:10px;margin:8px 0 18px}}
+.ch-hero-2{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:8px 0 12px}}
+.ch-pills-5{{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:8px 0 12px}}
+.ch-spark{{display:flex;align-items:flex-end;gap:1.5px;height:46px;margin-top:10px;
+  padding:6px 4px 0;border-radius:8px;background:rgba(6,16,28,.55)}}
+.ch-spark span{{flex:1 1 0;min-width:0;border-radius:2px 2px 0 0;display:block}}
+@media(max-width:1100px){{
+  .ch-pills-5{{grid-template-columns:repeat(3,minmax(0,1fr))}}
+}}
 @media(max-width:900px){{
   .ch-pills{{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  .ch-hero{{grid-template-columns:1fr}}
+  .ch-hero,.ch-hero-2,.ch-pills-5{{grid-template-columns:1fr}}
 }}
 .ch-pill{{background:#06101c;border:1px solid #2a4a6a;border-radius:14px;
   padding:14px 16px 12px;position:relative;min-height:92px}}
-.ch-pill.feature{{border-left:5px solid var(--mc,{RED});padding:16px 18px}}
+.ch-pill:has(.ch-spark){{min-height:138px}}
+.ch-pill.feature{{border-left:5px solid var(--mc,{RED});padding:16px 18px;min-height:148px}}
+.ch-pill.feature:has(.ch-spark){{min-height:196px}}
 .ch-ico{{position:absolute;top:12px;right:14px;font-size:16px;opacity:.55}}
 .ch-mlbl{{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
   color:{DIM};padding-right:22px}}
@@ -426,7 +563,11 @@ def _css() -> None:
 .ch-msub{{font-size:12px;color:{DIM};margin-top:4px;line-height:1.35}}
 .st-key-ch_m2{{border-left:5px solid {ACCENT} !important;border-radius:10px}}
 .st-key-ch_debt{{border-left:5px solid {BLUE} !important;border-radius:10px}}
+.st-key-ch_debt_snap{{border-left:5px solid {BLUE} !important;border-radius:10px}}
 .st-key-ch_foreign{{border-left:5px solid {GOLD} !important;border-radius:10px}}
+.st-key-ch_metal{{border-left:5px solid {GOLD} !important;border-radius:10px}}
+.st-key-ch_dollar100{{border-left:5px solid {RED} !important;border-radius:10px}}
+.st-key-ch_crypto{{border-left:5px solid {PURPLE} !important;border-radius:10px}}
 .ch-trend-h{{text-align:center;font-size:12px;font-weight:800;letter-spacing:.12em;
   text-transform:uppercase;color:{DIM};margin:16px 0 8px}}
 .ch-trend-note{{text-align:center;color:{RED};font-size:13px;line-height:1.5;
@@ -467,6 +608,229 @@ def _dollar_since_2020() -> None:
                  else "Jan 2020 → now"),
          "color": GOLD},
     ], grid="ch-hero")
+
+
+def _chg_color(pct) -> str:
+    if pct is None:
+        return DIM
+    return GREEN if pct >= 0 else RED
+
+
+def _metal_snapshot(px: pd.DataFrame) -> None:
+    """Gold and silver clock — same snapshot language as federal debt."""
+    _sec("Gold and silver snapshot", GOLD)
+    gold = _yf_close(px, "GC=F")
+    silver = _yf_close(px, "SI=F")
+    g, s = _last(gold), _last(silver)
+    if g is None and s is None:
+        st.error("Could not load gold or silver.")
+        return
+    g_day, s_day = _pct_ago(gold, 1), _pct_ago(silver, 1)
+    g_yr, s_yr = _pct_ago(gold, 365), _pct_ago(silver, 365)
+    g_hi = float(gold.max()) if len(gold) else None
+    s_hi = float(silver.max()) if len(silver) else None
+    g_off = ((g / g_hi - 1.0) * 100.0) if (g and g_hi) else None
+    ratio = (g / s) if (g and s and s > 0) else None
+    asof = None
+    for series in (gold, silver):
+        if series is not None and len(series):
+            asof = pd.Timestamp(series.index[-1]).strftime("%b %d, %Y")
+            break
+    when = asof or "last print"
+    _pills([
+        {"label": "Gold",
+         "value": _fmt_px(g, 0),
+         "sub": f"Dollar per ounce · {when}",
+         "color": GOLD, "feature": True, "icon": "Au",
+         "extra": _spark_svg(gold, GOLD)},
+        {"label": "Silver",
+         "value": _fmt_px(s, 2),
+         "sub": f"Dollar per ounce · {when}",
+         "color": SILVER, "feature": True, "icon": "Ag",
+         "extra": _spark_svg(silver, SILVER)},
+    ], grid="ch-hero-2")
+    _pills([
+        {"label": "Gold today",
+         "value": _fmt_pct(g_day, signed=True),
+         "sub": "vs prior session",
+         "color": _chg_color(g_day), "icon": "↗" if (g_day or 0) >= 0 else "↘"},
+        {"label": "Silver today",
+         "value": _fmt_pct(s_day, signed=True),
+         "sub": "vs prior session",
+         "color": _chg_color(s_day), "icon": "↗" if (s_day or 0) >= 0 else "↘"},
+        {"label": "Gold, 1 year",
+         "value": _fmt_pct(g_yr, signed=True),
+         "sub": "same week last year",
+         "color": _chg_color(g_yr)},
+        {"label": "Silver, 1 year",
+         "value": _fmt_pct(s_yr, signed=True),
+         "sub": "same week last year",
+         "color": _chg_color(s_yr)},
+        {"label": "Gold / silver",
+         "value": f"{ratio:.0f}×" if ratio else "—",
+         "sub": "Ounces of silver in one ounce of gold",
+         "color": ACCENT, "icon": "⚖"},
+        {"label": "Gold vs high",
+         "value": _fmt_pct(g_off, signed=True),
+         "sub": (_fmt_px(g_hi, 0) + " · " + _month_label(gold.idxmax())
+                 if g_hi is not None else ""),
+         "color": _chg_color(g_off)},
+        {"label": "Gold high",
+         "value": _fmt_px(g_hi, 0) if g_hi is not None else "—",
+         "sub": (_month_label(gold.idxmax()) if len(gold) else ""),
+         "color": GOLD},
+        {"label": "Silver high",
+         "value": _fmt_px(s_hi, 2) if s_hi is not None else "—",
+         "sub": (_month_label(silver.idxmax()) if len(silver) else ""),
+         "color": SILVER},
+    ])
+    c1, c2 = st.columns(2, gap="medium")
+    with c1:
+        if gold is not None and len(gold):
+            fig = _line_fig(
+                gold, color=GOLD, y_title="Gold, $ / oz",
+                y_prefix="$", hover="%{x|%b %d, %Y}<br>$%{y:,.0f} / oz<extra></extra>",
+                height=340, slider=False,
+            )
+            st.plotly_chart(fig, width="stretch", key="ch_gold_fig")
+    with c2:
+        if silver is not None and len(silver):
+            fig = _line_fig(
+                silver, color=SILVER, y_title="Silver, $ / oz",
+                y_prefix="$", hover="%{x|%b %d, %Y}<br>$%{y:,.2f} / oz<extra></extra>",
+                height=340, slider=False,
+            )
+            st.plotly_chart(fig, width="stretch", key="ch_silver_fig")
+
+
+def _dollar_century() -> None:
+    """Purchasing power of $1 over the last hundred years."""
+    _sec("A century of the dollar", RED)
+    cpi = _try_series(CPI_LONG_SID)
+    if cpi is None or cpi.empty:
+        st.error("Could not load a century of prices.")
+        return
+    now = pd.Timestamp.now().tz_localize(None)
+    start = now - pd.DateOffset(years=100)
+    cpi = cpi[cpi.index >= start]
+    if cpi.empty:
+        st.error("Could not load a century of prices.")
+        return
+    base = float(cpi.iloc[0])
+    last = float(cpi.iloc[-1])
+    if not np.isfinite(base) or not np.isfinite(last) or last <= 0 or base <= 0:
+        st.error("Could not load a century of prices.")
+        return
+    power = base / cpi
+    cents = 100.0 * float(power.iloc[-1])
+    takes = last / base
+    infl = (last / base - 1.0) * 100.0
+    asof = _month_label(cpi.index[-1])
+    began = _month_label(cpi.index[0])
+    _pills([
+        {"label": f"$1 from {cpi.index[0].year} buys",
+         "value": f"{cents:.0f}¢",
+         "sub": f"of the same goods in {asof}. The rest was inflation.",
+         "color": RED, "feature": True, "icon": "¢"},
+        {"label": "It takes today",
+         "value": f"${takes:,.0f}",
+         "sub": f"to match one {cpi.index[0].year} dollar",
+         "color": ACCENT},
+        {"label": "Prices since then",
+         "value": _fmt_pct(infl, signed=True, digits=0),
+         "sub": f"{began} → {asof}",
+         "color": GOLD},
+    ], grid="ch-hero")
+    fig = _line_fig(
+        power, color=RED, y_title="Purchasing power of $1",
+        y_prefix="$",
+        hover="%{x|%b %Y}<br>$%{y:.3f} of that first dollar<extra></extra>",
+        height=400, slider=False,
+        buttons=[
+            dict(count=25, label="25Y", step="year", stepmode="backward"),
+            dict(count=50, label="50Y", step="year", stepmode="backward"),
+            dict(step="all", label="100Y"),
+        ],
+    )
+    st.plotly_chart(fig, width="stretch", key="ch_dollar100_fig")
+    _html(
+        f"<div class='ch-trend-note'>"
+        f"A dollar parked in {cpi.index[0].year} still spends like "
+        f"{cents:.0f} cents today. The line is that dollar's buying power, "
+        f"not the size of a paycheck."
+        f"</div>"
+    )
+
+
+def _crypto_five(px: pd.DataFrame) -> None:
+    """Top five coins by the tape people actually watch — no stables."""
+    _sec("Top five coins", PURPLE)
+    cards = []
+    series = []
+    for ticker, name, color in CRYPTO_FIVE:
+        s = _yf_close(px, ticker)
+        last = _last(s)
+        day = _pct_ago(s, 1)
+        yr = _pct_ago(s, 365)
+        asof = (pd.Timestamp(s.index[-1]).strftime("%b %d")
+                if s is not None and len(s) else "")
+        sub = _fmt_pct(day, signed=True)
+        if yr is not None:
+            sub = f"{sub} today · {_fmt_pct(yr, signed=True)} year"
+        elif asof:
+            sub = f"{sub} today · {asof}"
+        cards.append({
+            "label": name,
+            "value": _fmt_px(last),
+            "sub": sub,
+            "color": color,
+            "extra": _spark_svg(s, color),
+        })
+        if s is not None and len(s):
+            series.append((name, color, s))
+    if not series:
+        st.error("Could not load coin prices.")
+        return
+    _pills(cards, grid="ch-pills-5")
+
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    cut = pd.Timestamp.now().tz_localize(None) - pd.DateOffset(years=5)
+    for name, color, s in series:
+        window = s[s.index >= cut].dropna()
+        if len(window) < 2:
+            window = s.dropna()
+        if len(window) < 2:
+            continue
+        fig.add_trace(go.Scatter(
+            x=window.index, y=window.values,
+            mode="lines",
+            line=dict(color=color, width=2.2),
+            name=name,
+            hovertemplate=name + "<br>%{x|%b %d, %Y}<br>$%{y:,.2f}<extra></extra>",
+        ))
+    fig.update_layout(
+        height=400,
+        template="plotly_dark",
+        paper_bgcolor=PAPER,
+        plot_bgcolor=NAVY,
+        font=dict(color=INK, family="JetBrains Mono, monospace", size=12),
+        legend=dict(orientation="h", yanchor="bottom", y=1.08,
+                    xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=12, r=12, t=36, b=8),
+        xaxis=dict(gridcolor="#1e3a5f", zeroline=False),
+        yaxis=dict(title="Price", type="log", tickprefix="$",
+                   gridcolor="#1e3a5f", zeroline=False),
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig, width="stretch", key="ch_crypto_fig")
+    _html(
+        "<div class='ch-trend-h'>Price over five years</div>"
+        "<div class='ch-trend-note' style='color:#9aa8bd'>"
+        "Log scale so a one-dollar coin and an eighty-thousand-dollar coin "
+        "can share the same tape. Hover a date for the dollar price."
+        "</div>"
+    )
 
 
 def _debt_snapshot() -> dict:
@@ -744,12 +1108,27 @@ def _foreign_holders(snap: dict) -> None:
 
 
 def _render_nerd_body() -> None:
-    with st.container(border=True, key="ch_dollar"):
-        _dollar_since_2020()
+    tickers = METAL_TICKERS + tuple(t for t, _, _ in CRYPTO_FIVE)
+    try:
+        tape = _yf_history(tickers)
+    except Exception:
+        tape = pd.DataFrame()
+
+    with st.container(border=True, key="ch_metal"):
+        _metal_snapshot(tape)
 
     snap = _live_project(_debt_snapshot())
     with st.container(border=True, key="ch_debt_snap"):
         _debt_pills(snap)
+
+    with st.container(border=True, key="ch_dollar"):
+        _dollar_since_2020()
+
+    with st.container(border=True, key="ch_dollar100"):
+        _dollar_century()
+
+    with st.container(border=True, key="ch_crypto"):
+        _crypto_five(tape)
 
     with st.container(border=True, key="ch_foreign"):
         _foreign_holders(snap)
