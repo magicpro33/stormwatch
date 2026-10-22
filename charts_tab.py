@@ -894,7 +894,7 @@ def _crypto_series(px: pd.DataFrame, last: dict | None = None) -> list:
 
 
 def _crypto_pills(rows: list) -> None:
-    """Top five coins by the tape people actually watch — no stables."""
+    """Top 5 crypto coins by the tape people actually watch — no stables."""
     cards = []
     alive = False
     for _ticker, name, color, s in rows:
@@ -1285,6 +1285,11 @@ def _render_nerd_body() -> None:
         _metal_live()
         _metal_charts(_yf_close(tape, "GC=F"), _yf_close(tape, "SI=F"))
 
+    with st.container(border=True, key="ch_crypto"):
+        _sec("Top 5 Crypto Coins", PURPLE)
+        _crypto_live()
+        _crypto_chart(tape)
+
     _debt_live()
 
     with st.container(border=True, key="ch_dollar"):
@@ -1292,11 +1297,6 @@ def _render_nerd_body() -> None:
 
     with st.container(border=True, key="ch_dollar100"):
         _dollar_century()
-
-    with st.container(border=True, key="ch_crypto"):
-        _sec("Top five coins", PURPLE)
-        _crypto_live()
-        _crypto_chart(tape)
 
     with st.container(border=True, key="ch_m2"):
         _sec("M2", ACCENT)
