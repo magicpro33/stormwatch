@@ -43,6 +43,8 @@ CRYPTO_FIVE = (
     ("SOL-USD", "Solana", "#2DD4BF"),
     ("XRP-USD", "XRP", "#A78BFA"),
 )
+ALL_TICKERS = METAL_TICKERS + tuple(t for t, _, _ in CRYPTO_FIVE)
+LIVE_EVERY = 30
 TIC_SLT5 = ("https://ticdata.treasury.gov/resource-center/"
             "data-chart-center/tic/Documents/slt_table5.txt")
 TIC_HIST = ("https://ticdata.treasury.gov/resource-center/"
@@ -96,6 +98,69 @@ def _hex_rgba(color: str, a: float = 0.12) -> str:
     return f"rgba({r},{g},{b},{a})"
 
 
+def _futures_session_open(now=None) -> bool:
+    """COMEX metals: Sun 6pm ET – Fri 5pm ET, halt 5–6pm ET each day."""
+    if now is None:
+        try:
+            now = pd.Timestamp.now(tz="America/New_York")
+        except Exception:
+            now = pd.Timestamp.now()
+    else:
+        now = pd.Timestamp(now)
+    if now.tzinfo is None:
+        try:
+            now = now.tz_localize("America/New_York")
+        except Exception:
+            pass
+    else:
+        now = now.tz_convert("America/New_York")
+    wd = int(now.weekday())
+    hm = now.hour * 60 + now.minute
+    halt = (17 * 60) <= hm < (18 * 60)
+    if wd == 5:
+        return False
+    if wd == 6:
+        return hm >= 18 * 60
+    if wd == 4:
+        return hm < 17 * 60
+    return not halt
+
+
+def _naive_index(s: pd.Series) -> pd.Series:
+    if s is None or s.empty:
+        return pd.Series(dtype=float)
+    out = s.copy()
+    idx = pd.DatetimeIndex(out.index)
+    if idx.tz is not None:
+        idx = idx.tz_convert("UTC").tz_localize(None)
+    out.index = idx
+    return out.sort_index()
+
+
+def _stamp_last(s: pd.Series, last) -> pd.Series:
+    """Write a live last onto today's bar (or append if the daily tape lags)."""
+    if last is None or not np.isfinite(last):
+        return s if s is not None else pd.Series(dtype=float)
+    last = float(last)
+    try:
+        et = pd.Timestamp.now(tz="America/New_York")
+        today = pd.Timestamp(et.strftime("%Y-%m-%d"))
+        now = pd.Timestamp.now(tz="UTC").tz_convert(None)
+    except Exception:
+        now = pd.Timestamp.now()
+        today = now.normalize()
+    if s is None or s.empty:
+        return pd.Series([last], index=[now], dtype=float)
+    out = _naive_index(s)
+    last_i = pd.Timestamp(out.index[-1])
+    if last_i.normalize() == today:
+        out = out.copy()
+        out.iloc[-1] = last
+        return out
+    extra = pd.Series([last], index=[now])
+    return pd.concat([out, extra]).sort_index()
+
+
 @st.cache_data(ttl=1800, show_spinner="Loading gold, silver, and coins…")
 def _yf_history(tickers: tuple[str, ...]) -> pd.DataFrame:
     """Daily adjusted close for metals and coins. Cached half an hour."""
@@ -116,6 +181,53 @@ def _yf_history(tickers: tuple[str, ...]) -> pd.DataFrame:
     except Exception:
         df = _pull()
     return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def _yf_last(tickers: tuple[str, ...]) -> dict:
+    """Latest print only — 1-minute bar, ~20s cache. Empty dict on failure."""
+    tickers = tuple(tickers)
+    if not tickers:
+        return {}
+
+    def _pull():
+        import yfinance as yf
+        return yf.download(
+            list(tickers), period="1d", interval="1m",
+            auto_adjust=True, progress=False, threads=False,
+            group_by="ticker",
+        )
+
+    try:
+        from mw_yf import yf_call
+        df = yf_call(_pull)
+    except Exception:
+        df = pd.DataFrame()
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return {}
+    out = {}
+    for t in tickers:
+        s = _yf_close(df, t)
+        if s is None or s.empty:
+            continue
+        v = float(s.iloc[-1])
+        if np.isfinite(v):
+            out[t] = v
+    return out
+
+
+def _pull_history() -> pd.DataFrame:
+    try:
+        return _yf_history(ALL_TICKERS)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _pull_last(tickers: tuple[str, ...]) -> dict:
+    try:
+        return _yf_last(tuple(tickers)) or {}
+    except Exception:
+        return {}
 
 
 def _yf_close(df: pd.DataFrame, ticker: str) -> pd.Series:
@@ -198,7 +310,7 @@ def _spark_svg(s: pd.Series, color: str, w: int = 220, h: int = 44) -> str:
     return f"<div class='ch-spark' aria-hidden='true'>{''.join(bars)}</div>"
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner="Loading Treasury debt…")
+@st.cache_data(ttl=3600, show_spinner="Loading Treasury debt…")
 def _treasury_debt_daily() -> pd.Series:
     """Daily total public debt outstanding. Dollars, not millions."""
     import requests
@@ -625,11 +737,15 @@ def _chg_color(pct) -> str:
     return GREEN if pct >= 0 else RED
 
 
-def _metal_snapshot(px: pd.DataFrame) -> None:
+def _spot_when(live: bool) -> str:
+    now = pd.Timestamp.now()
+    if live:
+        return now.strftime("%b %d, %Y · %H:%M")
+    return now.strftime("%b %d, %Y")
+
+
+def _metal_pills(gold: pd.Series, silver: pd.Series, live: bool) -> None:
     """Gold and silver clock — same snapshot language as federal debt."""
-    _sec("Gold and silver snapshot", GOLD)
-    gold = _yf_close(px, "GC=F")
-    silver = _yf_close(px, "SI=F")
     g, s = _last(gold), _last(silver)
     if g is None and s is None:
         st.error("Could not load gold or silver.")
@@ -640,12 +756,7 @@ def _metal_snapshot(px: pd.DataFrame) -> None:
     s_hi = float(silver.max()) if len(silver) else None
     g_off = ((g / g_hi - 1.0) * 100.0) if (g and g_hi) else None
     ratio = (g / s) if (g and s and s > 0) else None
-    asof = None
-    for series in (gold, silver):
-        if series is not None and len(series):
-            asof = pd.Timestamp(series.index[-1]).strftime("%b %d, %Y")
-            break
-    when = asof or "last print"
+    when = _spot_when(live)
     _pills([
         {"label": "Gold",
          "value": _fmt_px(g, 0),
@@ -693,6 +804,9 @@ def _metal_snapshot(px: pd.DataFrame) -> None:
          "sub": (_month_label(silver.idxmax()) if len(silver) else ""),
          "color": SILVER},
     ])
+
+
+def _metal_charts(gold: pd.Series, silver: pd.Series) -> None:
     c1, c2 = st.columns(2, gap="medium")
     with c1:
         if gold is not None and len(gold):
@@ -771,14 +885,22 @@ def _dollar_century() -> None:
     )
 
 
-def _crypto_five(px: pd.DataFrame) -> None:
-    """Top five coins by the tape people actually watch — no stables."""
-    _sec("Top five coins", PURPLE)
-    cards = []
-    series = []
+def _crypto_series(px: pd.DataFrame, last: dict | None = None) -> list:
+    rows = []
     for ticker, name, color in CRYPTO_FIVE:
-        s = _yf_close(px, ticker)
+        s = _stamp_last(_yf_close(px, ticker), (last or {}).get(ticker))
+        rows.append((ticker, name, color, s))
+    return rows
+
+
+def _crypto_pills(rows: list) -> None:
+    """Top five coins by the tape people actually watch — no stables."""
+    cards = []
+    alive = False
+    for _ticker, name, color, s in rows:
         last = _last(s)
+        if last is not None:
+            alive = True
         day = _pct_ago(s, 1)
         yr = _pct_ago(s, 365)
         asof = (pd.Timestamp(s.index[-1]).strftime("%b %d")
@@ -795,22 +917,25 @@ def _crypto_five(px: pd.DataFrame) -> None:
             "color": color,
             "extra": _spark_svg(s, color),
         })
-        if s is not None and len(s):
-            series.append((name, color, s))
-    if not series:
+    if not alive:
         st.error("Could not load coin prices.")
         return
     _pills(cards, grid="ch-pills-5")
 
+
+def _crypto_chart(px: pd.DataFrame) -> None:
     import plotly.graph_objects as go
     fig = go.Figure()
     cut = pd.Timestamp.now().tz_localize(None) - pd.DateOffset(years=5)
-    for name, color, s in series:
-        window = s[s.index >= cut].dropna()
+    any_trace = False
+    for ticker, name, color in CRYPTO_FIVE:
+        s = _naive_index(_yf_close(px, ticker))
+        window = s[s.index >= cut].dropna() if len(s) else s
         if len(window) < 2:
             window = s.dropna()
         if len(window) < 2:
             continue
+        any_trace = True
         fig.add_trace(go.Scatter(
             x=window.index, y=window.values,
             mode="lines",
@@ -818,6 +943,8 @@ def _crypto_five(px: pd.DataFrame) -> None:
             name=name,
             hovertemplate=name + "<br>%{x|%b %d, %Y}<br>$%{y:,.2f}<extra></extra>",
         ))
+    if not any_trace:
+        return
     fig.update_layout(
         height=400,
         template="plotly_dark",
@@ -1116,19 +1243,49 @@ def _foreign_holders(snap: dict) -> None:
         _html(f'<div class="ch-trend-note">{_esc(" ".join(bits))}</div>')
 
 
+def _live_deco(seconds: int):
+    """Fragment that refreshes in place. Falls back to a no-op on old Streamlit."""
+    if not hasattr(st, "fragment"):
+        return lambda fn: fn
+    return st.fragment(run_every=timedelta(seconds=int(seconds)))
+
+
+@_live_deco(LIVE_EVERY)
+def _metal_live() -> None:
+    """Spot pills. Yahoo last only while COMEX is in session."""
+    hist = _pull_history()
+    live = _futures_session_open()
+    last = _pull_last(METAL_TICKERS) if live else {}
+    gold = _stamp_last(_yf_close(hist, "GC=F"), last.get("GC=F"))
+    silver = _stamp_last(_yf_close(hist, "SI=F"), last.get("SI=F"))
+    _metal_pills(gold, silver, live=bool(last))
+
+
+@_live_deco(LIVE_EVERY)
+def _crypto_live() -> None:
+    """Coin pills. Crypto prints 24/7 so this always hits a short-lived last."""
+    hist = _pull_history()
+    tickers = tuple(t for t, _, _ in CRYPTO_FIVE)
+    last = _pull_last(tickers)
+    _crypto_pills(_crypto_series(hist, last))
+
+
+@_live_deco(LIVE_EVERY)
+def _debt_live() -> None:
+    """Debt clock. Walks the last daily print forward; no extra HTTP."""
+    with st.container(border=True, key="ch_debt_snap"):
+        _debt_pills(_live_project(_debt_snapshot()))
+
+
 def _render_nerd_body() -> None:
-    tickers = METAL_TICKERS + tuple(t for t, _, _ in CRYPTO_FIVE)
-    try:
-        tape = _yf_history(tickers)
-    except Exception:
-        tape = pd.DataFrame()
+    tape = _pull_history()
 
     with st.container(border=True, key="ch_metal"):
-        _metal_snapshot(tape)
+        _sec("Gold and silver snapshot", GOLD)
+        _metal_live()
+        _metal_charts(_yf_close(tape, "GC=F"), _yf_close(tape, "SI=F"))
 
-    snap = _live_project(_debt_snapshot())
-    with st.container(border=True, key="ch_debt_snap"):
-        _debt_pills(snap)
+    _debt_live()
 
     with st.container(border=True, key="ch_dollar"):
         _dollar_since_2020()
@@ -1137,7 +1294,9 @@ def _render_nerd_body() -> None:
         _dollar_century()
 
     with st.container(border=True, key="ch_crypto"):
-        _crypto_five(tape)
+        _sec("Top five coins", PURPLE)
+        _crypto_live()
+        _crypto_chart(tape)
 
     with st.container(border=True, key="ch_m2"):
         _sec("M2", ACCENT)
@@ -1165,6 +1324,7 @@ def _render_nerd_body() -> None:
             )
             st.plotly_chart(fig, width="stretch", key="ch_m2_fig")
 
+    snap = _debt_snapshot()
     with st.container(border=True, key="ch_d2g"):
         _sec("Total public debt / GDP", BLUE)
         debt = snap.get("d2g")
@@ -1196,15 +1356,6 @@ def _render_nerd_body() -> None:
         _foreign_holders(snap)
 
 
-if hasattr(st, "fragment"):
-    @st.fragment(run_every=timedelta(seconds=30))
-    def _nerd_hut_live() -> None:
-        _render_nerd_body()
-else:
-    def _nerd_hut_live() -> None:
-        _render_nerd_body()
-
-
 def render_charts_tab() -> None:
     _css()
-    _nerd_hut_live()
+    _render_nerd_body()
