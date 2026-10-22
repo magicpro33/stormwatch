@@ -561,13 +561,22 @@ def _css() -> None:
   font-variant-numeric:tabular-nums}}
 .ch-pill.feature .ch-mval{{font-size:38px}}
 .ch-msub{{font-size:12px;color:{DIM};margin-top:4px;line-height:1.35}}
-.st-key-ch_m2{{border-left:5px solid {ACCENT} !important;border-radius:10px}}
-.st-key-ch_debt{{border-left:5px solid {BLUE} !important;border-radius:10px}}
-.st-key-ch_debt_snap{{border-left:5px solid {BLUE} !important;border-radius:10px}}
-.st-key-ch_foreign{{border-left:5px solid {GOLD} !important;border-radius:10px}}
-.st-key-ch_metal{{border-left:5px solid {GOLD} !important;border-radius:10px}}
-.st-key-ch_dollar100{{border-left:5px solid {RED} !important;border-radius:10px}}
-.st-key-ch_crypto{{border-left:5px solid {PURPLE} !important;border-radius:10px}}
+.st-key-ch_metal{{border-left:5px solid {GOLD} !important;border-radius:10px;
+  border-color:color-mix(in srgb,{GOLD} 45%,#3d6a94) !important}}
+.st-key-ch_debt_snap{{border-left:5px solid {BLUE} !important;border-radius:10px;
+  border-color:color-mix(in srgb,{BLUE} 45%,#3d6a94) !important}}
+.st-key-ch_dollar{{border-left:5px solid {RED} !important;border-radius:10px;
+  border-color:color-mix(in srgb,{RED} 45%,#3d6a94) !important}}
+.st-key-ch_dollar100{{border-left:5px solid {RED} !important;border-radius:10px;
+  border-color:color-mix(in srgb,{RED} 45%,#3d6a94) !important}}
+.st-key-ch_crypto{{border-left:5px solid {PURPLE} !important;border-radius:10px;
+  border-color:color-mix(in srgb,{PURPLE} 45%,#3d6a94) !important}}
+.st-key-ch_m2{{border-left:5px solid {ACCENT} !important;border-radius:10px;
+  border-color:color-mix(in srgb,{ACCENT} 45%,#3d6a94) !important}}
+.st-key-ch_d2g,.st-key-ch_debt{{border-left:5px solid {BLUE} !important;border-radius:10px;
+  border-color:color-mix(in srgb,{BLUE} 45%,#3d6a94) !important}}
+.st-key-ch_foreign{{border-left:5px solid {GOLD} !important;border-radius:10px;
+  border-color:color-mix(in srgb,{GOLD} 45%,#3d6a94) !important}}
 .ch-trend-h{{text-align:center;font-size:12px;font-weight:800;letter-spacing:.12em;
   text-transform:uppercase;color:{DIM};margin:16px 0 8px}}
 .ch-trend-note{{text-align:center;color:{RED};font-size:13px;line-height:1.5;
@@ -745,7 +754,7 @@ def _dollar_century() -> None:
         power, color=RED, y_title="Purchasing power of $1",
         y_prefix="$",
         hover="%{x|%b %Y}<br>$%{y:.3f} of that first dollar<extra></extra>",
-        height=400, slider=False,
+        height=420, slider=True,
         buttons=[
             dict(count=25, label="25Y", step="year", stepmode="backward"),
             dict(count=50, label="50Y", step="year", stepmode="backward"),
@@ -1130,9 +1139,6 @@ def _render_nerd_body() -> None:
     with st.container(border=True, key="ch_crypto"):
         _crypto_five(tape)
 
-    with st.container(border=True, key="ch_foreign"):
-        _foreign_holders(snap)
-
     with st.container(border=True, key="ch_m2"):
         _sec("M2", ACCENT)
         m2 = _try_series(M2_SID)
@@ -1164,27 +1170,30 @@ def _render_nerd_body() -> None:
         debt = snap.get("d2g")
         if debt is None or debt.empty:
             st.error("Could not load debt / GDP.")
-            return
-        last = float(debt.iloc[-1])
-        yoy_pp = _delta(debt, 4)
-        d1 = _delta(debt, 1)
-        yoy_col = RED if (yoy_pp or 0) >= 0 else GREEN
-        d1_col = RED if (d1 or 0) >= 0 else GREEN
-        peak = float(debt.max())
-        _metrics([
-            ("Quarterly print", f"{last:.1f}%", _quarter_label(debt.index[-1]), BLUE),
-            ("YoY", f"{yoy_pp:+.1f} pp" if yoy_pp is not None else "—",
-             "vs same quarter last year", yoy_col),
-            ("Quarter Δ", f"{d1:+.1f} pp" if d1 is not None else "—",
-             "vs prior quarter", d1_col),
-            ("Peak", f"{peak:.1f}%", _quarter_label(debt.idxmax()), GOLD),
-        ])
-        fig = _line_fig(
-            debt, color=BLUE, y_title="Percent of GDP",
-            y_suffix="%", y_mult=1.0,
-            hover="%{x|%b %Y}<br>%{y:.1f}% of GDP<extra></extra>",
-        )
-        st.plotly_chart(fig, width="stretch", key="ch_debt_fig")
+        else:
+            last = float(debt.iloc[-1])
+            yoy_pp = _delta(debt, 4)
+            d1 = _delta(debt, 1)
+            yoy_col = RED if (yoy_pp or 0) >= 0 else GREEN
+            d1_col = RED if (d1 or 0) >= 0 else GREEN
+            peak = float(debt.max())
+            _metrics([
+                ("Quarterly print", f"{last:.1f}%", _quarter_label(debt.index[-1]), BLUE),
+                ("YoY", f"{yoy_pp:+.1f} pp" if yoy_pp is not None else "—",
+                 "vs same quarter last year", yoy_col),
+                ("Quarter Δ", f"{d1:+.1f} pp" if d1 is not None else "—",
+                 "vs prior quarter", d1_col),
+                ("Peak", f"{peak:.1f}%", _quarter_label(debt.idxmax()), GOLD),
+            ])
+            fig = _line_fig(
+                debt, color=BLUE, y_title="Percent of GDP",
+                y_suffix="%", y_mult=1.0,
+                hover="%{x|%b %Y}<br>%{y:.1f}% of GDP<extra></extra>",
+            )
+            st.plotly_chart(fig, width="stretch", key="ch_debt_fig")
+
+    with st.container(border=True, key="ch_foreign"):
+        _foreign_holders(snap)
 
 
 if hasattr(st, "fragment"):

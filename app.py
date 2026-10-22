@@ -393,7 +393,7 @@ _TAB_COLOR = {
     "Crypto Copycat": "#C8F542",
     "Macro Sim": "#FF8FA3",
     "Cascade Map": "#2DD4BF",
-    "Nerd Hub": "#FFB020",
+    "Nerd Hub": "#C8F542",
     "TOP20": "#FFD15C",
     "Top 20 Scanner": "#FFD15C",
     "Apex Flow": "#7FD4FF",
@@ -6002,7 +6002,7 @@ with st.container(border=True, key="mw_page"):
             render_dividend_calendar_tab()
 
     if _main == "Nerd Hub":
-        _hub_title("🤓 Nerd Hub", "#FFB020")
+        _hub_title("🤓 Nerd Hub", "#C8F542")
         if _CH_ERR is not None or render_charts_tab is None:
             st.error(f"Nerd Hub failed to load: {_CH_ERR}")
         else:
