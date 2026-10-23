@@ -582,12 +582,15 @@ def _menu_category_css() -> str:
         "font-size:24px;font-weight:700;color:#EAF2FF;letter-spacing:.02em;"
         "box-shadow:0 8px 32px rgba(0,0,0,0.35)}"
         ".hub-title-pop{display:inline-block;margin-top:10px;padding:6px 16px;"
-        "border-radius:999px;border:1px solid #F0A6FF;"
-        "background:rgba(240,166,255,0.14);color:#F8D7FF;"
+        "border-radius:999px;border:1px solid var(--tc,#F0A6FF);"
+        "background:color-mix(in srgb,var(--tc,#F0A6FF) 18%,transparent);"
+        "color:var(--tc,#F8D7FF);"
         "font-size:12px;font-weight:800;letter-spacing:.16em;"
         "text-transform:uppercase;"
-        "text-shadow:0 0 8px rgba(240,166,255,.95),0 0 22px rgba(240,166,255,.5);"
-        "box-shadow:0 0 18px rgba(240,166,255,.45),inset 0 0 12px rgba(240,166,255,.12)}"
+        "text-shadow:0 0 8px color-mix(in srgb,var(--tc,#F0A6FF) 90%,transparent),"
+        "0 0 22px color-mix(in srgb,var(--tc,#F0A6FF) 50%,transparent);"
+        "box-shadow:0 0 18px color-mix(in srgb,var(--tc,#F0A6FF) 45%,transparent),"
+        "inset 0 0 12px color-mix(in srgb,var(--tc,#F0A6FF) 12%,transparent)}"
     )
     rules.append(
         ".hub-sec{background:rgba(255,255,255,0.05);"
@@ -4038,7 +4041,10 @@ def _help_card(title, blurb, body, use="", color="#7FD4FF", pop=""):
                  f"<b>Use when</b> · {_esc(use)}</div>")
     pop_html = ""
     if pop:
-        pop_html = f'<div class="hub-title-pop" style="margin:8px 0 10px">{_esc(pop)}</div>'
+        pop_html = (
+            f'<div class="hub-title-pop" style="margin:8px 0 10px;--tc:{color}">'
+            f'{_esc(pop)}</div>'
+        )
     _md_html(
         f"<div style='background:#0c1829;border:1px solid #3d6a94;"
         f"border-left:4px solid {color};border-radius:12px;"
@@ -4079,7 +4085,8 @@ def _render_scan_hub_help():
         st.session_state["hub_help_sec"] = "Catalysts and Filters"
     sec = st.radio(
         "Jump to",
-        ["Scanners", "Apex Flow", "Lenses", "Catalysts and Filters", "ShakeOut"],
+        ["Scanners", "Apex Flow", "POC Future", "Lenses",
+         "Catalysts and Filters", "ShakeOut"],
         horizontal=True, key="hub_help_sec")
 
     if sec == "Scanners":
@@ -4200,6 +4207,39 @@ def _render_scan_hub_help():
             "filter working as designed, but it means the list is less diversified "
             "than it looks — size accordingly.\n\n"
             "Research tool. Probability tilts, not prophecy. Not investment advice.")
+        return
+
+    if sec == "POC Future":
+        _hub_sec("🎯 What this is, and what the testing actually showed",
+                 "#6EE7B7", "Point of Control — the long-only spring")
+        st.markdown(
+            "**The three acts**\n"
+            "1. **Accumulation** — price coils. The whole high-low range over "
+            "the lookback is no wider than a set number of ATRs.\n"
+            "2. **Manipulation** — price sweeps *below* the range, taking the "
+            "stops resting under it, then fails to hold down there.\n"
+            "3. **Distribution** — price closes back inside and reclaims the "
+            "**POC** (Point of Control), the price where the coil did most of "
+            "its volume. That reclaim is the entry; stop goes below the sweep; "
+            "target is the far side of the range.\n\n"
+            "**What your backtest found** (carried over from the script)\n"
+            "- Long, POC reclaim, accumulation length 15: **1,175 trades, "
+            "77.8% hit, +0.178R, PF 1.83** — positive in 10 of 10 months, "
+            "both ticker halves, both date halves, and 21 of 21 parameter "
+            "combinations.\n"
+            "- **Shorts lost money in every configuration tested** (−0.08R to "
+            "−0.26R), so this scanner is long-only.\n"
+            "- Fills were modelled at the **next bar's open** with a 10bp "
+            "round trip. Filling at the signal bar's close flattered it from "
+            "−0.057R to +0.147R — the difference between an edge and reading "
+            "the future.\n"
+            "- The **84% re-entry rule did not reproduce**: second entries came "
+            "in at 25–31% across every window tested, never near 84%.\n\n"
+            "**Honest limits.** The sample is ~11 months of one regime, and the "
+            "September-2026 replication covers the same window shifted a day — "
+            "a replication, not an out-of-sample test. Daily bars only; the "
+            "method is usually traded intraday and that is untested here. The "
+            "low R:R is by design: these win on hit rate, not payoff.")
         return
 
     if sec == "Lenses":
@@ -6363,7 +6403,7 @@ with st.container(border=True, key="mw_page"):
 
     # ── 🎯 POC Future — AMD accumulation / manipulation / distribution ────
     if _main == "Scan Hub" and _hub == "POC Future":
-        _hub_title("🎯 POC Future", "#6EE7B7")
+        _hub_title("🎯 POC Future", "#6EE7B7", tagline="Point of Control")
         _hub_keep_restore("poc", ("poc_",))
         closes, asof = _try_closes_for_scan()
         GAUGE = _gauge()
@@ -6599,37 +6639,6 @@ with st.container(border=True, key="mw_page"):
                                                source="POC Future")
             else:
                 st.info("Hit **Scan for setups** to build the list. Nothing is fetched until then.")
-
-            if not _poc_basic:
-                with st.expander("❓ What this is, and what the testing actually showed"):
-                    st.markdown(
-                        "**The three acts**\n"
-                        "1. **Accumulation** — price coils. The whole high-low range over "
-                        "the lookback is no wider than a set number of ATRs.\n"
-                        "2. **Manipulation** — price sweeps *below* the range, taking the "
-                        "stops resting under it, then fails to hold down there.\n"
-                        "3. **Distribution** — price closes back inside and reclaims the "
-                        "**POC**, the price where the coil did most of its volume. That "
-                        "reclaim is the entry; stop goes below the sweep; target is the "
-                        "far side of the range.\n\n"
-                        "**What your backtest found** (carried over from the script)\n"
-                        "- Long, POC reclaim, accumulation length 15: **1,175 trades, "
-                        "77.8% hit, +0.178R, PF 1.83** — positive in 10 of 10 months, "
-                        "both ticker halves, both date halves, and 21 of 21 parameter "
-                        "combinations.\n"
-                        "- **Shorts lost money in every configuration tested** (−0.08R to "
-                        "−0.26R), so this scanner is long-only.\n"
-                        "- Fills were modelled at the **next bar's open** with a 10bp "
-                        "round trip. Filling at the signal bar's close flattered it from "
-                        "−0.057R to +0.147R — the difference between an edge and reading "
-                        "the future.\n"
-                        "- The **84% re-entry rule did not reproduce**: second entries came "
-                        "in at 25–31% across every window tested, never near 84%.\n\n"
-                        "**Honest limits.** The sample is ~11 months of one regime, and the "
-                        "September-2026 replication covers the same window shifted a day — "
-                        "a replication, not an out-of-sample test. Daily bars only; the "
-                        "method is usually traded intraday and that is untested here. The "
-                        "low R:R is by design: these win on hit rate, not payoff.")
 
         _hub_keep_save("poc", ("poc_",))
 
