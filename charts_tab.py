@@ -585,6 +585,26 @@ def _metrics(items: list[tuple[str, str, str, str]]) -> None:
             for a, b, c, d in items])
 
 
+def _plotly(fig, key: str) -> None:
+    """Keep Plotly hover labels — Streamlit's default theme can hide them."""
+    kw = dict(
+        width="stretch", key=key,
+        config={"displayModeBar": False, "responsive": True},
+    )
+    try:
+        st.plotly_chart(fig, theme=None, **kw)
+    except TypeError:
+        st.plotly_chart(fig, **kw)
+
+
+def _hoverlabel(color: str) -> dict:
+    return dict(
+        bgcolor="#0c1829",
+        bordercolor=color,
+        font=dict(color=INK, family="JetBrains Mono, monospace", size=12),
+    )
+
+
 def _line_fig(s: pd.Series, *, color: str, y_title: str, hover: str,
               y_prefix: str = "", y_suffix: str = "", y_mult: float = 1.0,
               height: int = 420, buttons=None, slider: bool = True,
@@ -617,9 +637,17 @@ def _line_fig(s: pd.Series, *, color: str, y_title: str, hover: str,
         font=dict(color=INK, family="JetBrains Mono, monospace", size=12),
         showlegend=False,
         margin=dict(l=12, r=12, t=28, b=8),
+        hovermode="x unified",
+        hoverlabel=_hoverlabel(color),
         xaxis=dict(
             gridcolor="#1e3a5f",
             zeroline=False,
+            showspikes=True,
+            spikemode="across",
+            spikesnap="cursor",
+            spikecolor=DIM,
+            spikethickness=1,
+            spikedash="dot",
             rangeselector=dict(
                 buttons=buttons,
                 bgcolor="#122a42",
@@ -638,7 +666,6 @@ def _line_fig(s: pd.Series, *, color: str, y_title: str, hover: str,
             ticksuffix=y_suffix,
             separatethousands=True,
         ),
-        hovermode="x unified",
     )
     return fig
 
@@ -815,7 +842,7 @@ def _metal_charts(gold: pd.Series, silver: pd.Series) -> None:
                 y_prefix="$", hover="%{x|%b %d, %Y}<br>$%{y:,.0f} / oz<extra></extra>",
                 height=340, slider=False,
             )
-            st.plotly_chart(fig, width="stretch", key="ch_gold_fig")
+            _plotly(fig, "ch_gold_fig")
     with c2:
         if silver is not None and len(silver):
             fig = _line_fig(
@@ -823,7 +850,7 @@ def _metal_charts(gold: pd.Series, silver: pd.Series) -> None:
                 y_prefix="$", hover="%{x|%b %d, %Y}<br>$%{y:,.2f} / oz<extra></extra>",
                 height=340, slider=False,
             )
-            st.plotly_chart(fig, width="stretch", key="ch_silver_fig")
+            _plotly(fig, "ch_silver_fig")
 
 
 def _dollar_century() -> None:
@@ -875,7 +902,7 @@ def _dollar_century() -> None:
             dict(step="all", label="100Y"),
         ],
     )
-    st.plotly_chart(fig, width="stretch", key="ch_dollar100_fig")
+    _plotly(fig, "ch_dollar100_fig")
     _html(
         f"<div class='ch-trend-note'>"
         f"A dollar parked in {cpi.index[0].year} still spends like "
@@ -925,46 +952,73 @@ def _crypto_pills(rows: list) -> None:
 
 def _crypto_chart(px: pd.DataFrame) -> None:
     import plotly.graph_objects as go
+
+    now = pd.Timestamp.now().tz_localize(None)
+    cut = now - pd.DateOffset(years=5)
     fig = go.Figure()
-    cut = pd.Timestamp.now().tz_localize(None) - pd.DateOffset(years=5)
     any_trace = False
+    x0 = x1 = None
     for ticker, name, color in CRYPTO_FIVE:
-        s = _naive_index(_yf_close(px, ticker))
-        window = s[s.index >= cut].dropna() if len(s) else s
-        if len(window) < 2:
-            window = s.dropna()
-        if len(window) < 2:
+        s = _naive_index(_yf_close(px, ticker)).dropna()
+        if len(s) < 2:
             continue
         any_trace = True
         fig.add_trace(go.Scatter(
-            x=window.index, y=window.values,
+            x=s.index, y=s.values,
             mode="lines",
             line=dict(color=color, width=2.2),
             name=name,
             hovertemplate=name + "<br>%{x|%b %d, %Y}<br>$%{y:,.2f}<extra></extra>",
         ))
+        first, last = s.index[0], s.index[-1]
+        x0 = first if x0 is None or first < x0 else x0
+        x1 = last if x1 is None or last > x1 else x1
     if not any_trace:
         return
+    view0 = cut if (x0 is None or cut > x0) else x0
     fig.update_layout(
-        height=400,
+        height=460,
         template="plotly_dark",
         paper_bgcolor=PAPER,
         plot_bgcolor=NAVY,
         font=dict(color=INK, family="JetBrains Mono, monospace", size=12),
         legend=dict(orientation="h", yanchor="bottom", y=1.08,
                     xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"),
-        margin=dict(l=12, r=12, t=36, b=8),
-        xaxis=dict(gridcolor="#1e3a5f", zeroline=False),
+        margin=dict(l=12, r=12, t=72, b=8),
+        hovermode="x unified",
+        hoverlabel=_hoverlabel(PURPLE),
+        xaxis=dict(
+            gridcolor="#1e3a5f", zeroline=False,
+            range=[view0, x1 or now],
+            showspikes=True, spikemode="across", spikesnap="cursor",
+            spikecolor=DIM, spikethickness=1, spikedash="dot",
+            rangeselector=dict(
+                buttons=[
+                    dict(count=3, label="3M", step="month", stepmode="backward"),
+                    dict(count=6, label="6M", step="month", stepmode="backward"),
+                    dict(count=1, label="1Y", step="year", stepmode="backward"),
+                    dict(count=2, label="2Y", step="year", stepmode="backward"),
+                    dict(count=5, label="5Y", step="year", stepmode="backward"),
+                    dict(step="all", label="All"),
+                ],
+                bgcolor="#122a42",
+                activecolor=PURPLE,
+                font=dict(color=INK, size=11),
+                x=1, y=1.24, xanchor="right",
+            ),
+            rangeslider=dict(visible=True, thickness=0.10,
+                             bgcolor="#0a1624", bordercolor=LINE),
+        ),
         yaxis=dict(title="Price", type="log", tickprefix="$",
                    gridcolor="#1e3a5f", zeroline=False),
-        hovermode="x unified",
     )
-    st.plotly_chart(fig, width="stretch", key="ch_crypto_fig")
+    _plotly(fig, "ch_crypto_fig")
     _html(
         "<div class='ch-trend-h'>Price over five years</div>"
         "<div class='ch-trend-note' style='color:#9aa8bd'>"
         "Log scale so a one-dollar coin and an eighty-thousand-dollar coin "
-        "can share the same tape. Hover a date for the dollar price."
+        "can share the same tape. Drag the bar under the tape, or the 3M–All "
+        "buttons, to change the window. Hover a date for the dollar price."
         "</div>"
     )
 
@@ -1111,7 +1165,7 @@ def _holder_bars(rows: list[tuple[str, float]]) -> None:
                    zeroline=False, ticksuffix="T", tickprefix="$"),
         yaxis=dict(gridcolor="#1e3a5f", zeroline=False),
     )
-    st.plotly_chart(fig, width="stretch", key="ch_foreign_fig")
+    _plotly(fig, "ch_foreign_fig")
 
 
 def _foreign_holders(snap: dict) -> None:
@@ -1322,7 +1376,7 @@ def _render_nerd_body() -> None:
                 y_prefix="$", y_suffix="T", y_mult=0.001,
                 hover="%{x|%b %Y}<br>$%{y:.2f}T<extra></extra>",
             )
-            st.plotly_chart(fig, width="stretch", key="ch_m2_fig")
+            _plotly(fig, "ch_m2_fig")
 
     snap = _debt_snapshot()
     with st.container(border=True, key="ch_d2g"):
@@ -1350,7 +1404,7 @@ def _render_nerd_body() -> None:
                 y_suffix="%", y_mult=1.0,
                 hover="%{x|%b %Y}<br>%{y:.1f}% of GDP<extra></extra>",
             )
-            st.plotly_chart(fig, width="stretch", key="ch_debt_fig")
+            _plotly(fig, "ch_debt_fig")
 
     with st.container(border=True, key="ch_foreign"):
         _foreign_holders(snap)
