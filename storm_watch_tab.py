@@ -536,14 +536,14 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     # ── defaults (Basic) ────────────────────────────────────────────
     min_sh = BASIC_MIN_SHAKEOUT
     n_show = BASIC_N_SHOW
-    lens_token = None
+    lens_token = "off"
     lens_txt = "no macro lens"
     regkey = None
     sec_filter = None
     lb, off, flbl = 1, 0, "last session"
     hot_now: list[str] = []
 
-    if render_macro_lens is not None:
+    if advanced and render_macro_lens is not None:
         _hub_sec("2 · Macro lens", "#FF8FA3", "tilt the ranking, not the coil")
         with st.container(border=True, key="sw_lens_box"):
             pack = render_macro_lens()
@@ -609,7 +609,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                               else list(picked))
                 if sec_filter:
                     st.caption(f"🎯 Scanning {len(sec_filter)} of {len(all_secs)} sectors.")
-                with st.expander("🔥 Where the money went in the last session"):
+                with st.expander("Where the money went"):
                     try:
                         fl = ce.sector_flow(lookback=lb, offset=off)
                     except Exception as fe:
@@ -645,7 +645,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                 "How many stocks", list(range(8, 44, 4)),
                 index=1, key="sw_n_show", help=HELP["n_show"])
 
-    if mw and render_macro_lens is None:
+    if advanced and mw and render_macro_lens is None:
         import cascade_engine as ce
         regkey, lens_txt = _resolve_lens(lens_token, closes, gauge)
 
