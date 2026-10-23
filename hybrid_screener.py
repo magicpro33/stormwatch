@@ -1108,19 +1108,11 @@ def render_hybrid_screener() -> None:
                         "Names": st.column_config.Column(help="Liquid names in the sector. Sectors under 15 are excluded as too thin to read."),
                     })
 
-        r2 = st.columns([1.4, 1, 1, 1.2])
-        ma50_mode = r2[0].radio(
-            "50-day MA", ["off", "below", "above"], horizontal=True, key=_k("ma50"),
-            format_func=lambda x: {
-                "off": "No MA50 filter",
-                "below": "Below MA50 (pullbacks)",
-                "above": "Above MA50 (uptrends)",
-            }[x],
-        )
-        use_range = r2[1].toggle("Tight range", key=_k("range"),
+        r2 = st.columns([1, 1, 1.2])
+        use_range = r2[0].toggle("Tight range", key=_k("range"),
                                  help="Keep names whose high–low spread is under Max range %.")
-        range_days = r2[2].slider("Range lookback (days)", 5, 180, step=5, key=_k("range_days"))
-        range_pct = r2[3].slider("Max range width (%)", 1.0, 30.0, step=0.5,
+        range_days = r2[1].slider("Range lookback (days)", 5, 180, step=5, key=_k("range_days"))
+        range_pct = r2[2].slider("Max range width (%)", 1.0, 30.0, step=0.5,
                                  key=_k("range_pct"), disabled=not use_range)
 
         r3 = st.columns([1, 1.4, 1, 1.2])
@@ -1148,6 +1140,15 @@ def render_hybrid_screener() -> None:
     _hub_sec("3 · Metric weights", "#6EE7B7", "toggle a factor and set its weight")
     with st.expander("📊 Metric weights", expanded=False):
         st.caption("Toggle a factor and set its weight in the hybrid score (0–5).")
+        ma50_mode = st.radio(
+            "50-day MA", ["off", "below", "above"], horizontal=True, key=_k("ma50"),
+            format_func=lambda x: {
+                "off": "No MA50 filter",
+                "below": "Below MA50 (pullbacks)",
+                "above": "Above MA50 (uptrends)",
+            }[x],
+            help="Keep names below the 50-day MA (pullbacks), above it "
+                 "(uptrends), or skip the filter.")
         for title, keys in _METRIC_GROUPS:
             st.markdown(f"**{title}**")
             for key in keys:
@@ -1162,6 +1163,7 @@ def render_hybrid_screener() -> None:
     for key in METRICS:
         enabled[key] = bool(st.session_state.get(_k(f"tog_{key}"), False))
         weights[key] = float(st.session_state.get(_k(f"wt_{key}"), 0.0) or 0.0)
+    ma50_mode = st.session_state.get(_k("ma50"), "below")
 
     _hub_sec("4 · Catalysts and Filters", "#FFB020")
     _preset_thatbiz = bool(st.session_state.get(_k("gate_thatbiz")))
@@ -1365,9 +1367,9 @@ def render_hybrid_screener() -> None:
 
     label = st.session_state.get("_hs_sector", "All Sectors")
     _hub_sec(f"5 · Top {len(display)}", "#F0A6FF", label)
-    st.caption("Click a ticker above, or a row in the table below, to open it "
-               "in Stock Lookup — that also saves it to your watchlist, same "
-               "as the other scanners.")
+    st.caption("Click a ticker above, or a row in the table below, to open the "
+               "chart, cards, and company profile under the list — same display "
+               "as TOP20, Apex, and ShakeOut. That also saves it to your watchlist.")
 
     tickers = list(display["Ticker"]) if "Ticker" in display.columns else []
     if tickers:

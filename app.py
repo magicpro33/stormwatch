@@ -581,6 +581,13 @@ def _menu_category_css() -> str:
         "border-radius:20px;padding:16px 22px;margin:4px 0 14px;text-align:center;"
         "font-size:24px;font-weight:700;color:#EAF2FF;letter-spacing:.02em;"
         "box-shadow:0 8px 32px rgba(0,0,0,0.35)}"
+        ".hub-title-pop{display:inline-block;margin-top:10px;padding:6px 16px;"
+        "border-radius:999px;border:1px solid #F0A6FF;"
+        "background:rgba(240,166,255,0.14);color:#F8D7FF;"
+        "font-size:12px;font-weight:800;letter-spacing:.16em;"
+        "text-transform:uppercase;"
+        "text-shadow:0 0 8px rgba(240,166,255,.95),0 0 22px rgba(240,166,255,.5);"
+        "box-shadow:0 0 18px rgba(240,166,255,.45),inset 0 0 12px rgba(240,166,255,.12)}"
     )
     rules.append(
         ".hub-sec{background:rgba(255,255,255,0.05);"
@@ -599,6 +606,7 @@ def _menu_category_css() -> str:
         ("apex_sectors_box", "#6EE7B7"),
         ("apex_cat_box", "#A78BFA"),
         ("poc_controls", "#7FD4FF"),
+        ("poc_lens_box", "#C8F542"),
         ("poc_sectors_box", "#6EE7B7"),
         ("poc_cat_box", "#A78BFA"),
         ("sw_mode_box", "#FFD15C"),
@@ -1052,6 +1060,46 @@ def _poc_scan(asof: str, stages: tuple, top: int, accum_len: int,
     return pfut.scan(stages=stages, top=top, accum_len=accum_len,
                      max_range_atr=max_range_atr, max_bars_ago=max_bars_ago,
                      only_sectors=secs)
+
+
+def _poc_apply_macro(df, pack):
+    """Re-order POC setups that already passed. Does not change Win% / ExpR."""
+    if df is None or getattr(df, "empty", True):
+        return df
+    tilts = (pack or {}).get("tilts")
+    confirm = float((pack or {}).get("confirm") or 1.0)
+    regkey = (pack or {}).get("regkey")
+    if not (pack or {}).get("apply_macro") or not (tilts or regkey):
+        return df
+    out = df.copy()
+    if regkey and hasattr(ce, "lens_multipliers"):
+        try:
+            dump_i = ce.dump_industries()
+            _, tks, *_rest = ce.load_dump_panel()
+            imap = {str(t): i for i, t in enumerate(tks)}
+            inds = [dump_i[imap[t]] if t in imap else ""
+                    for t in out["Ticker"].astype(str)]
+        except Exception:
+            inds = [""] * len(out)
+        out["Macro"] = np.round(
+            ce.lens_multipliers(regkey, out["Sector"].astype(str).tolist(),
+                                inds, confirm), 2)
+    else:
+        out["Macro"] = out["Sector"].map(
+            lambda s: float((tilts or {}).get(str(s), 1.0)))
+    order = {"TRIGGERED": 0, "SWEPT": 1, "COILING": 2}
+    if "Stage" in out.columns:
+        out["_o"] = out["Stage"].map(lambda s: order.get(str(s), 9))
+        sort_cols = ["Macro", "_o"]
+        asc = [False, True]
+        if "BarsAgo" in out.columns:
+            sort_cols.append("BarsAgo"); asc.append(True)
+        if "RangeATR" in out.columns:
+            sort_cols.append("RangeATR"); asc.append(True)
+        out = out.sort_values(sort_cols, ascending=asc).drop(columns=["_o"])
+    else:
+        out = out.sort_values("Macro", ascending=False)
+    return out.reset_index(drop=True)
 
 
 @st.cache_data(ttl=1800, show_spinner="🎩 Running the five-test quality checklist on all 5,700 stocks…")
@@ -3069,7 +3117,7 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
 _HUB_KEEP_FLAGS = {
     "top20_go", "t20_live", "sw_go", "apex_run", "poc_run", "kw_run", "te_run",
     "macro_advice_on", "hs_gate_thatbiz",
-    "top20_advice_on", "apex_advice_on", "sw_advice_on",
+    "top20_advice_on", "apex_advice_on", "sw_advice_on", "poc_advice_on",
 }
 
 # Real checkboxes / toggles — the only bools safe to persist.
@@ -3103,6 +3151,8 @@ _HUB_KEEP_SKIP = {
     "apex_inline", "apex_inline_tk", "apex_go", "apex_hot", "apex_table", "apex_csv",
     "poc_run", "poc_snap", "poc_run_sig", "poc_inline", "poc_inline_tk",
     "poc_go", "poc_hot_btn", "poc_diag", "poc_table",
+    "poc_advise", "poc_apply",
+    "hs_detail", "ig_detail",
     "sw_go", "sw_snap", "sw_sel_tk", "sw_run", "sw_clear", "sw_hot_btn",
     "sw_table", "sw_download", "sw_inline", "sw_inline_tk",
     "ig_last_results", "ig_alerts", "ig_alerted", "ig_screener_pre",
@@ -3128,7 +3178,7 @@ _HUB_BUTTON_KEYS = {
     "sw_run", "sw_clear", "sw_hot_btn", "sw_download",
     "macro_advise", "macro_apply",
     "top20_advise", "top20_apply", "apex_advise", "apex_apply",
-    "sw_advise", "sw_apply",
+    "sw_advise", "sw_apply", "poc_advise", "poc_apply",
     "top20_run", "top20_live", "top20_hot_btn",
     "apex_go", "apex_hot", "apex_csv",
     "poc_go", "poc_hot_btn",
@@ -3358,10 +3408,18 @@ def _t20_css():
 </style>""")
 
 
-def _hub_title(text, color=None):
+def _hub_title(text, color=None, tagline=""):
     """Scan Hub tab banner: icon, title, and a border in that tab's color."""
     color = _tab_color(text, color or "#FFD15C")
-    _md_html(f'<div class="hub-title" style="--tc:{color}">{_esc(text)}</div>')
+    extra = ""
+    if tagline:
+        extra = (
+            f'<div class="hub-title-pop">{_esc(tagline)}</div>'
+        )
+    _md_html(
+        f'<div class="hub-title" style="--tc:{color}">'
+        f'<div>{_esc(text)}</div>{extra}</div>'
+    )
 
 
 def _hub_sec(title, color, sub=""):
@@ -3973,17 +4031,20 @@ def _render_lookup_news(tk: str, name: str = "") -> None:
             _md_html(_news_items_html(other, MIX_COLOR, "#c47d0e", "#221800", "MIX", "None."))
 
 
-def _help_card(title, blurb, body, use="", color="#7FD4FF"):
+def _help_card(title, blurb, body, use="", color="#7FD4FF", pop=""):
     extra = ""
     if use:
         extra = (f"<div style='margin-top:8px;font-size:12.5px;color:{color}'>"
                  f"<b>Use when</b> · {_esc(use)}</div>")
+    pop_html = ""
+    if pop:
+        pop_html = f'<div class="hub-title-pop" style="margin:8px 0 10px">{_esc(pop)}</div>'
     _md_html(
         f"<div style='background:#0c1829;border:1px solid #3d6a94;"
         f"border-left:4px solid {color};border-radius:12px;"
         f"padding:12px 16px;margin:0 0 10px'>"
         f"<div style='font-weight:800;font-size:16px;letter-spacing:.2px'>"
-        f"{_esc(title)}</div>"
+        f"{_esc(title)}</div>{pop_html}"
         f"<div style='color:{color};font-size:13px;font-weight:650;"
         f"margin:4px 0 8px'>{_esc(blurb)}</div>"
         f"<div style='color:{DIM};font-size:13.5px;line-height:1.55'>"
@@ -4073,9 +4134,12 @@ def _render_scan_hub_help():
             "you to 3 Magic Rules (pricing power, hard-to-copy moat, not a "
             "mountain of debt), Clean Setup, Felix quality, short-squeeze, "
             "range-low, volume, breakout, insider, or recent IPO. Toggle "
-            "factors and weights in Advanced.",
+            "factors and weights in menu 3, including the 50-day MA filter. "
+            "Tap a row to open the same chart, cards, and company profile "
+            "the other scanners use.",
             "You want to build or reuse a fundamental + tape checklist.",
-            color="#F0A6FF")
+            color="#F0A6FF",
+            pop="Most advanced stock screener")
         _help_card(
             "🔥 Ignition Scanner",
             "Live names in the money zone.",
@@ -5149,16 +5213,17 @@ with st.container(border=True, key="mw_page"):
 
     # ── 📊 hybrid screener (nightly-dump filters from magicpro33/stock) ──
     if _main == "Scan Hub" and _hub == "Hybrid Screener":
-        _hub_title("📊 Hybrid Screener", "#F0A6FF")
+        _hub_title("📊 Hybrid Screener", "#F0A6FF",
+                   tagline="Most advanced stock screener")
         _hub_keep_restore("hs", ("hs_",))
-        _try_closes()
+        _try_closes_for_scan()
         if _HS_ERR is not None or hs is None:
             st.error(f"Hybrid Screener failed to load: {_HS_ERR}")
         else:
             hs.render_hybrid_screener()
-            _htk = st.session_state.get("hs_inline")
-            if _htk:
-                _render_scan_hub_detail(_htk, "hs_inline", "hsaz")
+            _htk = str(st.session_state.get("hs_inline") or "").strip().upper()
+            if _htk and _htk.lower() not in ("nan", "none"):
+                _render_scan_hub_detail(_htk, "hs_detail", "hsaz", closable=False)
         _hub_keep_save("hs", ("hs_",))
 
 
@@ -5166,11 +5231,14 @@ with st.container(border=True, key="mw_page"):
     if _main == "Scan Hub" and _hub == "Ignition Scanner":
         _hub_title("🔥 Ignition Scanner", "#C8F542")
         _hub_keep_restore("ig", ("ig_",))
+        _try_closes_for_scan()
         if _IG_ERR is not None or render_ignition_scanner_tab is None:
             st.error(f"Ignition Scanner failed to load: {_IG_ERR}")
             st.caption("Put ignition_scanner.py next to app.py, then reboot.")
         else:
-            render_ignition_scanner_tab()
+            render_ignition_scanner_tab(
+                render_detail=lambda tk: _render_scan_hub_detail(
+                    tk, "ig_detail", "igaz", closable=False))
         _hub_keep_save("ig", ("ig_",))
 
 
@@ -6297,7 +6365,8 @@ with st.container(border=True, key="mw_page"):
     if _main == "Scan Hub" and _hub == "POC Future":
         _hub_title("🎯 POC Future", "#6EE7B7")
         _hub_keep_restore("poc", ("poc_",))
-        _try_closes()
+        closes, asof = _try_closes_for_scan()
+        GAUGE = _gauge()
         if _POC_ERR:
             st.error(f"⚠️ **poc_future.py missing** — {_POC_ERR}. Push it alongside "
                      "app.py, cascade_engine.py and apex_flow.py, then reboot. "
@@ -6358,9 +6427,21 @@ with st.container(border=True, key="mw_page"):
                                                "ATRs. Lower = tighter, rarer bases.")
 
             if _poc_basic:
+                _poc_pack = {
+                    "token": "off", "apply_macro": False, "override": None,
+                    "regkey": None, "confirm": 1.0, "tilts": None,
+                    "label": "no macro lens",
+                }
                 _sec_filter = None
                 _p_lbl = "last session"
             else:
+                _hub_sec("2 · Macro lens", "#C8F542", "tilt names that already passed")
+                with _hub_pill("poc_lens_box"):
+                    _poc_pack = _render_macro_lens_block(
+                        "poc", asof, closes, GAUGE,
+                        help_extra=" The lens re-orders setups that already passed "
+                                   "the coil / sweep / reclaim gates. It does not "
+                                   "change Win% or ExpR.")
                 _poc_pending = st.session_state.pop("_poc_sectors_pending", None)
                 if _poc_pending:
                     st.session_state["poc_sectors"] = _poc_pending
@@ -6368,7 +6449,7 @@ with st.container(border=True, key="mw_page"):
                     _poc_secs = _apex_sector_list(asof)
                 except Exception:
                     _poc_secs = []
-                _hub_sec("2 · Session and sectors", "#6EE7B7", "where the money is going")
+                _hub_sec("3 · Session and sectors", "#6EE7B7", "where the money is going")
                 with _hub_pill("poc_sectors_box"):
                     _p_lb, _p_off, _p_lbl = flow_window_picker("poc")
                     _hs1, _hs2 = st.columns([1, 3])
@@ -6406,16 +6487,19 @@ with st.container(border=True, key="mw_page"):
             _poc_sig = (tuple(_stage_pick or ["TRIGGERED"]), int(_poc_top),
                         int(_accum), float(_rng), int(_poc_fresh),
                         tuple(sorted(_sec_filter)) if _sec_filter else ())
-            _hub_sec("3 · Catalysts and Filters", "#A78BFA")
+            _hub_sec("4 · Catalysts and Filters" if not _poc_basic
+                     else "2 · Catalysts and Filters", "#A78BFA")
             _poc_cat = _catalysts_section("poc", cat_color="#A78BFA", pill_key="poc_cat_box")
             _poc_stage = ", ".join(_stage_pick or ["TRIGGERED"]).title()
             _poc_sec_txt = (f", limited to {len(_sec_filter)} sectors ({_p_lbl})"
                             if _sec_filter else "")
+            _poc_lens_txt = _poc_pack.get("label") or "no macro lens"
             _rank_banner(
                 f"Hunting <b style='color:{ACCENT};'>{_esc(_poc_stage)}</b> "
                 f"by POC reclaim, coil {_accum} bars / {_rng:.1f} ATR, "
                 f"fresh within {_poc_fresh} bars, top <b>{int(_poc_top)}</b>"
-                f"{_poc_sec_txt}{_rank_filters_html('poc')}.",
+                f"{_poc_sec_txt}, through <b style='color:{ACCENT};'>"
+                f"{_esc(_poc_lens_txt)}</b>{_rank_filters_html('poc')}.",
                 "#6EE7B7")
             if st.button("🎯 Scan for setups", type="primary", key="poc_go",
                          width="stretch"):
@@ -6449,6 +6533,7 @@ with st.container(border=True, key="mw_page"):
                             "range, or check back after the next dump.")
                 else:
                     _pdf = _with_catalysts(_pdf, _poc_cat, safe_key="poc")
+                    _pdf = _poc_apply_macro(_pdf, _poc_pack)
                     if _pdf is None or _pdf.empty:
                         st.info(_filter_hid_msg("poc", "setup"))
                     else:
@@ -6487,9 +6572,11 @@ with st.container(border=True, key="mw_page"):
                             width="stretch", hide_index=True, height=620,
                             on_select="rerun", selection_mode="single-row", key="poc_table",
                             column_order=_order_with_cat(
-                                ["Ticker", "Sector", "Stage", "Price", "POC",
-                                 "ToPOC%", "Entry", "Stop", "Target",
-                                 "Win%", "ExpR"],
+                                ["Ticker", "Sector"]
+                                + (["Macro"] if "Macro" in _pdf.columns else [])
+                                + ["Stage", "Price", "POC",
+                                   "ToPOC%", "Entry", "Stop", "Target",
+                                   "Win%", "ExpR"],
                                 _pdf),
                             column_config={
                                 "#": _rank_col_cfg(),

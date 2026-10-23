@@ -2172,11 +2172,13 @@ def _source_option_label(option, feeds, watch_n):
     return option
 
 
-def render_ignition_scanner_tab():
+def render_ignition_scanner_tab(render_detail=None):
     """Scan Hub tab — IGNITION momentum scanner.
 
     Controls render immediately. The live scan (Alpaca/Yahoo per ticker)
     runs only after you hit **Scan**. Results stay until the next Scan.
+    Pass render_detail(ticker) from Money Maker so the pick uses the same
+    chart / cards / company profile as TOP20, Apex, and ShakeOut.
     """
     # Card/banner CSS only — skip page/tab chrome that would restyle Money
     # Weather. The .stTabs rules below are vestigial here: this module never
@@ -3445,474 +3447,477 @@ def render_ignition_scanner_tab():
         # ── helper renderers ────────────────────────────────────────────
         # helpers and fetch_analyzer defined at module level
 
-        info, hist, eps_history, eps_forward = fetch_analyzer(az_ticker)
+        if callable(render_detail):
+            render_detail(str(az_ticker).strip().upper())
+        else:
+            info, hist, eps_history, eps_forward = fetch_analyzer(az_ticker)
 
-        # ── Resolve scan result first — needed for fuel merge and px fallback ───
-        scan_r  = next((r for r in ok if r["ticker"] == az_ticker), None)
-        ign_sc  = scan_r["ignition_score"] if scan_r else None
-        fuel_sc = scan_r["fuel_score"]     if scan_r else None
-        rvol    = scan_r["rvol"]           if scan_r else None
-        reasons = scan_r.get("reasons", []) if scan_r else []
+            # ── Resolve scan result first — needed for fuel merge and px fallback ───
+            scan_r  = next((r for r in ok if r["ticker"] == az_ticker), None)
+            ign_sc  = scan_r["ignition_score"] if scan_r else None
+            fuel_sc = scan_r["fuel_score"]     if scan_r else None
+            rvol    = scan_r["rvol"]           if scan_r else None
+            reasons = scan_r.get("reasons", []) if scan_r else []
 
-        # ── Merge fetch_fuel into info (both hit yfinance separately; when one is
-        # rate-limited the other may succeed — merging guarantees best available data)
-        az_fuel = scan_r["fuel"] if scan_r else fetch_fuel(az_ticker)
-        _AZ_FUEL_MAP = {
-            "short_pct_float": "shortPercentOfFloat", "float_shares": "floatShares",
-            "high_52w": "fiftyTwoWeekHigh", "days_to_cover": "shortRatio",
-            "target_mean": "targetMeanPrice", "sector": "sector", "name": "shortName",
-        }
-        for fk, ik in _AZ_FUEL_MAP.items():
-            fv = az_fuel.get(fk)
-            if fv is not None and fv != "" and not info.get(ik):
-                info[ik] = fv
+            # ── Merge fetch_fuel into info (both hit yfinance separately; when one is
+            # rate-limited the other may succeed — merging guarantees best available data)
+            az_fuel = scan_r["fuel"] if scan_r else fetch_fuel(az_ticker)
+            _AZ_FUEL_MAP = {
+                "short_pct_float": "shortPercentOfFloat", "float_shares": "floatShares",
+                "high_52w": "fiftyTwoWeekHigh", "days_to_cover": "shortRatio",
+                "target_mean": "targetMeanPrice", "sector": "sector", "name": "shortName",
+            }
+            for fk, ik in _AZ_FUEL_MAP.items():
+                fv = az_fuel.get(fk)
+                if fv is not None and fv != "" and not info.get(ik):
+                    info[ik] = fv
 
-        # ── Parse core fields with multi-source fallbacks ─────────────────
-        px    = float(info.get("currentPrice") or info.get("regularMarketPrice") or
-                      info.get("previousClose") or
-                      (scan_r["price"] if scan_r and scan_r.get("price") else 0) or 0)
-        try:
-            import cascade_engine as _ig_px_ce
-            _ig_live = _ig_px_ce.live_prices([az_ticker], use_dump=True)
-            if az_ticker in _ig_live:
-                px = float(_ig_live[az_ticker])
-            elif str(az_ticker).strip().upper() in _ig_live:
-                px = float(_ig_live[str(az_ticker).strip().upper()])
-        except Exception:
-            pass
-        name  = info.get("shortName") or info.get("longName") or az_fuel.get("name") or az_ticker
-        sec   = info.get("sector")   or az_fuel.get("sector") or ""
-        ind   = info.get("industry") or ""
-        sec_display = f"{sec} / {ind}" if (sec and ind) else (sec or ind or "--")
-        mcap  = info.get("marketCap")
-        pe    = info.get("trailingPE")
-        fwpe  = info.get("forwardPE")
-        pb    = info.get("priceToBook")
-        ps    = info.get("priceToSalesTrailing12Months")
-        beta  = info.get("beta")
-        hi52  = info.get("fiftyTwoWeekHigh") or az_fuel.get("high_52w") or 0
-        lo52  = info.get("fiftyTwoWeekLow") or 0
-        spf   = info.get("shortPercentOfFloat") or az_fuel.get("short_pct_float")
-        sratio= info.get("shortRatio") or az_fuel.get("days_to_cover")
-        am    = info.get("targetMeanPrice") or az_fuel.get("target_mean")
-        al    = info.get("targetLowPrice");  ahigh = info.get("targetHighPrice")
-        nana  = info.get("numberOfAnalystOpinions") or 0
-        recky = info.get("recommendationKey") or ""
-        rg    = info.get("revenueGrowth");   eg  = info.get("earningsGrowth")
-        pm    = info.get("profitMargins");   om  = info.get("operatingMargins")
-        roe   = info.get("returnOnEquity");  roa = info.get("returnOnAssets")
-        deq   = info.get("debtToEquity");    cr  = info.get("currentRatio")
-        fl    = info.get("floatShares") or az_fuel.get("float_shares")
-        inst_pct = az_fuel.get("inst_pct")
-        ins_buys = az_fuel.get("insider_buys", 0)
-        ins_net  = az_fuel.get("insider_net_buy_usd", 0.0)
-        news_cnt = az_fuel.get("news_count_48h", 0)
-        aus   = ((am - px) / px * 100) if (am and px and px > 0) else None
-        rng52 = ((px - lo52) / (hi52 - lo52) * 100) if (hi52 and lo52 and hi52 != lo52) else None
+            # ── Parse core fields with multi-source fallbacks ─────────────────
+            px    = float(info.get("currentPrice") or info.get("regularMarketPrice") or
+                          info.get("previousClose") or
+                          (scan_r["price"] if scan_r and scan_r.get("price") else 0) or 0)
+            try:
+                import cascade_engine as _ig_px_ce
+                _ig_live = _ig_px_ce.live_prices([az_ticker], use_dump=True)
+                if az_ticker in _ig_live:
+                    px = float(_ig_live[az_ticker])
+                elif str(az_ticker).strip().upper() in _ig_live:
+                    px = float(_ig_live[str(az_ticker).strip().upper()])
+            except Exception:
+                pass
+            name  = info.get("shortName") or info.get("longName") or az_fuel.get("name") or az_ticker
+            sec   = info.get("sector")   or az_fuel.get("sector") or ""
+            ind   = info.get("industry") or ""
+            sec_display = f"{sec} / {ind}" if (sec and ind) else (sec or ind or "--")
+            mcap  = info.get("marketCap")
+            pe    = info.get("trailingPE")
+            fwpe  = info.get("forwardPE")
+            pb    = info.get("priceToBook")
+            ps    = info.get("priceToSalesTrailing12Months")
+            beta  = info.get("beta")
+            hi52  = info.get("fiftyTwoWeekHigh") or az_fuel.get("high_52w") or 0
+            lo52  = info.get("fiftyTwoWeekLow") or 0
+            spf   = info.get("shortPercentOfFloat") or az_fuel.get("short_pct_float")
+            sratio= info.get("shortRatio") or az_fuel.get("days_to_cover")
+            am    = info.get("targetMeanPrice") or az_fuel.get("target_mean")
+            al    = info.get("targetLowPrice");  ahigh = info.get("targetHighPrice")
+            nana  = info.get("numberOfAnalystOpinions") or 0
+            recky = info.get("recommendationKey") or ""
+            rg    = info.get("revenueGrowth");   eg  = info.get("earningsGrowth")
+            pm    = info.get("profitMargins");   om  = info.get("operatingMargins")
+            roe   = info.get("returnOnEquity");  roa = info.get("returnOnAssets")
+            deq   = info.get("debtToEquity");    cr  = info.get("currentRatio")
+            fl    = info.get("floatShares") or az_fuel.get("float_shares")
+            inst_pct = az_fuel.get("inst_pct")
+            ins_buys = az_fuel.get("insider_buys", 0)
+            ins_net  = az_fuel.get("insider_net_buy_usd", 0.0)
+            news_cnt = az_fuel.get("news_count_48h", 0)
+            aus   = ((am - px) / px * 100) if (am and px and px > 0) else None
+            rng52 = ((px - lo52) / (hi52 - lo52) * 100) if (hi52 and lo52 and hi52 != lo52) else None
 
-        # ── Technicals from history (same bar-count gates as Stock Lookup) ─
-        rsi_v = ma50_v = ma200_v = macd_v = macd_s = vol_avg = vol_td = None
-        pct1d = pct5d = pct1m = pct3m = atr = None
-        bb_upper = bb_mid = bb_lower = None
+            # ── Technicals from history (same bar-count gates as Stock Lookup) ─
+            rsi_v = ma50_v = ma200_v = macd_v = macd_s = vol_avg = vol_td = None
+            pct1d = pct5d = pct1m = pct3m = atr = None
+            bb_upper = bb_mid = bb_lower = None
 
-        if not hist.empty:
-            _hcols = {str(c).lower(): c for c in hist.columns}
-            _cl_c = _hcols.get("close")
-            cl = pd.to_numeric(hist[_cl_c], errors="coerce").dropna() if _cl_c else pd.Series(dtype=float)
-            _vl_c = _hcols.get("volume")
-            vl = pd.to_numeric(hist[_vl_c], errors="coerce").dropna() if _vl_c else pd.Series(dtype=float)
-            if len(cl) >= 15:
-                try:
-                    dlt = cl.diff()
-                    g = dlt.clip(lower=0)
-                    ls = (-dlt.clip(upper=0))
-                    avg_g = g.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
-                    avg_l = ls.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
-                    r3 = (100 - 100 / (1 + avg_g / avg_l.replace(0, np.nan))).dropna()
-                    rsi_v = float(r3.iloc[-1]) if not r3.empty else None
-                except Exception:
-                    pass
-            if len(cl) >= 26:
-                try:
-                    e12 = cl.ewm(span=12, adjust=False).mean()
-                    e26 = cl.ewm(span=26, adjust=False).mean()
-                    ml = e12 - e26
-                    macd_v = float(ml.iloc[-1])
-                    macd_s = float(ml.ewm(span=9, adjust=False).mean().iloc[-1])
-                except Exception:
-                    pass
-            if len(cl) >= 50:
-                ma50_v = float(cl.rolling(50).mean().iloc[-1])
-            if len(cl) >= 200:
-                ma200_v = float(cl.rolling(200).mean().iloc[-1])
-            if len(vl) >= 21:
-                vol_avg = float(vl.iloc[-21:-1].mean())
-                if scan_r and scan_r.get("rvol") and vol_avg > 0:
-                    vol_td = vol_avg * scan_r["rvol"] * expected_vol_fraction(390)
-                else:
-                    vol_td = float(vl.iloc[-1])
-            _last = float(cl.iloc[-1]) if len(cl) else None
-            if _last and _last != 0:
-                for att, nn in (("pct1d", 2), ("pct5d", 6), ("pct1m", 22), ("pct3m", 66)):
-                    if len(cl) >= nn:
-                        base = float(cl.iloc[-nn])
-                        if base:
-                            locals_v = (_last - base) / base * 100
-                            if att == "pct1d":
-                                pct1d = locals_v
-                            elif att == "pct5d":
-                                pct5d = locals_v
-                            elif att == "pct1m":
-                                pct1m = locals_v
-                            else:
-                                pct3m = locals_v
-            _hi_c, _lo_c = _hcols.get("high"), _hcols.get("low")
-            if _hi_c and _lo_c and _cl_c and len(cl) >= 15:
-                try:
-                    hlc = hist[[_hi_c, _lo_c, _cl_c]].apply(pd.to_numeric, errors="coerce")
-                    tr = pd.concat([
-                        hlc[_hi_c] - hlc[_lo_c],
-                        (hlc[_hi_c] - hlc[_cl_c].shift()).abs(),
-                        (hlc[_lo_c] - hlc[_cl_c].shift()).abs(),
-                    ], axis=1).max(axis=1)
-                    _atr_s = tr.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean().dropna()
-                    atr = float(_atr_s.iloc[-1]) if not _atr_s.empty else None
-                except Exception:
-                    pass
-            if len(cl) >= 20:
-                bm = cl.rolling(20).mean()
-                bstd = cl.rolling(20).std()
-                bb_mid = float(bm.iloc[-1])
-                bb_upper = float((bm + 2 * bstd).iloc[-1])
-                bb_lower = float((bm - 2 * bstd).iloc[-1])
+            if not hist.empty:
+                _hcols = {str(c).lower(): c for c in hist.columns}
+                _cl_c = _hcols.get("close")
+                cl = pd.to_numeric(hist[_cl_c], errors="coerce").dropna() if _cl_c else pd.Series(dtype=float)
+                _vl_c = _hcols.get("volume")
+                vl = pd.to_numeric(hist[_vl_c], errors="coerce").dropna() if _vl_c else pd.Series(dtype=float)
+                if len(cl) >= 15:
+                    try:
+                        dlt = cl.diff()
+                        g = dlt.clip(lower=0)
+                        ls = (-dlt.clip(upper=0))
+                        avg_g = g.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+                        avg_l = ls.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+                        r3 = (100 - 100 / (1 + avg_g / avg_l.replace(0, np.nan))).dropna()
+                        rsi_v = float(r3.iloc[-1]) if not r3.empty else None
+                    except Exception:
+                        pass
+                if len(cl) >= 26:
+                    try:
+                        e12 = cl.ewm(span=12, adjust=False).mean()
+                        e26 = cl.ewm(span=26, adjust=False).mean()
+                        ml = e12 - e26
+                        macd_v = float(ml.iloc[-1])
+                        macd_s = float(ml.ewm(span=9, adjust=False).mean().iloc[-1])
+                    except Exception:
+                        pass
+                if len(cl) >= 50:
+                    ma50_v = float(cl.rolling(50).mean().iloc[-1])
+                if len(cl) >= 200:
+                    ma200_v = float(cl.rolling(200).mean().iloc[-1])
+                if len(vl) >= 21:
+                    vol_avg = float(vl.iloc[-21:-1].mean())
+                    if scan_r and scan_r.get("rvol") and vol_avg > 0:
+                        vol_td = vol_avg * scan_r["rvol"] * expected_vol_fraction(390)
+                    else:
+                        vol_td = float(vl.iloc[-1])
+                _last = float(cl.iloc[-1]) if len(cl) else None
+                if _last and _last != 0:
+                    for att, nn in (("pct1d", 2), ("pct5d", 6), ("pct1m", 22), ("pct3m", 66)):
+                        if len(cl) >= nn:
+                            base = float(cl.iloc[-nn])
+                            if base:
+                                locals_v = (_last - base) / base * 100
+                                if att == "pct1d":
+                                    pct1d = locals_v
+                                elif att == "pct5d":
+                                    pct5d = locals_v
+                                elif att == "pct1m":
+                                    pct1m = locals_v
+                                else:
+                                    pct3m = locals_v
+                _hi_c, _lo_c = _hcols.get("high"), _hcols.get("low")
+                if _hi_c and _lo_c and _cl_c and len(cl) >= 15:
+                    try:
+                        hlc = hist[[_hi_c, _lo_c, _cl_c]].apply(pd.to_numeric, errors="coerce")
+                        tr = pd.concat([
+                            hlc[_hi_c] - hlc[_lo_c],
+                            (hlc[_hi_c] - hlc[_cl_c].shift()).abs(),
+                            (hlc[_lo_c] - hlc[_cl_c].shift()).abs(),
+                        ], axis=1).max(axis=1)
+                        _atr_s = tr.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean().dropna()
+                        atr = float(_atr_s.iloc[-1]) if not _atr_s.empty else None
+                    except Exception:
+                        pass
+                if len(cl) >= 20:
+                    bm = cl.rolling(20).mean()
+                    bstd = cl.rolling(20).std()
+                    bb_mid = float(bm.iloc[-1])
+                    bb_upper = float((bm + 2 * bstd).iloc[-1])
+                    bb_lower = float((bm - 2 * bstd).iloc[-1])
 
-        # ── Signal pills ─────────────────────────────────────────────────
-        pills_html = ""
-        if rsi_v is not None:
-            if rsi_v < 30:   pills_html += az_pill("RSI Oversold", True)
-            elif rsi_v > 70: pills_html += az_pill("RSI Overbought", False)
-            elif 45 < rsi_v < 65: pills_html += az_pill("RSI Sweet Spot", True)
-            else:            pills_html += az_pill("RSI Neutral", None)
-        if macd_v is not None and macd_s is not None:
-            pills_html += az_pill("MACD Bullish" if macd_v > macd_s else "MACD Bearish", macd_v > macd_s)
-        if ma50_v is not None and ma200_v is not None:
-            pills_html += az_pill("Golden Cross" if ma50_v > ma200_v else "Death Cross", ma50_v > ma200_v)
-        elif info.get("_scan_golden_cross") is not None:
-            pills_html += az_pill("Golden Cross" if info["_scan_golden_cross"] >= 1 else "No Golden Cross",
-                                 info["_scan_golden_cross"] >= 1)
-        if vol_avg and vol_td:
-            if vol_td > vol_avg * 1.5: pills_html += az_pill("High Volume", True)
-            elif vol_td < vol_avg * 0.5: pills_html += az_pill("Low Volume", None)
-        if spf and spf > 0.15: pills_html += az_pill("High Short Interest", None)
-        if aus is not None and aus > 15:
-            pills_html += az_pill(f"Analyst Upside {aus:.0f}%", True)
-        elif aus is not None and aus < -10:
-            pills_html += az_pill(f"Above Target {aus:.0f}%", False)
-        if scan_r and scan_r.get("igniting"): pills_html += az_pill("IGNITING NOW", True)
-        if scan_r and scan_r.get("gap_reversal"): pills_html += az_pill("GAP REVERSAL", False)
-        if scan_r and scan_r.get("new_hod"): pills_html += az_pill("New HOD", True)
-
-        # ── Header metrics ───────────────────────────────────────────────
-        m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("Price", f"${px:.2f}" if px else "--")
-        m2.metric("Ignition", f"{ign_sc:.0f}" if ign_sc is not None else "--")
-        m3.metric("Fuel", f"{fuel_sc:.0f}" if fuel_sc is not None else "--")
-        m4.metric("RVOL", f"{rvol:.1f}x" if rvol else "--")
-        m5.metric("52W Pos", f"{rng52:.0f}%" if rng52 is not None else "--")
-        m6.metric("Target", f"${am:.2f}" if am else "--",
-                  delta=f"{aus:.1f}%" if aus is not None else None)
-
-        st.markdown(
-            f"<div style='margin:6px 0 4px;font-family:Plus Jakarta Sans,sans-serif'>"
-            f"<strong style='color:#ffffff'>{name}</strong>"
-            f"  <span style='color:#7a9ab8;font-size:13px'>{sec_display}</span></div>",
-            unsafe_allow_html=True,
-        )
-        if pills_html:
-            st.markdown(f"<div style='margin:6px 0 14px'>{pills_html}</div>", unsafe_allow_html=True)
-
-        st.markdown("<hr style='border-color:#1e3a5f;margin:12px 0'>", unsafe_allow_html=True)
-
-        # ── Three column layout ──────────────────────────────────────────
-        colA, colB, colC = st.columns(3)
-
-        # ── COLUMN A: Price Range Analysis ──────────────────────────────
-        with colA:
-            az_section("Price Range Analysis")
-
-            # 52-week channel visual
-            if hi52 and lo52 and px:
-                pct_pos = max(0.0, min(1.0, (px - lo52) / (hi52 - lo52))) if hi52 != lo52 else 0.5
-                bar_pct = int(pct_pos * 100)
-                # Color: near low=red, mid=amber, near high=green
-                bar_col = "#4dd880" if pct_pos > 0.7 else ("#d0b040" if pct_pos > 0.35 else "#ff4444")
-                st.markdown(
-                    f"<div style='background:#0d1e33;border:1px solid #1e3a5f;border-radius:8px;"
-                    f"padding:14px 16px;margin-bottom:12px'>"
-                    f"<div style='display:flex;justify-content:space-between;font-family:Space Mono,monospace;"
-                    f"font-size:11px;color:#7a9ab8;margin-bottom:6px'>"
-                    f"<span>52W Low ${lo52:.2f}</span><span>52W High ${hi52:.2f}</span></div>"
-                    f"<div style='background:#122540;border-radius:4px;height:8px;position:relative;overflow:visible'>"
-                    f"<div style='background:{bar_col};width:{bar_pct}%;height:100%;border-radius:4px'></div>"
-                    f"<div style='position:absolute;top:-18px;left:calc({bar_pct}% - 1px);"
-                    f"font-family:Space Mono,monospace;font-size:10px;color:{bar_col}'>"
-                    f"${px:.2f}</div></div>"
-                    f"<div style='margin-top:10px;font-family:Space Mono,monospace;font-size:11px;color:#b0c8e8'>"
-                    f"Position: <strong style='color:{bar_col}'>{rng52:.1f}% of 52W range</strong></div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-            # Bollinger Bands channel
-            if bb_upper and bb_lower and bb_mid and px:
-                bw = bb_upper - bb_lower
-                bpos = max(0.0, min(1.0, (px - bb_lower) / bw)) if bw > 0 else 0.5
-                bpct = int(bpos * 100)
-                bcol = "#ff4444" if bpos > 0.85 else ("#4dd880" if bpos < 0.15 else "#8baac8")
-                bb_label = "Near upper band (overbought)" if bpos > 0.85 else ("Near lower band (oversold)" if bpos < 0.15 else "Inside bands (neutral)")
-                st.markdown(
-                    f"<div style='background:#0d1e33;border:1px solid #1e3a5f;border-radius:8px;"
-                    f"padding:14px 16px;margin-bottom:12px'>"
-                    f"<div style='display:flex;justify-content:space-between;font-family:Space Mono,monospace;"
-                    f"font-size:11px;color:#7a9ab8;margin-bottom:6px'>"
-                    f"<span>BB Lower ${bb_lower:.2f}</span><span>BB Upper ${bb_upper:.2f}</span></div>"
-                    f"<div style='background:#122540;border-radius:4px;height:8px;position:relative;overflow:visible'>"
-                    f"<div style='position:absolute;left:50%;width:1px;height:100%;background:#1e3a5f'></div>"
-                    f"<div style='background:{bcol};width:{bpct}%;height:100%;border-radius:4px'></div>"
-                    f"<div style='position:absolute;top:-18px;left:calc({bpct}% - 1px);"
-                    f"font-family:Space Mono,monospace;font-size:10px;color:{bcol}'>${px:.2f}</div></div>"
-                    f"<div style='margin-top:10px;font-family:Space Mono,monospace;font-size:11px;color:#b0c8e8'>"
-                    f"Bollinger: <strong style='color:{bcol}'>{bb_label}</strong></div>"
-                    f"<div style='margin-top:4px;font-family:Space Mono,monospace;font-size:11px;color:#7a9ab8'>"
-                    f"Mid (20MA): ${bb_mid:.2f} · Width: ${bw:.2f}</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-            az_section("Price Performance")
-            perf_rows = [
-                mrow("1 Day", "Daily price change vs yesterday's close.", pct_color(pct1d)),
-                mrow("5 Day", "Five trading days — roughly one calendar week.", pct_color(pct5d)),
-                mrow("1 Month", "~22 trading days. Shows the near-term trend.", pct_color(pct1m)),
-                mrow("3 Month", "~66 trading days (one quarter). Used by institutions.", pct_color(pct3m)),
-            ]
-            st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(perf_rows)}</tbody></table>", unsafe_allow_html=True)
-
-        # ── COLUMN B: Technical Signals + Short/Growth ───────────────────
-        with colB:
-            az_section("Technical Signals")
-            tech_rows = []
+            # ── Signal pills ─────────────────────────────────────────────────
+            pills_html = ""
             if rsi_v is not None:
-                if rsi_v < 30:    ri, rc = "Oversold — potential bounce", "#4dd880"
-                elif rsi_v < 45:  ri, rc = "Weak — losing momentum", "#ff4444"
-                elif rsi_v < 55:  ri, rc = "Neutral — no clear direction", "#8baac8"
-                elif rsi_v < 70:  ri, rc = "Strong — uptrend confirmed", "#4dd880"
-                else:             ri, rc = "Overbought — pullback possible", "#ff4444"
-                tech_rows.append(mrow("RSI (14d)", "Relative Strength Index 0-100. Below 30 = oversold. Above 70 = overbought. 45-70 = momentum sweet spot.", f"<span style='color:{rc};font-family:Space Mono,monospace'>{rsi_v:.1f}</span> <span style='font-size:11px;color:#7a9ab8'>{ri}</span>"))
-            if macd_v is not None:
-                mi = "Bullish — momentum building" if macd_v > macd_s else "Bearish — momentum fading"
-                mc2 = "#4dd880" if macd_v > macd_s else "#ff4444"
-                tech_rows.append(mrow("MACD", "Moving Average Convergence Divergence. MACD above signal line = buyers in control.", f"<span style='color:{mc2};font-family:Space Mono,monospace'>{macd_v:.4f}</span> <span style='font-size:11px;color:#7a9ab8'>{mi}</span>"))
-            if ma50_v and px:
-                pvs = (px - ma50_v) / ma50_v * 100
-                m5i = "Extended — may be overbought" if pvs > 5 else ("Just above — ideal zone" if pvs > 0 else ("Just below — watch reclaim" if pvs > -5 else "Well below — downtrend"))
-                m5c = "#4dd880" if 0 < pvs < 5 else ("#d0b040" if pvs > 5 else ("#d0b040" if pvs > -5 else "#ff4444"))
-                tech_rows.append(mrow("50-Day MA", "50-Day Moving Average. Price just above = support. Just below = watch for reclaim.", f"${ma50_v:.2f} <span style='color:{m5c};font-size:11px'>({'+' if pvs >= 0 else ''}{pvs:.1f}%)</span>"))
-            if ma200_v:
-                m2i = "Golden Cross — long-term uptrend" if (ma50_v and ma50_v > ma200_v) else "Death Cross — long-term downtrend"
-                m2c = "#4dd880" if (ma50_v and ma50_v > ma200_v) else "#ff4444"
-                tech_rows.append(mrow("200-Day MA", "200-Day Moving Average. Golden Cross (50MA above 200MA) = major bull signal.", f"${ma200_v:.2f} <span style='font-size:11px;color:{m2c}'>{m2i}</span>"))
+                if rsi_v < 30:   pills_html += az_pill("RSI Oversold", True)
+                elif rsi_v > 70: pills_html += az_pill("RSI Overbought", False)
+                elif 45 < rsi_v < 65: pills_html += az_pill("RSI Sweet Spot", True)
+                else:            pills_html += az_pill("RSI Neutral", None)
+            if macd_v is not None and macd_s is not None:
+                pills_html += az_pill("MACD Bullish" if macd_v > macd_s else "MACD Bearish", macd_v > macd_s)
+            if ma50_v is not None and ma200_v is not None:
+                pills_html += az_pill("Golden Cross" if ma50_v > ma200_v else "Death Cross", ma50_v > ma200_v)
+            elif info.get("_scan_golden_cross") is not None:
+                pills_html += az_pill("Golden Cross" if info["_scan_golden_cross"] >= 1 else "No Golden Cross",
+                                     info["_scan_golden_cross"] >= 1)
             if vol_avg and vol_td:
-                vr = vol_td / vol_avg
-                vi = "Very high" if vr > 2 else ("High" if vr > 1.5 else ("Normal" if vr > 0.5 else "Low"))
-                vc = "#4dd880" if vr > 1.5 else ("#8baac8" if vr > 0.5 else "#d0b040")
-                tech_rows.append(mrow("Volume", "Today's volume vs 20-day average. High volume confirms moves.", f"<span style='color:{vc};font-family:Space Mono,monospace'>{vr:.2f}x avg</span> <span style='font-size:11px;color:#7a9ab8'>{vi}</span>"))
-            if ign_sc is not None:
-                ic = "#f5a623" if ign_sc >= 70 else ("#c47d0e" if ign_sc >= 50 else "#4a6a8a")
-                tech_rows.append(mrow("Ignition Score", "Live momentum score from RVOL, volume surge, velocity, VWAP, HOD, RSI, MACD (0-100).", f"<span style='color:{ic};font-family:Space Mono,monospace;font-size:15px;font-weight:500'>{ign_sc:.0f}</span>"))
-            if tech_rows:
-                st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(tech_rows)}</tbody></table>", unsafe_allow_html=True)
+                if vol_td > vol_avg * 1.5: pills_html += az_pill("High Volume", True)
+                elif vol_td < vol_avg * 0.5: pills_html += az_pill("Low Volume", None)
+            if spf and spf > 0.15: pills_html += az_pill("High Short Interest", None)
+            if aus is not None and aus > 15:
+                pills_html += az_pill(f"Analyst Upside {aus:.0f}%", True)
+            elif aus is not None and aus < -10:
+                pills_html += az_pill(f"Above Target {aus:.0f}%", False)
+            if scan_r and scan_r.get("igniting"): pills_html += az_pill("IGNITING NOW", True)
+            if scan_r and scan_r.get("gap_reversal"): pills_html += az_pill("GAP REVERSAL", False)
+            if scan_r and scan_r.get("new_hod"): pills_html += az_pill("New HOD", True)
 
-            az_section("Short Interest & Growth")
-            si_rows = []
-            if spf is not None:
-                si_rows.append(mrow("Short % Float",  "% of float sold short. 15%+ = squeeze fuel if price runs.",          az_tag(spf * 100, 20, 10, "{:.1f}", "%")))
-            if sratio is not None:
-                si_rows.append(mrow("Days to Cover",   "Shares short / avg vol. High = forced shorts if price rises.",        az_tag(sratio, 5, 3, "{:.1f}", "d")))
-            if ins_buys > 0:
-                ins_col = "#4dd880" if ins_net > 0 else "#ff4444"
-                si_rows.append(mrow("Insider Buying",  "Net insider buys last 90d (SEC Form 4).", f"<span style='font-family:Space Mono,monospace;color:{ins_col}'>{ins_buys} buys · ${ins_net/1e3:.0f}K net</span>"))
-            elif ins_net < 0:
-                si_rows.append(mrow("Insider Activity","Net insider selling last 90d.", "<span style='font-family:Space Mono,monospace;color:#ff4444'>net selling</span>"))
-            if news_cnt:
-                si_rows.append(mrow("News 48h",        "Headlines in last 48 hours. Momentum needs a catalyst.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{news_cnt} headlines</span>"))
-            if rg is not None:
-                si_rows.append(mrow("Revenue Growth",  "YoY revenue growth. Double-digit = attractive to institutions.",      az_tag(rg * 100, 10, 3, "{:.1f}", "%")))
-            if eg is not None:
-                si_rows.append(mrow("Earnings Growth", "YoY EPS growth. Growing faster than revenue = margin expansion.",     az_tag(eg * 100, 10, 3, "{:.1f}", "%")))
-            _esp_pct = az_fuel.get("earnings_surprise")
-            if _esp_pct is not None:
-                _esp_col = "#4dd880" if _esp_pct >= 10 else ("#d0b040" if _esp_pct >= 0 else "#ff4444")
-                si_rows.append(mrow("Earnings Surprise", "Last quarter EPS vs analyst estimates. 10%+ beat = strong momentum fuel.", f"<span style='font-family:Space Mono,monospace;color:{_esp_col}'>{_esp_pct:+.1f}%</span> vs estimates"))
-            if fuel_sc is not None:
-                fc = "#4dd880" if fuel_sc >= 70 else ("#d0b040" if fuel_sc >= 50 else "#4a6a8a")
-                si_rows.append(mrow("Fuel Score", "Primed-to-move score (0-100).", f"<span style='color:{fc};font-family:Space Mono,monospace;font-size:15px;font-weight:500'>{fuel_sc:.0f}</span>"))
-            if si_rows:
-                st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(si_rows)}</tbody></table>", unsafe_allow_html=True)
-            else:
-                _why = "; ".join(info.get("_data_issues", [])) or "short interest not published for this symbol (common for ETFs and foreign listings)"
-                st.caption(f"Short interest unavailable — {_why}")
+            # ── Header metrics ───────────────────────────────────────────────
+            m1, m2, m3, m4, m5, m6 = st.columns(6)
+            m1.metric("Price", f"${px:.2f}" if px else "--")
+            m2.metric("Ignition", f"{ign_sc:.0f}" if ign_sc is not None else "--")
+            m3.metric("Fuel", f"{fuel_sc:.0f}" if fuel_sc is not None else "--")
+            m4.metric("RVOL", f"{rvol:.1f}x" if rvol else "--")
+            m5.metric("52W Pos", f"{rng52:.0f}%" if rng52 is not None else "--")
+            m6.metric("Target", f"${am:.2f}" if am else "--",
+                      delta=f"{aus:.1f}%" if aus is not None else None)
 
-            az_section("Live Signals")
-            if reasons:
-                sig_html = "".join(
-                    f"<span style='display:inline-block;background:#0d1e33;color:#f5a623;"
-                    f"border:1px solid #1e3a5f;border-radius:4px;font-family:Space Mono,monospace;"
-                    f"font-size:11px;padding:2px 8px;margin:2px 3px 2px 0'>{r}</span>"
-                    for r in reasons
-                )
-                st.markdown(sig_html, unsafe_allow_html=True)
-            else:
-                st.caption("No active signals this scan.")
+            st.markdown(
+                f"<div style='margin:6px 0 4px;font-family:Plus Jakarta Sans,sans-serif'>"
+                f"<strong style='color:#ffffff'>{name}</strong>"
+                f"  <span style='color:#7a9ab8;font-size:13px'>{sec_display}</span></div>",
+                unsafe_allow_html=True,
+            )
+            if pills_html:
+                st.markdown(f"<div style='margin:6px 0 14px'>{pills_html}</div>", unsafe_allow_html=True)
 
-            az_section("Earnings Breakdown (EPS Trend)")
-            render_eps_trend(eps_history, eps_forward, why='; '.join(info.get('_data_issues', [])))
+            st.markdown("<hr style='border-color:#1e3a5f;margin:12px 0'>", unsafe_allow_html=True)
 
-            az_section("Dividend")
-            render_dividend_info(info)
+            # ── Three column layout ──────────────────────────────────────────
+            colA, colB, colC = st.columns(3)
 
-        # ── COLUMN C: Valuation + Financial Health + Analyst ────────────
-        with colC:
-            az_section("Valuation")
-            val_rows = []
-            if mcap is not None:
-                mc_str = f"${mcap/1e9:.2f}B" if mcap >= 1e9 else f"${mcap/1e6:.1f}M"
-                val_rows.append(mrow("Market Cap", "Total market value = share price × shares outstanding. Determines if this is micro/small/mid/large cap.", mc_str))
-            if pe is not None:
-                val_rows.append(mrow(
-                    "P/E Ratio", "Price per dollar of trailing earnings.",
-                    az_tag_inv(pe, 40, 25, "{:.1f}", "x"),
-                    metric_scale(pe, 0, 60, 25, 40, "good under 25x",
-                                 higher=False, neg_bad=True)))
-            if fwpe is not None:
-                val_rows.append(mrow(
-                    "Forward P/E", "P/E on next-12-month estimates. Below trailing = growth expected.",
-                    f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{fwpe:.1f}x</span>",
-                    metric_scale(fwpe, 0, 60, 25, 40, "good under 25x",
-                                 higher=False, neg_bad=True)))
-            if pb is not None:
-                val_rows.append(mrow(
-                    "P/B Ratio", "Below 1 = under book value; above 3 = premium.",
-                    az_tag_inv(pb, 6, 3, "{:.2f}", "x"),
-                    metric_scale(pb, 0, 10, 3, 6, "good under 3x", higher=False)))
-            if ps is not None:
-                val_rows.append(mrow(
-                    "P/S Ratio", "Below 2x reasonable; above 10x = growth premium.",
-                    az_tag_inv(ps, 10, 5, "{:.2f}", "x"),
-                    metric_scale(ps, 0, 16, 5, 10, "good under 5x", higher=False)))
-            if beta is not None:
-                val_rows.append(mrow("Beta", "Volatility vs S&P 500. 1.0 = market. 1.5 = 50% more volatile. Under 0.6 = defensive.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{beta:.2f}</span>"))
-            if fl is not None:
-                fl_str = f"{fl/1e9:.2f}B" if fl >= 1e9 else f"{fl/1e6:.0f}M"
-                val_rows.append(mrow("Float", "Tradeable shares. <20M = explosive on volume.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{fl_str}</span>"))
-            if inst_pct is not None:
-                val_rows.append(mrow("Institutional", "% held by institutions.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{inst_pct:.1f}%</span>"))
-            if val_rows:
-                st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(val_rows)}</tbody></table>", unsafe_allow_html=True)
-            else:
-                _why = "; ".join(info.get("_data_issues", [])) or "yfinance returned no valuation fields — likely rate-limited; press Refresh"
-                st.caption(f"Valuation unavailable — {_why}")
+            # ── COLUMN A: Price Range Analysis ──────────────────────────────
+            with colA:
+                az_section("Price Range Analysis")
 
-            az_section("Financial Health")
-            roce = info.get("_roce")
-            gm = info.get("_gross_margin")
-            if gm is None:
-                gm = info.get("grossMargins")
-            opm = info.get("_op_margin")
-            cfm = info.get("_cf_margin")
-            fcfm = info.get("_fcf_margin")
+                # 52-week channel visual
+                if hi52 and lo52 and px:
+                    pct_pos = max(0.0, min(1.0, (px - lo52) / (hi52 - lo52))) if hi52 != lo52 else 0.5
+                    bar_pct = int(pct_pos * 100)
+                    # Color: near low=red, mid=amber, near high=green
+                    bar_col = "#4dd880" if pct_pos > 0.7 else ("#d0b040" if pct_pos > 0.35 else "#ff4444")
+                    st.markdown(
+                        f"<div style='background:#0d1e33;border:1px solid #1e3a5f;border-radius:8px;"
+                        f"padding:14px 16px;margin-bottom:12px'>"
+                        f"<div style='display:flex;justify-content:space-between;font-family:Space Mono,monospace;"
+                        f"font-size:11px;color:#7a9ab8;margin-bottom:6px'>"
+                        f"<span>52W Low ${lo52:.2f}</span><span>52W High ${hi52:.2f}</span></div>"
+                        f"<div style='background:#122540;border-radius:4px;height:8px;position:relative;overflow:visible'>"
+                        f"<div style='background:{bar_col};width:{bar_pct}%;height:100%;border-radius:4px'></div>"
+                        f"<div style='position:absolute;top:-18px;left:calc({bar_pct}% - 1px);"
+                        f"font-family:Space Mono,monospace;font-size:10px;color:{bar_col}'>"
+                        f"${px:.2f}</div></div>"
+                        f"<div style='margin-top:10px;font-family:Space Mono,monospace;font-size:11px;color:#b0c8e8'>"
+                        f"Position: <strong style='color:{bar_col}'>{rng52:.1f}% of 52W range</strong></div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
 
-            def _has(v):
-                try:
-                    return v is not None and np.isfinite(float(v))
-                except (TypeError, ValueError):
-                    return False
+                # Bollinger Bands channel
+                if bb_upper and bb_lower and bb_mid and px:
+                    bw = bb_upper - bb_lower
+                    bpos = max(0.0, min(1.0, (px - bb_lower) / bw)) if bw > 0 else 0.5
+                    bpct = int(bpos * 100)
+                    bcol = "#ff4444" if bpos > 0.85 else ("#4dd880" if bpos < 0.15 else "#8baac8")
+                    bb_label = "Near upper band (overbought)" if bpos > 0.85 else ("Near lower band (oversold)" if bpos < 0.15 else "Inside bands (neutral)")
+                    st.markdown(
+                        f"<div style='background:#0d1e33;border:1px solid #1e3a5f;border-radius:8px;"
+                        f"padding:14px 16px;margin-bottom:12px'>"
+                        f"<div style='display:flex;justify-content:space-between;font-family:Space Mono,monospace;"
+                        f"font-size:11px;color:#7a9ab8;margin-bottom:6px'>"
+                        f"<span>BB Lower ${bb_lower:.2f}</span><span>BB Upper ${bb_upper:.2f}</span></div>"
+                        f"<div style='background:#122540;border-radius:4px;height:8px;position:relative;overflow:visible'>"
+                        f"<div style='position:absolute;left:50%;width:1px;height:100%;background:#1e3a5f'></div>"
+                        f"<div style='background:{bcol};width:{bpct}%;height:100%;border-radius:4px'></div>"
+                        f"<div style='position:absolute;top:-18px;left:calc({bpct}% - 1px);"
+                        f"font-family:Space Mono,monospace;font-size:10px;color:{bcol}'>${px:.2f}</div></div>"
+                        f"<div style='margin-top:10px;font-family:Space Mono,monospace;font-size:11px;color:#b0c8e8'>"
+                        f"Bollinger: <strong style='color:{bcol}'>{bb_label}</strong></div>"
+                        f"<div style='margin-top:4px;font-family:Space Mono,monospace;font-size:11px;color:#7a9ab8'>"
+                        f"Mid (20MA): ${bb_mid:.2f} · Width: ${bw:.2f}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
 
-            hlth_rows = []
-            if _has(roce): hlth_rows.append(mrow("ROCE", "Return on Capital Employed: operating income / (total assets − current liabilities). 15%+ is elite.", az_tag(roce * 100, 15, 8, "{:.1f}", "%"), metric_scale(roce * 100, 0, 40, 15, 8, "good 15%+")))
-            if _has(gm): hlth_rows.append(mrow("Gross Margin", "Gross profit / revenue — the moat test. 60%+ means pricing power.", az_tag(gm * 100, 50, 30, "{:.1f}", "%"), metric_scale(gm * 100, 0, 80, 50, 30, "good 50%+")))
-            if _has(opm): hlth_rows.append(mrow("Operating Margin", "Operating income / revenue — what's left after running the business.", az_tag(opm * 100, 15, 5, "{:.1f}", "%"), metric_scale(opm * 100, 0, 40, 15, 5, "good 15%+")))
-            elif _has(om): hlth_rows.append(mrow("Operating Margin", "Operating income / revenue.", az_tag(om * 100, 15, 5, "{:.1f}", "%"), metric_scale(om * 100, 0, 40, 15, 5, "good 15%+")))
-            if _has(cfm): hlth_rows.append(mrow("Cash Flow Margin", "Operating cash flow / revenue — earnings are an opinion, cash is a fact.", az_tag(cfm * 100, 15, 8, "{:.1f}", "%"), metric_scale(cfm * 100, 0, 40, 15, 8, "good 15%+")))
-            if _has(fcfm): hlth_rows.append(mrow("FCF Margin", "Free cash flow / revenue — cash left after capex.", az_tag(fcfm * 100, 10, 5, "{:.1f}", "%"), metric_scale(fcfm * 100, 0, 30, 10, 5, "good 10%+")))
-            if _has(pm): hlth_rows.append(mrow("Profit Margin", "Net income / revenue.", az_tag(pm * 100, 15, 5, "{:.1f}", "%"), metric_scale(pm * 100, 0, 40, 15, 5, "good 15%+")))
-            if _has(roe): hlth_rows.append(mrow("ROE", "Return on equity.", az_tag(roe * 100, 15, 8, "{:.1f}", "%"), metric_scale(roe * 100, 0, 40, 15, 8, "good 15%+")))
-            if _has(roa): hlth_rows.append(mrow("ROA", "Return on assets.", az_tag(roa * 100, 8, 4, "{:.1f}", "%"), metric_scale(roa * 100, 0, 20, 8, 4, "good 8%+")))
-            if _has(deq): hlth_rows.append(mrow("Debt / Equity", "Leverage — lower is safer.", az_tag_inv(deq, 150, 80, "{:.0f}", "%"), metric_scale(deq, 0, 250, 80, 150, "good under 80%", higher=False)))
-            if _has(cr): hlth_rows.append(mrow("Current Ratio", "Short-term assets / liabilities. Above 1.5 healthy.", az_tag(cr, 1.5, 1.0, "{:.2f}", "x"), metric_scale(cr, 0, 3, 1.5, 1.0, "good 1.5x+")))
-            if hlth_rows:
-                st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(hlth_rows)}</tbody></table>", unsafe_allow_html=True)
-            scan_rows = []
-            for lab, key, hi, lo, fmt, suf, tip, scale in (
-                ("Piotroski", "_scan_piotroski", 7, 5, "{:.0f}", "/9", "9-point fundamental health score from the nightly scan. 7+ = fortress.", (0, 9, 7, 5, "good 7+")),
-                ("Golden Cross", "_scan_golden_cross", 1, 0.5, "{:.1f}", "", "1 = 50MA above 200MA in the nightly scan.", (0, 1, 1, 0.5, "good 1")),
-                ("ROIC", "_scan_roic", 0.15, 0.08, "{:.1%}", "", "Return on invested capital.", None),
-                ("MFI", "_scan_mfi", 55, 45, "{:.0f}", "", "Money Flow Index from the nightly scan.", (0, 100, 55, 45, "good 55+")),
-                ("Squeeze Score", "_scan_squeeze_score", 60, 40, "{:.0f}", "", "Nightly short-squeeze composite.", (0, 100, 60, 40, "good 60+")),
-                ("Clean Setup", "_scan_clean_setup", 60, 40, "{:.0f}", "", "Clean Setup preset score from the nightly scan.", (0, 100, 60, 40, "good 60+")),
-            ):
-                v = info.get(key)
-                if key == "_scan_squeeze_score" and v is None:
-                    v = info.get("_scan_squeeze")
-                try:
-                    v = float(v)
-                except (TypeError, ValueError):
-                    continue
-                if not np.isfinite(v):
-                    continue
-                if key == "_scan_roic":
-                    bar = metric_scale(v * 100, 0, 40, 15, 8, "good 15%+")
-                else:
-                    bar = metric_scale(v, scale[0], scale[1], scale[2], scale[3], scale[4])
-                scan_rows.append(mrow(lab, tip, az_tag(v, hi, lo, fmt, suf), bar))
-            if scan_rows:
-                az_section("Nightly Scan Signals")
-                st.markdown(
-                    f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(scan_rows)}</tbody></table>",
-                    unsafe_allow_html=True)
-
-            if am:
-                az_section("Analyst Consensus")
-                rcol = "#4dd880" if "buy" in recky.lower() else ("#ff4444" if "sell" in recky.lower() else "#d0b040")
-                rdisp = recky.replace("_", " ").title() if recky else "--"
-                an_rows = [
-                    mrow("Recommendation", "Wall Street consensus: Strong Buy / Buy / Hold / Sell. Aggregates all analyst ratings.", f"<span style='color:{rcol};font-weight:500'>{rdisp}</span> <span style='font-size:11px;color:#7a9ab8'>({nana} analysts)</span>"),
-                    mrow("Mean Target", "Average 12-month analyst price target. Implies expected upside/downside from current price.", f"${am:.2f}" + (f" <span style='font-size:11px;color:{'#4dd880' if aus and aus > 0 else '#ff4444'}'>({'+' if aus and aus >= 0 else ''}{aus:.1f}%)</span>" if aus else "")),
-                    mrow("Target Range", "Low-to-high analyst target spread. Wide range = high uncertainty. Narrow = strong consensus.", f"${al:.2f} – ${ahigh:.2f}" if (al and ahigh) else "--"),
+                az_section("Price Performance")
+                perf_rows = [
+                    mrow("1 Day", "Daily price change vs yesterday's close.", pct_color(pct1d)),
+                    mrow("5 Day", "Five trading days — roughly one calendar week.", pct_color(pct5d)),
+                    mrow("1 Month", "~22 trading days. Shows the near-term trend.", pct_color(pct1m)),
+                    mrow("3 Month", "~66 trading days (one quarter). Used by institutions.", pct_color(pct3m)),
                 ]
-                st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(an_rows)}</tbody></table>", unsafe_allow_html=True)
+                st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(perf_rows)}</tbody></table>", unsafe_allow_html=True)
 
-            # Catalyst tags from scan
-            f_data = scan_r["fuel"] if scan_r else {}
-            cat_tags = f_data.get("catalyst_tags") or []
-            bimodal = f_data.get("bimodal_event", False)
-            dtc_val = f_data.get("days_to_cover")
-            ed = f_data.get("earnings_days")
-            if cat_tags or bimodal or (dtc_val and dtc_val >= 5):
-                az_section("Catalysts Detected")
-                cat_html = build_catalyst_tags_html(az_ticker, cat_tags, bimodal, dtc_val, ed)
-                suppressed = f_data.get("catalyst_suppressed") or []
-                if suppressed:
-                    for s in suppressed:
-                        cat_html += (
-                            f"<span style='font-family:Space Mono,monospace;font-size:10px;"
-                            f"color:#7a9ab8;border:1px dashed #1e3a5f;border-radius:4px;"
-                            f"padding:1px 6px;margin:2px 3px 2px 0;text-decoration:line-through;"
-                            f"display:inline-block'>{s.upper()}</span>"
-                        )
-                if f_data.get("latest_headline"):
-                    cat_html += f"<div style='margin-top:8px;font-size:11px;color:#7a9ab8'>{f_data['latest_headline']}</div>"
-                st.markdown(cat_html, unsafe_allow_html=True)
+            # ── COLUMN B: Technical Signals + Short/Growth ───────────────────
+            with colB:
+                az_section("Technical Signals")
+                tech_rows = []
+                if rsi_v is not None:
+                    if rsi_v < 30:    ri, rc = "Oversold — potential bounce", "#4dd880"
+                    elif rsi_v < 45:  ri, rc = "Weak — losing momentum", "#ff4444"
+                    elif rsi_v < 55:  ri, rc = "Neutral — no clear direction", "#8baac8"
+                    elif rsi_v < 70:  ri, rc = "Strong — uptrend confirmed", "#4dd880"
+                    else:             ri, rc = "Overbought — pullback possible", "#ff4444"
+                    tech_rows.append(mrow("RSI (14d)", "Relative Strength Index 0-100. Below 30 = oversold. Above 70 = overbought. 45-70 = momentum sweet spot.", f"<span style='color:{rc};font-family:Space Mono,monospace'>{rsi_v:.1f}</span> <span style='font-size:11px;color:#7a9ab8'>{ri}</span>"))
+                if macd_v is not None:
+                    mi = "Bullish — momentum building" if macd_v > macd_s else "Bearish — momentum fading"
+                    mc2 = "#4dd880" if macd_v > macd_s else "#ff4444"
+                    tech_rows.append(mrow("MACD", "Moving Average Convergence Divergence. MACD above signal line = buyers in control.", f"<span style='color:{mc2};font-family:Space Mono,monospace'>{macd_v:.4f}</span> <span style='font-size:11px;color:#7a9ab8'>{mi}</span>"))
+                if ma50_v and px:
+                    pvs = (px - ma50_v) / ma50_v * 100
+                    m5i = "Extended — may be overbought" if pvs > 5 else ("Just above — ideal zone" if pvs > 0 else ("Just below — watch reclaim" if pvs > -5 else "Well below — downtrend"))
+                    m5c = "#4dd880" if 0 < pvs < 5 else ("#d0b040" if pvs > 5 else ("#d0b040" if pvs > -5 else "#ff4444"))
+                    tech_rows.append(mrow("50-Day MA", "50-Day Moving Average. Price just above = support. Just below = watch for reclaim.", f"${ma50_v:.2f} <span style='color:{m5c};font-size:11px'>({'+' if pvs >= 0 else ''}{pvs:.1f}%)</span>"))
+                if ma200_v:
+                    m2i = "Golden Cross — long-term uptrend" if (ma50_v and ma50_v > ma200_v) else "Death Cross — long-term downtrend"
+                    m2c = "#4dd880" if (ma50_v and ma50_v > ma200_v) else "#ff4444"
+                    tech_rows.append(mrow("200-Day MA", "200-Day Moving Average. Golden Cross (50MA above 200MA) = major bull signal.", f"${ma200_v:.2f} <span style='font-size:11px;color:{m2c}'>{m2i}</span>"))
+                if vol_avg and vol_td:
+                    vr = vol_td / vol_avg
+                    vi = "Very high" if vr > 2 else ("High" if vr > 1.5 else ("Normal" if vr > 0.5 else "Low"))
+                    vc = "#4dd880" if vr > 1.5 else ("#8baac8" if vr > 0.5 else "#d0b040")
+                    tech_rows.append(mrow("Volume", "Today's volume vs 20-day average. High volume confirms moves.", f"<span style='color:{vc};font-family:Space Mono,monospace'>{vr:.2f}x avg</span> <span style='font-size:11px;color:#7a9ab8'>{vi}</span>"))
+                if ign_sc is not None:
+                    ic = "#f5a623" if ign_sc >= 70 else ("#c47d0e" if ign_sc >= 50 else "#4a6a8a")
+                    tech_rows.append(mrow("Ignition Score", "Live momentum score from RVOL, volume surge, velocity, VWAP, HOD, RSI, MACD (0-100).", f"<span style='color:{ic};font-family:Space Mono,monospace;font-size:15px;font-weight:500'>{ign_sc:.0f}</span>"))
+                if tech_rows:
+                    st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(tech_rows)}</tbody></table>", unsafe_allow_html=True)
+
+                az_section("Short Interest & Growth")
+                si_rows = []
+                if spf is not None:
+                    si_rows.append(mrow("Short % Float",  "% of float sold short. 15%+ = squeeze fuel if price runs.",          az_tag(spf * 100, 20, 10, "{:.1f}", "%")))
+                if sratio is not None:
+                    si_rows.append(mrow("Days to Cover",   "Shares short / avg vol. High = forced shorts if price rises.",        az_tag(sratio, 5, 3, "{:.1f}", "d")))
+                if ins_buys > 0:
+                    ins_col = "#4dd880" if ins_net > 0 else "#ff4444"
+                    si_rows.append(mrow("Insider Buying",  "Net insider buys last 90d (SEC Form 4).", f"<span style='font-family:Space Mono,monospace;color:{ins_col}'>{ins_buys} buys · ${ins_net/1e3:.0f}K net</span>"))
+                elif ins_net < 0:
+                    si_rows.append(mrow("Insider Activity","Net insider selling last 90d.", "<span style='font-family:Space Mono,monospace;color:#ff4444'>net selling</span>"))
+                if news_cnt:
+                    si_rows.append(mrow("News 48h",        "Headlines in last 48 hours. Momentum needs a catalyst.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{news_cnt} headlines</span>"))
+                if rg is not None:
+                    si_rows.append(mrow("Revenue Growth",  "YoY revenue growth. Double-digit = attractive to institutions.",      az_tag(rg * 100, 10, 3, "{:.1f}", "%")))
+                if eg is not None:
+                    si_rows.append(mrow("Earnings Growth", "YoY EPS growth. Growing faster than revenue = margin expansion.",     az_tag(eg * 100, 10, 3, "{:.1f}", "%")))
+                _esp_pct = az_fuel.get("earnings_surprise")
+                if _esp_pct is not None:
+                    _esp_col = "#4dd880" if _esp_pct >= 10 else ("#d0b040" if _esp_pct >= 0 else "#ff4444")
+                    si_rows.append(mrow("Earnings Surprise", "Last quarter EPS vs analyst estimates. 10%+ beat = strong momentum fuel.", f"<span style='font-family:Space Mono,monospace;color:{_esp_col}'>{_esp_pct:+.1f}%</span> vs estimates"))
+                if fuel_sc is not None:
+                    fc = "#4dd880" if fuel_sc >= 70 else ("#d0b040" if fuel_sc >= 50 else "#4a6a8a")
+                    si_rows.append(mrow("Fuel Score", "Primed-to-move score (0-100).", f"<span style='color:{fc};font-family:Space Mono,monospace;font-size:15px;font-weight:500'>{fuel_sc:.0f}</span>"))
+                if si_rows:
+                    st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(si_rows)}</tbody></table>", unsafe_allow_html=True)
+                else:
+                    _why = "; ".join(info.get("_data_issues", [])) or "short interest not published for this symbol (common for ETFs and foreign listings)"
+                    st.caption(f"Short interest unavailable — {_why}")
+
+                az_section("Live Signals")
+                if reasons:
+                    sig_html = "".join(
+                        f"<span style='display:inline-block;background:#0d1e33;color:#f5a623;"
+                        f"border:1px solid #1e3a5f;border-radius:4px;font-family:Space Mono,monospace;"
+                        f"font-size:11px;padding:2px 8px;margin:2px 3px 2px 0'>{r}</span>"
+                        for r in reasons
+                    )
+                    st.markdown(sig_html, unsafe_allow_html=True)
+                else:
+                    st.caption("No active signals this scan.")
+
+                az_section("Earnings Breakdown (EPS Trend)")
+                render_eps_trend(eps_history, eps_forward, why='; '.join(info.get('_data_issues', [])))
+
+                az_section("Dividend")
+                render_dividend_info(info)
+
+            # ── COLUMN C: Valuation + Financial Health + Analyst ────────────
+            with colC:
+                az_section("Valuation")
+                val_rows = []
+                if mcap is not None:
+                    mc_str = f"${mcap/1e9:.2f}B" if mcap >= 1e9 else f"${mcap/1e6:.1f}M"
+                    val_rows.append(mrow("Market Cap", "Total market value = share price × shares outstanding. Determines if this is micro/small/mid/large cap.", mc_str))
+                if pe is not None:
+                    val_rows.append(mrow(
+                        "P/E Ratio", "Price per dollar of trailing earnings.",
+                        az_tag_inv(pe, 40, 25, "{:.1f}", "x"),
+                        metric_scale(pe, 0, 60, 25, 40, "good under 25x",
+                                     higher=False, neg_bad=True)))
+                if fwpe is not None:
+                    val_rows.append(mrow(
+                        "Forward P/E", "P/E on next-12-month estimates. Below trailing = growth expected.",
+                        f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{fwpe:.1f}x</span>",
+                        metric_scale(fwpe, 0, 60, 25, 40, "good under 25x",
+                                     higher=False, neg_bad=True)))
+                if pb is not None:
+                    val_rows.append(mrow(
+                        "P/B Ratio", "Below 1 = under book value; above 3 = premium.",
+                        az_tag_inv(pb, 6, 3, "{:.2f}", "x"),
+                        metric_scale(pb, 0, 10, 3, 6, "good under 3x", higher=False)))
+                if ps is not None:
+                    val_rows.append(mrow(
+                        "P/S Ratio", "Below 2x reasonable; above 10x = growth premium.",
+                        az_tag_inv(ps, 10, 5, "{:.2f}", "x"),
+                        metric_scale(ps, 0, 16, 5, 10, "good under 5x", higher=False)))
+                if beta is not None:
+                    val_rows.append(mrow("Beta", "Volatility vs S&P 500. 1.0 = market. 1.5 = 50% more volatile. Under 0.6 = defensive.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{beta:.2f}</span>"))
+                if fl is not None:
+                    fl_str = f"{fl/1e9:.2f}B" if fl >= 1e9 else f"{fl/1e6:.0f}M"
+                    val_rows.append(mrow("Float", "Tradeable shares. <20M = explosive on volume.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{fl_str}</span>"))
+                if inst_pct is not None:
+                    val_rows.append(mrow("Institutional", "% held by institutions.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{inst_pct:.1f}%</span>"))
+                if val_rows:
+                    st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(val_rows)}</tbody></table>", unsafe_allow_html=True)
+                else:
+                    _why = "; ".join(info.get("_data_issues", [])) or "yfinance returned no valuation fields — likely rate-limited; press Refresh"
+                    st.caption(f"Valuation unavailable — {_why}")
+
+                az_section("Financial Health")
+                roce = info.get("_roce")
+                gm = info.get("_gross_margin")
+                if gm is None:
+                    gm = info.get("grossMargins")
+                opm = info.get("_op_margin")
+                cfm = info.get("_cf_margin")
+                fcfm = info.get("_fcf_margin")
+
+                def _has(v):
+                    try:
+                        return v is not None and np.isfinite(float(v))
+                    except (TypeError, ValueError):
+                        return False
+
+                hlth_rows = []
+                if _has(roce): hlth_rows.append(mrow("ROCE", "Return on Capital Employed: operating income / (total assets − current liabilities). 15%+ is elite.", az_tag(roce * 100, 15, 8, "{:.1f}", "%"), metric_scale(roce * 100, 0, 40, 15, 8, "good 15%+")))
+                if _has(gm): hlth_rows.append(mrow("Gross Margin", "Gross profit / revenue — the moat test. 60%+ means pricing power.", az_tag(gm * 100, 50, 30, "{:.1f}", "%"), metric_scale(gm * 100, 0, 80, 50, 30, "good 50%+")))
+                if _has(opm): hlth_rows.append(mrow("Operating Margin", "Operating income / revenue — what's left after running the business.", az_tag(opm * 100, 15, 5, "{:.1f}", "%"), metric_scale(opm * 100, 0, 40, 15, 5, "good 15%+")))
+                elif _has(om): hlth_rows.append(mrow("Operating Margin", "Operating income / revenue.", az_tag(om * 100, 15, 5, "{:.1f}", "%"), metric_scale(om * 100, 0, 40, 15, 5, "good 15%+")))
+                if _has(cfm): hlth_rows.append(mrow("Cash Flow Margin", "Operating cash flow / revenue — earnings are an opinion, cash is a fact.", az_tag(cfm * 100, 15, 8, "{:.1f}", "%"), metric_scale(cfm * 100, 0, 40, 15, 8, "good 15%+")))
+                if _has(fcfm): hlth_rows.append(mrow("FCF Margin", "Free cash flow / revenue — cash left after capex.", az_tag(fcfm * 100, 10, 5, "{:.1f}", "%"), metric_scale(fcfm * 100, 0, 30, 10, 5, "good 10%+")))
+                if _has(pm): hlth_rows.append(mrow("Profit Margin", "Net income / revenue.", az_tag(pm * 100, 15, 5, "{:.1f}", "%"), metric_scale(pm * 100, 0, 40, 15, 5, "good 15%+")))
+                if _has(roe): hlth_rows.append(mrow("ROE", "Return on equity.", az_tag(roe * 100, 15, 8, "{:.1f}", "%"), metric_scale(roe * 100, 0, 40, 15, 8, "good 15%+")))
+                if _has(roa): hlth_rows.append(mrow("ROA", "Return on assets.", az_tag(roa * 100, 8, 4, "{:.1f}", "%"), metric_scale(roa * 100, 0, 20, 8, 4, "good 8%+")))
+                if _has(deq): hlth_rows.append(mrow("Debt / Equity", "Leverage — lower is safer.", az_tag_inv(deq, 150, 80, "{:.0f}", "%"), metric_scale(deq, 0, 250, 80, 150, "good under 80%", higher=False)))
+                if _has(cr): hlth_rows.append(mrow("Current Ratio", "Short-term assets / liabilities. Above 1.5 healthy.", az_tag(cr, 1.5, 1.0, "{:.2f}", "x"), metric_scale(cr, 0, 3, 1.5, 1.0, "good 1.5x+")))
+                if hlth_rows:
+                    st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(hlth_rows)}</tbody></table>", unsafe_allow_html=True)
+                scan_rows = []
+                for lab, key, hi, lo, fmt, suf, tip, scale in (
+                    ("Piotroski", "_scan_piotroski", 7, 5, "{:.0f}", "/9", "9-point fundamental health score from the nightly scan. 7+ = fortress.", (0, 9, 7, 5, "good 7+")),
+                    ("Golden Cross", "_scan_golden_cross", 1, 0.5, "{:.1f}", "", "1 = 50MA above 200MA in the nightly scan.", (0, 1, 1, 0.5, "good 1")),
+                    ("ROIC", "_scan_roic", 0.15, 0.08, "{:.1%}", "", "Return on invested capital.", None),
+                    ("MFI", "_scan_mfi", 55, 45, "{:.0f}", "", "Money Flow Index from the nightly scan.", (0, 100, 55, 45, "good 55+")),
+                    ("Squeeze Score", "_scan_squeeze_score", 60, 40, "{:.0f}", "", "Nightly short-squeeze composite.", (0, 100, 60, 40, "good 60+")),
+                    ("Clean Setup", "_scan_clean_setup", 60, 40, "{:.0f}", "", "Clean Setup preset score from the nightly scan.", (0, 100, 60, 40, "good 60+")),
+                ):
+                    v = info.get(key)
+                    if key == "_scan_squeeze_score" and v is None:
+                        v = info.get("_scan_squeeze")
+                    try:
+                        v = float(v)
+                    except (TypeError, ValueError):
+                        continue
+                    if not np.isfinite(v):
+                        continue
+                    if key == "_scan_roic":
+                        bar = metric_scale(v * 100, 0, 40, 15, 8, "good 15%+")
+                    else:
+                        bar = metric_scale(v, scale[0], scale[1], scale[2], scale[3], scale[4])
+                    scan_rows.append(mrow(lab, tip, az_tag(v, hi, lo, fmt, suf), bar))
+                if scan_rows:
+                    az_section("Nightly Scan Signals")
+                    st.markdown(
+                        f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(scan_rows)}</tbody></table>",
+                        unsafe_allow_html=True)
+
+                if am:
+                    az_section("Analyst Consensus")
+                    rcol = "#4dd880" if "buy" in recky.lower() else ("#ff4444" if "sell" in recky.lower() else "#d0b040")
+                    rdisp = recky.replace("_", " ").title() if recky else "--"
+                    an_rows = [
+                        mrow("Recommendation", "Wall Street consensus: Strong Buy / Buy / Hold / Sell. Aggregates all analyst ratings.", f"<span style='color:{rcol};font-weight:500'>{rdisp}</span> <span style='font-size:11px;color:#7a9ab8'>({nana} analysts)</span>"),
+                        mrow("Mean Target", "Average 12-month analyst price target. Implies expected upside/downside from current price.", f"${am:.2f}" + (f" <span style='font-size:11px;color:{'#4dd880' if aus and aus > 0 else '#ff4444'}'>({'+' if aus and aus >= 0 else ''}{aus:.1f}%)</span>" if aus else "")),
+                        mrow("Target Range", "Low-to-high analyst target spread. Wide range = high uncertainty. Narrow = strong consensus.", f"${al:.2f} – ${ahigh:.2f}" if (al and ahigh) else "--"),
+                    ]
+                    st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(an_rows)}</tbody></table>", unsafe_allow_html=True)
+
+                # Catalyst tags from scan
+                f_data = scan_r["fuel"] if scan_r else {}
+                cat_tags = f_data.get("catalyst_tags") or []
+                bimodal = f_data.get("bimodal_event", False)
+                dtc_val = f_data.get("days_to_cover")
+                ed = f_data.get("earnings_days")
+                if cat_tags or bimodal or (dtc_val and dtc_val >= 5):
+                    az_section("Catalysts Detected")
+                    cat_html = build_catalyst_tags_html(az_ticker, cat_tags, bimodal, dtc_val, ed)
+                    suppressed = f_data.get("catalyst_suppressed") or []
+                    if suppressed:
+                        for s in suppressed:
+                            cat_html += (
+                                f"<span style='font-family:Space Mono,monospace;font-size:10px;"
+                                f"color:#7a9ab8;border:1px dashed #1e3a5f;border-radius:4px;"
+                                f"padding:1px 6px;margin:2px 3px 2px 0;text-decoration:line-through;"
+                                f"display:inline-block'>{s.upper()}</span>"
+                            )
+                    if f_data.get("latest_headline"):
+                        cat_html += f"<div style='margin-top:8px;font-size:11px;color:#7a9ab8'>{f_data['latest_headline']}</div>"
+                    st.markdown(cat_html, unsafe_allow_html=True)
 
 
 
