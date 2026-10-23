@@ -156,7 +156,7 @@ if _engine_v != REQUIRED_ENGINE:
              "then reboot the app.")
     st.stop()
 
-# ── Global tab focus-outline fix ────────────────────────────────────
+# ── Global theme (Glass HUD) + tab focus-outline fix ────────────────────────────────────
 # Applies once, at the top level, so it covers every tab in every sub-app
 # (Cascade Map, Stock Lookup, Top 20, Hybrid Screener, Ignition Scanner,
 # Crypto Copycat, etc.) rather than relying on each module's own CSS block, which only
@@ -164,16 +164,52 @@ if _engine_v != REQUIRED_ENGINE:
 # draw a default focus ring on the clicked tab button; this removes it
 # while leaving each app's own "active tab" highlight styling untouched.
 st.markdown("""<style>
-html, body, .stApp,
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ── Glass HUD ───────────────────────────────────────────────────────
+   Near-black ground, two soft glows, frosted-glass cards, one cyan accent.
+   Tokens: ground #070A12 · text #EAF2FF · muted #9FB0C8 · accent #67E8F9 */
+html, body {
+    background: #070A12 !important;
+}
+.stApp {
+    background:
+        radial-gradient(560px 520px at 18% -140px, rgba(103,232,249,0.14), transparent 70%),
+        radial-gradient(520px 480px at 92% 105%, rgba(139,92,246,0.12), transparent 70%),
+        #070A12 !important;
+    background-attachment: fixed !important;
+    color: #EAF2FF;
+}
 [data-testid="stAppViewContainer"],
 [data-testid="stHeader"],
 [data-testid="stToolbar"],
 [data-testid="stMain"],
 [data-testid="stMainBlockContainer"],
 section.main {
-    background-color: #081325 !important;
-    background: #081325 !important;
+    background: transparent !important;
 }
+
+/* Type: Inter for text, JetBrains Mono for numbers. Icons are left alone. */
+.stApp, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4,
+.stApp label, .stApp button, .stApp input, .stApp textarea,
+.stApp li, .stApp td, .stApp th, .stApp summary {
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+.stApp h1, .stApp h2, .stApp h3 {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: #EAF2FF;
+}
+code, pre,
+[data-testid="stMetricValue"], [data-testid="stMetricValue"] *,
+[style*="font-family:monospace"] {
+    font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace !important;
+}
+[data-testid="stMetricLabel"], [data-testid="stCaptionContainer"] {
+    color: #9FB0C8 !important;
+}
+
+/* Tab focus outline + highlight bar stay removed (each module styles its own active tab) */
 .stTabs button[data-baseweb="tab"]:focus,
 .stTabs button[data-baseweb="tab"]:focus-visible,
 .stTabs [data-baseweb="tab"]:focus,
@@ -189,7 +225,7 @@ section.main {
     display: none !important;
 }
 
-/* Menus / inputs sit above the navy page so they read as controls */
+/* Inputs: glass fields, cyan on focus */
 div[data-testid="stSelectbox"] > div > div,
 div[data-testid="stMultiSelect"] > div > div,
 div[data-baseweb="select"] > div,
@@ -197,47 +233,57 @@ div[data-testid="stTextInput"] input,
 div[data-testid="stNumberInput"] input,
 div[data-testid="stDateInput"] input,
 div[data-testid="stTextArea"] textarea {
-    background-color: #1a4060 !important;
-    border: 1px solid #4a7aa0 !important;
-    color: #F6F4E9 !important;
+    background-color: rgba(255,255,255,0.06) !important;
+    border: 1px solid rgba(255,255,255,0.16) !important;
+    border-radius: 10px !important;
+    color: #EAF2FF !important;
+}
+div[data-testid="stTextInput"] input:focus,
+div[data-testid="stNumberInput"] input:focus,
+div[data-testid="stDateInput"] input:focus,
+div[data-testid="stTextArea"] textarea:focus {
+    border-color: #67E8F9 !important;
+    box-shadow: 0 0 0 1px rgba(103,232,249,0.45) !important;
 }
 div[data-testid="stSelectbox"] svg,
 div[data-testid="stMultiSelect"] svg {
-    fill: #F6F4E9 !important;
+    fill: #EAF2FF !important;
 }
 
-/* Secondary buttons: cream on steel, orange on hover */
+/* Buttons: glass by default, solid cyan for the primary action */
 div[data-testid="stButton"] button,
 div[data-testid="stDownloadButton"] button {
-    background-color: #1a4060 !important;
-    border: 1.5px solid #5a8ab0 !important;
-    color: #F6F4E9 !important;
-    font-weight: 650 !important;
+    background-color: rgba(255,255,255,0.06) !important;
+    border: 1px solid rgba(255,255,255,0.16) !important;
+    border-radius: 10px !important;
+    color: #EAF2FF !important;
+    font-weight: 600 !important;
+    min-height: 44px;
 }
 div[data-testid="stButton"] button:hover,
 div[data-testid="stDownloadButton"] button:hover {
-    background-color: #214c70 !important;
-    border-color: #E87722 !important;
-    color: #E87722 !important;
+    background-color: rgba(103,232,249,0.10) !important;
+    border-color: #67E8F9 !important;
+    color: #67E8F9 !important;
 }
-/* Primary (Run / Look up): orange fill, dark text */
 div[data-testid="stButton"] button[kind="primary"],
 div[data-testid="stButton"] button[data-testid="stBaseButton-primary"] {
-    background-color: #E87722 !important;
-    border: 1.5px solid #E87722 !important;
-    color: #081325 !important;
-    font-weight: 800 !important;
+    background-color: #67E8F9 !important;
+    border: 1px solid #67E8F9 !important;
+    color: #04222A !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em;
 }
 div[data-testid="stButton"] button[kind="primary"]:hover,
 div[data-testid="stButton"] button[data-testid="stBaseButton-primary"]:hover {
-    background-color: #f09245 !important;
-    border-color: #f09245 !important;
-    color: #081325 !important;
+    background-color: #A5F3FC !important;
+    border-color: #A5F3FC !important;
+    color: #04222A !important;
 }
 
 div[data-testid="stRadio"] label:has(input:checked) {
-    background-color: #10283f !important;
-    border-color: #7eb0d4 !important;
+    background-color: rgba(103,232,249,0.12) !important;
+    border-color: #67E8F9 !important;
 }
 div[data-testid="stRadio"] label:has(input:checked) p,
 div[data-testid="stRadio"] label:has(input:checked) span {
@@ -245,55 +291,85 @@ div[data-testid="stRadio"] label:has(input:checked) span {
 }
 div[data-testid="stRadio"] label p,
 div[data-testid="stRadio"] label span {
-    color: #F4F8FF !important;
-    font-weight: 700 !important;
+    color: #EAF2FF !important;
+    font-weight: 500 !important;
     opacity: 1 !important;
 }
+
+/* Pill menus (segmented controls) */
 div[data-testid="stSegmentedControl"] button {
-    background-color: #10283f !important;
-    border: 1.5px solid #7eb0d4 !important;
-    color: #F7FBFF !important;
-    font-weight: 800 !important;
-    letter-spacing: 0.3px !important;
+    background-color: rgba(255,255,255,0.05) !important;
+    border: 1px solid rgba(255,255,255,0.14) !important;
+    border-radius: 999px !important;
+    color: #B8C6DC !important;
+    letter-spacing: 0.01em !important;
 }
 div[data-testid="stSegmentedControl"] button,
 div[data-testid="stSegmentedControl"] button * {
-    font-weight: 800 !important;
-    font-size: 15px !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
     opacity: 1 !important;
 }
+div[data-testid="stSegmentedControl"] button:hover {
+    border-color: rgba(103,232,249,0.55) !important;
+    color: #EAF2FF !important;
+}
+div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"] {
+    background-color: rgba(103,232,249,0.16) !important;
+    border-color: #67E8F9 !important;
+    color: #FFFFFF !important;
+}
+div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"] * {
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
+}
+
 div[data-testid="stExpander"] {
-    background-color: #122a42 !important;
-    border: 1px solid #3d6a94 !important;
+    background-color: rgba(255,255,255,0.04) !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    border-radius: 14px !important;
 }
 div[data-testid="stExpander"] summary,
 div[data-testid="stExpander"] details summary {
-    color: #F6F4E9 !important;
-    font-weight: 650 !important;
+    color: #EAF2FF !important;
+    font-weight: 600 !important;
 }
 
-/* Section frames — larger border + soft orange glow (Money Weather palette) */
+/* Cards: frosted glass. Blur is applied only to the big page frames
+   (below) so long tables and many nested boxes stay fast. */
 div[data-testid="stVerticalBlockBorderWrapper"] {
-    background-color: #081325 !important;
-    border: 2px solid rgba(232,119,34,0.45) !important;
-    border-radius: 22px !important;
+    background-color: rgba(255,255,255,0.04) !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    border-radius: 20px !important;
     padding: 16px 18px 18px 18px !important;
     margin: 10px 0 16px 0 !important;
     overflow: visible !important;
-    box-shadow: 0 0 0 1px rgba(232,119,34,0.10),
-                0 0 28px rgba(232,119,34,0.18) !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35) !important;
 }
 div[data-testid="stPlotlyChart"],
 div[data-testid="stPlotlyChart"] > div {
     overflow: visible !important;
     min-height: 280px;
 }
+
+/* Inline cards written with the old navy fills pick up the glass look too */
+[style*="background:#0c1829" i],
+[style*="background:#081325" i],
+[style*="background:#0d1e33" i],
+[style*="background:#07111f" i],
+[style*="background:#0a1828" i],
+[style*="background:#122540" i],
+[style*="background:#06101c" i] {
+    background: rgba(255,255,255,0.045) !important;
+}
+
 .st-key-mw_nav,
 .st-key-mw_nav.stVerticalBlock,
 .st-key-mw_nav[data-testid="stVerticalBlock"] {
-    border-color: rgba(232,119,34,0.58) !important;
-    box-shadow: 0 0 0 1px rgba(232,119,34,0.14),
-                0 0 34px rgba(232,119,34,0.24) !important;
+    border-color: rgba(103,232,249,0.22) !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35) !important;
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
     padding: 14px 16px 10px 16px !important;
     margin: 4px 0 14px 0 !important;
     display: flex !important;
@@ -313,7 +389,7 @@ div[data-testid="stPlotlyChart"] > div {
 .st-key-mw_nav [data-baseweb="button-group"] {
     display: flex !important;
     flex-wrap: wrap !important;
-    gap: 4px !important;
+    gap: 6px !important;
     width: 100% !important;
 }
 .st-key-mw_nav [data-testid="stBaseButton-segmented_control"],
@@ -354,34 +430,35 @@ div[data-testid="stPlotlyChart"] > div {
     padding: 2px 12px !important;
     min-height: 28px !important;
     font-size: 12px !important;
+    border-radius: 999px !important;
 }
 .st-key-mw_page {
-    border-color: rgba(232,119,34,0.52) !important;
-    box-shadow: 0 0 0 1px rgba(232,119,34,0.12),
-                0 0 36px rgba(232,119,34,0.22) !important;
+    border-color: rgba(103,232,249,0.20) !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35) !important;
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
     padding: 20px 22px 24px 22px !important;
     margin: 4px 0 20px 0 !important;
 }
-/* Inner control cards stay framed but quieter so the page card is the glow */
+/* Inner control cards stay framed but quieter so the page card leads */
 .st-key-mw_page div[data-testid="stVerticalBlockBorderWrapper"] {
-    box-shadow: 0 0 0 1px rgba(232,119,34,0.08),
-                0 0 16px rgba(232,119,34,0.10) !important;
+    background-color: rgba(255,255,255,0.03) !important;
+    box-shadow: none !important;
     margin: 8px 0 12px 0 !important;
     padding: 12px 14px 14px 14px !important;
 }
 .mw-menu-title {
-    background: #081325;
-    border: 2px solid color-mix(in srgb, var(--mc,#FFD15C) 55%, #3d6a94);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid color-mix(in srgb, var(--mc,#67E8F9) 45%, rgba(255,255,255,0.12));
     border-radius: 14px;
     padding: 8px 14px;
     margin: 0 0 10px 0;
     text-align: center;
     font-size: 16px;
-    font-weight: 800;
+    font-weight: 700;
     letter-spacing: 0.03em;
-    color: var(--mc,#FFD15C);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--mc,#FFD15C) 12%, transparent),
-                0 0 16px color-mix(in srgb, var(--mc,#FFD15C) 20%, transparent);
+    color: #EAF2FF;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
 }
 </style>""", unsafe_allow_html=True)
 
@@ -436,26 +513,22 @@ _MENU_CAT_COLORS = {
 
 def _menu_category_css() -> str:
     rules = []
-    for key, colors in _MENU_CAT_COLORS.items():
-        for i, col in enumerate(colors, start=1):
-            rules.append(
-                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i}),"
-                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i}) *,"
-                f".st-key-{key} [data-baseweb='button-group'] > :nth-child({i}) button,"
-                f".st-key-{key} [data-baseweb='button-group'] > :nth-child({i}) button *{{"
-                f"color:{col} !important;}}"
-            )
-            sel = (
-                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i})"
-                f"[data-testid='stBaseButton-segmented_controlActive'],"
-                f".st-key-{key} [data-baseweb='button-group'] > :nth-child({i})"
-                f" button[data-testid='stBaseButton-segmented_controlActive'],"
-                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i})[aria-checked='true'],"
-                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i})[aria-selected='true'],"
-                f".st-key-{key} [data-baseweb='button-group'] > button:nth-child({i})[aria-pressed='true']"
-            )
-            rules.append(f"{sel}{{background:{col} !important;border-color:{col} !important;}}")
-            rules.append(f"{sel} *{{color:#081325 !important;}}")
+    # Glass HUD: every pill menu shares one calm look; the active pill takes the cyan accent.
+    for key in _MENU_CAT_COLORS:
+        base = f".st-key-{key} [data-baseweb='button-group']"
+        rules.append(
+            f"{base} > button, {base} > button *, {base} > * button, {base} > * button *"
+            "{color:#B8C6DC !important;}"
+        )
+        act = (
+            f"{base} > button[data-testid='stBaseButton-segmented_controlActive'],"
+            f"{base} > * button[data-testid='stBaseButton-segmented_controlActive'],"
+            f"{base} > button[aria-checked='true'],"
+            f"{base} > button[aria-selected='true'],"
+            f"{base} > button[aria-pressed='true']"
+        )
+        rules.append(act + "{background:rgba(103,232,249,0.16) !important;border-color:#67E8F9 !important;}")
+        rules.append(act.replace(",", " *,") + " *{color:#FFFFFF !important;}")
     rules.append(
         "[class*='_safe_ai'] label, [class*='_safe_ai'] label p, "
         "[class*='_safe_ai'] label span {"
@@ -489,19 +562,18 @@ def _menu_category_css() -> str:
         "color:var(--sc,#FFD15C);margin:0 0 6px}"
     )
     rules.append(
-        ".hub-title{background:#081325;"
-        "border:2px solid color-mix(in srgb,var(--tc,#FFD15C) 55%,#3d6a94);"
+        ".hub-title{background:rgba(255,255,255,0.05);"
+        "border:1px solid color-mix(in srgb,var(--tc,#67E8F9) 45%,rgba(255,255,255,0.12));"
         "border-radius:20px;padding:16px 22px;margin:4px 0 14px;text-align:center;"
-        "font-size:24px;font-weight:800;color:var(--tc,#FFD15C);letter-spacing:.02em;"
-        "box-shadow:0 0 0 1px color-mix(in srgb,var(--tc,#FFD15C) 12%,transparent),"
-        "0 0 24px color-mix(in srgb,var(--tc,#FFD15C) 20%,transparent)}"
+        "font-size:24px;font-weight:700;color:#EAF2FF;letter-spacing:.02em;"
+        "box-shadow:0 8px 32px rgba(0,0,0,0.35)}"
     )
     rules.append(
-        ".hub-sec{background:#081325;"
-        "border:2px solid color-mix(in srgb,var(--sc,#E87722) 50%,#3d6a94);"
+        ".hub-sec{background:rgba(255,255,255,0.05);"
+        "border:1px solid color-mix(in srgb,var(--sc,#67E8F9) 45%,rgba(255,255,255,0.12));"
         "border-radius:16px;padding:12px 18px;margin:18px 0 10px;font-size:15px;"
-        "font-weight:800;color:var(--sc,#7FD4FF);letter-spacing:.02em;"
-        "box-shadow:0 0 18px color-mix(in srgb,var(--sc,#E87722) 20%,transparent)}"
+        "font-weight:700;color:#EAF2FF;letter-spacing:.02em;"
+        "box-shadow:0 8px 32px rgba(0,0,0,0.35)}"
         ".hub-sec.lg{font-size:21px;padding:14px 20px;text-align:center}"
         ".hub-sec small{font-weight:500;font-size:12px;color:#9aa8bd;margin-left:8px}"
         ".hub-sec.lg small{font-size:14px}"
@@ -531,10 +603,9 @@ def _menu_category_css() -> str:
         ("te_search_box", "#2DD4BF"),
     ):
         rules.append(
-            f".st-key-{_pk}{{border-color:{_pc} !important;"
-            f"border-left:5px solid {_pc} !important;"
-            f"box-shadow:0 0 0 1px color-mix(in srgb,{_pc} 16%,transparent),"
-            f"0 0 22px color-mix(in srgb,{_pc} 20%,transparent) !important}}"
+            f".st-key-{_pk}{{border-color:rgba(255,255,255,0.12) !important;"
+            f"border-left:3px solid {_pc} !important;"
+            f"box-shadow:0 8px 32px rgba(0,0,0,0.35) !important}}"
         )
     for _slug, _pc in (
         ("_az_range", "#7FD4FF"),
@@ -548,7 +619,7 @@ def _menu_category_css() -> str:
         ("_az_scan", "#C5D4FF"),
     ):
         rules.append(
-            f'[class*="{_slug}"]{{border-left:5px solid {_pc} !important;'
+            f'[class*="{_slug}"]{{border-left:3px solid {_pc} !important;'
             f"border-radius:10px}}"
         )
     return "\n".join(rules)
@@ -679,7 +750,8 @@ def _clickable_logo(width: int = 150) -> None:
     )
 
 
-ACCENT = "#E87722"
+ACCENT = "#67E8F9"
+MIX_COLOR = "#E87722"   # "either way" / mixed news keeps its amber meaning
 GREEN = "#3fbf7f"
 RED = "#e05252"
 DIM = "#9aa8bd"
@@ -738,14 +810,15 @@ with _hl:
 with _ht:
     st.markdown(
         """
-        <div style="padding:6px 0 2px;">
-          <span style="font-size:30px;font-weight:700;">💰 Money Maker</span>
+        <div style="padding:6px 0 2px;display:flex;align-items:center;gap:14px;">
+          <span style="width:26px;height:26px;border-radius:50%;border:2px solid #67E8F9;box-sizing:border-box;display:inline-block;"></span>
+          <span style="font-size:28px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;">Money Maker</span>
         </div>
         """, unsafe_allow_html=True)
     _dump_line = _dump_header_line()
     with st.container(key="hdr_dump_row"):
         st.markdown(
-            f'<div style="color:#9aa8bd;font-size:12px;margin:0;white-space:nowrap;">'
+            f'<div style="color:#9FB0C8;font-size:12px;margin:0;white-space:nowrap;font-family:\'JetBrains Mono\',monospace;">'
             f"{_dump_line}</div>",
             unsafe_allow_html=True)
         if st.button("Load stock info", key="hdr_load_dump",
@@ -2355,8 +2428,8 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
         figh.add_vline(x=0, line_color="#F6F4E9", line_width=1)
         figh.add_vline(x=med * 100, line_color=GREEN, line_dash="dash",
                        annotation_text="median", annotation_font_color=GREEN)
-        figh.update_layout(height=220, paper_bgcolor="#081325",
-                           plot_bgcolor="#0c1829", font_color="#F6F4E9",
+        figh.update_layout(height=220, paper_bgcolor="rgba(0,0,0,0)",
+                           plot_bgcolor="rgba(255,255,255,0.03)", font_color="#EAF2FF",
                            margin=dict(l=10, r=10, t=10, b=30),
                            xaxis_title="return over next 21 sessions (%)",
                            showlegend=False)
@@ -2672,8 +2745,8 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         fig.add_trace(go.Bar(x=d.index, y=d.Volume, marker_color=vcol,
                              name="Volume", opacity=0.6), row=2, col=1)
     fig.update_layout(height=430, template="plotly_dark",
-                      paper_bgcolor="#081325", plot_bgcolor="#0c1829",
-                      font_color="#F6F4E9", showlegend=True,
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0.03)",
+                      font_color="#EAF2FF", showlegend=True,
                       legend=dict(orientation="h", y=1.05),
                       xaxis_rangeslider_visible=False,
                       margin=dict(l=10, r=10, t=10, b=10))
@@ -3240,19 +3313,18 @@ def _hub_pill(key=None):
 def _t20_css():
     """Colored left-border section styling for the Top 20 tab only."""
     _md_html(f"""<style>
-.t20-title{{background:#081325;border:2px solid color-mix(in srgb,var(--tc,#FFD15C) 55%,#3d6a94);
+.t20-title{{background:rgba(255,255,255,0.05);border:1px solid color-mix(in srgb,var(--tc,#FFD15C) 45%,rgba(255,255,255,0.12));
   border-radius:20px;padding:16px 22px;margin:4px 0 14px;text-align:center;font-size:24px;
-  font-weight:800;color:var(--tc,#FFD15C);letter-spacing:.02em;
-  box-shadow:0 0 0 1px color-mix(in srgb,var(--tc,#FFD15C) 12%,transparent),
-             0 0 24px color-mix(in srgb,var(--tc,#FFD15C) 20%,transparent)}}
-.t20-head{{background:#081325;border:2px solid color-mix(in srgb,var(--sc,{ACCENT}) 50%,#3d6a94);
-  border-radius:16px;padding:12px 18px;margin:18px 0 10px;font-size:15px;font-weight:800;
-  color:var(--sc,{ACCENT});letter-spacing:.02em;
-  box-shadow:0 0 18px color-mix(in srgb,var(--sc,{ACCENT}) 20%,transparent)}}
+  font-weight:700;color:#EAF2FF;letter-spacing:.02em;
+  box-shadow:0 8px 32px rgba(0,0,0,0.35)}}
+.t20-head{{background:rgba(255,255,255,0.05);border:1px solid color-mix(in srgb,var(--sc,{ACCENT}) 45%,rgba(255,255,255,0.12));
+  border-radius:16px;padding:12px 18px;margin:18px 0 10px;font-size:15px;font-weight:700;
+  color:#EAF2FF;letter-spacing:.02em;
+  box-shadow:0 8px 32px rgba(0,0,0,0.35)}}
 .t20-head.lg{{font-size:21px;padding:14px 20px}}
 .t20-head small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
 .t20-head.lg small{{font-size:14px}}
-.t20-box{{background:#0c1829;border:1px solid #3d6a94;border-left:4px solid var(--bc,{_T20_BLUE});
+.t20-box{{background:rgba(255,255,255,0.045);border:1px solid rgba(255,255,255,0.12);border-left:4px solid var(--bc,{_T20_BLUE});
   border-radius:10px;padding:12px 16px;color:#F6F4E9;font-size:14px;line-height:1.55;margin:6px 0}}
 .st-key-t20_engine{{border-left:5px solid #7FD4FF !important;border-radius:10px}}
 .st-key-t20_lens{{border-left:5px solid #F0A6FF !important;border-radius:10px}}
@@ -3783,12 +3855,12 @@ def _render_signed_catalysts(tk: str, sector: str = "", *, notes: bool = True) -
         f"text-transform:uppercase;margin-bottom:8px'>▼ Down</div>"
         f"{_pills(down, RED, '#a03535', '#220d0d')}"
         f"{_notes('down', RED) if notes else ''}</div></div>"
-        + (f"<div style='background:#0c1829;border:1px solid {ACCENT};border-radius:10px;"
+        + (f"<div style='background:#0c1829;border:1px solid {MIX_COLOR};border-radius:10px;"
            f"padding:10px 12px;margin:0 0 8px'>"
-           f"<div style='color:{ACCENT};font-weight:800;font-size:11px;letter-spacing:1px;"
+           f"<div style='color:{MIX_COLOR};font-weight:800;font-size:11px;letter-spacing:1px;"
            f"text-transform:uppercase;margin-bottom:8px'>▲▼ Either way</div>"
-           f"{_pills(other, ACCENT, '#c47d0e', '#221800')}"
-           f"{_notes('both', ACCENT) if notes else ''}</div>"
+           f"{_pills(other, MIX_COLOR, '#c47d0e', '#221800')}"
+           f"{_notes('both', MIX_COLOR) if notes else ''}</div>"
            if other else "")
         + f"<div style='color:{DIM};font-size:12px;margin-bottom:8px'>"
         f"Net signed score <b style='color:{sc_col}'>{score:+d}</b> "
@@ -3884,7 +3956,7 @@ def _render_lookup_news(tk: str, name: str = "") -> None:
         )
     if other:
         with st.expander(f"Mixed / unmarked · {len(other)}", expanded=False):
-            _md_html(_news_items_html(other, ACCENT, "#c47d0e", "#221800", "MIX", "None."))
+            _md_html(_news_items_html(other, MIX_COLOR, "#c47d0e", "#221800", "MIX", "None."))
 
 
 def _help_card(title, blurb, body, use="", color="#7FD4FF"):
@@ -4570,7 +4642,7 @@ with st.container(border=True, key="mw_page"):
                                           for ic, h in zip(wshow.edge_ic, wshow.hit_rate)],
                               hovertemplate="%{source.label} → %{target.label}<br>%{customdata}<extra></extra>")))
                 fig.update_layout(height=max(340, 26 * max(len(srcs), len(tgts))),
-                                  paper_bgcolor="#081325", font_color="#F6F4E9",
+                                  paper_bgcolor="rgba(0,0,0,0)", font_color="#EAF2FF",
                                   font_size=12, margin=dict(l=10, r=10, t=10, b=24))
                 st.plotly_chart(fig, width="stretch", key="wd_sankey")
                 st.caption("Ribbon width = signal strength · green pushes the target UP, "
