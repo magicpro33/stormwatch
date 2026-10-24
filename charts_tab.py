@@ -847,7 +847,7 @@ def _metal_pills(gold: pd.Series, silver: pd.Series, live: bool) -> None:
     g_hi = float(gold.max()) if len(gold) else None
     s_hi = float(silver.max()) if len(silver) else None
     g_off = ((g / g_hi - 1.0) * 100.0) if (g and g_hi) else None
-    ratio = (g / s) if (g and s and s > 0) else None
+    s_off = ((s / s_hi - 1.0) * 100.0) if (s and s_hi) else None
     when = _spot_when(live)
     _pills([
         {"label": "Gold",
@@ -878,15 +878,16 @@ def _metal_pills(gold: pd.Series, silver: pd.Series, live: bool) -> None:
          "value": _fmt_pct(s_yr, signed=True),
          "sub": "same week last year",
          "color": _chg_color(s_yr)},
-        {"label": "Gold / silver",
-         "value": f"{ratio:.0f}×" if ratio else "—",
-         "sub": "Ounces of silver in one ounce of gold",
-         "color": ACCENT, "icon": "⚖"},
         {"label": "Gold vs high",
          "value": _fmt_pct(g_off, signed=True),
          "sub": (_fmt_px(g_hi, 0) + " · " + _month_label(gold.idxmax())
                  if g_hi is not None else ""),
          "color": _chg_color(g_off)},
+        {"label": "Silver vs high",
+         "value": _fmt_pct(s_off, signed=True),
+         "sub": (_fmt_px(s_hi, 2) + " · " + _month_label(silver.idxmax())
+                 if s_hi is not None else ""),
+         "color": _chg_color(s_off)},
         {"label": "Gold high",
          "value": _fmt_px(g_hi, 0) if g_hi is not None else "—",
          "sub": (_month_label(gold.idxmax()) if len(gold) else ""),
