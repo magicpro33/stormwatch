@@ -230,6 +230,37 @@ def _pull_last(tickers: tuple[str, ...]) -> dict:
         return {}
 
 
+@st.cache_data(ttl=45, show_spinner=False)
+def _yf_minutes(tickers: tuple[str, ...], period: str = "2d") -> pd.DataFrame:
+    """1-minute closes for live last + 1h / 24h crypto moves."""
+    tickers = tuple(tickers)
+    if not tickers:
+        return pd.DataFrame()
+
+    def _pull():
+        import yfinance as yf
+        return yf.download(
+            list(tickers), period=period, interval="1m", auto_adjust=True,
+            progress=False, threads=False, group_by="ticker",
+        )
+
+    try:
+        from mw_yf import yf_call
+        df = yf_call(_pull)
+    except Exception:
+        df = _pull()
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        raise RuntimeError("no minute crypto bars")
+    return df
+
+
+def _pull_minutes(tickers: tuple[str, ...]) -> pd.DataFrame:
+    try:
+        return _yf_minutes(tuple(tickers), "2d")
+    except Exception:
+        return pd.DataFrame()
+
+
 def _yf_close(df: pd.DataFrame, ticker: str) -> pd.Series:
     if df is None or df.empty:
         return pd.Series(dtype=float)
@@ -252,22 +283,35 @@ def _yf_close(df: pd.DataFrame, ticker: str) -> pd.Series:
     return out.sort_index()
 
 
-def _pct_ago(s: pd.Series, days: int) -> float | None:
+def _pct_since(s: pd.Series, **delta) -> float | None:
+    """Percent change from the last print at or before now − delta."""
+    s = _naive_index(s)
     if s is None or s.empty:
         return None
     end = pd.Timestamp(s.index[-1])
-    hit = s[s.index <= end - pd.Timedelta(days=int(days))]
+    hit = s[s.index <= end - pd.Timedelta(**delta)]
     if hit.empty:
-        if days <= 2 and len(s) >= 2:
-            b = float(s.iloc[-2])
-        else:
-            return None
-    else:
-        b = float(hit.iloc[-1])
+        return None
+    b = float(hit.iloc[-1])
     a = float(s.iloc[-1])
     if not np.isfinite(a) or not np.isfinite(b) or b == 0:
         return None
     return (a / b - 1.0) * 100.0
+
+
+def _pct_ago(s: pd.Series, days: int) -> float | None:
+    s = _naive_index(s)
+    if s is None or s.empty:
+        return None
+    pct = _pct_since(s, days=int(days))
+    if pct is not None:
+        return pct
+    if days <= 2 and len(s) >= 2:
+        b = float(s.iloc[-2])
+        a = float(s.iloc[-1])
+        if np.isfinite(a) and np.isfinite(b) and b != 0:
+            return (a / b - 1.0) * 100.0
+    return None
 
 
 def _fmt_px(n, digits=None) -> str:
@@ -720,6 +764,27 @@ def _css() -> None:
   text-transform:uppercase;color:{DIM};margin:16px 0 8px}}
 .ch-trend-note{{text-align:center;color:{RED};font-size:13px;line-height:1.5;
   margin:10px 4px 4px}}
+.ch-coin-wrap{{overflow-x:auto;margin:8px 0 14px;border:1px solid #2a4a6a;
+  border-radius:14px;background:#06101c}}
+.ch-coin-tbl{{min-width:640px}}
+.ch-coin-head,.ch-coin-row{{display:grid;
+  grid-template-columns:44px minmax(140px,1.6fr) minmax(110px,1fr) 92px 92px 92px;
+  gap:8px;align-items:center;padding:12px 16px}}
+.ch-coin-head{{color:{DIM};font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;border-bottom:1px solid #1d2b40}}
+.ch-coin-head > :nth-child(n+3),.ch-coin-px,.ch-coin-chg{{text-align:right}}
+.ch-coin-row{{border-bottom:1px solid #1d2b40}}
+.ch-coin-row:last-child{{border-bottom:0}}
+.ch-coin-num{{color:{DIM};font-variant-numeric:tabular-nums;font-weight:700}}
+.ch-coin-name{{font-weight:800;font-size:15px;letter-spacing:.01em}}
+.ch-coin-sym{{color:{DIM};font-size:12px;font-weight:700;letter-spacing:.08em;
+  margin-left:8px}}
+.ch-coin-dot{{display:inline-block;width:8px;height:8px;border-radius:50%;
+  margin-right:8px;vertical-align:middle}}
+.ch-coin-px{{font-family:ui-monospace,JetBrains Mono,monospace;font-weight:800;
+  font-variant-numeric:tabular-nums;font-size:15px;color:{INK}}}
+.ch-coin-chg{{font-family:ui-monospace,JetBrains Mono,monospace;font-weight:700;
+  font-variant-numeric:tabular-nums;font-size:13px}}
 </style>"""
     )
 
@@ -920,34 +985,52 @@ def _crypto_series(px: pd.DataFrame, last: dict | None = None) -> list:
     return rows
 
 
-def _crypto_pills(rows: list) -> None:
-    """Top 5 crypto coins by the tape people actually watch — no stables."""
-    cards = []
+def _chg_cell(pct) -> str:
+    if pct is None or not np.isfinite(pct):
+        return f"<span class='ch-coin-chg' style='color:{DIM}'>—</span>"
+    col = GREEN if pct >= 0 else RED
+    arrow = "▲" if pct >= 0 else "▼"
+    return (f"<span class='ch-coin-chg' style='color:{col}'>"
+            f"{arrow}{abs(pct):.2f}%</span>")
+
+
+def _crypto_pills(rows: list, minutes: pd.DataFrame | None = None) -> None:
+    """Top 5 crypto coins — live price plus 1h / 24h / 7d, no stables."""
+    body = []
     alive = False
-    for _ticker, name, color, s in rows:
-        last = _last(s)
+    for i, (ticker, name, color, daily) in enumerate(rows, start=1):
+        last = _last(daily)
         if last is not None:
             alive = True
-        day = _pct_ago(s, 1)
-        yr = _pct_ago(s, 365)
-        asof = (pd.Timestamp(s.index[-1]).strftime("%b %d")
-                if s is not None and len(s) else "")
-        sub = _fmt_pct(day, signed=True)
-        if yr is not None:
-            sub = f"{sub} today · {_fmt_pct(yr, signed=True)} year"
-        elif asof:
-            sub = f"{sub} today · {asof}"
-        cards.append({
-            "label": name,
-            "value": _fmt_px(last),
-            "sub": sub,
-            "color": color,
-            "extra": _spark_svg(s, color),
-        })
+        tape = _stamp_last(_yf_close(minutes, ticker), last)
+        h1 = _pct_since(tape, hours=1)
+        h24 = _pct_since(tape, hours=24)
+        d7 = _pct_ago(daily, 7)
+        if h24 is None:
+            h24 = _pct_ago(daily, 1)
+        sym = ticker.replace("-USD", "")
+        px_digits = 2 if (last is None or abs(last) >= 1) else 4
+        body.append(
+            f"<div class='ch-coin-row'>"
+            f"<div class='ch-coin-num'>{i}</div>"
+            f"<div><span class='ch-coin-dot' style='background:{color}'></span>"
+            f"<span class='ch-coin-name' style='color:{color}'>{_esc(name)}</span>"
+            f"<span class='ch-coin-sym'> {_esc(sym)}</span></div>"
+            f"<div class='ch-coin-px'>{_fmt_px(last, px_digits)}</div>"
+            f"{_chg_cell(h1)}{_chg_cell(h24)}{_chg_cell(d7)}"
+            f"</div>"
+        )
     if not alive:
         st.error("Could not load coin prices.")
         return
-    _pills(cards, grid="ch-pills-5")
+    _html(
+        "<div class='ch-coin-wrap'><div class='ch-coin-tbl'>"
+        "<div class='ch-coin-head'>"
+        "<div>#</div><div>Name</div><div>Price</div>"
+        "<div>1h %</div><div>24h %</div><div>7d %</div>"
+        "</div>"
+        f"{''.join(body)}</div></div>"
+    )
 
 
 def _crypto_chart(px: pd.DataFrame) -> None:
@@ -1317,11 +1400,18 @@ def _metal_live() -> None:
 
 @_live_deco(LIVE_EVERY)
 def _crypto_live() -> None:
-    """Coin pills. Crypto prints 24/7 so this always hits a short-lived last."""
+    """Coin tape. Crypto prints 24/7 so this always hits a short-lived last."""
     hist = _pull_history()
     tickers = tuple(t for t, _, _ in CRYPTO_FIVE)
-    last = _pull_last(tickers)
-    _crypto_pills(_crypto_series(hist, last))
+    minutes = _pull_minutes(tickers)
+    last = {}
+    for t in tickers:
+        v = _last(_yf_close(minutes, t))
+        if v is not None:
+            last[t] = v
+    if not last:
+        last = _pull_last(tickers)
+    _crypto_pills(_crypto_series(hist, last), minutes)
 
 
 @_live_deco(LIVE_EVERY)
