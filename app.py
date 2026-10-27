@@ -3896,7 +3896,11 @@ def _scan_col_cfg(df=None, extra=None):
     cfg.update(_cat_col_cfgs())
     if extra:
         cfg.update(extra)
-    cols = list(getattr(df, "columns", []) or [])
+    cols = getattr(df, "columns", None)
+    try:
+        cols = [] if cols is None else list(cols)
+    except TypeError:
+        cols = []
     for col in cols:
         if col in cfg:
             continue
