@@ -1413,46 +1413,18 @@ def render_hybrid_screener() -> None:
             help="Scan rank. 1 is first on this list. Click the header to sort."),
     }
     _up, _dn = getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "CAT_DOWN_COL", "▼ Down")
-    _hs_help = {
-        "Ticker": "The stock symbol.",
-        "Sector": "GICS sector from the nightly dump.",
-        "Price": "Last close in the nightly dump.",
-        "Score": "Weighted sum of the metrics you left on, 0–100.",
-        "MarketCap": "Price × shares. Size of the company.",
-        "P/E": "Price / trailing earnings. Compare within the sector.",
-        "OwnerEarnings": "Net income + depreciation − capex, in dollars.",
-        "MA50": "50-day moving average from the dump.",
-        "RangeHigh": "High of the lookback window you picked.",
-        "RangeLow": "Low of the lookback window you picked.",
-        "RangePos": "Where price sits in that high–low window. 0% = at the lows.",
-        "MFI_Signal": "Money Flow Index read: inflow, outflow, or neither.",
-        "Short % Float": "Shares sold short as a percent of float.",
-        "Days to Cover": "Short interest divided by average daily volume.",
-        "Div Yield": "Dividend yield from the dump.",
-        "Div Rate": "Annual dividend per share.",
-        "First print": "First session this ticker appears in the dump — a proxy for a recent listing.",
-        "Days listed": "Sessions of dump tape since the first print.",
-        "D/E": "Debt / equity. High leverage is the quiet killer.",
-        "Current ratio": "Current assets / current liabilities. Above 1.5 is comfortable.",
-        "Pricing power": METRICS["PricingPower"]["desc"],
-        "Moat": METRICS["MoatScore"]["desc"],
-        "Fortress": METRICS["Fortress"]["desc"],
-    }
-    for _mk, _meta in METRICS.items():
-        _hs_help.setdefault(_mk, _meta["desc"])
-        _hs_help.setdefault(_meta["label"], _meta["desc"])
     if "Pricing power" in display.columns:
         _cat_cfg["Pricing power"] = st.column_config.Column(
             "Pricing power", width="small",
-            help=_hs_help["Pricing power"])
+            help="Can it raise prices without losing customers? Habit, necessity, no substitute.")
     if "Moat" in display.columns:
         _cat_cfg["Moat"] = st.column_config.Column(
             "Moat", width="small",
-            help=_hs_help["Moat"])
+            help="Does it own something genuinely hard to copy? Brand, network, licence.")
     if "Fortress" in display.columns:
         _cat_cfg["Fortress"] = st.column_config.Column(
             "Fortress", width="small",
-            help=_hs_help["Fortress"])
+            help="Does it NOT owe a mountain of money? High = low leverage. The quiet killer.")
     if _up in display.columns:
         _cat_cfg[_up] = st.column_config.Column(
             _up, width="medium",
@@ -1461,12 +1433,6 @@ def render_hybrid_screener() -> None:
         _cat_cfg[_dn] = st.column_config.Column(
             _dn, width="medium",
             help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means.")
-    for _col in display.columns:
-        if _col in _cat_cfg:
-            continue
-        _tip = _hs_help.get(_col)
-        if _tip:
-            _cat_cfg[_col] = st.column_config.Column(help=_tip)
     try:
         styled = display.style.map(_color_score, subset=["Score"]) if "Score" in display.columns else display
         _tsel = st.dataframe(
