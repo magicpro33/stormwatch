@@ -107,6 +107,12 @@ except Exception as _he:
     hs, _HS_ERR = None, _he
 
 try:
+    elscan = _load_local_mod("elections_scan")
+    _EL_ERR = None
+except Exception as _ele:
+    elscan, _EL_ERR = None, _ele
+
+try:
     _sw = _load_local_mod("storm_watch_tab")
     render_storm_watch_tab = _sw.render_storm_watch_tab
     _SW_ERR = None
@@ -497,6 +503,7 @@ _TAB_COLOR = {
     "Ignition Scanner": "#FFB020",
     "Key Word Search": "#2DD4BF",
     "Trump Effect": "#A78BFA",
+    "Elections": "#FF9B6A",
     "Help": "#F4F8FF",
     "Market Weather": "#7FD4FF",
     "Cascade Pressure": "#FF8FA3",
@@ -518,7 +525,8 @@ _MENU_CAT_COLORS = {
         "Macro Sim", "Cascade Map", "Nerd Hub")],
     "mw_hub": [_TAB_COLOR[k] for k in (
         "TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
-        "Ignition Scanner", "Key Word Search", "Trump Effect", "Help")],
+        "Ignition Scanner", "Key Word Search", "Trump Effect", "Elections",
+        "Help")],
     "mw_map": [_TAB_COLOR[k] for k in (
         "Market Weather", "Cascade Pressure", "Cascade Sentinels",
         "Forced Flows", "Cascade Validation Lab", "Lenses", "Guide")],
@@ -626,6 +634,8 @@ def _menu_category_css() -> str:
         ("ig_settings_box", "#C8F542"),
         ("kw_search_box", "#FFD15C"),
         ("te_search_box", "#2DD4BF"),
+        ("el_mode_box", "#FFD15C"),
+        ("el_cat_box", "#A78BFA"),
     ):
         rules.append(
             f".st-key-{_pk}{{border-color:rgba(255,255,255,0.12) !important;"
@@ -1362,6 +1372,24 @@ _AZ_SLUG = {
     "Financial Health": "az_health",
     "Nightly Scan Signals": "az_scan",
 }
+_AZ_HELP = {
+    "Price Range Analysis": "Where price sits in the high–low channel, Bollinger bands, and ATR.",
+    "Price Performance": "Returns over 1 day, 5 days, 1 month, and 3 months.",
+    "Technical Signals": "RSI, MACD, 50-day and 200-day moving averages, volume.",
+    "Short Interest & Growth": "Short float, days to cover, revenue and earnings growth.",
+    "Earnings Breakdown (EPS Trend)": "Reported vs estimated EPS and the trend in estimates.",
+    "Dividend": "Yield, payout, and the dividend history.",
+    "Valuation": "P/E, forward P/E, P/B, and P/S versus the tape.",
+    "Financial Health": "Margins, ROE, ROA, leverage, and liquidity.",
+    "Nightly Scan Signals": "Flags from the nightly dump scan.",
+}
+_SPOKE_HELP = {
+    "Growth": "Revenue and earnings growth — higher is faster.",
+    "Income": "Dividend yield and payout — higher is more income; stretched payouts score lower.",
+    "Momentum": "RSI, 3-month return, and the 50/200-day trend.",
+    "Quality": "Margins, ROE/ROA, free cash flow, and Piotroski.",
+    "Value": "P/E, P/B, P/S — cheaper names score higher.",
+}
 
 
 class az_section:
@@ -1375,7 +1403,9 @@ class az_section:
     def __enter__(self):
         color = _AZ_TONE.get(self.title, "#7FD4FF")
         slug = _AZ_SLUG.get(self.title, "az_sec")
-        _md_html(f'<div class="hub-sec" style="--sc:{color}">{_esc(self.title)}</div>')
+        tip = _AZ_HELP.get(self.title, "")
+        attr = f" title='{_esc(tip)}'" if tip else ""
+        _md_html(f'<div class="hub-sec" style="--sc:{color}"{attr}>{_esc(self.title)}</div>')
         self._box = st.container(border=True, key=f"{self.key_prefix}_{slug}")
         return self._box.__enter__()
 
@@ -1871,13 +1901,17 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
     def _spoke(name, scores, bits, empty="no data"):
         got = [(s, b) for s, b in zip(scores, bits) if s is not None and b]
         if not got:
-            spokes.append({"name": name, "score": 0.0, "detail": empty, "live": False})
+            spokes.append({
+                "name": name, "score": 0.0, "detail": empty, "live": False,
+                "meaning": _SPOKE_HELP.get(name, ""),
+            })
             return
         spokes.append({
             "name": name,
             "score": sum(s for s, _ in got) / len(got),
             "detail": " · ".join(b for _, b in got),
             "live": True,
+            "meaning": _SPOKE_HELP.get(name, ""),
         })
 
     gs, gb = [], []
@@ -1980,7 +2014,8 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
     # on the clip edge and Plotly drops that last segment, so draw it just inside.
     rr = [min(float(s["score"]), 99.4) for s in spokes]
     tt = [s["name"] for s in spokes]
-    dd = [[s["detail"], f"{s['score']:.0f}"] for s in spokes]
+    dd = [[s["detail"], f"{s['score']:.0f}", s.get("meaning") or ""]
+          for s in spokes]
     rr, tt, dd = rr + [rr[0]], tt + [tt[0]], dd + [dd[0]]
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
@@ -1991,7 +2026,9 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
         line=dict(color="#00e5ff", width=2),
         marker=dict(size=7, color="#00e5ff"),
         cliponaxis=False,
-        hovertemplate="<b>%{theta}</b>  %{customdata[1]}<br>%{customdata[0]}<extra></extra>",
+        hovertemplate=("<b>%{theta}</b>  %{customdata[1]} / 100"
+                       "<br>%{customdata[2]}"
+                       "<br>%{customdata[0]}<extra></extra>"),
         name="Quant",
     ))
     fig.update_layout(
@@ -2001,6 +2038,11 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color="#e8edf5", family="JetBrains Mono, monospace"),
         showlegend=False,
+        hoverlabel=dict(
+            bgcolor="#0c1829",
+            bordercolor="#00e5ff",
+            font=dict(color="#e8edf5", family="JetBrains Mono, monospace", size=12),
+        ),
         polar=dict(
             bgcolor="#0c1829",
             radialaxis=dict(
@@ -2034,7 +2076,12 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
             "better side of that lens.</div>",
             unsafe_allow_html=True)
         left, right = st.columns([1.25, 0.75], vertical_alignment="center")
-        left.plotly_chart(fig, width="stretch", key=f"{box}_chart")
+        try:
+            left.plotly_chart(
+                fig, width="stretch", key=f"{box}_chart", theme=None,
+                config={"displayModeBar": False, "responsive": True})
+        except TypeError:
+            left.plotly_chart(fig, width="stretch", key=f"{box}_chart")
         rows = []
         for s in spokes:
             if not s.get("live"):
@@ -2043,7 +2090,8 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
                 col = "#4dd880" if s["score"] >= 70 else ("#d0b040" if s["score"] >= 45 else "#ff5a7a")
             rows.append(
                 f"<div style='display:flex;justify-content:space-between;gap:10px;margin-top:6px'>"
-                f"<span style='color:#e8edf5'>{_esc(s['name'])}</span>"
+                f"<span style='color:#e8edf5' title='{_esc(s.get('meaning') or '')}'>"
+                f"{_esc(s['name'])}</span>"
                 f"<b style='color:{col};font-family:monospace'>{s['score']:.0f}</b></div>"
                 f"<div style='color:#6b7fa3;font-size:11px;line-height:1.3'>{_esc(s['detail'])}</div>")
         right.markdown(
@@ -3028,6 +3076,7 @@ _IG_FEED_LABELS = {
     "poc": "POC Future",
     "kw": "Key Word Search",
     "te": "Trump Effect",
+    "el": "Elections",
 }
 
 
@@ -3119,6 +3168,7 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
 # Run / result flags — bools, but not widgets. Keep them in session_state.
 _HUB_KEEP_FLAGS = {
     "top20_go", "t20_live", "sw_go", "apex_run", "poc_run", "kw_run", "te_run",
+    "el_run",
     "macro_advice_on", "hs_gate_thatbiz",
     "top20_advice_on", "apex_advice_on", "sw_advice_on", "poc_advice_on",
 }
@@ -3130,11 +3180,11 @@ _HUB_KEEP_TOGGLES = {
     "apex_calm", "apex_rs",
     "ig_all_presets_mode",
     "apex_use_cat", "poc_use_cat", "sw_use_cat",
-    "hs_use_cat", "kw_use_cat", "te_use_cat", "top20_use_cat",
+    "hs_use_cat", "kw_use_cat", "te_use_cat", "top20_use_cat", "el_use_cat",
     "apex_safe_ai", "poc_safe_ai", "sw_safe_ai",
-    "hs_safe_ai", "kw_safe_ai", "te_safe_ai", "top20_safe_ai",
+    "hs_safe_ai", "kw_safe_ai", "te_safe_ai", "top20_safe_ai", "el_safe_ai",
     "apex_thatbiz", "poc_thatbiz", "sw_thatbiz", "hs_thatbiz",
-    "kw_thatbiz", "te_thatbiz", "top20_thatbiz",
+    "kw_thatbiz", "te_thatbiz", "top20_thatbiz", "el_thatbiz",
 }
 
 _HUB_KEEP_BUTTON_SUFFIXES = (
@@ -3169,6 +3219,8 @@ _HUB_KEEP_SKIP = {
     "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk", "kw_go",
     "te_run", "te_snap", "te_words", "te_speeches", "te_inline", "te_inline_tk",
     "te_table", "te_go", "te_search", "te_px_btn", "macro_advise", "macro_apply",
+    "el_run", "el_snap", "el_table", "el_sec", "el_inline", "el_inline_tk",
+    "el_go", "el_csv",
 }
 
 
@@ -3187,6 +3239,7 @@ _HUB_BUTTON_KEYS = {
     "poc_go", "poc_hot_btn",
     "kw_go",
     "te_go", "te_search", "te_px_btn",
+    "el_go",
     "cc_reload_board", "cc_reload_vaults",
 }
 
@@ -4174,6 +4227,20 @@ def _render_scan_hub_help():
             "Tap a word to search the dump for companies that mention it.",
             "You want policy-talk mapped onto tickers, not a technical scan.",
             color="#2DD4BF")
+        _help_card(
+            "🗳️ Elections",
+            "Names that outperformed in US election windows on the dump.",
+            "Scores the nightly tape around midterms and presidential votes: "
+            "pre-vote 63/21-day stretches, Aug/Sep/Oct slices, and weekly "
+            "excess vs the liquid universe. Each window is paired with the "
+            "same calendar stretch in the prior off-year so a name that "
+            "always rips in the fall does not look like an election winner. "
+            "The list you scan is those metrics plus a last-21-session overlay. "
+            "This dump starts mid-2025, so the live cycle is the 2026 midterm "
+            "(Nov 3). Longer history lights up older cycles automatically.",
+            "You want names that have historically worked into a US vote, "
+            "not a generic momentum screen.",
+            color="#FF9B6A")
         return
 
     if sec == "Apex Flow":
@@ -4435,7 +4502,8 @@ def _try_closes():
 _MAIN = ["Scan Hub", "Stock Lookup", "Dividend Calender", "Crypto Copycat",
          "Macro Sim", "Cascade Map", "Nerd Hub"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
-        "Ignition Scanner", "Key Word Search", "Trump Effect", "Help"]
+        "Ignition Scanner", "Key Word Search", "Trump Effect", "Elections",
+        "Help"]
 _MAP = ["Market Weather", "Cascade Pressure", "Cascade Sentinels", "Forced Flows",
         "Cascade Validation Lab", "Lenses", "Guide"]
 if st.session_state.get("mw_hub") == "Key Word":
@@ -7070,6 +7138,259 @@ with st.container(border=True, key="mw_page"):
                         })
 
         _hub_keep_save("te", ("te_",))
+
+
+    # ── 🗳️ elections — dump-backed midterm / presidential windows ────────
+    if _main == "Scan Hub" and _hub == "Elections":
+        _hub_title("🗳️ Elections", "#FF9B6A")
+        _hub_keep_restore("el", ("el_",))
+        _try_closes_for_scan()
+        if _EL_ERR is not None or elscan is None:
+            st.error(f"Elections tab failed to load: {_EL_ERR}")
+            st.caption("Put elections_scan.py next to app.py, then reboot.")
+        else:
+            st.caption(
+                "Ranks the nightly dump on how names behaved around US votes. "
+                "Each even year on the tape is cut into pre-vote 63/21-day "
+                "stretches, Aug/Sep/Oct slices, and weekly excess vs the liquid "
+                "universe — then paired with the same calendar stretch in the "
+                "prior off-year, so a stock that always rips in the fall does "
+                "not look like an election winner. Scan uses those metrics plus "
+                "the last 21 sessions, so the list is names still working in "
+                "this campaign.")
+            _hub_sec("1 · Hunt", "#FFD15C", "how many names, and the liquidity gate")
+            with _hub_pill("el_mode_box"):
+                _el_mode = st.radio(
+                    "Mode", ["Basic", "Advanced"], horizontal=True,
+                    key="el_ui_mode", label_visibility="collapsed",
+                    help="Basic runs the default scan. Advanced shows size and "
+                         "liquidity knobs.")
+                _el_advanced = _el_mode == "Advanced"
+                _el_top, _el_px, _el_dv = 30, 5.0, 5.0
+                if _el_advanced:
+                    _e1, _e2, _e3 = st.columns(3)
+                    _el_top = _e1.selectbox(
+                        "Show top", [20, 30, 50, 100, 200], index=1,
+                        key="el_top")
+                    _el_px = _e2.number_input(
+                        "Min price $", 1.0, 500.0, 5.0, step=1.0, key="el_px")
+                    _el_dv = _e3.number_input(
+                        "Min $ volume (M)", 0.0, 500.0, 5.0, step=1.0,
+                        key="el_dv",
+                        help="Median daily dollar volume. Keeps dead microcaps "
+                             "out of an election-window rank.")
+            _hub_sec("2 · Catalysts and Filters", "#A78BFA")
+            _el_cat = _catalysts_section(
+                "el", cat_color="#A78BFA", pill_key="el_cat_box")
+            _el_sig = (int(_el_top), float(_el_px), float(_el_dv))
+            _rank_banner(
+                f"Ranking the top <b>{int(_el_top)}</b> by "
+                f"<b style='color:{ACCENT};'>election edge</b> on the dump"
+                f"{_rank_filters_html('el')}.",
+                "#FF9B6A")
+            if st.button("🗳️ Scan election names", type="primary", key="el_go",
+                         width="stretch"):
+                st.session_state["el_run"] = True
+                st.session_state.pop("el_snap", None)
+
+            if st.session_state.get("el_run"):
+                _esnap = st.session_state.get("el_snap") or {}
+                if "df" in _esnap:
+                    _edf = _esnap.get("df")
+                    _esec = _esnap.get("sec")
+                    _emeta = _esnap.get("meta") or {}
+                    if _edf is None:
+                        _edf = pd.DataFrame()
+                    if _esnap.get("sig") != _el_sig:
+                        st.info("Filters changed since this list. Hit "
+                                "**Scan election names** to refresh.")
+                else:
+                    try:
+                        with st.spinner("Scoring election windows on the dump…"):
+                            _edf, _esec, _emeta = elscan.scan(
+                                min_price=float(_el_px),
+                                min_dollar_vol=float(_el_dv) * 1e6,
+                                top=int(_el_top))
+                    except Exception as _ee:
+                        _edf, _esec, _emeta = pd.DataFrame(), pd.DataFrame(), {}
+                        st.error(f"Scan failed: {_ee}")
+                    st.session_state["el_snap"] = {
+                        "df": _edf.copy() if isinstance(_edf, pd.DataFrame)
+                        else pd.DataFrame(),
+                        "sec": _esec.copy() if isinstance(_esec, pd.DataFrame)
+                        else pd.DataFrame(),
+                        "meta": _emeta or {},
+                        "sig": _el_sig,
+                    }
+                _emeta = _emeta or {}
+                _el_kind = str(_emeta.get("kind") or "election")
+                _el_year = _emeta.get("election_year")
+                _el_eday = _emeta.get("election_day") or "—"
+                _el_pre = ""
+                if _emeta.get("pre_start") and _emeta.get("pre_end"):
+                    _el_pre = f"{_emeta['pre_start']} → {_emeta['pre_end']}"
+                _el_mkt = _emeta.get("market_pre")
+                _el_mkt_txt = (f"{_el_mkt:+.1%} equal-weight"
+                               if isinstance(_el_mkt, (int, float))
+                               and np.isfinite(_el_mkt) else "—")
+                _el_days = _emeta.get("days_to_vote")
+                _el_when = ""
+                if _el_days is not None:
+                    try:
+                        _el_d = int(_el_days)
+                        if _el_d > 0:
+                            _el_when = f" · {_el_d} days before the vote"
+                        elif _el_d == 0:
+                            _el_when = " · dump lands on election day"
+                        else:
+                            _el_when = f" · {abs(_el_d)} days after the vote"
+                    except (TypeError, ValueError):
+                        pass
+                _md_html(
+                    f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+                    f"border-left:5px solid #FF9B6A;border-radius:10px;"
+                    f"padding:10px 14px;margin:8px 0;'>"
+                    f"<b style='color:#FF9B6A'>{_esc(str(_el_year) if _el_year else '—')} "
+                    f"{_esc(_el_kind)}</b>"
+                    f" · vote {_esc(str(_el_eday))}"
+                    f"{_esc(_el_when)}"
+                    f"<div style='color:{DIM};font-size:12px;margin-top:4px'>"
+                    f"Dump {_esc(str(_emeta.get('dump_start') or '—'))} → "
+                    f"{_esc(str(_emeta.get('dump_end') or '—'))}"
+                    f"{(' · pre-vote ' + _esc(_el_pre)) if _el_pre else ''}"
+                    f" · market {_esc(_el_mkt_txt)}"
+                    f" · {int(_emeta.get('n_windows') or 0)} election window"
+                    f"{'' if int(_emeta.get('n_windows') or 0) == 1 else 's'}"
+                    f", {int(_emeta.get('n_controls') or 0)} off-year control"
+                    f"{'' if int(_emeta.get('n_controls') or 0) == 1 else 's'}"
+                    f"</div></div>")
+
+                if isinstance(_esec, pd.DataFrame) and not _esec.empty:
+                    _eshow = _esec[_esec.Sector.astype(str).str.lower()
+                                   .ne("unknown")].copy()
+                    if not _eshow.empty:
+                        st.caption("Sectors, ranked by excess in the pre-vote window.")
+                        _el_sec_fmt = {k: v for k, v in {
+                            "XS%": "{:+.1%}", "Elec%": "{:+.1%}",
+                            "Alpha": "{:+.1%}", "Beat%": "{:.0%}",
+                        }.items() if k in _eshow.columns}
+                        _el_sec_st = _eshow.style.format(_el_sec_fmt, na_rep="—")
+                        for _col in ("XS%", "Elec%", "Alpha"):
+                            if _col in _eshow.columns:
+                                _el_sec_st = _el_sec_st.map(
+                                    lambda v: _css_sign(v, dead=0.005),
+                                    subset=[_col])
+                        st.dataframe(
+                            _el_sec_st, width="stretch", hide_index=True,
+                            height=_fit_list_height(len(_eshow), max_h=280),
+                            key="el_sec",
+                            column_config={
+                                "#": _rank_col_cfg(),
+                                "Names": st.column_config.Column(
+                                    help="Liquid names in this sector that "
+                                         "had a readable pre-vote window."),
+                                "XS%": st.column_config.Column(
+                                    help="Average excess vs the liquid universe "
+                                         "in the current pre-vote window."),
+                                "Elec%": st.column_config.Column(
+                                    help="Average raw return in that window."),
+                                "Alpha": st.column_config.Column(
+                                    help="Excess this cycle minus excess in the "
+                                         "same calendar stretch last year."),
+                                "Beat%": st.column_config.Column(
+                                    help="Share of names in the sector that beat "
+                                         "the market in the pre-vote window."),
+                            })
+
+                if _edf is None or (isinstance(_edf, pd.DataFrame) and _edf.empty):
+                    st.warning("No names passed. Loosen min price or dollar volume.")
+                else:
+                    _show = _with_catalysts(_edf.copy(), _el_cat, safe_key="el")
+                    if _show is None or _show.empty:
+                        st.info(_filter_hid_msg("el"))
+                    else:
+                        _m1, _m2, _m3 = st.columns(3)
+                        _m1.metric("Names found", len(_show))
+                        try:
+                            _m2.metric("Top score", f"{_show['Score'].max():.0f}")
+                        except Exception:
+                            _m2.metric("Top score", "—")
+                        try:
+                            _m3.metric("Median excess",
+                                       f"{_show['XS%'].median():+.1%}")
+                        except Exception:
+                            _m3.metric("Median excess", "—")
+                        _el_fmt = {k: v for k, v in {
+                            "Score": "{:.0f}",
+                            "Elec%": "{:+.1%}",
+                            "XS%": "{:+.1%}",
+                            "Ctrl%": "{:+.1%}",
+                            "Alpha": "{:+.1%}",
+                            "Live21": "{:+.1%}",
+                            "Price": "${:,.2f}",
+                        }.items() if k in _show.columns}
+                        _el_styled = _show.style.format(_el_fmt, na_rep="—")
+                        for _col in ("Elec%", "XS%", "Ctrl%", "Alpha", "Live21"):
+                            if _col in _show.columns:
+                                _el_styled = _el_styled.map(
+                                    lambda v: _css_sign(v, dead=0.005),
+                                    subset=[_col])
+                        _sel_el = st.dataframe(
+                            _el_styled, width="stretch", hide_index=True,
+                            height=_fit_list_height(len(_show)),
+                            on_select="rerun", selection_mode="single-row",
+                            key="el_table",
+                            column_order=_order_with_cat(
+                                ["#", "Ticker", "Sector", "Score", "Elec%",
+                                 "XS%", "Ctrl%", "Alpha", "Hits", "Weeks",
+                                 "Live21", "Price"],
+                                _show),
+                            column_config={
+                                "#": _rank_col_cfg(),
+                                **_cat_col_cfgs(),
+                                "Score": st.column_config.Column(
+                                    help="0–100 percentile of election edge "
+                                         "across the liquid dump. Mixes pre-vote "
+                                         "excess, off-year alpha, monthly/weekly "
+                                         "hit rate, and the last 21 sessions."),
+                                "Elec%": st.column_config.Column(
+                                    help="Raw return in the current pre-vote "
+                                         "window (about 63 sessions into the vote)."),
+                                "XS%": st.column_config.Column(
+                                    help="That return minus the equal-weight "
+                                         "liquid universe. Positive = beat the market."),
+                                "Ctrl%": st.column_config.Column(
+                                    help="Excess vs the market in the same "
+                                         "calendar stretch last year (off-year)."),
+                                "Alpha": st.column_config.Column(
+                                    help="XS% minus Ctrl%. The election-year "
+                                         "lift after stripping ordinary fall seasonality."),
+                                "Hits": st.column_config.Column(
+                                    help="How many of Aug / Sep / Oct this "
+                                         "cycle beat the market."),
+                                "Weeks": st.column_config.Column(
+                                    help="How many weeks in the pre-vote stretch "
+                                         "beat the market."),
+                                "Live21": st.column_config.Column(
+                                    help="Excess vs the market over the last "
+                                         "21 sessions — still working now."),
+                                "Price": st.column_config.Column(
+                                    help="Last close in the nightly dump."),
+                            })
+                        st.caption("👆 Tap a row for the chart, cards, and "
+                                   "company profile below.")
+                        st.download_button(
+                            "⬇ Download CSV", _show.to_csv(index=False),
+                            f"elections_{_emeta.get('election_year') or 'scan'}.csv",
+                            "text/csv", key="el_csv")
+                        _scan_hub_pick_and_show(
+                            _sel_el, _show, "el_inline", "elaz",
+                            source="Elections")
+            else:
+                st.info("Hit **Scan election names** to build the list. "
+                        "Nothing is scored until then.")
+
+        _hub_keep_save("el", ("el_",))
 
 
     # ── ❓ scan hub help ─────────────────────────────────────────────────

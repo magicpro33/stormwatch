@@ -2992,7 +2992,7 @@ def render_ignition_scanner_tab(render_detail=None):
             ("Scan ALL presets", "Combines all 8 presets into one scan (187 unique stocks), ETFs excluded. Shows top N by Score.", "ETFs excluded"),
             ("Nightly Screener", "Downloads your nightly dump once per calendar day, pre-ranks all tickers, picks top N candidates, live-scans them. Watchlist pinned for the day.", "dump once/day"),
             ("Stock Lookup watchlist", "Every name currently on your saved watchlist. Same list Stock Lookup shows.", "saved names"),
-            ("Scanner lists", "After you run TOP20, Apex, ShakeOut, Hybrid, POC, Key Word, or Trump Effect, that generated list appears here. Re-run the scanner to refresh it.", "grows after each scan"),
+            ("Scanner lists", "After you run TOP20, Apex, ShakeOut, Hybrid, POC, Key Word, Trump Effect, or Elections, that generated list appears here. Re-run the scanner to refresh it.", "grows after each scan"),
             ("Results slider", "5-30: how many stocks to display after the scan, ranked by Score.", "5-30 stocks"),
         ]),
         ("Price range analysis", "#29b6c8", [
