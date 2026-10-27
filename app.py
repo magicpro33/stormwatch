@@ -2727,6 +2727,297 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
                        "either exit before, or size for the gap.")
 
 
+# Stock Lookup chart: dump daily by default; lower TFs reuse the same
+# Alpaca → Yahoo chain Apex / Ignition already use. Overlays are the
+# SMA, POC Future, and Apex Flow levels this app already computes.
+_LK_CHART_TF = {
+    "30 Min": dict(alpaca="30Min", yf="30m", days=60, yf_period="60d"),
+    "1 Hour": dict(alpaca="1Hour", yf="1h", days=120, yf_period="60d"),
+    "4 Hour": dict(alpaca="4Hour", yf="1h", days=120, yf_period="60d",
+                   resample="4h"),
+    "1 Day":  dict(alpaca="1Day", yf="1d", days=500, yf_period="2y"),
+}
+_LK_CHART_OV = ["SMAs", "POC Future", "Apex Flow"]
+
+
+def _lk_seg(label, options, key, default):
+    if st.session_state.get(key) not in options:
+        st.session_state[key] = default
+    if hasattr(st, "segmented_control"):
+        sel = st.segmented_control(label, options, key=key)
+        return sel if sel in options else default
+    return st.radio(label, options, horizontal=True, key=key)
+
+
+def _lk_ohlcv_norm(df: pd.DataFrame | None) -> pd.DataFrame:
+    if df is None or getattr(df, "empty", True):
+        return pd.DataFrame()
+    out = df.copy()
+    if isinstance(out.columns, pd.MultiIndex):
+        out.columns = out.columns.get_level_values(0)
+    rename = {}
+    for col in out.columns:
+        low = str(col).strip().lower()
+        if low in ("open", "o"):
+            rename[col] = "Open"
+        elif low in ("high", "h"):
+            rename[col] = "High"
+        elif low in ("low", "l"):
+            rename[col] = "Low"
+        elif low in ("close", "c", "adj close"):
+            rename[col] = "Close"
+        elif low in ("volume", "v"):
+            rename[col] = "Volume"
+    if rename:
+        out = out.rename(columns=rename)
+    keep = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in out.columns]
+    if "Close" not in keep:
+        return pd.DataFrame()
+    out = out[keep].sort_index()
+    out = out[~out.index.duplicated(keep="last")]
+    return out.dropna(subset=["Close"]).astype(float)
+
+
+def _lk_resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    x = df.copy()
+    try:
+        if x.index.tz is None:
+            x.index = x.index.tz_localize("America/New_York", ambiguous="NaT",
+                                          nonexistent="shift_forward")
+        else:
+            x.index = x.index.tz_convert("America/New_York")
+    except Exception:
+        pass
+    agg = {}
+    if "Open" in x.columns:
+        agg["Open"] = "first"
+    if "High" in x.columns:
+        agg["High"] = "max"
+    if "Low" in x.columns:
+        agg["Low"] = "min"
+    agg["Close"] = "last"
+    if "Volume" in x.columns:
+        agg["Volume"] = "sum"
+    try:
+        out = x.resample(rule, label="left", closed="left").agg(agg)
+    except Exception:
+        return pd.DataFrame()
+    return out.dropna(subset=["Close"])
+
+
+def _lk_rth(df: pd.DataFrame, tf: str) -> pd.DataFrame:
+    if df is None or df.empty or tf == "1 Day":
+        return df
+    if tf not in ("30 Min", "1 Hour"):
+        return df
+    x = df
+    try:
+        if x.index.tz is None:
+            return x
+        x = x.tz_convert("America/New_York")
+        return x.between_time("09:30", "16:00")
+    except Exception:
+        return df
+
+
+def _lk_symbol_forms(ticker: str) -> list[str]:
+    ig = globals().get("_ig")
+    if ig is not None and hasattr(ig, "_symbol_forms"):
+        try:
+            return list(ig._symbol_forms(ticker))
+        except Exception:
+            pass
+    raw = str(ticker or "").strip().upper()
+    return [raw] if raw else []
+
+
+def _lk_alpaca_keys():
+    ig = globals().get("_ig")
+    if ig is not None and hasattr(ig, "alpaca_keys"):
+        try:
+            pair = ig.alpaca_keys()
+            if pair and pair[0] and pair[1]:
+                return pair
+        except Exception:
+            pass
+    try:
+        pair = ce._alpaca_keys_simple()
+        if pair and pair[0] and pair[1]:
+            return pair
+    except Exception:
+        pass
+    return None
+
+
+def _lk_alpaca_bars(tk: str, alpaca_tf: str, start_iso: str) -> pd.DataFrame:
+    pair = _lk_alpaca_keys()
+    if not pair:
+        return pd.DataFrame()
+    key, secret = pair
+    ig = globals().get("_ig")
+    if ig is not None and hasattr(ig, "_alpaca_bars"):
+        for sym in _lk_symbol_forms(tk):
+            try:
+                got = ig._alpaca_bars(sym, alpaca_tf, start_iso, key, secret)
+                got = _lk_ohlcv_norm(got)
+                if len(got) >= 20:
+                    return got
+            except Exception:
+                continue
+    import requests
+    hdr = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+    for sym in _lk_symbol_forms(tk):
+        try:
+            params = {
+                "timeframe": alpaca_tf, "start": start_iso, "limit": 10000,
+                "adjustment": "split", "feed": "iex", "sort": "asc",
+            }
+            rows = []
+            for _ in range(20):
+                r = requests.get(
+                    f"https://data.alpaca.markets/v2/stocks/{sym}/bars",
+                    headers=hdr, params=params, timeout=20)
+                if r.status_code != 200:
+                    break
+                j = r.json()
+                rows.extend(j.get("bars") or [])
+                token = j.get("next_page_token")
+                if not token:
+                    break
+                params["page_token"] = token
+            if not rows:
+                continue
+            raw = pd.DataFrame(rows)
+            raw["t"] = pd.to_datetime(raw["t"], utc=True).dt.tz_convert(
+                "America/New_York")
+            raw = raw.set_index("t")
+            got = _lk_ohlcv_norm(raw)
+            if len(got) >= 20:
+                return got
+        except Exception:
+            continue
+    return pd.DataFrame()
+
+
+def _lk_yahoo_bars(tk: str, interval: str, period: str) -> pd.DataFrame:
+    try:
+        from mw_yf import yf_call
+        import yfinance as yf
+    except Exception:
+        return pd.DataFrame()
+    ig = globals().get("_ig")
+    flatten = getattr(ig, "flatten_cols", None) if ig is not None else None
+    for sym in _lk_symbol_forms(tk):
+        try:
+            hist = yf_call(lambda s=sym: yf.Ticker(s).history(
+                period=period, interval=interval, prepost=False, auto_adjust=True))
+            if flatten:
+                hist = flatten(hist)
+            got = _lk_ohlcv_norm(hist)
+            if len(got) >= 20:
+                return got
+        except Exception:
+            continue
+    return pd.DataFrame()
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _lookup_chart_bars(tk: str, tf: str, nonce: int = 0):
+    """OHLCV for the Stock Lookup chart. Daily prefers the dump."""
+    tk = str(tk or "").strip().upper()
+    meta = _LK_CHART_TF.get(tf) or _LK_CHART_TF["1 Day"]
+    if tf == "1 Day":
+        dump = _lk_ohlcv_norm(ce.dump_ohlcv(tk))
+        if len(dump) >= 20:
+            return dump, "nightly dump"
+    start = (datetime.now(timezone.utc) - timedelta(days=int(meta["days"]))
+             ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    alp = _lk_rth(_lk_alpaca_bars(tk, meta["alpaca"], start), tf)
+    if len(alp) >= 20:
+        return alp, f"Alpaca {meta['alpaca']}"
+    yf_df = _lk_rth(_lk_yahoo_bars(tk, meta["yf"], meta["yf_period"]), tf)
+    if meta.get("resample") and not yf_df.empty:
+        yf_df = _lk_resample_ohlcv(yf_df, meta["resample"])
+    if len(yf_df) >= 20:
+        label = f"Yahoo {meta['yf']}"
+        if meta.get("resample"):
+            label += f"→{meta['resample']}"
+        return yf_df, label
+    if tf != "1 Day":
+        dump = _lk_ohlcv_norm(ce.dump_ohlcv(tk))
+        if len(dump) >= 20:
+            return dump, "nightly dump (intraday unavailable)"
+    return pd.DataFrame(), ""
+
+
+def _lk_level_line(fig, xs, price, name, color, dash="solid", width=1.5, row=1):
+    import plotly.graph_objects as go
+    try:
+        y = float(price)
+    except (TypeError, ValueError):
+        return
+    if not np.isfinite(y):
+        return
+    fig.add_trace(go.Scatter(
+        x=list(xs), y=[y, y], mode="lines", name=name,
+        line=dict(color=color, width=width, dash=dash),
+        hovertemplate=f"{name} {y:.2f}<extra></extra>"), row=row, col=1)
+
+
+def _lk_band(fig, lo, hi, color, row=1):
+    try:
+        y0, y1 = float(lo), float(hi)
+    except (TypeError, ValueError):
+        return
+    if not (np.isfinite(y0) and np.isfinite(y1)) or y1 <= y0:
+        return
+    fig.add_hrect(y0=y0, y1=y1, fillcolor=color, line_width=0,
+                  layer="below", row=row, col=1)
+
+
+def _lk_poc_setup(chart: pd.DataFrame):
+    if pfut is None or chart is None or chart.empty:
+        return None
+    if not {"High", "Low", "Close", "Volume"}.issubset(chart.columns):
+        return None
+    try:
+        return pfut.scan_symbol(
+            chart["High"].to_numpy(), chart["Low"].to_numpy(),
+            chart["Close"].to_numpy(), chart["Volume"].to_numpy())
+    except Exception:
+        return None
+
+
+def _lk_apex_levels(chart: pd.DataFrame):
+    """Value-area + last-bar MAs from the Apex Flow port, if bars allow."""
+    if af is None or chart is None or chart.empty:
+        return None
+    need = ("Open", "High", "Low", "Close", "Volume")
+    if not set(need).issubset(chart.columns):
+        return None
+    c = chart.dropna(subset=["Close"])
+    if len(c) < 50:
+        return None
+    out = {}
+    try:
+        h = c["High"].to_numpy(dtype=float)
+        l = c["Low"].to_numpy(dtype=float)
+        cl = c["Close"].to_numpy(dtype=float)
+        v = np.nan_to_num(c["Volume"].to_numpy(dtype=float))
+        lo, hi = float(np.nanmin(l[-50:])), float(np.nanmax(h[-50:]))
+        poc, vah, val = pfut._profile(
+            h[-50:], l[-50:], cl[-50:], v[-50:], lo, hi, bins=12, va_pct=70.0
+        ) if pfut is not None else (np.nan, np.nan, np.nan)
+        out["poc"], out["vah"], out["val"] = poc, vah, val
+        out["rng_hi"] = float(np.nanmax(h[-20:]))
+        out["rng_lo"] = float(np.nanmin(l[-20:]))
+    except Exception:
+        return None
+    return out
+
+
 def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                            state_key: str = "mw_analyze", closable: bool = True,
                            df: pd.DataFrame | None = None,
@@ -2791,7 +3082,34 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         live_on=px_src in ("Alpaca", "Yahoo"), src_label=src_label,
         px_src=px_src or src_label, key_prefix=state_key)
 
-    d = df.tail(180)
+    tf_l, ov_l = st.columns(2)
+    with tf_l:
+        chart_tf = _lk_seg("Timeframe", list(_LK_CHART_TF),
+                           f"{state_key}_chart_tf", "1 Day")
+    with ov_l:
+        chart_ov = _lk_seg("Overlay", _LK_CHART_OV,
+                           f"{state_key}_chart_ov", "SMAs")
+
+    chart_df, chart_src = df, (src_label or "nightly dump")
+    if chart_tf != "1 Day":
+        try:
+            got, chart_src = _lookup_chart_bars(tk, chart_tf, _px_nonce())
+            if got is not None and not got.empty:
+                chart_df = got
+            else:
+                chart_src = "nightly dump (intraday unavailable)"
+                st.caption("No 30m/1h/4h bars from Alpaca or Yahoo — showing daily. "
+                           "Apex/Ignition use the same Alpaca keys.")
+        except Exception as _cfe:
+            log_exc("lookup_chart_bars", _cfe)
+            st.caption(f"Intraday bars unavailable ({_cfe}). Showing daily.")
+    elif tk in live:
+        try:
+            chart_df = ce.apply_live_last(chart_df, live[tk])
+        except Exception:
+            pass
+
+    d = chart_df.tail(180)
     has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
     has_vol = "Volume" in d.columns and d["Volume"].notna().any()
     fig = make_subplots(rows=2 if has_vol else 1, cols=1, shared_xaxes=True,
@@ -2806,13 +3124,63 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         fig.add_trace(go.Scatter(x=d.index, y=d.Close, mode="lines",
                                  line=dict(color=ACCENT, width=2), name=tk),
                       row=1, col=1)
-    c_full = df["Close"]
-    fig.add_trace(go.Scatter(x=d.index, y=c_full.rolling(150).mean().reindex(d.index),
-                             name="SMA150", line=dict(color="#7fb2ff", width=1)),
-                  row=1, col=1)
-    fig.add_trace(go.Scatter(x=d.index, y=c_full.rolling(50).mean().reindex(d.index),
-                             name="SMA50", line=dict(color=ACCENT, width=1)),
-                  row=1, col=1)
+
+    note = ""
+    xs = (d.index[0], d.index[-1]) if len(d) else ()
+    c_full = chart_df["Close"]
+    if chart_ov == "SMAs":
+        fig.add_trace(go.Scatter(
+            x=d.index, y=c_full.rolling(150).mean().reindex(d.index),
+            name="SMA150", line=dict(color="#7fb2ff", width=1)), row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=d.index, y=c_full.rolling(50).mean().reindex(d.index),
+            name="SMA50", line=dict(color=ACCENT, width=1)), row=1, col=1)
+        note = "SMA50 / SMA150 in bars of this timeframe."
+    elif chart_ov == "POC Future":
+        setup = _lk_poc_setup(chart_df)
+        if not setup:
+            note = "No live POC coil/sweep/reclaim on this window."
+        else:
+            _lk_band(fig, setup.get("acc_lo"), setup.get("acc_hi"),
+                     "rgba(154,168,189,0.10)")
+            _lk_band(fig, setup.get("val"), setup.get("vah"),
+                     "rgba(103,232,249,0.14)")
+            _lk_level_line(fig, xs, setup.get("poc"), "POC", ACCENT, width=2)
+            _lk_level_line(fig, xs, setup.get("vah"), "VAH", "#d0b040")
+            _lk_level_line(fig, xs, setup.get("val"), "VAL", GREEN)
+            _lk_level_line(fig, xs, setup.get("entry"), "Entry", ACCENT, "dash")
+            _lk_level_line(fig, xs, setup.get("stop"), "Stop", RED, "dash")
+            _lk_level_line(fig, xs, setup.get("target"), "Target", GREEN, "dash")
+            _lk_level_line(fig, xs, setup.get("sweep_px"), "Sweep", RED, "dot")
+            stage = setup.get("stage") or ""
+            note = (f"POC {stage}" if stage else "POC overlay"
+                    ) + " — AMD port. Daily is the tested bar size."
+    elif chart_ov == "Apex Flow":
+        fig.add_trace(go.Scatter(
+            x=d.index, y=c_full.rolling(20).mean().reindex(d.index),
+            name="SMA20", line=dict(color="#7fb2ff", width=1)), row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=d.index, y=c_full.rolling(50).mean().reindex(d.index),
+            name="SMA50", line=dict(color=ACCENT, width=1)), row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=d.index, y=c_full.rolling(200).mean().reindex(d.index),
+            name="SMA200", line=dict(color="#9aa8bd", width=1, dash="dot")),
+            row=1, col=1)
+        levels = _lk_apex_levels(chart_df)
+        if not levels:
+            note = "Need ~50 bars for the Apex value area. Showing structural MAs."
+        else:
+            _lk_band(fig, levels.get("val"), levels.get("vah"),
+                     "rgba(103,232,249,0.14)")
+            _lk_level_line(fig, xs, levels.get("poc"), "POC", ACCENT, width=2)
+            _lk_level_line(fig, xs, levels.get("vah"), "VAH", "#d0b040")
+            _lk_level_line(fig, xs, levels.get("val"), "VAL", GREEN)
+            _lk_level_line(fig, xs, levels.get("rng_hi"), "Range high",
+                           DIM, "dot", width=1)
+            _lk_level_line(fig, xs, levels.get("rng_lo"), "Range low",
+                           DIM, "dot", width=1)
+            note = "Apex value area (50-bar) + SMA20/50/200 + 20-bar range."
+
     if has_vol:
         vcol = np.where(d.Close.diff().fillna(0) >= 0, GREEN, RED)
         fig.add_trace(go.Bar(x=d.index, y=d.Volume, marker_color=vcol,
@@ -2823,10 +3191,12 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                       legend=dict(orientation="h", y=1.05),
                       xaxis_rangeslider_visible=False,
                       margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, width="stretch", key=f"chart_{state_key}_{tk}")
-    trend = "above" if stats["price"] > stats["sma50"] else "below"
-    st.caption(f"Price is **{trend}** its 50-session average · last 180 sessions shown. "
-               "Research view, not investment advice.")
+    st.plotly_chart(fig, width="stretch",
+                    key=f"chart_{state_key}_{tk}_{chart_tf}_{chart_ov}")
+    n_bars = len(d)
+    tf_bit = f"{chart_tf} · {n_bars} bars · {chart_src}" if chart_src else chart_tf
+    st.caption(f"{tf_bit}" + (f" · {note}" if note else "")
+               + " · Research view, not investment advice.")
 
 
 def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
