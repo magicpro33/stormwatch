@@ -1372,26 +1372,6 @@ _AZ_SLUG = {
     "Financial Health": "az_health",
     "Nightly Scan Signals": "az_scan",
 }
-_AZ_HELP = {
-    "Price Range Analysis": "Where price sits in the high–low channel, Bollinger bands, and ATR.",
-    "Price Performance": "Returns over 1 day, 5 days, 1 month, and 3 months.",
-    "Technical Signals": "RSI, MACD, 50-day and 200-day moving averages, volume.",
-    "Short Interest & Growth": "Short float, days to cover, revenue and earnings growth.",
-    "Earnings Breakdown (EPS Trend)": "Reported vs estimated EPS and the trend in estimates.",
-    "Dividend": "Yield, payout, and the dividend history.",
-    "Valuation": "P/E, forward P/E, P/B, and P/S versus the tape.",
-    "Financial Health": "Margins, ROE, ROA, leverage, and liquidity.",
-    "Nightly Scan Signals": "Flags from the nightly dump scan.",
-}
-_SPOKE_HELP = {
-    "Growth": "Revenue and earnings growth — higher is faster.",
-    "Income": "Dividend yield and payout — higher is more income; stretched payouts score lower.",
-    "Momentum": "RSI, 3-month return, and the 50/200-day trend.",
-    "Quality": "Margins, ROE/ROA, free cash flow, and Piotroski.",
-    "Value": "P/E, P/B, P/S — cheaper names score higher.",
-}
-
-
 class az_section:
     """Scanner-style section: colored bar, then a bordered box in that color."""
 
@@ -1403,9 +1383,7 @@ class az_section:
     def __enter__(self):
         color = _AZ_TONE.get(self.title, "#7FD4FF")
         slug = _AZ_SLUG.get(self.title, "az_sec")
-        tip = _AZ_HELP.get(self.title, "")
-        attr = f" title='{_esc(tip)}'" if tip else ""
-        _md_html(f'<div class="hub-sec" style="--sc:{color}"{attr}>{_esc(self.title)}</div>')
+        _md_html(f'<div class="hub-sec" style="--sc:{color}">{_esc(self.title)}</div>')
         self._box = st.container(border=True, key=f"{self.key_prefix}_{slug}")
         return self._box.__enter__()
 
@@ -1901,17 +1879,13 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
     def _spoke(name, scores, bits, empty="no data"):
         got = [(s, b) for s, b in zip(scores, bits) if s is not None and b]
         if not got:
-            spokes.append({
-                "name": name, "score": 0.0, "detail": empty, "live": False,
-                "meaning": _SPOKE_HELP.get(name, ""),
-            })
+            spokes.append({"name": name, "score": 0.0, "detail": empty, "live": False})
             return
         spokes.append({
             "name": name,
             "score": sum(s for s, _ in got) / len(got),
             "detail": " · ".join(b for _, b in got),
             "live": True,
-            "meaning": _SPOKE_HELP.get(name, ""),
         })
 
     gs, gb = [], []
@@ -2014,8 +1988,7 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
     # on the clip edge and Plotly drops that last segment, so draw it just inside.
     rr = [min(float(s["score"]), 99.4) for s in spokes]
     tt = [s["name"] for s in spokes]
-    dd = [[s["detail"], f"{s['score']:.0f}", s.get("meaning") or ""]
-          for s in spokes]
+    dd = [[s["detail"], f"{s['score']:.0f}"] for s in spokes]
     rr, tt, dd = rr + [rr[0]], tt + [tt[0]], dd + [dd[0]]
     fig = go.Figure()
     fig.add_trace(go.Scatterpolar(
@@ -2026,9 +1999,8 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
         line=dict(color="#00e5ff", width=2),
         marker=dict(size=7, color="#00e5ff"),
         cliponaxis=False,
-        hovertemplate=("<b>%{theta}</b>  %{customdata[1]} / 100"
-                       "<br>%{customdata[2]}"
-                       "<br>%{customdata[0]}<extra></extra>"),
+        hoverinfo="skip",
+        hovertemplate=None,
         name="Quant",
     ))
     fig.update_layout(
@@ -2038,11 +2010,6 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color="#e8edf5", family="JetBrains Mono, monospace"),
         showlegend=False,
-        hoverlabel=dict(
-            bgcolor="#0c1829",
-            bordercolor="#00e5ff",
-            font=dict(color="#e8edf5", family="JetBrains Mono, monospace", size=12),
-        ),
         polar=dict(
             bgcolor="#0c1829",
             radialaxis=dict(
@@ -2076,12 +2043,7 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
             "better side of that lens.</div>",
             unsafe_allow_html=True)
         left, right = st.columns([1.25, 0.75], vertical_alignment="center")
-        try:
-            left.plotly_chart(
-                fig, width="stretch", key=f"{box}_chart", theme=None,
-                config={"displayModeBar": False, "responsive": True})
-        except TypeError:
-            left.plotly_chart(fig, width="stretch", key=f"{box}_chart")
+        left.plotly_chart(fig, width="stretch", key=f"{box}_chart")
         rows = []
         for s in spokes:
             if not s.get("live"):
@@ -2090,8 +2052,7 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
                 col = "#4dd880" if s["score"] >= 70 else ("#d0b040" if s["score"] >= 45 else "#ff5a7a")
             rows.append(
                 f"<div style='display:flex;justify-content:space-between;gap:10px;margin-top:6px'>"
-                f"<span style='color:#e8edf5' title='{_esc(s.get('meaning') or '')}'>"
-                f"{_esc(s['name'])}</span>"
+                f"<span style='color:#e8edf5'>{_esc(s['name'])}</span>"
                 f"<b style='color:{col};font-family:monospace'>{s['score']:.0f}</b></div>"
                 f"<div style='color:#6b7fa3;font-size:11px;line-height:1.3'>{_esc(s['detail'])}</div>")
         right.markdown(
@@ -3865,6 +3826,84 @@ def _rank_col_cfg():
     return st.column_config.NumberColumn(
         "#", width="small", format="%d",
         help="Scan rank. 1 is first on this list. Click the header to sort.")
+
+
+# Hover text on scan-result column headers. Scanner-specific Score / Win%
+# texts stay in each table's extra= dict and win over these defaults.
+_SCAN_COL_HELP = {
+    "Ticker": "The stock symbol.",
+    "Sector": "GICS sector from the nightly dump.",
+    "Name": "Company name from the nightly dump.",
+    "Price": "Last close in the nightly dump.",
+    "Live": "Live quote when the live overlay is on.",
+    "Chg%": "Move from the dump close to the live quote.",
+    "Src": "Where the live quote came from (Alpaca or Yahoo).",
+    "Current": "Live Alpaca/Yahoo quote.",
+    "Change": "Percent move since this ticker first hit this list.",
+    "Score": "This scanner's rank score for the name.",
+    "Macro": "Macro-lens tilt for this sector. Above 1 = the playbook likes it.",
+    "Adj": "Score after the macro lens re-ordered the list.",
+    "MacroFit": "Sector multiplier from the chosen playbook. Above 1.00 = favored.",
+    "Piotroski": "9-point fundamental health from the dump. 7–9 is strong.",
+    "ROIC": "Return on invested capital. Above 15% suggests a durable moat.",
+    "OE Yield": "Owner-earnings yield — cash generated relative to price.",
+    "OE_Yield": "Owner-earnings yield — cash generated relative to price.",
+    "ROIC Trend": "Year-over-year change in return on capital.",
+    "P/E": "Price / trailing earnings. Compare within the sector.",
+    "RevGrowth": "Year-over-year revenue growth from the dump.",
+    "RVOL": "Recent volume vs its own average. Above 1.5x is unusual.",
+    "RangePos": "Where price sits in the lookback range. 0% = at the lows.",
+    "Quality": "Composite quality from the dump fundamentals.",
+    "Data": "How many of this engine's inputs are actually known.",
+    "Tests": "How many of the quality bars this name clears.",
+    "Fit": "Quality score multiplied by the scenario's sector multiplier.",
+    "Felix": "Felix quality checklist score. The lens does not change this number.",
+    "Tech": "Technical percentile: momentum, range, relative volume, trend.",
+    "Tailwind": "How strongly current cascade waves historically push this stock.",
+    "Where": "Name = ticker or company name. Summary = business description.",
+    "Snippet": "The matching stretch of text.",
+    "Entry": "Suggested entry — usually the POC reclaim.",
+    "Stop": "Invalidation. A close through here and the setup is done.",
+    "Target": "Far side of the accumulation range.",
+    "R:R": "Reward to risk: (target − entry) / (entry − stop).",
+    "RangeATR": "Coil width in ATRs. Tighter is a cleaner base.",
+    "RangeLow": "Low of the accumulation range.",
+    "RangeHigh": "High of the accumulation range.",
+    "WinN": "How many dump setups sat in this reward-to-risk bucket.",
+    "BarsAgo": "Sessions since this stage began. 0 = the latest bar.",
+    "Elec%": "Raw return in the current pre-vote window.",
+    "XS%": "That return minus the equal-weight liquid universe.",
+    "Ctrl%": "Excess vs the market in the same calendar stretch last year.",
+    "Alpha": "This cycle's excess minus last year's — the election-year lift.",
+    "Hits": "How many of Aug / Sep / Oct this cycle beat the market.",
+    "Weeks": "How many weeks in the pre-vote stretch beat the market.",
+    "Live21": "Excess vs the market over the last 21 sessions.",
+    "Beat%": "Share of names in the sector that beat the market.",
+    "Names": "How many liquid names in this sector had a readable window.",
+    "StormScore": "Shakeout rank of reversal, range-low coil, peer catch-up, and RSI washout.",
+    "Shakeout": "Checklist 0–5. 3 is the validated default.",
+    "Ret5": "Five-session return. A mild selloff is the shakeout this setup wants.",
+    "RSI": "14-day RSI. Below 35 is the oversold zone; above 50 is not a washout.",
+    "Resid21": "21-day return vs the equal-weight sector.",
+    "VolRatio": "10-day realized vol vs 63-day. Below ~0.85 means the range compressed.",
+    "SuggestedStop": "Entry minus 8% — the stop that improved expectancy in the dump backtest.",
+}
+
+
+def _scan_col_cfg(df=None, extra=None):
+    """Hover descriptions on every scan-result column header."""
+    cfg = {"#": _rank_col_cfg()}
+    cfg.update(_cat_col_cfgs())
+    if extra:
+        cfg.update(extra)
+    cols = list(getattr(df, "columns", []) or [])
+    for col in cols:
+        if col in cfg:
+            continue
+        tip = _SCAN_COL_HELP.get(col)
+        if tip:
+            cfg[col] = st.column_config.Column(help=tip)
+    return cfg
 
 
 def _cat_cols(df):
@@ -5650,16 +5689,14 @@ with st.container(border=True, key="mw_page"):
                             + (["Live", "Chg%", "Src"] if "Live" in _fc.columns else [])
                             + ["OddsUp", "Typical"],
                             _fc),
-                        column_config={
-                            "#": _rank_col_cfg(),
-                            **_cat_col_cfgs(),
+                        column_config=_scan_col_cfg(_fc, {
                             "OddsUp": st.column_config.Column(help="Share of analog look-alike cases that finished HIGHER after 21 sessions. This is what the preset ranks by."),
                             "Typical": st.column_config.Column(help="Median analog outcome — the middle-of-the-pack result. Breaks ties on odds."),
                             "PopOdds": st.column_config.Column(help="Share of analogs that popped +15% or more."),
                             "Worst10": st.column_config.Column(help="10th-percentile analog outcome — the rough worst case (1 in 10 did at least this badly)."),
                             "Best10": st.column_config.Column(help="90th-percentile analog outcome — the rough best case."),
                             "Cases": st.column_config.Column(help="How many historical look-alikes this forecast is built on. 300+ enforced."),
-                        })
+                        }))
                 st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                            "Highest odds ≠ biggest gain — check the Typical and Worst-10 "
                            "columns before sizing.")
@@ -5720,13 +5757,12 @@ with st.container(border=True, key="mw_page"):
                         on_select="rerun", selection_mode="single-row", key="macro_table",
                         column_order=_order_with_cat(
                             [c for c in _mcols if c in _m20.columns], _m20),
-                        column_config={
-                            "#": _rank_col_cfg(),
+                        column_config=_scan_col_cfg(_m20, {
                             "Fit": st.column_config.Column(help="Quality score multiplied by this sector's multiplier under the chosen scenario."),
                             "MacroFit": st.column_config.Column(help="The scenario's sector multiplier. Above 1.00 = a sector this regime favours."),
                             "Quality": st.column_config.Column(help="Composite of ROIC, owner-earnings yield, Piotroski, ROIC trend and growth. Missing inputs rank at the bottom."),
                             "Data": st.column_config.Column(help="How many of the 6 fundamental inputs are known."),
-                        })
+                        }))
                 st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                            "This list answers \"if this scenario is right, who's positioned?\" "
                            "— it says nothing about whether the scenario is actually arriving.")
@@ -5831,7 +5867,7 @@ with st.container(border=True, key="mw_page"):
                         on_select="rerun", selection_mode="single-row", key="felix_table",
                         column_order=_order_with_cat(
                             [c for c in _fcols if c in _f.columns], _f),
-                        column_config=_fcfg)
+                        column_config=_scan_col_cfg(_f, _fcfg))
                 st.caption("👆 Tap a row for the chart, cards, and company profile below.")
                 _scan_hub_pick_and_show(_fsel, _f, "t20_inline", "t20az", source="TOP20")
         if st.session_state.get("top20_go") and st.session_state.get("top20_mode", "cascade") == "cascade":
@@ -5894,9 +5930,7 @@ with st.container(border=True, key="mw_page"):
                             + ["Data", "Piotroski", "RevGrowth", "RVOL",
                                "RangePos"],
                             _t),
-                        column_config={
-                            "#": _rank_col_cfg(),
-                            **_cat_col_cfgs(),
+                        column_config=_scan_col_cfg(_t, {
                             "Score": st.column_config.Column(help="Combined score: 42% technicals + 23% quality + 29% cascade tailwind + 6% catalysts, multiplied by the macro-regime sector fit."),
                             "Tech": st.column_config.Column(help="IGNITION technical percentile: momentum, range position, relative volume, trend, RSI sweet spot, MACD."),
                             "Quality": st.column_config.Column(help="Macro-simulator quality DNA: Piotroski, golden cross, ROIC, revenue & earnings growth."),
@@ -5913,7 +5947,7 @@ with st.container(border=True, key="mw_page"):
                                      "at the BOTTOM, never as average — but a low count "
                                      "still means the Quality pillar knows less about this "
                                      "name. 5/5 = fully known."),
-                        })
+                        }))
                 st.caption("👆 Tap a row for the chart, cards, and company profile below. "
                            "Scores refresh with the nightly dump; the tailwind and regime "
                            "refresh live.")
@@ -6250,9 +6284,7 @@ with st.container(border=True, key="mw_page"):
                                    "RangePos", "ValueArea", "Regime", "RS", "Price",
                                    "VAL", "POC", "VAH"],
                                 _ax_view),
-                            column_config={
-                                "#": _rank_col_cfg(),
-                                **_cat_col_cfgs(),
+                            column_config=_scan_col_cfg(_ax_view, {
                                 "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
                                 "RangePos": st.column_config.Column(help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
                                 "ValueArea": st.column_config.Column(help="Price vs the 50-bar volume profile. BELOW VALUE scores best (15 pts)."),
@@ -6261,7 +6293,7 @@ with st.container(border=True, key="mw_page"):
                                 "VAL": st.column_config.Column(help="Value area low."),
                                 "POC": st.column_config.Column(help="Point of control — the heaviest-volume price level."),
                                 "VAH": st.column_config.Column(help="Value area high."),
-                            })
+                            }))
                         st.caption("👆 Tap a row for the chart, cards, and company profile below.")
                         st.download_button("⬇ Download CSV", _show.to_csv(index=False),
                                            f"apex_flow_{_tf.replace(' ','')}_{asof}.csv",
@@ -6686,16 +6718,14 @@ with st.container(border=True, key="mw_page"):
                                    "ToPOC%", "Entry", "Stop", "Target",
                                    "Win%", "ExpR"],
                                 _pdf),
-                            column_config={
-                                "#": _rank_col_cfg(),
-                                **_cat_col_cfgs(),
+                            column_config=_scan_col_cfg(_pdf, {
                                 "Stage": st.column_config.Column(help="TRIGGERED = POC reclaimed. SWEPT = lows taken, reclaim pending. COILING = range forming."),
                                 "BarsAgo": st.column_config.Column(help="Sessions since the stage began. 0 = it happened on the latest bar."),
                                 "POC": st.column_config.Column(help="Point of Control — where the coil traded the most volume. The entry level."),
                                 "ToPOC%": st.column_config.Column(help="How far price sits from the POC. Negative = still below it."),
                                 "Win%": st.column_config.Column(help="How often setups with this reward-to-risk actually reached target before stop — measured by replaying 1,639 real triggers on the nightly dump (81.8% overall, matching the Pine script's 77.8%). It is an estimate from the bucket, not a promise about this stock."),
                                 "ExpR": st.column_config.Column(help="Expected return per trade in R, using that measured win rate. THE CATCH: win% falls as reward-to-risk rises, but expectancy RISES. An 89% setup pays +0.16R; a 61% setup pays +0.76R. Chasing the highest Win% column walks you into the lowest-payoff trades — read the two together."),
-                            })
+                            }))
                         st.caption(f"👆 Tap a row for the chart, cards, and company profile below. "
                                    f"**Win%** comes from replaying {pfut.WIN_SAMPLE:,} real "
                                    f"triggers on this dump — but read it next to **ExpR**: "
@@ -6821,9 +6851,7 @@ with st.container(border=True, key="mw_page"):
                         on_select="rerun", selection_mode="single-row",
                         key="kw_table",
                         column_order=_korder or None,
-                        column_config={
-                            "#": _rank_col_cfg(),
-                            **_cat_col_cfgs(),
+                        column_config=_scan_col_cfg(_kdf, {
                             "Name": st.column_config.Column(help="Dump company name."),
                             "Where": st.column_config.Column(
                                 help="Name = ticker or company name. Summary = "
@@ -6835,7 +6863,7 @@ with st.container(border=True, key="mw_page"):
                                      "summary, or the name when only the name hit."),
                             "Price": st.column_config.Column(
                                 help="Last close in the nightly dump."),
-                        })
+                        }))
                     st.caption("👆 Tap a row to load the full Stock Lookup below the list.")
                     _scan_hub_pick_and_show(_ksel, _kdf, "kw_inline", "kwaz",
                                            source="Key Word Search", full_lookup=True)
@@ -6979,7 +7007,7 @@ with st.container(border=True, key="mw_page"):
                                               "Flag", "Why", "Speech", "Date",
                                               "Snippet", "Source"]
                                   if c in _wshow.columns],
-                    column_config={
+                    column_config=_scan_col_cfg(_wshow, {
                         "Word": st.column_config.Column(help="The flagged term."),
                         "Times said": st.column_config.Column(
                             help="How many times this term appears across the "
@@ -6998,7 +7026,7 @@ with st.container(border=True, key="mw_page"):
                         "Source": st.column_config.LinkColumn(
                             "Source", display_text="Open source",
                             help="The speech or article this count came from."),
-                    })
+                    }))
                 st.caption("👆 Tap a word to search company names and business "
                            "summaries in the nightly dump.")
                 _trows = (_te_sel.selection.rows
@@ -7106,9 +7134,7 @@ with st.container(border=True, key="mw_page"):
                                         "Current", "Change", "Where", "Snippet"]
                                      if c in _tdf.columns],
                                     _tdf) or None,
-                                column_config={
-                                    "#": _rank_col_cfg(),
-                                    **_cat_col_cfgs(),
+                                column_config=_scan_col_cfg(_tdf, {
                                     "Price": st.column_config.Column(
                                         help="Last close in the nightly dump."),
                                     "Current": st.column_config.Column(
@@ -7118,7 +7144,7 @@ with st.container(border=True, key="mw_page"):
                                         help="Percent from the first time this "
                                              "ticker appeared on a Trump Effect "
                                              "list to the current live price."),
-                                })
+                                }))
                             _scan_hub_pick_and_show(
                                 _tsel, _tdf, "te_inline", "teaz",
                                 source="Trump Effect", full_lookup=True)
@@ -7284,8 +7310,7 @@ with st.container(border=True, key="mw_page"):
                             _el_sec_st, width="stretch", hide_index=True,
                             height=_fit_list_height(len(_eshow), max_h=280),
                             key="el_sec",
-                            column_config={
-                                "#": _rank_col_cfg(),
+                            column_config=_scan_col_cfg(_eshow, {
                                 "Names": st.column_config.Column(
                                     help="Liquid names in this sector that "
                                          "had a readable pre-vote window."),
@@ -7300,7 +7325,7 @@ with st.container(border=True, key="mw_page"):
                                 "Beat%": st.column_config.Column(
                                     help="Share of names in the sector that beat "
                                          "the market in the pre-vote window."),
-                            })
+                            }))
 
                 if _edf is None or (isinstance(_edf, pd.DataFrame) and _edf.empty):
                     st.warning("No names passed. Loosen min price or dollar volume.")
@@ -7345,9 +7370,7 @@ with st.container(border=True, key="mw_page"):
                                  "XS%", "Ctrl%", "Alpha", "Hits", "Weeks",
                                  "Live21", "Price"],
                                 _show),
-                            column_config={
-                                "#": _rank_col_cfg(),
-                                **_cat_col_cfgs(),
+                            column_config=_scan_col_cfg(_show, {
                                 "Score": st.column_config.Column(
                                     help="0–100 percentile of election edge "
                                          "across the liquid dump. Mixes pre-vote "
@@ -7376,7 +7399,7 @@ with st.container(border=True, key="mw_page"):
                                          "21 sessions — still working now."),
                                 "Price": st.column_config.Column(
                                     help="Last close in the nightly dump."),
-                            })
+                            }))
                         st.caption("👆 Tap a row for the chart, cards, and "
                                    "company profile below.")
                         st.download_button(

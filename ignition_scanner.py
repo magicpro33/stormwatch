@@ -3331,8 +3331,11 @@ def render_ignition_scanner_tab(render_detail=None):
             "InsiderNet$": st.column_config.NumberColumn("InsiderNet$", format="$%.0f", help=HELP["InsiderNet$"]),
         }
         for col in df.columns:
-            if col not in col_cfg:
-                col_cfg[col] = st.column_config.Column(col, help=HELP.get(col, ""))
+            if col in col_cfg:
+                continue
+            tip = HELP.get(col)
+            if tip:
+                col_cfg[col] = st.column_config.Column(col, help=tip)
         _igsel = st.dataframe(
             df,
             use_container_width=True,

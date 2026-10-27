@@ -862,6 +862,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             "#": st.column_config.NumberColumn(
                 "#", width="small", format="%d",
                 help="Scan rank. 1 is first on this list. Click the header to sort."),
+            "Ticker": st.column_config.Column(help="The stock symbol."),
+            "Sector": st.column_config.Column(help="GICS sector from the nightly dump."),
+            "Price": st.column_config.Column(help="Last close in the nightly dump."),
             "▲ Up": st.column_config.Column(
                 "▲ Up", width="medium",
                 help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means."),
@@ -876,6 +879,8 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             "Resid21": st.column_config.Column(help=HELP["resid21"]),
             "VolRatio": st.column_config.Column(help=HELP["volratio"]),
             "MacroFit": st.column_config.Column(help=HELP["macrofit"]),
+            "Quality": st.column_config.Column(
+                help="Dump quality overlay — not in the shakeout backtest."),
             "Piotroski": st.column_config.Column(help="9-point fundamental health from the dump. Overlay only — not in the backtest."),
             "SuggestedStop": st.column_config.Column(help=f"Entry {STOP_PCT:.0%} — the stop that improved expectancy in the dump backtest."),
         })
