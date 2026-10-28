@@ -3309,6 +3309,10 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     with ov_l:
         chart_ov = _lk_seg("Overlay", _LK_CHART_OV,
                            f"{state_key}_chart_ov", "SMAs")
+    vol_key = f"{state_key}_chart_vol_on"
+    if vol_key not in st.session_state:
+        st.session_state[vol_key] = True
+    chart_vol_on = st.toggle("Volume", key=vol_key)
 
     chart_df, chart_src = df, (src_label or "nightly dump")
     if chart_tf != "1 Day":
@@ -3332,15 +3336,16 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     d = chart_df.tail(_LK_CHART_BARS)
     xx, pack = _lk_axis_x(d, chart_tf)
     has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
-    has_vol = "Volume" in d.columns and d["Volume"].notna().any()
+    vol_data = "Volume" in d.columns and d["Volume"].notna().any()
+    show_vol = bool(chart_vol_on) and vol_data
     if has_ohlc:
         y_lo = float(np.nanmin(d["Low"].to_numpy(dtype=float)))
         y_hi = float(np.nanmax(d["High"].to_numpy(dtype=float)))
     else:
         y_lo = float(np.nanmin(d["Close"].to_numpy(dtype=float)))
         y_hi = float(np.nanmax(d["Close"].to_numpy(dtype=float)))
-    fig = make_subplots(rows=2 if has_vol else 1, cols=1, shared_xaxes=True,
-                        row_heights=[0.78, 0.22] if has_vol else [1.0],
+    fig = make_subplots(rows=2 if show_vol else 1, cols=1, shared_xaxes=True,
+                        row_heights=[0.78, 0.22] if show_vol else [1.0],
                         vertical_spacing=0.03)
     note = ""
     c_full = chart_df["Close"]
@@ -3472,7 +3477,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                                y_lo, y_hi)
             note = "POC + SMA50 / SMA200 from the 15-bar volume profile."
 
-    if has_vol:
+    if show_vol:
         vcol = np.where(d.Close.diff().fillna(0) >= 0, GREEN, RED)
         fig.add_trace(go.Bar(x=xx, y=d.Volume, marker_color=vcol,
                              name="Volume", opacity=0.6, showlegend=False),
@@ -3498,7 +3503,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     elif not pack:
         fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "sun"])])
     st.plotly_chart(fig, width="stretch",
-                    key=f"chart_{state_key}_{tk}_{chart_tf}_{chart_ov}")
+                    key=f"chart_{state_key}_{tk}_{chart_tf}_{chart_ov}_{int(bool(chart_vol_on))}")
     n_bars = len(d)
     tf_bit = f"{chart_tf} · {n_bars} bars · {chart_src}" if chart_src else chart_tf
     st.caption(f"{tf_bit}" + (f" · {note}" if note else "")
