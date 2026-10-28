@@ -3308,7 +3308,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     PURPLE = "#c084fc"
     TEAL = "#2dd4bf"
 
-    if chart_ov == "POC Future":
+    if chart_ov == "Apex Flow":
         path = _lk_poc_path(chart_df)
         vis = path.reindex(d.index) if not path.empty else pd.DataFrame()
         if vis.empty or vis["hi"].notna().sum() < 5:
@@ -3398,7 +3398,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
             x=xx, y=c_full.rolling(50).mean().reindex(d.index),
             name="SMA50", line=dict(color=ACCENT, width=1)), row=1, col=1)
         note = "SMA50 / SMA150 in bars of this timeframe."
-    elif chart_ov == "Apex Flow":
+    elif chart_ov == "POC Future":
         SMA50_ORANGE = "#FF7A00"
         POC_COL = ACCENT
         fig.add_trace(go.Scatter(
@@ -3429,7 +3429,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                 _lk_place_tags(fig, x_last,
                                [(poc_y, f"POC {poc_y:.2f}", POC_COL)],
                                y_lo, y_hi)
-            note = "POC from the same 15-bar volume profile as POC Future."
+            note = "POC + SMA50 / SMA200 from the 15-bar volume profile."
 
     if has_vol:
         vcol = np.where(d.Close.diff().fillna(0) >= 0, GREEN, RED)
