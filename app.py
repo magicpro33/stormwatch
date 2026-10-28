@@ -2990,6 +2990,80 @@ def _lk_poc_setup(chart: pd.DataFrame):
         return None
 
 
+def _lk_poc_path(chart: pd.DataFrame) -> pd.DataFrame:
+    """Stepping range + volume-profile path the AMD Pine draws on price.
+
+    Each bar's High/Low/POC/VAH/VAL comes from the last `accum_len` bars,
+    so the overlay walks with price instead of painting one static line
+    across the whole window.
+    """
+    need = ("High", "Low", "Close", "Volume")
+    if pfut is None or chart is None or chart.empty:
+        return pd.DataFrame()
+    if not set(need).issubset(chart.columns):
+        return pd.DataFrame()
+    win = int(getattr(pfut, "ACCUM_LEN", 15))
+    bins = int(getattr(pfut, "VP_BINS", 24))
+    va = float(getattr(pfut, "VA_PCT", 70.0))
+    h = chart["High"].to_numpy(dtype=float)
+    l = chart["Low"].to_numpy(dtype=float)
+    c = chart["Close"].to_numpy(dtype=float)
+    v = np.nan_to_num(chart["Volume"].to_numpy(dtype=float))
+    T = len(chart)
+    hi = np.full(T, np.nan)
+    lo = np.full(T, np.nan)
+    poc = np.full(T, np.nan)
+    vah = np.full(T, np.nan)
+    val = np.full(T, np.nan)
+    for i in range(win - 1, T):
+        sl = slice(i - win + 1, i + 1)
+        hh, ll = float(np.nanmax(h[sl])), float(np.nanmin(l[sl]))
+        if not (np.isfinite(hh) and np.isfinite(ll)) or hh <= ll:
+            continue
+        hi[i], lo[i] = hh, ll
+        try:
+            p, va_h, va_l = pfut._profile(
+                h[sl], l[sl], c[sl], v[sl], ll, hh, bins=bins, va_pct=va)
+        except Exception:
+            continue
+        poc[i], vah[i], val[i] = p, va_h, va_l
+    return pd.DataFrame(
+        {"hi": hi, "lo": lo, "poc": poc, "vah": vah, "val": val},
+        index=chart.index)
+
+
+def _lk_axis_x(d: pd.DataFrame, tf: str):
+    """Integer bar index on intraday so nights/weekends are not empty holes."""
+    pack = tf != "1 Day"
+    xx = np.arange(len(d), dtype=float) if pack else d.index
+    return xx, pack
+
+
+def _lk_tick_text(ts, tf: str) -> str:
+    t = pd.Timestamp(ts)
+    try:
+        if getattr(t, "tzinfo", None) is not None:
+            t = t.tz_convert("America/New_York")
+    except Exception:
+        pass
+    if tf in ("30 Min", "1 Hour"):
+        return t.strftime("%m/%d %H:%M")
+    return t.strftime("%b %d")
+
+
+def _lk_tag(fig, x, y, text, color, row=1):
+    try:
+        yy = float(y)
+    except (TypeError, ValueError):
+        return
+    if not np.isfinite(yy):
+        return
+    fig.add_annotation(
+        x=x, y=yy, text=text, showarrow=False, xanchor="left",
+        xshift=8, font=dict(size=11, color="#081325", family="JetBrains Mono, monospace"),
+        bgcolor=color, bordercolor=color, borderpad=3, row=row, col=1)
+
+
 def _lk_apex_levels(chart: pd.DataFrame):
     """Value-area + last-bar MAs from the Apex Flow port, if bars allow."""
     if af is None or chart is None or chart.empty:
@@ -3110,87 +3184,154 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
             pass
 
     d = chart_df.tail(180)
+    xx, pack = _lk_axis_x(d, chart_tf)
     has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
     has_vol = "Volume" in d.columns and d["Volume"].notna().any()
     fig = make_subplots(rows=2 if has_vol else 1, cols=1, shared_xaxes=True,
-                        row_heights=[0.75, 0.25] if has_vol else [1.0],
+                        row_heights=[0.78, 0.22] if has_vol else [1.0],
                         vertical_spacing=0.03)
+    note = ""
+    c_full = chart_df["Close"]
+    PURPLE = "#c084fc"
+    TEAL = "#2dd4bf"
+
+    if chart_ov == "POC Future":
+        path = _lk_poc_path(chart_df)
+        vis = path.reindex(d.index) if not path.empty else pd.DataFrame()
+        if vis.empty or vis["hi"].notna().sum() < 5:
+            note = "Not enough bars for a POC path."
+        else:
+            vis = vis.copy()
+            # Keep the cloud continuous after the first valid window.
+            start = vis["hi"].first_valid_index()
+            if start is not None:
+                vis.loc[start:] = vis.loc[start:].ffill()
+            ORANGE = "#e07050"
+            # TradingView AMD: purple high→VAH cloud, teal VAL→low cloud,
+            # dark value area in the middle, orange POC step.
+            fig.add_trace(go.Scatter(
+                x=xx, y=vis["hi"], mode="lines", name="High",
+                line=dict(color=PURPLE, width=1.8, shape="hv"),
+                hovertemplate="High %{y:.2f}<extra></extra>"), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=xx, y=vis["vah"], mode="lines", name="VAH",
+                line=dict(color=PURPLE, width=0, shape="hv"),
+                fill="tonexty", fillcolor="rgba(192,132,252,0.28)",
+                hovertemplate="VAH %{y:.2f}<extra></extra>",
+                showlegend=False), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=xx, y=vis["val"], mode="lines", name="VAL",
+                line=dict(color=TEAL, width=0, shape="hv"),
+                hovertemplate="VAL %{y:.2f}<extra></extra>",
+                showlegend=False), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=xx, y=vis["lo"], mode="lines", name="Low",
+                line=dict(color=TEAL, width=1.8, shape="hv"),
+                fill="tonexty", fillcolor="rgba(45,212,191,0.26)",
+                hovertemplate="Low %{y:.2f}<extra></extra>"), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=xx, y=vis["poc"], mode="lines", name="POC",
+                line=dict(color=ORANGE, width=1.6, shape="hv"),
+                hovertemplate="POC %{y:.2f}<extra></extra>"), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=xx, y=c_full.rolling(50).mean().reindex(d.index),
+                name="SMA50", line=dict(color=ORANGE, width=1.4)),
+                row=1, col=1)
+            last = vis.dropna(subset=["hi", "lo"]).iloc[-1]
+            x_last = xx[-1] if pack else d.index[-1]
+            def _num(v):
+                try:
+                    f = float(v)
+                    return f if np.isfinite(f) else np.nan
+                except (TypeError, ValueError):
+                    return np.nan
+            poc_y = _num(last["poc"])
+            if not np.isfinite(poc_y):
+                prev = vis["poc"].dropna()
+                poc_y = _num(prev.iloc[-1]) if len(prev) else np.nan
+            val_y = _num(last["val"])
+            if not np.isfinite(val_y):
+                val_y = poc_y
+            _lk_tag(fig, x_last, last["hi"], f"HIGH {last['hi']:.2f}", PURPLE)
+            if np.isfinite(poc_y):
+                _lk_tag(fig, x_last, poc_y, f"POC {poc_y:.2f}", ORANGE)
+            if np.isfinite(val_y):
+                _lk_tag(fig, x_last, val_y, f"VAL {val_y:.2f}", TEAL)
+            _lk_tag(fig, x_last, last["lo"], f"LOW {last['lo']:.2f}", TEAL)
+            setup = _lk_poc_setup(chart_df)
+            stage = (setup or {}).get("stage") or ""
+            note = (f"POC {stage}" if stage else "POC path"
+                    ) + " — stepping range + value area, same math as the AMD port."
+
     if has_ohlc:
         fig.add_trace(go.Candlestick(
-            x=d.index, open=d.Open, high=d.High, low=d.Low, close=d.Close,
-            increasing_line_color=GREEN, decreasing_line_color=RED,
+            x=xx, open=d.Open, high=d.High, low=d.Low, close=d.Close,
+            increasing_line_color=GREEN, increasing_fillcolor=GREEN,
+            decreasing_line_color=RED, decreasing_fillcolor=RED,
             name=tk), row=1, col=1)
     else:
-        fig.add_trace(go.Scatter(x=d.index, y=d.Close, mode="lines",
+        fig.add_trace(go.Scatter(x=xx, y=d.Close, mode="lines",
                                  line=dict(color=ACCENT, width=2), name=tk),
                       row=1, col=1)
 
-    note = ""
-    xs = (d.index[0], d.index[-1]) if len(d) else ()
-    c_full = chart_df["Close"]
     if chart_ov == "SMAs":
         fig.add_trace(go.Scatter(
-            x=d.index, y=c_full.rolling(150).mean().reindex(d.index),
+            x=xx, y=c_full.rolling(150).mean().reindex(d.index),
             name="SMA150", line=dict(color="#7fb2ff", width=1)), row=1, col=1)
         fig.add_trace(go.Scatter(
-            x=d.index, y=c_full.rolling(50).mean().reindex(d.index),
+            x=xx, y=c_full.rolling(50).mean().reindex(d.index),
             name="SMA50", line=dict(color=ACCENT, width=1)), row=1, col=1)
         note = "SMA50 / SMA150 in bars of this timeframe."
-    elif chart_ov == "POC Future":
-        setup = _lk_poc_setup(chart_df)
-        if not setup:
-            note = "No live POC coil/sweep/reclaim on this window."
-        else:
-            _lk_band(fig, setup.get("acc_lo"), setup.get("acc_hi"),
-                     "rgba(154,168,189,0.10)")
-            _lk_band(fig, setup.get("val"), setup.get("vah"),
-                     "rgba(103,232,249,0.14)")
-            _lk_level_line(fig, xs, setup.get("poc"), "POC", ACCENT, width=2)
-            _lk_level_line(fig, xs, setup.get("vah"), "VAH", "#d0b040")
-            _lk_level_line(fig, xs, setup.get("val"), "VAL", GREEN)
-            _lk_level_line(fig, xs, setup.get("entry"), "Entry", ACCENT, "dash")
-            _lk_level_line(fig, xs, setup.get("stop"), "Stop", RED, "dash")
-            _lk_level_line(fig, xs, setup.get("target"), "Target", GREEN, "dash")
-            _lk_level_line(fig, xs, setup.get("sweep_px"), "Sweep", RED, "dot")
-            stage = setup.get("stage") or ""
-            note = (f"POC {stage}" if stage else "POC overlay"
-                    ) + " — AMD port. Daily is the tested bar size."
     elif chart_ov == "Apex Flow":
         fig.add_trace(go.Scatter(
-            x=d.index, y=c_full.rolling(20).mean().reindex(d.index),
+            x=xx, y=c_full.rolling(20).mean().reindex(d.index),
             name="SMA20", line=dict(color="#7fb2ff", width=1)), row=1, col=1)
         fig.add_trace(go.Scatter(
-            x=d.index, y=c_full.rolling(50).mean().reindex(d.index),
+            x=xx, y=c_full.rolling(50).mean().reindex(d.index),
             name="SMA50", line=dict(color=ACCENT, width=1)), row=1, col=1)
         fig.add_trace(go.Scatter(
-            x=d.index, y=c_full.rolling(200).mean().reindex(d.index),
+            x=xx, y=c_full.rolling(200).mean().reindex(d.index),
             name="SMA200", line=dict(color="#9aa8bd", width=1, dash="dot")),
             row=1, col=1)
         levels = _lk_apex_levels(chart_df)
         if not levels:
             note = "Need ~50 bars for the Apex value area. Showing structural MAs."
         else:
-            _lk_band(fig, levels.get("val"), levels.get("vah"),
-                     "rgba(103,232,249,0.14)")
-            _lk_level_line(fig, xs, levels.get("poc"), "POC", ACCENT, width=2)
-            _lk_level_line(fig, xs, levels.get("vah"), "VAH", "#d0b040")
-            _lk_level_line(fig, xs, levels.get("val"), "VAL", GREEN)
-            _lk_level_line(fig, xs, levels.get("rng_hi"), "Range high",
-                           DIM, "dot", width=1)
-            _lk_level_line(fig, xs, levels.get("rng_lo"), "Range low",
-                           DIM, "dot", width=1)
-            note = "Apex value area (50-bar) + SMA20/50/200 + 20-bar range."
+            x_last = xx[-1] if pack else d.index[-1]
+            _lk_tag(fig, x_last, levels.get("rng_hi"),
+                    f"HIGH {float(levels['rng_hi']):.2f}", "#c084fc")
+            _lk_tag(fig, x_last, levels.get("poc"),
+                    f"POC {float(levels['poc']):.2f}", ACCENT)
+            _lk_tag(fig, x_last, levels.get("val"),
+                    f"VAL {float(levels['val']):.2f}", "#2dd4bf")
+            _lk_tag(fig, x_last, levels.get("rng_lo"),
+                    f"LOW {float(levels['rng_lo']):.2f}", "#2dd4bf")
+            note = "Apex value area (50-bar) + SMA20/50/200."
 
     if has_vol:
         vcol = np.where(d.Close.diff().fillna(0) >= 0, GREEN, RED)
-        fig.add_trace(go.Bar(x=d.index, y=d.Volume, marker_color=vcol,
-                             name="Volume", opacity=0.6), row=2, col=1)
-    fig.update_layout(height=430, template="plotly_dark",
+        fig.add_trace(go.Bar(x=xx, y=d.Volume, marker_color=vcol,
+                             name="Volume", opacity=0.6, showlegend=False),
+                      row=2, col=1)
+    fig.update_layout(height=500, template="plotly_dark",
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0.03)",
                       font_color="#EAF2FF", showlegend=True,
                       legend=dict(orientation="h", y=1.05),
                       xaxis_rangeslider_visible=False,
-                      margin=dict(l=10, r=10, t=10, b=10))
+                      margin=dict(l=10, r=88, t=10, b=10),
+                      hovermode="x unified")
+    grid = dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", zeroline=False)
+    fig.update_yaxes(**grid)
+    fig.update_xaxes(**grid, rangeslider_visible=False)
+    if pack and len(d):
+        step = max(1, len(d) // 6)
+        ticks = list(range(0, len(d), step))
+        if ticks[-1] != len(d) - 1:
+            ticks.append(len(d) - 1)
+        texts = [_lk_tick_text(d.index[i], chart_tf) for i in ticks]
+        fig.update_xaxes(tickmode="array", tickvals=ticks, ticktext=texts)
+    elif not pack:
+        fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "sun"])])
     st.plotly_chart(fig, width="stretch",
                     key=f"chart_{state_key}_{tk}_{chart_tf}_{chart_ov}")
     n_bars = len(d)
