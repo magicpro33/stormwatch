@@ -3170,34 +3170,6 @@ def _lk_tag(fig, x, y, text, color, row=1):
         bgcolor=color, bordercolor=color, borderpad=3, row=row, col=1)
 
 
-def _lk_apex_levels(chart: pd.DataFrame):
-    """Value-area + last-bar MAs from the Apex Flow port, if bars allow."""
-    if af is None or chart is None or chart.empty:
-        return None
-    need = ("Open", "High", "Low", "Close", "Volume")
-    if not set(need).issubset(chart.columns):
-        return None
-    c = chart.dropna(subset=["Close"])
-    if len(c) < 50:
-        return None
-    out = {}
-    try:
-        h = c["High"].to_numpy(dtype=float)
-        l = c["Low"].to_numpy(dtype=float)
-        cl = c["Close"].to_numpy(dtype=float)
-        v = np.nan_to_num(c["Volume"].to_numpy(dtype=float))
-        lo, hi = float(np.nanmin(l[-50:])), float(np.nanmax(h[-50:]))
-        poc, vah, val = pfut._profile(
-            h[-50:], l[-50:], cl[-50:], v[-50:], lo, hi, bins=12, va_pct=70.0
-        ) if pfut is not None else (np.nan, np.nan, np.nan)
-        out["poc"], out["vah"], out["val"] = poc, vah, val
-        out["rng_hi"] = float(np.nanmax(h[-20:]))
-        out["rng_lo"] = float(np.nanmin(l[-20:]))
-    except Exception:
-        return None
-    return out
-
-
 def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                            state_key: str = "mw_analyze", closable: bool = True,
                            df: pd.DataFrame | None = None,
@@ -3388,30 +3360,31 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
             name="SMA50", line=dict(color=ACCENT, width=1)), row=1, col=1)
         note = "SMA50 / SMA150 in bars of this timeframe."
     elif chart_ov == "Apex Flow":
-        fig.add_trace(go.Scatter(
-            x=xx, y=c_full.rolling(20).mean().reindex(d.index),
-            name="SMA20", line=dict(color="#7fb2ff", width=1)), row=1, col=1)
+        SMA50_ORANGE = "#FF7A00"
+        POC_COL = "#e07050"
         fig.add_trace(go.Scatter(
             x=xx, y=c_full.rolling(50).mean().reindex(d.index),
-            name="SMA50", line=dict(color=ACCENT, width=1)), row=1, col=1)
-        fig.add_trace(go.Scatter(
-            x=xx, y=c_full.rolling(200).mean().reindex(d.index),
-            name="SMA200", line=dict(color="#9aa8bd", width=1, dash="dot")),
+            name="SMA50", line=dict(color=SMA50_ORANGE, width=2.2)),
             row=1, col=1)
-        levels = _lk_apex_levels(chart_df)
-        if not levels:
-            note = "Need ~50 bars for the Apex value area. Showing structural MAs."
+        path = _lk_poc_path(chart_df)
+        vis = path.reindex(d.index) if not path.empty else pd.DataFrame()
+        if vis.empty or vis["poc"].notna().sum() < 5:
+            note = "Need more bars for a POC. Showing SMA50."
         else:
-            x_last = xx[-1] if pack else d.index[-1]
-            _lk_tag(fig, x_last, levels.get("rng_hi"),
-                    f"HIGH {float(levels['rng_hi']):.2f}", "#c084fc")
-            _lk_tag(fig, x_last, levels.get("poc"),
-                    f"POC {float(levels['poc']):.2f}", ACCENT)
-            _lk_tag(fig, x_last, levels.get("val"),
-                    f"VAL {float(levels['val']):.2f}", "#2dd4bf")
-            _lk_tag(fig, x_last, levels.get("rng_lo"),
-                    f"LOW {float(levels['rng_lo']):.2f}", "#2dd4bf")
-            note = "Apex value area (50-bar) + SMA20/50/200."
+            vis = vis.copy()
+            start = vis["poc"].first_valid_index()
+            if start is not None:
+                vis.loc[start:, "poc"] = vis.loc[start:, "poc"].ffill()
+            fig.add_trace(go.Scatter(
+                x=xx, y=vis["poc"], mode="lines", name="POC",
+                line=dict(color=POC_COL, width=1.8, shape="hv"),
+                hovertemplate="POC %{y:.2f}<extra></extra>"), row=1, col=1)
+            last_poc = vis["poc"].dropna()
+            if len(last_poc):
+                x_last = xx[-1] if pack else d.index[-1]
+                poc_y = float(last_poc.iloc[-1])
+                _lk_tag(fig, x_last, poc_y, f"POC {poc_y:.2f}", POC_COL)
+            note = "POC from the same 15-bar volume profile as POC Future."
 
     if has_vol:
         vcol = np.where(d.Close.diff().fillna(0) >= 0, GREEN, RED)
