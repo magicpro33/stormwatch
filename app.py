@@ -3313,7 +3313,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                 hovertemplate="POC %{y:.2f}<extra></extra>"), row=1, col=1)
             fig.add_trace(go.Scatter(
                 x=xx, y=c_full.rolling(50).mean().reindex(d.index),
-                name="SMA50", line=dict(color=ORANGE, width=1.4)),
+                name="SMA50", line=dict(color="#FF7A00", width=2.2)),
                 row=1, col=1)
             last = vis.dropna(subset=["hi", "lo"]).iloc[-1]
             x_last = xx[-1] if pack else d.index[-1]
@@ -3357,19 +3357,23 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
             name="SMA150", line=dict(color="#7fb2ff", width=1)), row=1, col=1)
         fig.add_trace(go.Scatter(
             x=xx, y=c_full.rolling(50).mean().reindex(d.index),
-            name="SMA50", line=dict(color=ACCENT, width=1)), row=1, col=1)
+            name="SMA50", line=dict(color="#FF7A00", width=2.2)), row=1, col=1)
         note = "SMA50 / SMA150 in bars of this timeframe."
     elif chart_ov == "Apex Flow":
         SMA50_ORANGE = "#FF7A00"
-        POC_COL = "#e07050"
+        POC_COL = "#FFD600"
         fig.add_trace(go.Scatter(
             x=xx, y=c_full.rolling(50).mean().reindex(d.index),
             name="SMA50", line=dict(color=SMA50_ORANGE, width=2.2)),
             row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=xx, y=c_full.rolling(200).mean().reindex(d.index),
+            name="SMA200", line=dict(color="#9aa8bd", width=1.2, dash="dot")),
+            row=1, col=1)
         path = _lk_poc_path(chart_df)
         vis = path.reindex(d.index) if not path.empty else pd.DataFrame()
         if vis.empty or vis["poc"].notna().sum() < 5:
-            note = "Need more bars for a POC. Showing SMA50."
+            note = "Need more bars for a POC. Showing SMA50 / SMA200."
         else:
             vis = vis.copy()
             start = vis["poc"].first_valid_index()
@@ -3377,7 +3381,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                 vis.loc[start:, "poc"] = vis.loc[start:, "poc"].ffill()
             fig.add_trace(go.Scatter(
                 x=xx, y=vis["poc"], mode="lines", name="POC",
-                line=dict(color=POC_COL, width=1.8, shape="hv"),
+                line=dict(color=POC_COL, width=2.0, shape="hv"),
                 hovertemplate="POC %{y:.2f}<extra></extra>"), row=1, col=1)
             last_poc = vis["poc"].dropna()
             if len(last_poc):
