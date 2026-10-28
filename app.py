@@ -2730,14 +2730,18 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
 # Stock Lookup chart: dump daily by default; lower TFs reuse the same
 # Alpaca → Yahoo chain Apex / Ignition already use. Overlays are the
 # SMA, POC Future, and Apex Flow levels this app already computes.
+# Visible window is 180 bars. Fetch enough extra so SMA200 exists on bar 1.
+_LK_CHART_BARS = 180
+_LK_SMA_SLOW = 200
 _LK_CHART_TF = {
-    "30 Min": dict(alpaca="30Min", yf="30m", days=60, yf_period="60d"),
-    "1 Hour": dict(alpaca="1Hour", yf="1h", days=120, yf_period="60d"),
-    "4 Hour": dict(alpaca="4Hour", yf="1h", days=120, yf_period="60d",
+    "30 Min": dict(alpaca="30Min", yf="30m", days=90, yf_period="60d"),
+    "1 Hour": dict(alpaca="1Hour", yf="1h", days=400, yf_period="730d"),
+    "4 Hour": dict(alpaca="4Hour", yf="1h", days=500, yf_period="730d",
                    resample="4h"),
-    "1 Day":  dict(alpaca="1Day", yf="1d", days=500, yf_period="2y"),
+    "1 Day":  dict(alpaca="1Day", yf="1d", days=750, yf_period="5y"),
 }
 _LK_CHART_OV = ["SMAs", "POC Future", "Apex Flow"]
+_LK_BARS_VER = "v2-sma200"
 
 
 def _lk_seg(label, options, key, default):
@@ -2926,6 +2930,7 @@ def _lk_yahoo_bars(tk: str, interval: str, period: str) -> pd.DataFrame:
 @st.cache_data(ttl=120, show_spinner=False)
 def _lookup_chart_bars(tk: str, tf: str, nonce: int = 0):
     """OHLCV for the Stock Lookup chart. Daily prefers the dump."""
+    _ = _LK_BARS_VER
     tk = str(tk or "").strip().upper()
     meta = _LK_CHART_TF.get(tf) or _LK_CHART_TF["1 Day"]
     if tf == "1 Day":
@@ -3019,17 +3024,51 @@ def _lk_poc_path(chart: pd.DataFrame) -> pd.DataFrame:
         sl = slice(i - win + 1, i + 1)
         hh, ll = float(np.nanmax(h[sl])), float(np.nanmin(l[sl]))
         if not (np.isfinite(hh) and np.isfinite(ll)) or hh <= ll:
+            if i > 0:
+                hi[i] = hi[i - 1]
+                lo[i] = lo[i - 1]
+                poc[i] = poc[i - 1]
+                vah[i] = vah[i - 1]
+                val[i] = val[i - 1]
             continue
         hi[i], lo[i] = hh, ll
+        p = va_h = va_l = np.nan
         try:
             p, va_h, va_l = pfut._profile(
                 h[sl], l[sl], c[sl], v[sl], ll, hh, bins=bins, va_pct=va)
         except Exception:
-            continue
+            pass
+        if not np.isfinite(p):
+            p, va_h, va_l = poc[i - 1], vah[i - 1], val[i - 1]
         poc[i], vah[i], val[i] = p, va_h, va_l
-    return pd.DataFrame(
+    path = pd.DataFrame(
         {"hi": hi, "lo": lo, "poc": poc, "vah": vah, "val": val},
         index=chart.index)
+    return path.ffill()
+
+
+def _lk_vis_y(s, idx) -> pd.Series:
+    """Clip a full-history overlay to the visible bars and close leftover holes."""
+    if s is None:
+        return pd.Series(np.nan, index=idx)
+    y = s.reindex(idx) if hasattr(s, "reindex") else pd.Series(s, index=idx)
+    if y.notna().any():
+        y = y.ffill().bfill()
+    return y
+
+
+def _lk_vis_path(path: pd.DataFrame, idx) -> pd.DataFrame:
+    if path is None or path.empty:
+        return pd.DataFrame(index=idx)
+    vis = path.reindex(idx)
+    if vis.notna().to_numpy().any():
+        vis = vis.ffill().bfill()
+    return vis
+
+
+def _lk_sma(close: pd.Series, n: int, idx) -> pd.Series:
+    n = int(n)
+    return _lk_vis_y(close.rolling(n, min_periods=n).mean(), idx)
 
 
 def _lk_axis_x(d: pd.DataFrame, tf: str):
@@ -3290,7 +3329,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         except Exception:
             pass
 
-    d = chart_df.tail(180)
+    d = chart_df.tail(_LK_CHART_BARS)
     xx, pack = _lk_axis_x(d, chart_tf)
     has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
     has_vol = "Volume" in d.columns and d["Volume"].notna().any()
@@ -3310,45 +3349,46 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
 
     if chart_ov == "Apex Flow":
         path = _lk_poc_path(chart_df)
-        vis = path.reindex(d.index) if not path.empty else pd.DataFrame()
+        vis = _lk_vis_path(path, d.index)
         if vis.empty or vis["hi"].notna().sum() < 5:
             note = "Not enough bars for a POC path."
         else:
-            vis = vis.copy()
-            # Keep the cloud continuous after the first valid window.
-            start = vis["hi"].first_valid_index()
-            if start is not None:
-                vis.loc[start:] = vis.loc[start:].ffill()
             ORANGE = "#e07050"
             # TradingView AMD: purple high→VAH cloud, teal VAL→low cloud,
             # dark value area in the middle, orange POC step.
             fig.add_trace(go.Scatter(
                 x=xx, y=vis["hi"], mode="lines", name="High",
                 line=dict(color=PURPLE, width=1.8, shape="hv"),
+                connectgaps=True,
                 hovertemplate="High %{y:.2f}<extra></extra>"), row=1, col=1)
             fig.add_trace(go.Scatter(
                 x=xx, y=vis["vah"], mode="lines", name="VAH",
                 line=dict(color=PURPLE, width=0, shape="hv"),
                 fill="tonexty", fillcolor="rgba(192,132,252,0.28)",
+                connectgaps=True,
                 hovertemplate="VAH %{y:.2f}<extra></extra>",
                 showlegend=False), row=1, col=1)
             fig.add_trace(go.Scatter(
                 x=xx, y=vis["val"], mode="lines", name="VAL",
                 line=dict(color=TEAL, width=0, shape="hv"),
+                connectgaps=True,
                 hovertemplate="VAL %{y:.2f}<extra></extra>",
                 showlegend=False), row=1, col=1)
             fig.add_trace(go.Scatter(
                 x=xx, y=vis["lo"], mode="lines", name="Low",
                 line=dict(color=TEAL, width=1.8, shape="hv"),
                 fill="tonexty", fillcolor="rgba(45,212,191,0.26)",
+                connectgaps=True,
                 hovertemplate="Low %{y:.2f}<extra></extra>"), row=1, col=1)
             fig.add_trace(go.Scatter(
                 x=xx, y=vis["poc"], mode="lines", name="POC",
                 line=dict(color=ACCENT, width=1.6, shape="hv"),
+                connectgaps=True,
                 hovertemplate="POC %{y:.2f}<extra></extra>"), row=1, col=1)
             fig.add_trace(go.Scatter(
-                x=xx, y=c_full.rolling(50).mean().reindex(d.index),
-                name="SMA50", line=dict(color="#FF7A00", width=2.2)),
+                x=xx, y=_lk_sma(c_full, 50, d.index),
+                name="SMA50", line=dict(color="#FF7A00", width=2.2),
+                connectgaps=True),
                 row=1, col=1)
             last = vis.dropna(subset=["hi", "lo"]).iloc[-1]
             x_last = xx[-1] if pack else d.index[-1]
@@ -3392,35 +3432,36 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
 
     if chart_ov == "SMAs":
         fig.add_trace(go.Scatter(
-            x=xx, y=c_full.rolling(150).mean().reindex(d.index),
-            name="SMA150", line=dict(color="#7fb2ff", width=1)), row=1, col=1)
+            x=xx, y=_lk_sma(c_full, 150, d.index),
+            name="SMA150", line=dict(color="#7fb2ff", width=1),
+            connectgaps=True), row=1, col=1)
         fig.add_trace(go.Scatter(
-            x=xx, y=c_full.rolling(50).mean().reindex(d.index),
-            name="SMA50", line=dict(color=ACCENT, width=1)), row=1, col=1)
+            x=xx, y=_lk_sma(c_full, 50, d.index),
+            name="SMA50", line=dict(color=ACCENT, width=1),
+            connectgaps=True), row=1, col=1)
         note = "SMA50 / SMA150 in bars of this timeframe."
     elif chart_ov == "POC Future":
         SMA50_ORANGE = "#FF7A00"
         POC_COL = ACCENT
         fig.add_trace(go.Scatter(
-            x=xx, y=c_full.rolling(50).mean().reindex(d.index),
-            name="SMA50", line=dict(color=SMA50_ORANGE, width=2.2)),
+            x=xx, y=_lk_sma(c_full, 50, d.index),
+            name="SMA50", line=dict(color=SMA50_ORANGE, width=2.2),
+            connectgaps=True),
             row=1, col=1)
         fig.add_trace(go.Scatter(
-            x=xx, y=c_full.rolling(200).mean().reindex(d.index),
-            name="SMA200", line=dict(color="#9aa8bd", width=1.2, dash="dot")),
+            x=xx, y=_lk_sma(c_full, _LK_SMA_SLOW, d.index),
+            name="SMA200", line=dict(color="#9aa8bd", width=1.2, dash="dot"),
+            connectgaps=True),
             row=1, col=1)
         path = _lk_poc_path(chart_df)
-        vis = path.reindex(d.index) if not path.empty else pd.DataFrame()
+        vis = _lk_vis_path(path, d.index)
         if vis.empty or vis["poc"].notna().sum() < 5:
             note = "Need more bars for a POC. Showing SMA50 / SMA200."
         else:
-            vis = vis.copy()
-            start = vis["poc"].first_valid_index()
-            if start is not None:
-                vis.loc[start:, "poc"] = vis.loc[start:, "poc"].ffill()
             fig.add_trace(go.Scatter(
                 x=xx, y=vis["poc"], mode="lines", name="POC",
                 line=dict(color=POC_COL, width=2.0, shape="hv"),
+                connectgaps=True,
                 hovertemplate="POC %{y:.2f}<extra></extra>"), row=1, col=1)
             last_poc = vis["poc"].dropna()
             if len(last_poc):
