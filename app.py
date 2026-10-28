@@ -3157,17 +3157,46 @@ def _lk_add_candles(fig, xx, d: pd.DataFrame, colors, name: str, pack: bool):
                        "<extra></extra>")), row=1, col=1)
 
 
-def _lk_tag(fig, x, y, text, color, row=1):
+def _lk_place_tags(fig, x, tags, y_lo, y_hi, row=1):
+    """Fan overlapping price tags so each label stays readable."""
+    items = []
+    for y, text, color in tags:
+        try:
+            yy = float(y)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(yy) and text:
+            items.append((yy, str(text), color))
+    if not items:
+        return
+    items.sort(key=lambda t: t[0])
     try:
-        yy = float(y)
+        y_lo, y_hi = float(y_lo), float(y_hi)
     except (TypeError, ValueError):
-        return
-    if not np.isfinite(yy):
-        return
-    fig.add_annotation(
-        x=x, y=yy, text=text, showarrow=False, xanchor="left",
-        xshift=8, font=dict(size=11, color="#081325", family="JetBrains Mono, monospace"),
-        bgcolor=color, bordercolor=color, borderpad=3, row=row, col=1)
+        y_lo, y_hi = items[0][0], items[-1][0]
+    span = max(y_hi - y_lo, items[-1][0] - items[0][0], 1e-9)
+    cluster_w = span * 0.08
+    # Split into close-price groups, then fan each group in pixels.
+    groups, cur = [], [items[0]]
+    for it in items[1:]:
+        if it[0] - cur[-1][0] <= cluster_w:
+            cur.append(it)
+        else:
+            groups.append(cur)
+            cur = [it]
+    groups.append(cur)
+    step_px = 26
+    for group in groups:
+        k = len(group)
+        for i, (true_y, text, color) in enumerate(group):
+            yshift = int(round((i - (k - 1) / 2.0) * step_px))
+            fig.add_annotation(
+                x=x, y=true_y, text=text, showarrow=False,
+                xanchor="left", xshift=10, yshift=yshift,
+                font=dict(size=11, color="#081325",
+                          family="JetBrains Mono, monospace"),
+                bgcolor=color, bordercolor=color, borderpad=3,
+                row=row, col=1)
 
 
 def render_ticker_analysis(tk: str, closes: pd.DataFrame,
@@ -3265,6 +3294,12 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     xx, pack = _lk_axis_x(d, chart_tf)
     has_ohlc = {"Open", "High", "Low"}.issubset(d.columns)
     has_vol = "Volume" in d.columns and d["Volume"].notna().any()
+    if has_ohlc:
+        y_lo = float(np.nanmin(d["Low"].to_numpy(dtype=float)))
+        y_hi = float(np.nanmax(d["High"].to_numpy(dtype=float)))
+    else:
+        y_lo = float(np.nanmin(d["Close"].to_numpy(dtype=float)))
+        y_hi = float(np.nanmax(d["Close"].to_numpy(dtype=float)))
     fig = make_subplots(rows=2 if has_vol else 1, cols=1, shared_xaxes=True,
                         row_heights=[0.78, 0.22] if has_vol else [1.0],
                         vertical_spacing=0.03)
@@ -3329,13 +3364,17 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                 poc_y = _num(prev.iloc[-1]) if len(prev) else np.nan
             val_y = _num(last["val"])
             if not np.isfinite(val_y):
-                val_y = poc_y
-            _lk_tag(fig, x_last, last["hi"], f"HIGH {last['hi']:.2f}", PURPLE)
+                prev_val = vis["val"].dropna()
+                val_y = _num(prev_val.iloc[-1]) if len(prev_val) else poc_y
+            tags = [
+                (last["hi"], f"HIGH {last['hi']:.2f}", PURPLE),
+                (last["lo"], f"LOW {last['lo']:.2f}", TEAL),
+            ]
             if np.isfinite(poc_y):
-                _lk_tag(fig, x_last, poc_y, f"POC {poc_y:.2f}", ACCENT)
+                tags.append((poc_y, f"POC {poc_y:.2f}", ACCENT))
             if np.isfinite(val_y):
-                _lk_tag(fig, x_last, val_y, f"VAL {val_y:.2f}", TEAL)
-            _lk_tag(fig, x_last, last["lo"], f"LOW {last['lo']:.2f}", TEAL)
+                tags.append((val_y, f"VAL {val_y:.2f}", TEAL))
+            _lk_place_tags(fig, x_last, tags, y_lo, y_hi)
             setup = _lk_poc_setup(chart_df)
             stage = (setup or {}).get("stage") or ""
             note = (f"POC {stage}" if stage else "POC path"
@@ -3387,7 +3426,9 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
             if len(last_poc):
                 x_last = xx[-1] if pack else d.index[-1]
                 poc_y = float(last_poc.iloc[-1])
-                _lk_tag(fig, x_last, poc_y, f"POC {poc_y:.2f}", POC_COL)
+                _lk_place_tags(fig, x_last,
+                               [(poc_y, f"POC {poc_y:.2f}", POC_COL)],
+                               y_lo, y_hi)
             note = "POC from the same 15-bar volume profile as POC Future."
 
     if has_vol:
