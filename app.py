@@ -3051,6 +3051,112 @@ def _lk_tick_text(ts, tf: str) -> str:
     return t.strftime("%b %d")
 
 
+# Apex Flow "Volume Magic" barcolor — same three states as the Pine.
+_VM_BULL = "#FFD600"   # conviction up: trend + up bar + above VWAP + high vol
+_VM_PULL = "#42A5F5"   # pullback: down bar inside an uptrend, still above VWAP
+_VM_BEAR = "#EF5350"   # bear: down bar in a downtrend
+
+
+def _lk_vwap_period_keys(idx, tf: str) -> np.ndarray:
+    """Auto VWAP anchor from the Pine: session on intraday, week on daily."""
+    t = pd.DatetimeIndex(pd.to_datetime(idx))
+    try:
+        if getattr(t, "tz", None) is not None:
+            t = t.tz_convert("America/New_York").tz_localize(None)
+    except Exception:
+        try:
+            t = t.tz_localize(None)
+        except Exception:
+            pass
+    if tf == "1 Day":
+        return t.to_period("W-SUN").astype(str).to_numpy()
+    return np.asarray(t.strftime("%Y-%m-%d"))
+
+
+def _lk_volume_magic_colors(chart: pd.DataFrame, tf: str) -> pd.Series:
+    """Per-bar colors from Apex Volume Magic. Unmatched bars stay green/red."""
+    n = len(chart)
+    if n == 0 or not {"Open", "Close"}.issubset(chart.columns):
+        return pd.Series(dtype=object)
+    o = chart["Open"].to_numpy(dtype=float)
+    c = chart["Close"].to_numpy(dtype=float)
+    default = np.where(c >= o, GREEN, RED).astype(object)
+    if "Volume" not in chart.columns or not {"High", "Low"}.issubset(chart.columns):
+        return pd.Series(default, index=chart.index)
+    h = chart["High"].to_numpy(dtype=float)
+    l = chart["Low"].to_numpy(dtype=float)
+    v = np.nan_to_num(chart["Volume"].to_numpy(dtype=float), nan=0.0)
+    tp = (h + l + c) / 3.0
+    keys = _lk_vwap_period_keys(chart.index, tf)
+    vwap = np.full(n, np.nan)
+    cum_tpv = 0.0
+    cum_vol = 0.0
+    prev = object()
+    for i in range(n):
+        k = keys[i]
+        if k != prev:
+            cum_tpv = float(tp[i]) * float(v[i]) if np.isfinite(tp[i]) else 0.0
+            cum_vol = float(v[i])
+            prev = k
+        else:
+            if np.isfinite(tp[i]):
+                cum_tpv += float(tp[i]) * float(v[i])
+            cum_vol += float(v[i])
+        if cum_vol > 0:
+            vwap[i] = cum_tpv / cum_vol
+    vol_ema = pd.Series(v).ewm(span=20, adjust=False).mean().to_numpy()
+    trend = pd.Series(c).ewm(span=50, adjust=False).mean().to_numpy()
+    is_bull = c > trend
+    above = np.isfinite(vwap) & (c > vwap)
+    conv = is_bull & (c > o) & above & (v > vol_ema)
+    pull = is_bull & (c < o) & above
+    bear = (~is_bull) & (c < o)
+    col = default.copy()
+    col[bear] = _VM_BEAR
+    col[pull] = _VM_PULL
+    col[conv] = _VM_BULL
+    return pd.Series(col, index=chart.index)
+
+
+def _lk_add_candles(fig, xx, d: pd.DataFrame, colors, name: str, pack: bool):
+    """Per-bar bodies + wicks. Candlestick traces connect same-color bars."""
+    import plotly.graph_objects as go
+    o = d["Open"].to_numpy(dtype=float)
+    h = d["High"].to_numpy(dtype=float)
+    l = d["Low"].to_numpy(dtype=float)
+    c = d["Close"].to_numpy(dtype=float)
+    xx = np.asarray(xx)
+    colors = np.asarray(colors)
+    width = 0.62 if pack else 24 * 60 * 60 * 1000 * 0.62
+    seen = []
+    for col in colors:
+        if col not in seen:
+            seen.append(col)
+    for col in seen:
+        m = colors == col
+        if not np.any(m):
+            continue
+        wx, wy = [], []
+        for x, lo, hi in zip(xx[m], l[m], h[m]):
+            wx.extend([x, x, None])
+            wy.extend([lo, hi, None])
+        fig.add_trace(go.Scatter(
+            x=wx, y=wy, mode="lines",
+            line=dict(color=col, width=1.15),
+            showlegend=False, hoverinfo="skip"), row=1, col=1)
+    body_lo = np.minimum(o, c)
+    body_h = np.abs(c - o)
+    rng = np.maximum(h - l, 1e-9)
+    body_h = np.where(body_h < rng * 0.015, rng * 0.015, body_h)
+    fig.add_trace(go.Bar(
+        x=xx, y=body_h, base=body_lo, width=width, name=name,
+        marker=dict(color=list(colors), line=dict(color=list(colors), width=1)),
+        customdata=np.column_stack([o, h, l, c]),
+        hovertemplate=("O %{customdata[0]:.2f}<br>H %{customdata[1]:.2f}"
+                       "<br>L %{customdata[2]:.2f}<br>C %{customdata[3]:.2f}"
+                       "<extra></extra>")), row=1, col=1)
+
+
 def _lk_tag(fig, x, y, text, color, row=1):
     try:
         yy = float(y)
@@ -3264,11 +3370,10 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                     ) + " — stepping range + value area, same math as the AMD port."
 
     if has_ohlc:
-        fig.add_trace(go.Candlestick(
-            x=xx, open=d.Open, high=d.High, low=d.Low, close=d.Close,
-            increasing_line_color=GREEN, increasing_fillcolor=GREEN,
-            decreasing_line_color=RED, decreasing_fillcolor=RED,
-            name=tk), row=1, col=1)
+        vm = _lk_volume_magic_colors(chart_df, chart_tf).reindex(d.index)
+        fb = np.where(d.Close.to_numpy() >= d.Open.to_numpy(), GREEN, RED)
+        cols = np.where(vm.notna().to_numpy(), vm.to_numpy(), fb)
+        _lk_add_candles(fig, xx, d, cols, tk, pack)
     else:
         fig.add_trace(go.Scatter(x=xx, y=d.Close, mode="lines",
                                  line=dict(color=ACCENT, width=2), name=tk),
@@ -3318,6 +3423,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                       font_color="#EAF2FF", showlegend=True,
                       legend=dict(orientation="h", y=1.05),
                       xaxis_rangeslider_visible=False,
+                      barmode="overlay",
                       margin=dict(l=10, r=88, t=10, b=10),
                       hovermode="x unified")
     grid = dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", zeroline=False)
@@ -3337,6 +3443,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     n_bars = len(d)
     tf_bit = f"{chart_tf} · {n_bars} bars · {chart_src}" if chart_src else chart_tf
     st.caption(f"{tf_bit}" + (f" · {note}" if note else "")
+               + " · Volume Magic bars (yellow conviction / blue pullback / red bear)"
                + " · Research view, not investment advice.")
 
 
