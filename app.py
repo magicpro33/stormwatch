@@ -3309,7 +3309,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                 hovertemplate="Low %{y:.2f}<extra></extra>"), row=1, col=1)
             fig.add_trace(go.Scatter(
                 x=xx, y=vis["poc"], mode="lines", name="POC",
-                line=dict(color=ORANGE, width=1.6, shape="hv"),
+                line=dict(color=ACCENT, width=1.6, shape="hv"),
                 hovertemplate="POC %{y:.2f}<extra></extra>"), row=1, col=1)
             fig.add_trace(go.Scatter(
                 x=xx, y=c_full.rolling(50).mean().reindex(d.index),
@@ -3332,7 +3332,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                 val_y = poc_y
             _lk_tag(fig, x_last, last["hi"], f"HIGH {last['hi']:.2f}", PURPLE)
             if np.isfinite(poc_y):
-                _lk_tag(fig, x_last, poc_y, f"POC {poc_y:.2f}", ORANGE)
+                _lk_tag(fig, x_last, poc_y, f"POC {poc_y:.2f}", ACCENT)
             if np.isfinite(val_y):
                 _lk_tag(fig, x_last, val_y, f"VAL {val_y:.2f}", TEAL)
             _lk_tag(fig, x_last, last["lo"], f"LOW {last['lo']:.2f}", TEAL)
@@ -3357,11 +3357,11 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
             name="SMA150", line=dict(color="#7fb2ff", width=1)), row=1, col=1)
         fig.add_trace(go.Scatter(
             x=xx, y=c_full.rolling(50).mean().reindex(d.index),
-            name="SMA50", line=dict(color="#FF7A00", width=2.2)), row=1, col=1)
+            name="SMA50", line=dict(color=ACCENT, width=1)), row=1, col=1)
         note = "SMA50 / SMA150 in bars of this timeframe."
     elif chart_ov == "Apex Flow":
         SMA50_ORANGE = "#FF7A00"
-        POC_COL = "#FFD600"
+        POC_COL = ACCENT
         fig.add_trace(go.Scatter(
             x=xx, y=c_full.rolling(50).mean().reindex(d.index),
             name="SMA50", line=dict(color=SMA50_ORANGE, width=2.2)),
