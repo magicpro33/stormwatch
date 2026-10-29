@@ -2728,9 +2728,9 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
 
 
 # Stock Lookup chart: dump daily by default; lower TFs reuse the same
-# Alpaca → Yahoo chain Apex / Ignition already use. Overlays are the
-# SMA, POC Future, and Apex Flow levels this app already computes.
-# Visible window is 180 bars. Fetch enough extra so SMA200 exists on bar 1.
+# Alpaca → Yahoo chain Apex / Ignition already use. Overlays are SMAs,
+# Point Of Control, and Clean Setup. Visible window is 180 bars.
+# Fetch enough extra so SMA200 exists on bar 1.
 _LK_CHART_BARS = 180
 _LK_SMA_SLOW = 200
 _LK_CHART_TF = {
@@ -2740,7 +2740,8 @@ _LK_CHART_TF = {
                    resample="4h"),
     "1 Day":  dict(alpaca="1Day", yf="1d", days=750, yf_period="5y"),
 }
-_LK_CHART_OV = ["SMAs", "POC Future", "Apex Flow"]
+_LK_CHART_OV = ["SMAs", "Point Of Control", "Clean Setup"]
+_LK_OV_ALIAS = {"POC Future": "Point Of Control", "Apex Flow": "SMAs"}
 _LK_BARS_VER = "v2-sma200"
 
 
@@ -3238,6 +3239,428 @@ def _lk_place_tags(fig, x, tags, y_lo, y_hi, row=1):
                 row=row, col=1)
 
 
+# Clean Setup overlay — port of CleanSetup.pine (Brad @ AI Upscale LLC).
+# Pivots, gates, and the 12 patterns use the same defaults as the Pine.
+_CS_PIV = 12
+_CS_MAX_AGE = 150
+_CS_MAX_PV = 8
+_CS_MIN_PX = 5.0
+_CS_MIN_VOL = 250_000
+_CS_TGT_EXT = 40
+_CS_BULL = "#26a69a"
+_CS_BEAR = "#ef5350"
+_CS_CH = "#787b86"
+
+
+def _lk_hex_rgba(color: str, alpha: float) -> str:
+    h = str(color).lstrip("#")
+    if len(h) != 6:
+        return str(color)
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r},{g},{b},{float(alpha)})"
+
+
+def _lk_wilder_rsi(close, n: int = 14) -> np.ndarray:
+    c = np.asarray(close, dtype=float)
+    n = int(n)
+    out = np.full(len(c), np.nan)
+    if len(c) <= n:
+        return out
+    dlt = np.diff(c)
+    gain = np.maximum(dlt, 0.0)
+    loss = np.maximum(-dlt, 0.0)
+    ag = float(np.mean(gain[:n]))
+    al = float(np.mean(loss[:n]))
+    out[n] = 100.0 if al == 0 else 100.0 - 100.0 / (1.0 + ag / al)
+    for j in range(n, len(dlt)):
+        ag = (ag * (n - 1) + float(gain[j])) / n
+        al = (al * (n - 1) + float(loss[j])) / n
+        out[j + 1] = 100.0 if al == 0 else 100.0 - 100.0 / (1.0 + ag / al)
+    return out
+
+
+def _lk_cs_pivots(arr, left: int, right: int, want_high: bool):
+    """Pine ta.pivothigh / pivotlow. Yields (confirm_i, pivot_i, price)."""
+    a = np.asarray(arr, dtype=float)
+    n = len(a)
+    left, right = int(left), int(right)
+    out = []
+    if n < left + right + 1:
+        return out
+    for i in range(left + right, n):
+        pb = i - right
+        w = a[pb - left: i + 1]
+        centre = a[pb]
+        if not np.isfinite(centre):
+            continue
+        finite = np.isfinite(w)
+        if not finite.any():
+            continue
+        if want_high:
+            if centre < np.nanmax(w):
+                continue
+        elif centre > np.nanmin(w):
+            continue
+        if int(np.sum(finite & (w == centre))) != 1:
+            continue
+        out.append((i, pb, float(centre)))
+    return out
+
+
+def _lk_clean_setup(chart: pd.DataFrame) -> dict:
+    """Walk the tape the way the Pine does and return EMAs, channel, marks."""
+    blank = dict(ema50=None, ema200=None, signals=[], targets=[],
+                 ch_hi=None, ch_lo=None, rsi=np.nan, trend="mixed", n_tgt=0)
+    need = ("Open", "High", "Low", "Close")
+    if chart is None or chart.empty or not set(need).issubset(chart.columns):
+        return blank
+    h = chart["High"].to_numpy(dtype=float)
+    l = chart["Low"].to_numpy(dtype=float)
+    c = chart["Close"].to_numpy(dtype=float)
+    if "Volume" in chart.columns:
+        v = np.nan_to_num(chart["Volume"].to_numpy(dtype=float), nan=0.0)
+    else:
+        v = np.zeros(len(c), dtype=float)
+    n = len(c)
+    ema50 = pd.Series(c, index=chart.index).ewm(span=50, adjust=False).mean()
+    ema200 = pd.Series(c, index=chart.index).ewm(span=200, adjust=False).mean()
+    e50 = ema50.to_numpy(dtype=float)
+    e200 = ema200.to_numpy(dtype=float)
+    rsi = _lk_wilder_rsi(c, 14)
+    vol20 = pd.Series(v).rolling(20, min_periods=20).mean().to_numpy(dtype=float)
+    bull_tr = (e50 > e200) & (c > e50)
+    bear_tr = (e50 < e200) & (c < e50)
+    liquid = (c >= _CS_MIN_PX) & (vol20 >= _CS_MIN_VOL)
+    vol_ok = v > vol20
+    rsi_ok = (rsi > 40.0) & (rsi < 60.0)
+
+    def _gate(i, is_bull):
+        if not (0 <= i < n) or not liquid[i] or not rsi_ok[i] or not vol_ok[i]:
+            return False
+        return bool(bull_tr[i] if is_bull else bear_tr[i])
+
+    def _push(ps, bs, price, bar):
+        ps.append(price)
+        bs.append(bar)
+        if len(ps) > _CS_MAX_PV:
+            ps.pop(0)
+            bs.pop(0)
+
+    ph_at = {i: (pb, p) for i, pb, p in _lk_cs_pivots(h, _CS_PIV, _CS_PIV, True)}
+    pl_at = {i: (pb, p) for i, pb, p in _lk_cs_pivots(l, _CS_PIV, _CS_PIV, False)}
+    phP, phB, plP, plB = [], [], [], []
+    signals, targets = [], []
+    ch_hi = ch_lo = None
+
+    def _add_tgt(from_b, from_p, tgt, is_up, born):
+        targets.append(dict(
+            from_b=int(from_b), from_p=float(from_p), tgt=float(tgt),
+            is_up=bool(is_up), born=int(born), end_b=int(born) + _CS_TGT_EXT))
+
+    def _mark(bar, price, txt, is_up):
+        signals.append((int(bar), float(price), str(txt), bool(is_up)))
+
+    for i in range(n):
+        new_ph = i in ph_at
+        new_pl = i in pl_at
+        if new_ph:
+            pb, p = ph_at[i]
+            _push(phP, phB, p, pb)
+        if new_pl:
+            pb, p = pl_at[i]
+            _push(plP, plB, p, pb)
+        new_pv = new_ph or new_pl
+        if targets:
+            stay = []
+            hi_i, lo_i = h[i], l[i]
+            for t in targets:
+                hit = ((np.isfinite(hi_i) and hi_i >= t["tgt"]) if t["is_up"]
+                       else (np.isfinite(lo_i) and lo_i <= t["tgt"]))
+                old = (i - t["born"]) > _CS_MAX_AGE
+                if not hit and not old:
+                    stay.append(t)
+            targets = stay
+        if new_pv and len(phP) >= 2 and len(plP) >= 2:
+            ch_hi = (phB[-2], phP[-2], phB[-1], phP[-1])
+            ch_lo = (plB[-2], plP[-2], plB[-1], plP[-1])
+        if not new_pv:
+            continue
+
+        # 1 bull flag
+        if len(plP) >= 2 and len(phP) >= 1:
+            r_hi, r_hi_b = phP[-1], phB[-1]
+            p_lo = plP[-2]
+            r_lo, r_lo_b = plP[-1], plB[-1]
+            if p_lo > 0 and r_hi > 0:
+                pole = (r_hi - p_lo) / p_lo * 100.0
+                pull = (r_hi - r_lo) / r_hi * 100.0
+                if (6.0 < pole < 20.0 and pull < 5.0 and r_lo_b > r_hi_b
+                        and _gate(i, True)):
+                    _mark(r_lo_b, r_lo, "Bull Flag", True)
+                    _add_tgt(r_hi_b, r_hi, r_hi + (r_hi - p_lo) * 0.9, True, i)
+
+        # 2 bear flag
+        if len(phP) >= 2 and len(plP) >= 1:
+            r_lo, r_lo_b = plP[-1], plB[-1]
+            p_hi = phP[-2]
+            r_hi, r_hi_b = phP[-1], phB[-1]
+            if p_hi > 0 and r_lo > 0:
+                pole = (p_hi - r_lo) / p_hi * 100.0
+                rally = (r_hi - r_lo) / r_lo * 100.0
+                if (6.0 < pole < 20.0 and rally < 5.0 and r_hi_b > r_lo_b
+                        and _gate(i, False)):
+                    _mark(r_hi_b, r_hi, "Bear Flag", False)
+                    _add_tgt(r_lo_b, r_lo, r_lo - (p_hi - r_lo) * 0.9, False, i)
+
+        # 3 cup & handle
+        if len(phP) >= 3 and len(plP) >= 2:
+            l_rim, r_rim, r_rim_b = phP[-3], phP[-1], phB[-1]
+            cup, hdl, hdl_b = plP[-2], plP[-1], plB[-1]
+            if l_rim > 0 and r_rim > 0:
+                rim = abs(l_rim - r_rim) / l_rim * 100.0
+                dep = (r_rim - cup) / r_rim * 100.0
+                hp = (r_rim - hdl) / r_rim * 100.0
+                if (rim < 2.0 and 12.0 < dep < 33.0 and hdl > cup and hp < 8.0
+                        and _gate(i, True)):
+                    _mark(hdl_b, hdl, "Cup & Handle", True)
+                    _add_tgt(r_rim_b, r_rim, r_rim + (r_rim - cup), True, i)
+
+        # 4 ascending triangle / 5 descending triangle
+        if len(phP) >= 3 and len(plP) >= 3:
+            hh1, hh2, hh3 = phP[-1], phP[-2], phP[-3]
+            ll1, ll2, ll3 = plP[-1], plP[-2], plP[-3]
+            if hh2 > 0 and hh3 > 0 and ll2 > 0 and ll3 > 0:
+                flat_hi = (abs(hh1 - hh3) / hh3 < 0.01
+                           and abs(hh1 - hh2) / hh2 < 0.01)
+                flat_lo = (abs(ll1 - ll3) / ll3 < 0.01
+                           and abs(ll1 - ll2) / ll2 < 0.01)
+                if flat_hi and ll1 > ll2 > ll3 and _gate(i, True):
+                    _add_tgt(phB[-1], hh1, hh1 + (hh1 - ll3), True, i)
+                if flat_lo and hh1 < hh2 < hh3 and _gate(i, False):
+                    _add_tgt(plB[-1], ll1, ll1 - (hh3 - ll1), False, i)
+
+        # 6 inverse H&S
+        if len(plP) >= 3 and len(phP) >= 2:
+            ls, hd, rs, rs_b = plP[-3], plP[-2], plP[-1], plB[-1]
+            nk = phP[-1]
+            if ls > 0 and hd < ls * 0.98 and hd < rs * 0.98:
+                if abs(ls - rs) / ls * 100.0 < 3.0 and _gate(i, True):
+                    _mark(rs_b, rs, "Inv H&S", True)
+                    _add_tgt(rs_b, nk, nk + (nk - hd), True, i)
+
+        # 7 H&S top
+        if len(phP) >= 3 and len(plP) >= 2:
+            ls, hd, rs, rs_b = phP[-3], phP[-2], phP[-1], phB[-1]
+            nk = plP[-1]
+            if ls > 0 and hd > ls * 1.02 and hd > rs * 1.02:
+                if abs(ls - rs) / ls * 100.0 < 3.0 and _gate(i, False):
+                    _mark(rs_b, rs, "H&S Top", False)
+                    _add_tgt(rs_b, nk, nk - (hd - nk), False, i)
+
+        # 8 falling wedge / 9 rising wedge
+        if len(phP) >= 3 and len(plP) >= 3:
+            hh1, hh2 = phP[-1], phP[-2]
+            ll1, ll2 = plP[-1], plP[-2]
+            h_drop, l_drop = hh2 - hh1, ll2 - ll1
+            h_rise, l_rise = hh1 - hh2, ll1 - ll2
+            if h_drop > 0 and l_drop > h_drop and _gate(i, True):
+                _mark(plB[-1], ll1, "Falling Wedge", True)
+                _add_tgt(plB[-1], ll1, hh1 + (hh2 - ll2), True, i)
+            if l_rise > 0 and h_rise < l_rise and _gate(i, False):
+                _mark(phB[-1], hh1, "Rising Wedge", False)
+                _add_tgt(phB[-1], hh1, ll1 - (hh1 - ll2), False, i)
+
+        # 10 symmetrical triangle (bear only, as in the Pine)
+        if len(phP) >= 2 and len(plP) >= 2:
+            hh1, hh0 = phP[-1], phP[-2]
+            ll1, ll0 = plP[-1], plP[-2]
+            if hh1 < hh0 and ll1 > ll0 and _gate(i, False):
+                h1b, l1b = phB[-1], plB[-1]
+                sig_b = h1b if h1b > l1b else l1b
+                sig_p = hh1 if h1b > l1b else ll1
+                _mark(sig_b, sig_p, "Sym Triangle", False)
+                _add_tgt(l1b, ll1, ll1 - (hh0 - ll0), False, i)
+
+        # 11 rounding bottom
+        if len(plP) >= 3 and len(phP) >= 1:
+            la, lb, lc, lc_b = plP[-3], plP[-2], plP[-1], plB[-1]
+            nk = phP[-1]
+            if (la > 0 and lb < la * 0.96 and lb < lc * 0.96
+                    and lc >= la * 0.97 and _gate(i, True)):
+                _mark(lc_b, lc, "Rounding Bottom", True)
+                _add_tgt(lc_b, nk, nk + (nk - lb), True, i)
+
+        # 12 higher-low sequence
+        if len(plP) >= 3 and len(phP) >= 1:
+            a, b, c_lo, cb = plP[-3], plP[-2], plP[-1], plB[-1]
+            nk = phP[-1]
+            if a > 0 and b > a * 1.02 and c_lo > b * 1.02 and _gate(i, True):
+                _mark(cb, c_lo, "Higher Lows", True)
+                _add_tgt(cb, nk, nk + (c_lo - a), True, i)
+
+    last = n - 1
+    trend = "bull" if last >= 0 and bull_tr[last] else (
+        "bear" if last >= 0 and bear_tr[last] else "mixed")
+    return dict(ema50=ema50, ema200=ema200, signals=signals, targets=targets,
+                ch_hi=ch_hi, ch_lo=ch_lo,
+                rsi=float(rsi[last]) if last >= 0 and np.isfinite(rsi[last]) else np.nan,
+                trend=trend, n_tgt=len(targets))
+
+
+def _lk_clip_seg(i0, y0, i1, y1, vis0, vis1):
+    """Clip a line in full-bar index space to the visible window."""
+    try:
+        i0, y0, i1, y1 = float(i0), float(y0), float(i1), float(y1)
+        vis0, vis1 = float(vis0), float(vis1)
+    except (TypeError, ValueError):
+        return None
+    if not all(np.isfinite(v) for v in (i0, y0, i1, y1, vis0, vis1)):
+        return None
+    if i1 < i0:
+        i0, y0, i1, y1 = i1, y1, i0, y0
+    if i1 < vis0 or i0 > vis1:
+        return None
+    span = i1 - i0
+    if span == 0:
+        return (i0, y0, i1, y1) if vis0 <= i0 <= vis1 else None
+    if i0 < vis0:
+        t = (vis0 - i0) / span
+        y0 = y0 + t * (y1 - y0)
+        i0 = vis0
+        span = i1 - i0
+        if span == 0:
+            return i0, y0, i1, y1
+    if i1 > vis1:
+        t = (vis1 - i0) / span
+        y1 = y0 + t * (y1 - y0)
+        i1 = vis1
+    return i0, y0, i1, y1
+
+
+def _lk_bar_x(i, vis0, xx, pack, d):
+    k = float(i) - float(vis0)
+    if pack:
+        return k
+    n = len(d)
+    if n <= 0:
+        return None
+    if 0 <= k < n:
+        return d.index[int(round(k))]
+    try:
+        step = (d.index[-1] - d.index[0]) / max(n - 1, 1)
+        return d.index[0] + step * k
+    except Exception:
+        return None
+
+
+def _lk_add_seg(fig, i0, y0, i1, y1, vis0, vis1, xx, pack, d,
+                color, width=1, dash="solid", name="", legend=False):
+    import plotly.graph_objects as go
+    clipped = _lk_clip_seg(i0, y0, i1, y1, vis0, vis1)
+    if clipped is None:
+        return
+    a, ya, b, yb = clipped
+    xa, xb = _lk_bar_x(a, vis0, xx, pack, d), _lk_bar_x(b, vis0, xx, pack, d)
+    if xa is None or xb is None:
+        return
+    fig.add_trace(go.Scatter(
+        x=[xa, xb], y=[ya, yb], mode="lines", name=name or None,
+        line=dict(color=color, width=width, dash=dash),
+        hoverinfo="skip", showlegend=bool(legend)), row=1, col=1)
+
+
+def _lk_bicolor_line(fig, xx, y, use_a, col_a, col_b, name, width, dash=None):
+    import plotly.graph_objects as go
+    y = np.asarray(y, dtype=float)
+    use_a = np.asarray(use_a, dtype=bool) & np.isfinite(y)
+    use_b = (~np.asarray(use_a, dtype=bool)) & np.isfinite(y)
+    y_a = np.where(use_a, y, np.nan)
+    y_b = np.where(use_b, y, np.nan)
+    if len(y) > 1:
+        y_a[:-1] = np.where(use_a[1:] & use_b[:-1], y[:-1], y_a[:-1])
+        y_b[:-1] = np.where(use_b[1:] & use_a[:-1], y[:-1], y_b[:-1])
+    la = dict(color=col_a, width=width)
+    lb = dict(color=col_b, width=width)
+    if dash:
+        la["dash"] = dash
+        lb["dash"] = dash
+    fig.add_trace(go.Scatter(
+        x=xx, y=y_a, mode="lines", name=name, line=la, connectgaps=False),
+        row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=xx, y=y_b, mode="lines", name=name, line=lb, connectgaps=False,
+        showlegend=False), row=1, col=1)
+
+
+def _lk_draw_clean_setup(fig, xx, d, chart_df, pack) -> str:
+    """Paint Clean Setup EMAs, channel, live targets, and pattern labels."""
+    cs = _lk_clean_setup(chart_df)
+    vis0 = len(chart_df) - len(d)
+    vis1 = len(chart_df) - 1
+    e50 = _lk_vis_y(cs["ema50"], d.index)
+    e200 = _lk_vis_y(cs["ema200"], d.index)
+    close = d["Close"].to_numpy(dtype=float)
+    e50_v = e50.to_numpy(dtype=float)
+    e200_v = e200.to_numpy(dtype=float)
+    if np.isfinite(e200_v).any():
+        _lk_bicolor_line(
+            fig, xx, e200_v, e50_v > e200_v,
+            _lk_hex_rgba(_CS_BULL, 0.6), _lk_hex_rgba(_CS_BEAR, 0.6),
+            "EMA 200", 1)
+    if np.isfinite(e50_v).any():
+        _lk_bicolor_line(
+            fig, xx, e50_v, close > e50_v, _CS_BULL, _CS_BEAR, "EMA 50", 3)
+    if cs["ch_hi"] is not None:
+        b0, p0, b1, p1 = cs["ch_hi"]
+        if b1 != b0:
+            slope = (p1 - p0) / (b1 - b0)
+            _lk_add_seg(fig, b0, p0, vis1, p0 + slope * (vis1 - b0),
+                        vis0, vis1, xx, pack, d, _CS_CH, 1, "solid",
+                        "Channel", True)
+    if cs["ch_lo"] is not None:
+        b0, p0, b1, p1 = cs["ch_lo"]
+        if b1 != b0:
+            slope = (p1 - p0) / (b1 - b0)
+            _lk_add_seg(fig, b0, p0, vis1, p0 + slope * (vis1 - b0),
+                        vis0, vis1, xx, pack, d, _CS_CH, 1)
+    for t in cs["targets"]:
+        col = _lk_hex_rgba(_CS_BULL if t["is_up"] else _CS_BEAR, 0.7)
+        _lk_add_seg(fig, t["from_b"], t["from_p"], t["end_b"], t["tgt"],
+                    vis0, vis1, xx, pack, d, col, 1, "dash")
+        end_i = min(float(t["end_b"]), float(vis1))
+        if end_i >= vis0:
+            x_end = _lk_bar_x(end_i, vis0, xx, pack, d)
+            if x_end is not None and np.isfinite(t["tgt"]):
+                fig.add_annotation(
+                    x=x_end, y=float(t["tgt"]),
+                    text=f"{t['tgt']:.2f}", showarrow=False,
+                    xanchor="left", yanchor="middle", xshift=4,
+                    font=dict(size=9, color=_CS_BULL if t["is_up"] else _CS_BEAR,
+                              family="JetBrains Mono, monospace"),
+                    bgcolor=_lk_hex_rgba(_CS_BULL if t["is_up"] else _CS_BEAR, 0.3),
+                    borderpad=2, row=1, col=1)
+    for bar, price, txt, is_up in cs["signals"]:
+        if bar < vis0 or bar > vis1 or not np.isfinite(price):
+            continue
+        x = _lk_bar_x(bar, vis0, xx, pack, d)
+        if x is None:
+            continue
+        col = _CS_BULL if is_up else _CS_BEAR
+        fig.add_annotation(
+            x=x, y=price, text=txt, showarrow=False,
+            xanchor="center",
+            yanchor="top" if is_up else "bottom",
+            yshift=-10 if is_up else 10,
+            font=dict(size=10, color="#ffffff",
+                      family="JetBrains Mono, monospace"),
+            bgcolor=_lk_hex_rgba(col, 0.9), bordercolor=col, borderpad=3,
+            row=1, col=1)
+    arrow = {"bull": "▲ Bull", "bear": "▼ Bear"}.get(cs["trend"], "— Mixed")
+    rsi_txt = f"{cs['rsi']:.1f}" if np.isfinite(cs["rsi"]) else "—"
+    return (f"Clean Setup · {arrow} · {cs['n_tgt']} target"
+            f"{'' if cs['n_tgt'] == 1 else 's'} · RSI {rsi_txt}")
+
+
 def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                            state_key: str = "mw_analyze", closable: bool = True,
                            df: pd.DataFrame | None = None,
@@ -3302,13 +3725,12 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         live_on=px_src in ("Alpaca", "Yahoo"), src_label=src_label,
         px_src=px_src or src_label, key_prefix=state_key)
 
-    tf_l, ov_l = st.columns(2)
-    with tf_l:
-        chart_tf = _lk_seg("Timeframe", list(_LK_CHART_TF),
-                           f"{state_key}_chart_tf", "1 Day")
-    with ov_l:
-        chart_ov = _lk_seg("Overlay", _LK_CHART_OV,
-                           f"{state_key}_chart_ov", "SMAs")
+    chart_tf = _lk_seg("Timeframe", list(_LK_CHART_TF),
+                       f"{state_key}_chart_tf", "1 Day")
+    ov_key = f"{state_key}_chart_ov"
+    if st.session_state.get(ov_key) in _LK_OV_ALIAS:
+        st.session_state[ov_key] = _LK_OV_ALIAS[st.session_state[ov_key]]
+    chart_ov = _lk_seg("Overlay", _LK_CHART_OV, ov_key, "SMAs")
     vol_key = f"{state_key}_chart_vol_on"
     if vol_key not in st.session_state:
         st.session_state[vol_key] = True
@@ -3349,81 +3771,6 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                         vertical_spacing=0.03)
     note = ""
     c_full = chart_df["Close"]
-    PURPLE = "#c084fc"
-    TEAL = "#2dd4bf"
-
-    if chart_ov == "Apex Flow":
-        path = _lk_poc_path(chart_df)
-        vis = _lk_vis_path(path, d.index)
-        if vis.empty or vis["hi"].notna().sum() < 5:
-            note = "Not enough bars for a POC path."
-        else:
-            ORANGE = "#e07050"
-            # TradingView AMD: purple high→VAH cloud, teal VAL→low cloud,
-            # dark value area in the middle, orange POC step.
-            fig.add_trace(go.Scatter(
-                x=xx, y=vis["hi"], mode="lines", name="High",
-                line=dict(color=PURPLE, width=1.8, shape="hv"),
-                connectgaps=True,
-                hovertemplate="High %{y:.2f}<extra></extra>"), row=1, col=1)
-            fig.add_trace(go.Scatter(
-                x=xx, y=vis["vah"], mode="lines", name="VAH",
-                line=dict(color=PURPLE, width=0, shape="hv"),
-                fill="tonexty", fillcolor="rgba(192,132,252,0.28)",
-                connectgaps=True,
-                hovertemplate="VAH %{y:.2f}<extra></extra>",
-                showlegend=False), row=1, col=1)
-            fig.add_trace(go.Scatter(
-                x=xx, y=vis["val"], mode="lines", name="VAL",
-                line=dict(color=TEAL, width=0, shape="hv"),
-                connectgaps=True,
-                hovertemplate="VAL %{y:.2f}<extra></extra>",
-                showlegend=False), row=1, col=1)
-            fig.add_trace(go.Scatter(
-                x=xx, y=vis["lo"], mode="lines", name="Low",
-                line=dict(color=TEAL, width=1.8, shape="hv"),
-                fill="tonexty", fillcolor="rgba(45,212,191,0.26)",
-                connectgaps=True,
-                hovertemplate="Low %{y:.2f}<extra></extra>"), row=1, col=1)
-            fig.add_trace(go.Scatter(
-                x=xx, y=vis["poc"], mode="lines", name="POC",
-                line=dict(color=ACCENT, width=1.6, shape="hv"),
-                connectgaps=True,
-                hovertemplate="POC %{y:.2f}<extra></extra>"), row=1, col=1)
-            fig.add_trace(go.Scatter(
-                x=xx, y=_lk_sma(c_full, 50, d.index),
-                name="SMA50", line=dict(color="#FF7A00", width=2.2),
-                connectgaps=True),
-                row=1, col=1)
-            last = vis.dropna(subset=["hi", "lo"]).iloc[-1]
-            x_last = xx[-1] if pack else d.index[-1]
-            def _num(v):
-                try:
-                    f = float(v)
-                    return f if np.isfinite(f) else np.nan
-                except (TypeError, ValueError):
-                    return np.nan
-            poc_y = _num(last["poc"])
-            if not np.isfinite(poc_y):
-                prev = vis["poc"].dropna()
-                poc_y = _num(prev.iloc[-1]) if len(prev) else np.nan
-            val_y = _num(last["val"])
-            if not np.isfinite(val_y):
-                prev_val = vis["val"].dropna()
-                val_y = _num(prev_val.iloc[-1]) if len(prev_val) else poc_y
-            tags = [
-                (last["hi"], f"HIGH {last['hi']:.2f}", PURPLE),
-                (last["lo"], f"LOW {last['lo']:.2f}", TEAL),
-            ]
-            if np.isfinite(poc_y):
-                tags.append((poc_y, f"POC {poc_y:.2f}", ACCENT))
-            if np.isfinite(val_y):
-                tags.append((val_y, f"VAL {val_y:.2f}", TEAL))
-            _lk_place_tags(fig, x_last, tags, y_lo, y_hi)
-            setup = _lk_poc_setup(chart_df)
-            stage = (setup or {}).get("stage") or ""
-            note = (f"POC {stage}" if stage else "POC path"
-                    ) + " — stepping range + value area, same math as the AMD port."
 
     if has_ohlc:
         vm = _lk_volume_magic_colors(chart_df, chart_tf).reindex(d.index)
@@ -3445,7 +3792,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
             name="SMA50", line=dict(color=ACCENT, width=1),
             connectgaps=True), row=1, col=1)
         note = "SMA50 / SMA150 in bars of this timeframe."
-    elif chart_ov == "POC Future":
+    elif chart_ov == "Point Of Control":
         SMA50_ORANGE = "#FF7A00"
         POC_COL = ACCENT
         fig.add_trace(go.Scatter(
@@ -3476,6 +3823,11 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                                [(poc_y, f"POC {poc_y:.2f}", POC_COL)],
                                y_lo, y_hi)
             note = "POC + SMA50 / SMA200 from the 15-bar volume profile."
+    elif chart_ov == "Clean Setup":
+        if has_ohlc:
+            note = _lk_draw_clean_setup(fig, xx, d, chart_df, pack)
+        else:
+            note = "Need OHLC bars for Clean Setup."
 
     if show_vol:
         vcol = np.where(d.Close.diff().fillna(0) >= 0, GREEN, RED)
