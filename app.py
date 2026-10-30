@@ -922,9 +922,11 @@ def _drivers(tk: str, asof: str):
     return dr
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def _tk_earnings(tk: str):
-    return ce.upcoming_earnings([tk])
+@st.cache_data(ttl=3600, show_spinner=False)
+def _tk_earnings(tk: str, ver: str = "v3"):
+    tk = str(tk or "").strip().upper()
+    got = ce.upcoming_earnings([tk]) if tk else {}
+    return {str(k).strip().upper(): v for k, v in (got or {}).items()}
 
 
 @st.cache_data(ttl=900, show_spinner="Running the full analyzer chain (Alpaca → Yahoo → dump)…")
@@ -2517,6 +2519,7 @@ def _open_analysis(tk: str):
 # ── Hybrid screener identity cards (Stock Lookup, above Price Range Analysis)
 _HY_UP = "#26c485"
 _HY_DN = "#ef5350"
+_HY_WARN = "#e8c547"
 _HY_MUTED = "#4a7fa0"
 
 
@@ -2617,11 +2620,15 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
         if _badge else ""
     )
 
-    def _sgn(v, dead=0.002):
+    def _sgn(v):
         v = _hy_finite(v)
-        if v is None or abs(v) <= dead:
+        if v is None:
             return _HY_MUTED
-        return _HY_UP if v > 0 else _HY_DN
+        if v > 0:
+            return _HY_UP
+        if v < 0:
+            return _HY_DN
+        return _HY_MUTED
 
     r5 = _hy_finite(stats.get("r5"))
     r21 = _hy_finite(stats.get("r21"))
@@ -2629,63 +2636,101 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
     rvol = _hy_finite(stats.get("rvol"))
     rp = _hy_finite(stats.get("rangepos"))
     av = _hy_finite(stats.get("vol21"))
-    rsi_col = (_HY_DN if rsi is not None and rsi >= 70 else
-               _HY_UP if rsi is not None and rsi <= 30 else _HY_MUTED)
+    if rsi is None:
+        rsi_col = _HY_MUTED
+    elif rsi >= 70:
+        rsi_col = _HY_DN
+    elif rsi <= 30:
+        rsi_col = _HY_UP
+    elif 40 <= rsi <= 65:
+        rsi_col = _HY_UP
+    else:
+        rsi_col = _HY_WARN
     rsi_txt = "—" if rsi is None else f"{rsi:.0f}" + (
         " hot" if rsi >= 70 else " washed out" if rsi <= 30 else "")
-    rvol_col = _HY_UP if rvol is not None and rvol >= 1.5 else _HY_MUTED
-    rp_col = (_HY_UP if rp is not None and rp >= 0.8 else
-              _HY_DN if rp is not None and rp <= 0.2 else _HY_MUTED)
-    av_col = _HY_DN if av is not None and av >= 0.60 else _HY_MUTED
+    if rvol is None:
+        rvol_col = _HY_MUTED
+    elif rvol >= 1.5:
+        rvol_col = _HY_UP
+    elif rvol >= 1.0:
+        rvol_col = _HY_WARN
+    else:
+        rvol_col = _HY_DN
+    if rp is None:
+        rp_col = _HY_MUTED
+    elif rp >= 0.50:
+        rp_col = _HY_UP
+    else:
+        rp_col = _HY_DN
+    if av is None:
+        av_col = _HY_MUTED
+    elif av >= 0.60:
+        av_col = _HY_DN
+    elif av >= 0.30:
+        av_col = _HY_WARN
+    else:
+        av_col = _HY_UP
 
     earn_ed = None
     try:
-        earn_ed = _tk_earnings(tk).get(tk)
+        earn_ed = _tk_earnings(str(tk).strip().upper()).get(str(tk).strip().upper())
     except Exception:
         earn_ed = None
     earn_days = None
     if earn_ed is not None:
         try:
-            earn_days = (earn_ed - pd.Timestamp.today().date()).days
+            today_ny = ce._ny_calendar_date()
+            earn_days = (earn_ed - today_ny).days
         except Exception:
             earn_days = None
+    earn_sub = f"{earn_ed:%b} {earn_ed.day}" if earn_ed is not None else ""
     if earn_days is None:
         earn_txt, earn_col = "—", _HY_MUTED
         earn_tip = "No upcoming earnings date on file."
     elif earn_days <= 0:
-        earn_txt, earn_col = "Today", "#e8c547"
-        earn_tip = f"Earnings {earn_ed:%a %b %d}."
+        earn_txt, earn_col = "Today", _HY_DN
+        earn_tip = f"Earnings {earn_ed:%a %b %d}. Print is today — binary gap risk."
+    elif earn_days <= 7:
+        earn_txt, earn_col = f"{earn_days}d", _HY_DN
+        earn_tip = f"Next earnings {earn_ed:%a %b %d}. Inside a week — binary event."
+    elif earn_days <= 21:
+        earn_txt, earn_col = f"{earn_days}d", _HY_WARN
+        earn_tip = f"Next earnings {earn_ed:%a %b %d}. Inside 21 sessions."
     else:
-        earn_txt = f"{earn_days}d"
-        earn_col = "#e8c547" if earn_days <= 21 else "#c5dff0"
-        earn_tip = f"Next earnings {earn_ed:%a %b %d}."
+        earn_txt, earn_col = f"{earn_days}d", _HY_UP
+        earn_tip = f"Next earnings {earn_ed:%a %b %d}. Clear of the near print."
 
-    def _chip(label, value, color="#c5dff0", tip=""):
+    def _chip(label, value, color="#c5dff0", tip="", sub=""):
         tip_html = (f" <span title='{_esc(tip)}' style='cursor:help;color:{_HY_MUTED};"
                     f"font-size:0.85em;'>ⓘ</span>") if tip else ""
+        sub_html = (
+            f"<div style='font-size:0.72em;font-weight:600;color:{color};"
+            f"opacity:0.9;margin-top:3px;'>{_esc(sub)}</div>"
+            if sub else ""
+        )
         return (
             f"<div style='text-align:center;background:#0a1929;border-radius:10px;"
-            f"padding:16px 8px;flex:1 1 0;min-width:0;'>"
+            f"padding:16px 8px;flex:1 1 0;min-width:0;border-left:3px solid {color};'>"
             f"<div style='font-size:0.85em;color:{_HY_MUTED};text-transform:uppercase;"
             f"letter-spacing:.06em;'>{label}{tip_html}</div>"
             f"<div style='font-size:1.45em;font-weight:700;color:{color};margin-top:6px;"
-            f"line-height:1.15;'>{_esc(value)}</div></div>"
+            f"line-height:1.15;'>{_esc(value)}</div>{sub_html}</div>"
         )
 
     chips = (
         _chip("5d", f"{r5:+.1%}" if r5 is not None else "—", _sgn(r5),
-              "Return over the last 5 sessions.")
+              "Return over the last 5 sessions. Green = up, red = down.")
         + _chip("21d", f"{r21:+.1%}" if r21 is not None else "—", _sgn(r21),
-                "Return over the last month of sessions.")
+                "Return over the last month of sessions. Green = up, red = down.")
         + _chip("RSI 14", rsi_txt, rsi_col,
-                "Momentum oscillator: 70+ overbought (red), 30- washed out and bounce-prone (green), 40-65 neutral.")
+                "Momentum: 40–65 healthy (green), 70+ overbought (red), 30− washed and bounce-prone (green), approaching either extreme (amber).")
         + _chip("RVOL", f"{rvol:.2f}x" if rvol is not None else "—", rvol_col,
-                "5d avg volume vs 63d avg. 1.5x+ (green) = unusual attention; near 1x = normal.")
+                "5d avg volume vs 63d avg. 1.5x+ unusual attention (green), 1.0–1.5x normal (amber), below 1x quiet (red).")
         + _chip("Range pos", f"{rp:.0%}" if rp is not None else "—", rp_col,
-                "Where price sits in its 63-day range: 80%+ near highs = strength (green); 20%- near lows = weakness (red).")
+                "Where price sits in its 63-day range. Upper half = strength (green); lower half = weakness (red).")
         + _chip("Ann. vol", f"{av:.0%}" if av is not None else "—", av_col,
-                "Annualised 21-day volatility. 60%+ (red) = wide swings, size smaller.")
-        + _chip("Earnings", earn_txt, earn_col, earn_tip)
+                "Annualised 21-day volatility. Under 30% calm (green), 30–60% lively (amber), 60%+ wide swings (red).")
+        + _chip("Earnings", earn_txt, earn_col, earn_tip, sub=earn_sub)
     )
     _md_html(
         f"""<div style="background:linear-gradient(135deg,#0d1b2a 0%,#1a2d45 100%);
@@ -2741,7 +2786,7 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
             )
     ed = earn_ed
     if ed:
-        days_to = earn_days if earn_days is not None else (ed - pd.Timestamp.today().date()).days
+        days_to = earn_days if earn_days is not None else (ed - ce._ny_calendar_date()).days
         if 0 <= days_to <= 21:
             st.warning(f"⚠️ **Earnings {ed:%a %b %d} ({days_to}d away)** — a "
                        "binary event INSIDE the forecast horizon. Analog "

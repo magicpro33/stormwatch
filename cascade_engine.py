@@ -1991,9 +1991,9 @@ def _lookup_live_keys(ticker: str, sector: str) -> tuple:
                 if lbl in cal.index:
                     ed = cal.loc[lbl].iloc[0]
                     break
-        ed_dt = pd.to_datetime(ed, errors="coerce", utc=True)
-        if pd.notna(ed_dt):
-            days = (ed_dt.date() - datetime.now(timezone.utc).date()).days
+        d = _coerce_earn_date(ed)
+        if d is not None:
+            days = (d - _ny_calendar_date()).days
             if -1 <= days <= 7:
                 keys.append("earn_soon")
                 evidence.append(f"EARNINGS — {days}d to print")
@@ -3755,25 +3755,146 @@ def alpaca_prices(tickers: list, chunk: int = 80) -> dict:
     return out
 
 
-def upcoming_earnings(tickers: list) -> dict:
-    """{ticker: next earnings date} via yfinance. {} on any failure."""
-    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
-    out = {}
+def _coerce_earn_date(val) -> date | None:
+    """Yahoo/Nasdaq earnings stamps → America/New_York calendar date."""
+    if val is None or (isinstance(val, float) and not np.isfinite(val)):
+        return None
+    if isinstance(val, (list, tuple, pd.Series, np.ndarray)):
+        got = [_coerce_earn_date(v) for v in val]
+        got = [d for d in got if d is not None]
+        return min(got) if got else None
+    if isinstance(val, datetime) and not isinstance(val, pd.Timestamp):
+        val = pd.Timestamp(val)
+    if isinstance(val, date) and not isinstance(val, datetime):
+        return val
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        x = float(val)
+        if x > 10_000_000_000:
+            x /= 1000.0
+        try:
+            ts = pd.Timestamp(x, unit="s", tz="UTC")
+            return ts.tz_convert("America/New_York").date()
+        except Exception:
+            return None
+    ts = pd.to_datetime(val, errors="coerce")
+    if pd.isna(ts):
+        return None
+    if getattr(ts, "tzinfo", None) is None:
+        if (getattr(ts, "hour", 0), getattr(ts, "minute", 0),
+                getattr(ts, "second", 0)) == (0, 0, 0):
+            return ts.date()
+        try:
+            ts = ts.tz_localize("America/New_York")
+        except Exception:
+            return ts.date()
     try:
-        import yfinance as yf
-        for tk in tickers:
-            try:
-                ed = yf.Ticker(tk).earnings_dates
-                if ed is None or ed.empty:
-                    continue
-                fut = ed.index.tz_localize(None)
-                fut = fut[fut >= pd.Timestamp.today().normalize()]
-                if len(fut):
-                    out[tk] = fut.min().date()
-            except Exception:
-                continue
+        ts = ts.tz_convert("America/New_York")
     except Exception:
         pass
+    try:
+        return ts.date()
+    except Exception:
+        return None
+
+
+def _nasdaq_earnings_date(tk: str) -> date | None:
+    """Nasdaq analyst earnings-date page. Confirmed print when Yahoo is quiet."""
+    tk = str(tk or "").strip().upper()
+    if not tk or tk.endswith("-USD") or "/" in tk:
+        return None
+    url = f"https://api.nasdaq.com/api/analyst/{tk}/earnings-date"
+    try:
+        r = requests.get(
+            url, timeout=12,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        )
+        if r.status_code != 200:
+            return None
+        data = (r.json() or {}).get("data") or {}
+        blob = " ".join(str(data.get(k) or "") for k in ("announcement", "reportText"))
+        m = re.search(r"([A-Z][a-z]{2} \d{1,2}, \d{4})", blob)
+        if m:
+            return _coerce_earn_date(m.group(1))
+        m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", blob)
+        if m:
+            return _coerce_earn_date(m.group(1))
+    except Exception as e:
+        _log_exc(f"nasdaq_earnings.{tk}", e)
+    return None
+
+
+def _yahoo_next_earnings(tk: str) -> date | None:
+    """Next print from Yahoo calendar, then quote timestamps, then history."""
+    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+    today = _ny_calendar_date()
+    found: list[date] = []
+
+    def _keep(val) -> None:
+        d = _coerce_earn_date(val)
+        if d is not None and d >= today:
+            found.append(d)
+
+    try:
+        import yfinance as yf
+        tobj = _yf_call(lambda s=tk: yf.Ticker(s))
+    except Exception as e:
+        _log_exc(f"yahoo_earnings.ticker.{tk}", e)
+        tobj = None
+    if tobj is not None:
+        try:
+            cal = _yf_call(lambda t=tobj: t.calendar)
+            if isinstance(cal, dict):
+                _keep(cal.get("Earnings Date") or cal.get("earningsDate"))
+            elif isinstance(cal, pd.DataFrame) and not cal.empty:
+                for lbl in ("Earnings Date", "earningsDate"):
+                    if lbl in cal.index:
+                        _keep(cal.loc[lbl].iloc[0])
+                        break
+        except Exception as e:
+            _log_exc(f"yahoo_earnings.calendar.{tk}", e)
+        if found:
+            return min(found)
+        try:
+            info = _yf_call(lambda t=tobj: t.info or {}) or {}
+            for k in ("earningsTimestampStart", "earningsTimestamp",
+                      "earningsTimestampEnd"):
+                _keep(info.get(k))
+        except Exception as e:
+            _log_exc(f"yahoo_earnings.info.{tk}", e)
+        if found:
+            return min(found)
+        try:
+            ed = _yf_call(lambda t=tobj: t.earnings_dates)
+            if ed is not None and not getattr(ed, "empty", True):
+                idx = ed.index
+                if getattr(idx, "tz", None) is not None:
+                    idx = idx.tz_convert("America/New_York")
+                for v in idx:
+                    _keep(v)
+        except Exception as e:
+            _log_exc(f"yahoo_earnings.dates.{tk}", e)
+    return min(found) if found else None
+
+
+def upcoming_earnings(tickers: list) -> dict:
+    """{TICKER: next earnings date}. Yahoo calendar first, Nasdaq fallback."""
+    out = {}
+    for raw in tickers or []:
+        tk = str(raw or "").strip().upper()
+        if not tk:
+            continue
+        ed = None
+        try:
+            ed = _yahoo_next_earnings(tk)
+        except Exception as e:
+            _log_exc(f"upcoming_earnings.yahoo.{tk}", e)
+        if ed is None:
+            try:
+                ed = _nasdaq_earnings_date(tk)
+            except Exception as e:
+                _log_exc(f"upcoming_earnings.nasdaq.{tk}", e)
+        if ed is not None:
+            out[tk] = ed
     return out
 
 
