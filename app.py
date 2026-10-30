@@ -2728,8 +2728,8 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
 
 
 # Stock Lookup chart: dump daily by default; lower TFs reuse the same
-# Alpaca → Yahoo chain Apex / Ignition already use. Overlays are SMAs,
-# Point Of Control, and Clean Setup. Visible window is 180 bars.
+# Alpaca → Yahoo chain Apex / Ignition already use. Overlays are Clean
+# Setup, SMAs, and Point Of Control. Visible window is 180 bars.
 # Fetch enough extra so SMA200 exists on bar 1.
 _LK_CHART_BARS = 180
 _LK_SMA_SLOW = 200
@@ -2740,8 +2740,8 @@ _LK_CHART_TF = {
                    resample="4h"),
     "1 Day":  dict(alpaca="1Day", yf="1d", days=750, yf_period="5y"),
 }
-_LK_CHART_OV = ["SMAs", "Point Of Control", "Clean Setup"]
-_LK_OV_ALIAS = {"POC Future": "Point Of Control", "Apex Flow": "SMAs"}
+_LK_CHART_OV = ["Clean Setup", "SMAs", "Point Of Control"]
+_LK_OV_ALIAS = {"POC Future": "Point Of Control", "Apex Flow": "Clean Setup"}
 _LK_BARS_VER = "v2-sma200"
 
 
@@ -3095,6 +3095,29 @@ def _lk_tick_text(ts, tf: str) -> str:
 _VM_BULL = "#FFD600"   # conviction up: trend + up bar + above VWAP + high vol
 _VM_PULL = "#42A5F5"   # pullback: down bar inside an uptrend, still above VWAP
 _VM_BEAR = "#EF5350"   # bear: down bar in a downtrend
+
+
+def _lk_bar_legend() -> None:
+    """Tiny color key for the Volume Magic candles, shown on every overlay."""
+    chips = (
+        (_VM_BULL, "Conviction"),
+        (_VM_PULL, "Pullback"),
+        (_VM_BEAR, "Bear"),
+        (GREEN, "Up"),
+    )
+    bits = []
+    for col, name in chips:
+        bits.append(
+            f"<span style='display:inline-flex;align-items:center;gap:6px'>"
+            f"<span style='width:8px;height:16px;border-radius:2px;"
+            f"background:{col};display:inline-block'></span>"
+            f"<span style='font-size:12px;color:{DIM}'>{_esc(name)}</span>"
+            f"</span>")
+    st.markdown(
+        "<div style='display:flex;flex-wrap:wrap;gap:12px 16px;"
+        "align-items:center;margin:2px 0 8px'>"
+        + "".join(bits) + "</div>",
+        unsafe_allow_html=True)
 
 
 def _lk_vwap_period_keys(idx, tf: str) -> np.ndarray:
@@ -3780,7 +3803,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     ov_key = f"{state_key}_chart_ov"
     if st.session_state.get(ov_key) in _LK_OV_ALIAS:
         st.session_state[ov_key] = _LK_OV_ALIAS[st.session_state[ov_key]]
-    chart_ov = _lk_seg("Overlay", _LK_CHART_OV, ov_key, "SMAs")
+    chart_ov = _lk_seg("Overlay", _LK_CHART_OV, ov_key, "Clean Setup")
     vol_key = f"{state_key}_chart_vol_on"
     if vol_key not in st.session_state:
         st.session_state[vol_key] = True
@@ -3907,12 +3930,13 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "sun"])])
     if cs_hud is not None:
         _lk_cs_readout(cs_hud)
+    if has_ohlc:
+        _lk_bar_legend()
     st.plotly_chart(fig, width="stretch",
                     key=f"chart_{state_key}_{tk}_{chart_tf}_{chart_ov}_{int(bool(chart_vol_on))}")
     n_bars = len(d)
     tf_bit = f"{chart_tf} · {n_bars} bars · {chart_src}" if chart_src else chart_tf
     st.caption(f"{tf_bit}" + (f" · {note}" if note else "")
-               + " · Volume Magic bars (yellow conviction / blue pullback / red bear)"
                + " · Research view, not investment advice.")
 
 
