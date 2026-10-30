@@ -3592,7 +3592,43 @@ def _lk_bicolor_line(fig, xx, y, use_a, col_a, col_b, name, width, dash=None):
         showlegend=False), row=1, col=1)
 
 
-def _lk_draw_clean_setup(fig, xx, d, chart_df, pack) -> str:
+def _lk_cs_readout(cs: dict) -> None:
+    """Pine-style Trend / Active / RSI strip above the Clean Setup chart."""
+    trend = cs.get("trend") or "mixed"
+    if trend == "bull":
+        label, col = "▲  Bull", _CS_BULL
+    elif trend == "bear":
+        label, col = "▼  Bear", _CS_BEAR
+    else:
+        label, col = "—  Mixed", DIM
+    n = int(cs.get("n_tgt") or 0)
+    active = f"{n} target" + ("" if n == 1 else "s")
+    rsi = cs.get("rsi")
+    if rsi is not None and np.isfinite(rsi):
+        rsi_txt = f"{float(rsi):.1f}"
+        rsi_col = (_CS_BEAR if rsi > 65 else
+                   _CS_BULL if rsi < 35 else "#EAF2FF")
+    else:
+        rsi_txt, rsi_col = "—", DIM
+    cell = ("flex:1;min-width:92px;padding:8px 12px;"
+            "background:rgba(8,19,37,0.72);"
+            "border:1px solid rgba(255,255,255,0.08);border-radius:10px")
+    lab = ("font-size:11px;letter-spacing:1px;text-transform:uppercase;"
+           "color:#9aa8bd;margin-bottom:4px")
+    val = "font-size:18px;font-weight:700;font-family:JetBrains Mono,monospace"
+    st.markdown(
+        f"<div style='display:flex;gap:10px;margin:4px 0 10px'>"
+        f"<div style='{cell}'><div style='{lab}'>Trend</div>"
+        f"<div style='{val};color:{col}'>{label}</div></div>"
+        f"<div style='{cell}'><div style='{lab}'>Active</div>"
+        f"<div style='{val};color:#EAF2FF'>{_esc(active)}</div></div>"
+        f"<div style='{cell}'><div style='{lab}'>RSI</div>"
+        f"<div style='{val};color:{rsi_col}'>{_esc(rsi_txt)}</div></div>"
+        f"</div>",
+        unsafe_allow_html=True)
+
+
+def _lk_draw_clean_setup(fig, xx, d, chart_df, pack):
     """Paint Clean Setup EMAs, channel, live targets, and pattern labels."""
     cs = _lk_clean_setup(chart_df)
     vis0 = len(chart_df) - len(d)
@@ -3655,10 +3691,24 @@ def _lk_draw_clean_setup(fig, xx, d, chart_df, pack) -> str:
                       family="JetBrains Mono, monospace"),
             bgcolor=_lk_hex_rgba(col, 0.9), bordercolor=col, borderpad=3,
             row=1, col=1)
-    arrow = {"bull": "▲ Bull", "bear": "▼ Bear"}.get(cs["trend"], "— Mixed")
+    arrow = {"bull": "▲  Bull", "bear": "▼  Bear"}.get(cs["trend"], "—  Mixed")
+    trend_col = {"bull": _CS_BULL, "bear": _CS_BEAR}.get(cs["trend"], DIM)
     rsi_txt = f"{cs['rsi']:.1f}" if np.isfinite(cs["rsi"]) else "—"
-    return (f"Clean Setup · {arrow} · {cs['n_tgt']} target"
-            f"{'' if cs['n_tgt'] == 1 else 's'} · RSI {rsi_txt}")
+    n_tgt = int(cs["n_tgt"] or 0)
+    tgt_txt = f"{n_tgt} target" + ("" if n_tgt == 1 else "s")
+    fig.add_annotation(
+        xref="x domain", yref="y domain", x=0.995, y=0.02,
+        xanchor="right", yanchor="bottom", showarrow=False, align="left",
+        text=(f"<b>Trend</b>   {arrow}<br>"
+              f"<b>Active</b>  {tgt_txt}<br>"
+              f"<b>RSI</b>     {rsi_txt}"),
+        font=dict(size=12, color=trend_col,
+                  family="JetBrains Mono, monospace"),
+        bgcolor="rgba(8,19,37,0.88)",
+        bordercolor="rgba(120,123,134,0.55)",
+        borderwidth=1, borderpad=8, row=1, col=1)
+    note = f"Clean Setup · {arrow} · {tgt_txt} · RSI {rsi_txt}"
+    return note, cs
 
 
 def render_ticker_analysis(tk: str, closes: pd.DataFrame,
@@ -3770,6 +3820,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                         row_heights=[0.78, 0.22] if show_vol else [1.0],
                         vertical_spacing=0.03)
     note = ""
+    cs_hud = None
     c_full = chart_df["Close"]
 
     if has_ohlc:
@@ -3825,7 +3876,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
             note = "POC + SMA50 / SMA200 from the 15-bar volume profile."
     elif chart_ov == "Clean Setup":
         if has_ohlc:
-            note = _lk_draw_clean_setup(fig, xx, d, chart_df, pack)
+            note, cs_hud = _lk_draw_clean_setup(fig, xx, d, chart_df, pack)
         else:
             note = "Need OHLC bars for Clean Setup."
 
@@ -3854,6 +3905,8 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         fig.update_xaxes(tickmode="array", tickvals=ticks, ticktext=texts)
     elif not pack:
         fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "sun"])])
+    if cs_hud is not None:
+        _lk_cs_readout(cs_hud)
     st.plotly_chart(fig, width="stretch",
                     key=f"chart_{state_key}_{tk}_{chart_tf}_{chart_ov}_{int(bool(chart_vol_on))}")
     n_bars = len(d)
