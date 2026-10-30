@@ -2572,8 +2572,9 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
                                 *, live_on: bool = False,
                                 src_label: str | None = None,
                                 px_src: str | None = None,
-                                key_prefix: str = "lk") -> None:
-    """Identity card + forecast card — the look above Price Range Analysis."""
+                                key_prefix: str = "lk",
+                                show_forecast: bool = True) -> None:
+    """Identity card (+ optional analog forecast) above Price Range Analysis."""
     info = info or {}
     stats = stats or {}
     name = info.get("longName") or info.get("shortName") or tk
@@ -2694,26 +2695,27 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
         </div></div>"""
     )
 
-    bundle = _lookup_forecast_bundle(tk, df)
-    if bundle:
-        render_outcome_forecast(
-            bundle["oc"], tk,
-            pressure=bundle["pressure"],
-            outlook=bundle["outlook"],
-            key_prefix=key_prefix,
-        )
-    else:
-        _md_html(
-            f"<div style='background:linear-gradient(135deg,#0d1b2a,#1a2d45);"
-            f"border:1px solid #1e3a5f;border-radius:14px;padding:24px 28px;"
-            f"margin-bottom:16px;'>"
-            f"<div style='font-size:1.45em;font-weight:700;color:#e8f4fd;"
-            f"letter-spacing:.3px;margin-bottom:12px;'>🌦 Forecast</div>"
-            f"<div style='color:{_HY_MUTED};font-size:1.05em;line-height:1.5;'>"
-            f"Not enough look-alike history to forecast this one honestly "
-            f"(needs ~70 sessions of price data to build a comparable profile)."
-            f"</div></div>"
-        )
+    if show_forecast:
+        bundle = _lookup_forecast_bundle(tk, df)
+        if bundle:
+            render_outcome_forecast(
+                bundle["oc"], tk,
+                pressure=bundle["pressure"],
+                outlook=bundle["outlook"],
+                key_prefix=key_prefix,
+            )
+        else:
+            _md_html(
+                f"<div style='background:linear-gradient(135deg,#0d1b2a,#1a2d45);"
+                f"border:1px solid #1e3a5f;border-radius:14px;padding:24px 28px;"
+                f"margin-bottom:16px;'>"
+                f"<div style='font-size:1.45em;font-weight:700;color:#e8f4fd;"
+                f"letter-spacing:.3px;margin-bottom:12px;'>🌦 Forecast</div>"
+                f"<div style='color:{_HY_MUTED};font-size:1.05em;line-height:1.5;'>"
+                f"Not enough look-alike history to forecast this one honestly "
+                f"(needs ~70 sessions of price data to build a comparable profile)."
+                f"</div></div>"
+            )
     try:
         ed = _tk_earnings(tk).get(tk)
     except Exception:
@@ -3715,21 +3717,9 @@ def _lk_draw_clean_setup(fig, xx, d, chart_df, pack):
             bgcolor=_lk_hex_rgba(col, 0.9), bordercolor=col, borderpad=3,
             row=1, col=1)
     arrow = {"bull": "▲  Bull", "bear": "▼  Bear"}.get(cs["trend"], "—  Mixed")
-    trend_col = {"bull": _CS_BULL, "bear": _CS_BEAR}.get(cs["trend"], DIM)
     rsi_txt = f"{cs['rsi']:.1f}" if np.isfinite(cs["rsi"]) else "—"
     n_tgt = int(cs["n_tgt"] or 0)
     tgt_txt = f"{n_tgt} target" + ("" if n_tgt == 1 else "s")
-    fig.add_annotation(
-        xref="x domain", yref="y domain", x=0.995, y=0.02,
-        xanchor="right", yanchor="bottom", showarrow=False, align="left",
-        text=(f"<b>Trend</b>   {arrow}<br>"
-              f"<b>Active</b>  {tgt_txt}<br>"
-              f"<b>RSI</b>     {rsi_txt}"),
-        font=dict(size=12, color=trend_col,
-                  family="JetBrains Mono, monospace"),
-        bgcolor="rgba(8,19,37,0.88)",
-        bordercolor="rgba(120,123,134,0.55)",
-        borderwidth=1, borderpad=8, row=1, col=1)
     note = f"Clean Setup · {arrow} · {tgt_txt} · RSI {rsi_txt}"
     return note, cs
 
@@ -3738,7 +3728,8 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                            state_key: str = "mw_analyze", closable: bool = True,
                            df: pd.DataFrame | None = None,
                            src_label: str | None = None,
-                           info: dict | None = None):
+                           info: dict | None = None,
+                           show_forecast: bool = True):
     """IGNITION-style deep dive: hybrid identity cards + candles + volume.
     Stocks come from the nightly dump (full OHLCV); nodes fall back to the
     close-only history; Alpaca/Yahoo supply the live print when available."""
@@ -3796,7 +3787,8 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     render_hybrid_lookup_header(
         tk, info, df, px, chg, stats,
         live_on=px_src in ("Alpaca", "Yahoo"), src_label=src_label,
-        px_src=px_src or src_label, key_prefix=state_key)
+        px_src=px_src or src_label, key_prefix=state_key,
+        show_forecast=show_forecast)
 
     chart_tf = _lk_seg("Timeframe", list(_LK_CHART_TF),
                        f"{state_key}_chart_tf", "1 Day")
@@ -6040,10 +6032,7 @@ with st.container(border=True, key="mw_page"):
     if _main == "Stock Lookup":
         _hub_title("🔎 Stock Lookup", "#7FD4FF")
         closes, asof = _try_closes_for_scan()
-        st.caption("Search any stock in the 5,700-name nightly universe. The "
-                   "outlook is an ANALOG forecast: what actually happened next to "
-                   "every (stock, day) in the data that looked like this one does "
-                   "today — a measured distribution, not a guess.")
+        st.caption("Search any stock in the 5,700-name nightly universe.")
         with st.container(border=True, key="lk_search_box"):
             lc1, lc2 = st.columns([4, 1], vertical_alignment="bottom")
             def _lk_submit():
@@ -6073,7 +6062,8 @@ with st.container(border=True, key="mw_page"):
                                                  (_info or {}).get("_hist_source"))
 
             render_ticker_analysis(tk, closes, state_key="lk_tk",
-                                   df=df_tk, src_label=_hs, info=_info)
+                                   df=df_tk, src_label=_hs, info=_info,
+                                   show_forecast=False)
 
             if df_tk is None or df_tk.empty:
                 st.error(f"No price history found for **{tk}** from the nightly dump, "
