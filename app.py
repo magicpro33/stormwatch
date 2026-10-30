@@ -2638,12 +2638,34 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
               _HY_DN if rp is not None and rp <= 0.2 else _HY_MUTED)
     av_col = _HY_DN if av is not None and av >= 0.60 else _HY_MUTED
 
+    earn_ed = None
+    try:
+        earn_ed = _tk_earnings(tk).get(tk)
+    except Exception:
+        earn_ed = None
+    earn_days = None
+    if earn_ed is not None:
+        try:
+            earn_days = (earn_ed - pd.Timestamp.today().date()).days
+        except Exception:
+            earn_days = None
+    if earn_days is None:
+        earn_txt, earn_col = "—", _HY_MUTED
+        earn_tip = "No upcoming earnings date on file."
+    elif earn_days <= 0:
+        earn_txt, earn_col = "Today", "#e8c547"
+        earn_tip = f"Earnings {earn_ed:%a %b %d}."
+    else:
+        earn_txt = f"{earn_days}d"
+        earn_col = "#e8c547" if earn_days <= 21 else "#c5dff0"
+        earn_tip = f"Next earnings {earn_ed:%a %b %d}."
+
     def _chip(label, value, color="#c5dff0", tip=""):
         tip_html = (f" <span title='{_esc(tip)}' style='cursor:help;color:{_HY_MUTED};"
                     f"font-size:0.85em;'>ⓘ</span>") if tip else ""
         return (
             f"<div style='text-align:center;background:#0a1929;border-radius:10px;"
-            f"padding:16px 10px;flex:1 1 0;min-width:0;'>"
+            f"padding:16px 8px;flex:1 1 0;min-width:0;'>"
             f"<div style='font-size:0.85em;color:{_HY_MUTED};text-transform:uppercase;"
             f"letter-spacing:.06em;'>{label}{tip_html}</div>"
             f"<div style='font-size:1.45em;font-weight:700;color:{color};margin-top:6px;"
@@ -2663,6 +2685,7 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
                 "Where price sits in its 63-day range: 80%+ near highs = strength (green); 20%- near lows = weakness (red).")
         + _chip("Ann. vol", f"{av:.0%}" if av is not None else "—", av_col,
                 "Annualised 21-day volatility. 60%+ (red) = wide swings, size smaller.")
+        + _chip("Earnings", earn_txt, earn_col, earn_tip)
     )
     _md_html(
         f"""<div style="background:linear-gradient(135deg,#0d1b2a 0%,#1a2d45 100%);
@@ -2690,7 +2713,7 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
             {tgt_html}
           </div>
         </div>
-        <div style="display:flex;gap:12px;margin-top:22px;">
+        <div style="display:flex;gap:10px;margin-top:22px;">
           {chips}
         </div></div>"""
     )
@@ -2716,12 +2739,9 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
                 f"(needs ~70 sessions of price data to build a comparable profile)."
                 f"</div></div>"
             )
-    try:
-        ed = _tk_earnings(tk).get(tk)
-    except Exception:
-        ed = None
+    ed = earn_ed
     if ed:
-        days_to = (ed - pd.Timestamp.today().date()).days
+        days_to = earn_days if earn_days is not None else (ed - pd.Timestamp.today().date()).days
         if 0 <= days_to <= 21:
             st.warning(f"⚠️ **Earnings {ed:%a %b %d} ({days_to}d away)** — a "
                        "binary event INSIDE the forecast horizon. Analog "
