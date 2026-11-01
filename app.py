@@ -151,7 +151,7 @@ try:
 except Exception as _che:
     render_charts_tab, _CH_ERR = None, _che
 
-REQUIRED_ENGINE = "2.49"
+REQUIRED_ENGINE = "2.50"
 st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -980,7 +980,7 @@ def _wl_health_map(tks: tuple, ver: str = "v1"):
 
 @st.cache_data(ttl=1800, persist="disk",
                show_spinner="Running the full analyzer chain (Alpaca → Yahoo → dump)…")
-def _analyzer(tk: str, asof: str, ver: str = ce.ENGINE_VERSION, eps_ver: str = "v6"):
+def _analyzer(tk: str, asof: str, ver: str = ce.ENGINE_VERSION, eps_ver: str = "v7"):
     return ce.fetch_analyzer(tk)
 
 
@@ -1544,11 +1544,21 @@ def _eps_fwd_is_quarter(f: dict) -> bool:
 
 
 def _eps_fwd_label(f: dict) -> str:
+    rd = None
+    try:
+        rd = ce._coerce_earn_date((f or {}).get("report_date"))
+    except Exception:
+        rd = None
+    if rd is not None:
+        return f"{rd:%b} {rd.day}"
     p = str((f or {}).get("period") or "")
     if p == "Next Qtr":
         return "Next Q"
     if p in ("Qtr After", "Q+2"):
         return "Q+2"
+    m = re.match(r"([A-Za-z]{3})[a-z]*\s+(\d{1,2})(?:,\s*\d{2,4})?$", p)
+    if m and int(m.group(2)) <= 31:
+        return f"{m.group(1)} {int(m.group(2))}"
     m = re.match(r"([A-Za-z]{3})[a-z]*\s+(\d{2,4})", p)
     if m:
         yr = m.group(2)

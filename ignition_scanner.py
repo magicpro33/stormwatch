@@ -2640,11 +2640,22 @@ def render_ignition_scanner_tab(render_detail=None):
             return "Qtr" in p or p.startswith("Q+") or bool(
                 re.search(r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{2,4}\b", p))
         def _fwd_lab(f):
+            rd = str((f or {}).get("report_date") or "")
+            if rd:
+                try:
+                    dt = pd.to_datetime(rd, errors="coerce")
+                    if pd.notna(dt):
+                        return f"{dt.strftime('%b')} {int(dt.day)}"
+                except Exception:
+                    pass
             p = str(f.get("period") or "")
             if p == "Next Qtr":
                 return "Next Q"
             if p in ("Qtr After", "Q+2"):
                 return "Q+2"
+            m = re.match(r"([A-Za-z]{3})[a-z]*\s+(\d{1,2})(?:,\s*\d{2,4})?$", p)
+            if m and int(m.group(2)) <= 31:
+                return f"{m.group(1)} {int(m.group(2))}"
             m = re.match(r"([A-Za-z]{3})[a-z]*\s+(\d{2,4})", p)
             if m:
                 return f"{m.group(1)} {m.group(2)[-2:]}"

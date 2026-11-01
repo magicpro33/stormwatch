@@ -117,7 +117,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.49"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.50"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -5811,7 +5811,96 @@ def _merge_eps_forward(yahoo: list[dict], nq: list[dict],
     return uniq
 
 
-def _load_eps(ticker: str, tk, cached: list | None, info: dict | None):
+def _month_end(year: int, month: int) -> date:
+    if month == 12:
+        return date(year, 12, 31)
+    return date(year, month + 1, 1) - timedelta(days=1)
+
+
+def _yahoo_report_schedule(tk) -> list[dict]:
+    """Upcoming/recent prints from Yahoo earnings_dates: date, estimate, actual."""
+    if tk is None:
+        return []
+    out = []
+    try:
+        ed = _yf_call(lambda t=tk: t.earnings_dates)
+        if ed is None or getattr(ed, "empty", True):
+            return []
+        cols = {str(c).lower().replace(" ", ""): c for c in ed.columns}
+        est_c = cols.get("epsestimate")
+        act_c = cols.get("reportedeps")
+        idx = ed.index
+        if getattr(idx, "tz", None) is not None:
+            try:
+                idx = idx.tz_convert("America/New_York")
+            except Exception:
+                pass
+        for i, (_, row) in enumerate(ed.iterrows()):
+            d = _coerce_earn_date(idx[i] if i < len(idx) else row.name)
+            if d is None:
+                continue
+            est = _eps_float(row.get(est_c) if est_c else None)
+            act = _eps_float(row.get(act_c) if act_c else None)
+            out.append(dict(date=d, estimate=est, actual=act))
+    except Exception as ex:
+        _log_exc("yahoo_report_schedule", ex)
+    return out
+
+
+def _stamp_eps_forward_dates(fwd: list[dict], reports: list[dict],
+                             next_earn: date | None) -> list[dict]:
+    """Label forward quarters by report date, not fiscal-period end.
+
+    Nasdaq/Yahoo name the next print 'Sep 2026' because that quarter ended
+    Sep 30 — even in late October, with the report still weeks away. The
+    chart then paints September as a future bar and never shows Nov 11/16.
+    """
+    today = _ny_calendar_date()
+    pending = sorted(
+        [r for r in (reports or [])
+         if r.get("date") and r.get("actual") is None
+         and r["date"] >= today - timedelta(days=5)],
+        key=lambda r: r["date"])
+    used = set()
+    out = []
+    q_i = 0
+    for raw in fwd or []:
+        row = dict(raw)
+        if row.get("kind") != "q":
+            out.append(row)
+            continue
+        fiscal = str(row.get("period") or "")
+        key = _fiscal_key(fiscal)
+        end = _month_end(key[0], key[1]) if key else None
+        matched = None
+        if end is not None:
+            for p in pending:
+                d = p.get("date")
+                if d is None or d in used:
+                    continue
+                if d >= end:
+                    matched = p
+                    break
+        if matched is None and q_i == 0 and next_earn and next_earn not in used:
+            matched = dict(date=next_earn)
+        if matched is None and end is not None and end < today and next_earn and next_earn not in used:
+            matched = dict(date=next_earn)
+        if matched is not None:
+            d = matched["date"]
+            used.add(d)
+            row["fiscal"] = fiscal
+            row["period"] = f"{d:%b} {d.day}, {d.year}"
+            row["report_date"] = d.isoformat()
+        elif end is not None and end < today:
+            row["fiscal"] = fiscal
+            row["period"] = "Next Qtr" if q_i == 0 else f"Q+{q_i + 1}"
+        q_i += 1
+        out.append(row)
+    return out
+
+
+def _load_eps(ticker: str, tk, cached: list | None, info: dict | None,
+              next_earn=None):
     """History + farthest published forward EPS. Yahoo first, Nasdaq backup."""
     tk_s = str(ticker).strip().upper()
     bag: dict = {}
@@ -5863,6 +5952,16 @@ def _load_eps(ticker: str, tk, cached: list | None, info: dict | None):
     if y_fwd and "Yahoo" not in sources:
         sources.append("Yahoo")
     fwd = _merge_eps_forward(y_fwd, nq, ny)
+    try:
+        reports = _yahoo_report_schedule(tk)
+    except Exception:
+        reports = []
+    if next_earn is None:
+        try:
+            next_earn = resolve_earnings_date(ticker, tobj=tk)
+        except Exception:
+            next_earn = None
+    fwd = _stamp_eps_forward_dates(fwd, reports, next_earn)
     src = " + ".join(sources) if sources else ""
     if nq:
         last_q = nq[-1].get("period") or ""
@@ -6051,19 +6150,19 @@ def fetch_analyzer(ticker: str):
     # ── Step 4: EPS history + farthest published forward estimates ──
     # Yahoo near-term consensus, Nasdaq for extra quarters/years when Yahoo
     # is thin or rate-limited. Dump cache fills holes only.
-    eps_history, eps_forward, eps_src = _load_eps(
-        ticker, tk, info.get("_cached_eps"), info)
-    if eps_src:
-        info["_eps_source"] = eps_src
-    if not eps_history and not eps_forward:
-        _issues.append("EPS: no history or forward estimates (Yahoo and Nasdaq quiet)")
-
+    _ed = None
     try:
         _ed = resolve_earnings_date(ticker, tobj=tk)
         if _ed is not None:
             info["_next_earnings"] = _ed.isoformat()
     except Exception as _ee:
         _log_exc("fetch_analyzer.earnings_date", _ee)
+    eps_history, eps_forward, eps_src = _load_eps(
+        ticker, tk, info.get("_cached_eps"), info, next_earn=_ed)
+    if eps_src:
+        info["_eps_source"] = eps_src
+    if not eps_history and not eps_forward:
+        _issues.append("EPS: no history or forward estimates (Yahoo and Nasdaq quiet)")
 
     if info.get("currentPrice") in (None, "") and not hist.empty:
         try:
