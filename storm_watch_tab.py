@@ -753,7 +753,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         bt = _backtest()
         show = view[[
             "Ticker", "Sector", "Price", "StormScore", "Shakeout", "Ret5", "RangePos",
-            "RSI", "Resid21", "VolRatio", "MacroFit", "Piotroski", "Quality",
+            "RSI", "Resid21", "VolRatio", "MacroFit", "Quality",
             "SuggestedStop",
         ]].copy() if (not view.empty and "MacroFit" in view.columns) else view.copy()
         st.session_state["sw_snap"] = {
@@ -836,6 +836,8 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     try:
         import cascade_engine as ce
         show = ce.stamp_health_setup(show)
+        if "Piotroski" in getattr(show, "columns", []):
+            show = show.drop(columns=["Piotroski"])
     except Exception:
         pass
 
@@ -844,7 +846,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             "Price": "${:,.2f}", "StormScore": "{:.3f}", "Shakeout": "{:.0f}",
             "Ret5": "{:+.1%}", "RangePos": "{:.0%}", "RSI": "{:.0f}",
             "Resid21": "{:+.1%}", "VolRatio": "{:.2f}", "MacroFit": "{:.2f}",
-            "Piotroski": "{:.0f}", "SuggestedStop": "${:,.2f}",
+            "SuggestedStop": "${:,.2f}",
         }, na_rep="—")
         .map(lambda v: _band_score(v), subset=["StormScore"])
         .map(lambda v: _band_shake(v), subset=["Shakeout"])
@@ -891,7 +893,6 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             "Resid21": st.column_config.Column(help=HELP["resid21"]),
             "VolRatio": st.column_config.Column(help=HELP["volratio"]),
             "MacroFit": st.column_config.Column(help=HELP["macrofit"]),
-            "Piotroski": st.column_config.Column(help="9-point fundamental health from the dump. Overlay only — not in the backtest."),
             "SuggestedStop": st.column_config.Column(help=f"Entry {STOP_PCT:.0%} — the stop that improved expectancy in the dump backtest."),
         })
     st.download_button(

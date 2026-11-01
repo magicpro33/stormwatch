@@ -2987,6 +2987,596 @@ def keyword_scan(query: str, min_price: float = 0.0, max_price=None,
     return df
 
 
+# Sitting U.S. Senate (119th Congress). First and last name must both match.
+_IB_SENATORS = (
+    ("alsobrooks", "angela"), ("baldwin", "tammy"), ("banks", "jim"),
+    ("barrasso", "john"), ("bennet", "michael"), ("blackburn", "marsha"),
+    ("blumenthal", "richard"), ("blunt rochester", "lisa"),
+    ("booker", "cory"), ("boozman", "john"), ("britt", "katie"),
+    ("budd", "ted"), ("cantwell", "maria"), ("capito", "shelley"),
+    ("cassidy", "bill"), ("collins", "susan"), ("coons", "chris"),
+    ("cornyn", "john"), ("cortez masto", "catherine"), ("cotton", "tom"),
+    ("cramer", "kevin"), ("crapo", "mike"), ("cruz", "ted"),
+    ("curtis", "john"), ("daines", "steve"), ("duckworth", "tammy"),
+    ("durbin", "dick"), ("ernst", "joni"),
+    ("fetterman", "john"), ("fischer", "deb"), ("gallego", "ruben"),
+    ("gillibrand", "kirsten"), ("graham", "lindsey"), ("grassley", "chuck"),
+    ("hagerty", "bill"), ("hassan", "maggie"), ("hawley", "josh"),
+    ("heinrich", "martin"), ("hickenlooper", "john"), ("hirono", "mazie"),
+    ("hoeven", "john"), ("husted", "jon"), ("hyde smith", "cindy"),
+    ("johnson", "ron"), ("justice", "jim"), ("kaine", "tim"),
+    ("kelly", "mark"), ("kennedy", "john"), ("kim", "andy"),
+    ("king", "angus"), ("klobuchar", "amy"), ("lankford", "james"),
+    ("lee", "mike"), ("lujan", "ben"), ("lummis", "cynthia"),
+    ("markey", "ed"), ("marshall", "roger"), ("mcconnell", "mitch"),
+    ("mccormick", "dave"), ("merkley", "jeff"),
+    ("moody", "ashley"), ("moran", "jerry"), ("moreno", "bernie"),
+    ("mullin", "markwayne"), ("murkowski", "lisa"), ("murphy", "chris"),
+    ("murray", "patty"), ("ossoff", "jon"), ("padilla", "alex"),
+    ("paul", "rand"), ("peters", "gary"), ("reed", "jack"),
+    ("ricketts", "pete"), ("risch", "jim"), ("rosen", "jacky"),
+    ("rounds", "mike"), ("sanders", "bernie"), ("schatz", "brian"),
+    ("schiff", "adam"), ("schmitt", "eric"), ("schumer", "chuck"),
+    ("scott", "rick"), ("scott", "tim"), ("shaheen", "jeanne"),
+    ("sheehy", "tim"), ("slotkin", "elissa"), ("smith", "tina"),
+    ("sullivan", "dan"), ("thune", "john"), ("tillis", "thom"),
+    ("tuberville", "tommy"), ("van hollen", "chris"), ("warner", "mark"),
+    ("warnock", "raphael"), ("warren", "elizabeth"), ("welch", "peter"),
+    ("whitehouse", "sheldon"), ("wicker", "roger"), ("wyden", "ron"),
+    ("young", "todd"),
+)
+_IB_FIRST_AKA = {
+    "dick": ("richard",), "richard": ("dick",),
+    "chuck": ("charles",), "charles": ("chuck",),
+    "maggie": ("margaret",), "ed": ("edward",), "edward": ("ed", "ted"),
+    "chris": ("christopher",), "christopher": ("chris",),
+    "mike": ("michael",), "michael": ("mike",),
+    "bill": ("william",), "william": ("bill",),
+    "tom": ("thomas",), "thom": ("thomas", "tom"), "thomas": ("tom", "thom"),
+    "dave": ("david",), "david": ("dave",),
+    "steve": ("steven",), "steven": ("steve",),
+    "jim": ("james",), "james": ("jim",),
+    "ben": ("benjamin",), "benjamin": ("ben",),
+    "jon": ("jonathan",), "jonathan": ("jon",),
+    "ted": ("theodore", "edward", "rafael"), "rafael": ("ted",),
+    "katie": ("kathryn", "kate"), "patty": ("patricia",),
+    "liz": ("elizabeth",), "elizabeth": ("liz",),
+}
+_IB_FLAG_RANK = {
+    "Trump": 6, "Senate": 5, "House": 4, "BlackRock": 3,
+    "Vanguard": 3, "State Street": 3, "Institution": 2,
+}
+_IB_COLS = [
+    "Ticker", "Name", "Sector", "Filed", "Age", "Bought $",
+    "Buyers", "Flag", "Who", "Role", "Price", "Source",
+]
+_IB_HTTP_CACHE = {}
+_IB_HOST_DOWN = {}
+_IB_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/120.0.0.0 Safari/537.36"),
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
+def _ib_fold(name: str) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(name or ""))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = re.sub(r"[^a-z0-9 ]+", " ", s.lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def insider_buyer_flag(name: str, title: str = "") -> str:
+    """Trump / mega-fund / Senate / 10%-holder institution, else ''."""
+    low = _ib_fold(name)
+    if not low:
+        return ""
+    if re.search(r"\btrump\b", low):
+        return "Trump"
+    if "blackrock" in low or "black rock" in low or "ishares" in low:
+        return "BlackRock"
+    if "vanguard" in low:
+        return "Vanguard"
+    if "state street" in low or "statestreet" in low or re.search(r"\bssga\b", low):
+        return "State Street"
+    tokens = set(low.replace("-", " ").split())
+    for last, first in _IB_SENATORS:
+        lt = last.replace("-", " ").split()
+        ft = first.replace("-", " ").split()
+        if (lt and ft and all(t in tokens for t in lt)
+                and all(
+                    t in tokens or any(a in tokens for a in _IB_FIRST_AKA.get(t, ()))
+                    for t in ft)):
+            return "Senate"
+    funds = (
+        "fidelity", "fmr llc", "berkshire", "t rowe", "trowe",
+        "capital research", "wellington", "bridgewater", "jpmorgan",
+        "jp morgan", "goldman sachs", "morgan stanley", "blackstone",
+        "citadel", "renaissance", "two sigma", "millennium", "point72",
+        "coatue", "tiger global", "pershing square", "icahn", "soros",
+        "geode", "invesco", "fidelity management",
+    )
+    if any(w in low for w in funds):
+        return "Institution"
+    title_l = _ib_fold(title)
+    fundish = any(w in low for w in (
+        "llc", "lp", "inc", "corp", "fund", "capital", "partners",
+        "advisors", "advisers", "management", "holdings", "trust",
+        "partners lp", "investment", "insurance",
+    ))
+    if fundish and ("10" in title_l or "percent" in title_l or "owner" in title_l):
+        return "Institution"
+    return ""
+
+
+def _ib_better_flag(a: str, b: str) -> str:
+    ra, rb = _IB_FLAG_RANK.get(a or "", 0), _IB_FLAG_RANK.get(b or "", 0)
+    if rb > ra:
+        return b or ""
+    return a or ""
+
+
+def _ib_norm_ticker(raw) -> str:
+    t = str(raw or "").strip().upper()
+    t = t.split()[0] if t else ""
+    t = t.replace("$", "").replace(".", "-")
+    t = re.sub(r"[^A-Z0-9-]", "", t)
+    if t in ("", "-", "--", "NAN", "NONE", "N/A"):
+        return ""
+    return t[:12]
+
+
+def _ib_repair_ticker(raw, dump_tks=None) -> str:
+    """Finviz often prefixes a styled first letter, turning SNES into SSNES."""
+    t = _ib_norm_ticker(raw)
+    if not t:
+        return ""
+    dump_tks = dump_tks or set()
+    if not dump_tks or t in dump_tks:
+        return t
+    if len(t) >= 2 and t[1:] in dump_tks:
+        return t[1:]
+    return t
+
+
+def _ib_money(val) -> float:
+    if val is None or (isinstance(val, float) and not np.isfinite(val)):
+        return float("nan")
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        x = float(val)
+        return x if np.isfinite(x) else float("nan")
+    s = str(val).strip().replace(",", "").replace(" ", "").replace("(", "-").replace(")", "")
+    s = s.replace("−", "-").replace("–", "-")
+    m = re.search(r"([+-])?\$?([0-9]*\.?[0-9]+)([KMB])?", s, re.I)
+    if not m:
+        return float("nan")
+    sign = -1.0 if m.group(1) == "-" else 1.0
+    try:
+        n = float(m.group(2) or 0)
+    except (TypeError, ValueError):
+        return float("nan")
+    mul = {"": 1.0, "K": 1e3, "M": 1e6, "B": 1e9}.get((m.group(3) or "").upper(), 1.0)
+    return sign * n * mul
+
+
+def _ib_parse_date(val):
+    if val is None or (isinstance(val, float) and not np.isfinite(val)):
+        return None
+    if isinstance(val, datetime) and not isinstance(val, pd.Timestamp):
+        return val.date()
+    if isinstance(val, date) and not isinstance(val, datetime):
+        return val
+    s = str(val).strip()
+    if not s or s.lower() in ("nan", "none", "nat", "—", "-"):
+        return None
+    for fmt in ("%Y-%m-%d", "%b %d '%y", "%b %d, %Y", "%b %d %Y",
+                "%m/%d/%Y", "%m/%d/%y", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(s[:48], fmt).date()
+        except ValueError:
+            continue
+    ts = pd.to_datetime(s, errors="coerce")
+    if pd.isna(ts):
+        return None
+    try:
+        return ts.date()
+    except Exception:
+        return None
+
+
+def _ib_get(url: str, timeout: int = 22, accept: str = "text/html"):
+    import time as _time
+    from urllib.parse import urlparse
+    now = _time.time()
+    host = (urlparse(url).netloc or "").lower()
+    down_at = _IB_HOST_DOWN.get(host)
+    if down_at and now - down_at < 1200:
+        return None
+    hit = _IB_HTTP_CACHE.get(url)
+    if hit and now - hit[0] < 1200:
+        return hit[1]
+    if "openinsider.com" in host:
+        timeout = min(timeout, 6)
+    try:
+        headers = {**_IB_HEADERS, "Accept": accept}
+        if "finviz.com" in host:
+            headers["Referer"] = "https://finviz.com/"
+        elif "openinsider.com" in host:
+            headers["Referer"] = "https://openinsider.com/"
+        r = requests.get(url, timeout=timeout, headers=headers)
+        if r.status_code != 200 or not r.content:
+            if "openinsider.com" in host:
+                _IB_HOST_DOWN[host] = now
+            return None
+        _IB_HTTP_CACHE[url] = (now, r.content)
+        return r.content
+    except Exception as e:
+        _IB_HOST_DOWN[host] = now
+        _log_exc(f"insider_buy.get.{url.split('/', 3)[-1][:48]}", e)
+        return None
+
+
+def _ib_html_tables(url: str):
+    raw = _ib_get(url)
+    if not raw:
+        return []
+    try:
+        tables = pd.read_html(io.BytesIO(raw))
+    except Exception as e:
+        _log_exc("insider_buy.read_html", e)
+        return []
+    out = []
+    for t in tables or []:
+        if t is None or getattr(t, "empty", True) or t.shape[1] < 4:
+            continue
+        cols = []
+        for c in t.columns:
+            if isinstance(c, tuple):
+                c = " ".join(str(x) for x in c if str(x) not in ("nan", "None"))
+            cols.append(str(c).strip())
+        t = t.copy()
+        t.columns = cols
+        out.append(t)
+    return out
+
+
+def _ib_col(df, *needles):
+    cols = list(df.columns)
+    low = [str(c).lower() for c in cols]
+    for n in needles:
+        n = n.lower()
+        for c, cl in zip(cols, low):
+            if cl == n:
+                return c
+    for n in needles:
+        n = n.lower()
+        for c, cl in zip(cols, low):
+            if n in cl:
+                return c
+    return None
+
+
+def _ib_is_buy(text) -> bool:
+    s = str(text or "").strip().lower()
+    if not s:
+        return False
+    if s.startswith("p") or "purchase" in s or s == "buy":
+        return "sale" not in s
+    return False
+
+
+def _ib_trades_openinsider(days: int, min_value: float) -> list:
+    fd_opts = (1, 2, 3, 7, 14, 30, 60, 90, 180, 365)
+    fd = next((n for n in fd_opts if n >= int(days or 30)), 365)
+    vl = max(1, int(round(float(min_value or 0) / 1000.0)))
+    urls = [
+        (f"https://openinsider.com/screener?fd={fd}&td=0&xp=1&vl={vl}&cnt=400"),
+        "https://openinsider.com/latest-purchases",
+        "https://openinsider.com/latest-cluster-buys",
+    ]
+    rows = []
+    for url in urls:
+        for tbl in _ib_html_tables(url):
+            c_tk = _ib_col(tbl, "ticker")
+            c_type = _ib_col(tbl, "trade type", "transaction")
+            c_val = _ib_col(tbl, "value")
+            c_who = _ib_col(tbl, "insider name", "insider", "owner")
+            c_title = _ib_col(tbl, "title", "relationship")
+            c_co = _ib_col(tbl, "company name", "company")
+            c_filed = _ib_col(tbl, "filing date", "filed")
+            c_trade = _ib_col(tbl, "trade date")
+            if not c_tk:
+                continue
+            for d in tbl.to_dict("records"):
+                if c_type and not _ib_is_buy(d.get(c_type)):
+                    continue
+                tk = _ib_norm_ticker(d.get(c_tk))
+                if not tk:
+                    continue
+                val = _ib_money(d.get(c_val) if c_val else None)
+                if np.isfinite(min_value) and min_value > 0 and (
+                        not np.isfinite(val) or abs(val) < min_value):
+                    continue
+                filed = _ib_parse_date(d.get(c_filed) if c_filed else None) or _ib_parse_date(
+                    d.get(c_trade) if c_trade else None)
+                rows.append(dict(
+                    ticker=tk,
+                    name=str(d.get(c_co) or "").strip() if c_co else "",
+                    buyer=str(d.get(c_who) or "").strip() if c_who else "",
+                    title=str(d.get(c_title) or "").strip() if c_title else "",
+                    value=abs(val) if np.isfinite(val) else float("nan"),
+                    filed=filed,
+                    source="Form 4",
+                ))
+    return rows
+
+
+def _ib_trades_finviz(days: int, min_value: float) -> list:
+    cutoff = date.today() - timedelta(days=max(1, int(days or 30)))
+    rows = []
+    for start in (1, 101, 201, 301):
+        url = f"https://finviz.com/insidertrading.ashx?tc=1&r={start}"
+        tables = _ib_html_tables(url)
+        found = False
+        for tbl in tables:
+            c_tk = _ib_col(tbl, "ticker")
+            c_type = _ib_col(tbl, "transaction")
+            c_val = _ib_col(tbl, "value ($)", "value")
+            c_who = _ib_col(tbl, "owner")
+            c_title = _ib_col(tbl, "relationship")
+            c_date = _ib_col(tbl, "date")
+            c_filed = _ib_col(tbl, "sec form 4", "filing")
+            if not c_tk:
+                continue
+            found = True
+            for d in tbl.to_dict("records"):
+                if c_type and not _ib_is_buy(d.get(c_type)):
+                    continue
+                tk = _ib_norm_ticker(d.get(c_tk))
+                if not tk:
+                    continue
+                val = _ib_money(d.get(c_val) if c_val else None)
+                if np.isfinite(min_value) and min_value > 0 and (
+                        not np.isfinite(val) or abs(val) < min_value):
+                    continue
+                filed = (_ib_parse_date(d.get(c_filed) if c_filed else None)
+                         or _ib_parse_date(d.get(c_date) if c_date else None))
+                if filed and filed < cutoff:
+                    continue
+                rows.append(dict(
+                    ticker=tk, name="",
+                    buyer=str(d.get(c_who) or "").strip() if c_who else "",
+                    title=str(d.get(c_title) or "").strip() if c_title else "",
+                    value=abs(val) if np.isfinite(val) else float("nan"),
+                    filed=filed, source="Form 4",
+                ))
+        if not found:
+            break
+    return rows
+
+
+def _ib_trades_congress(days: int) -> list:
+    cutoff = date.today() - timedelta(days=max(1, int(days or 30)))
+    raw = _ib_get(
+        "https://www.capitolstockwatch.com/data/open-data/congress_trades_latest.csv",
+        accept="text/csv, */*")
+    if not raw:
+        return []
+    try:
+        df = pd.read_csv(io.BytesIO(raw))
+    except Exception as e:
+        _log_exc("insider_buy.congress_csv", e)
+        return []
+    if df is None or df.empty:
+        return []
+    rows = []
+    for d in df.to_dict("records"):
+        kind = str(d.get("transaction_type") or d.get("type") or "").lower()
+        if "purchase" not in kind and kind != "buy":
+            continue
+        sec = str(d.get("security_type") or "").lower()
+        if sec and sec not in ("stock", "stk", "equity", "common stock", ""):
+            if any(w in sec for w in ("option", "bond", "note", "crypto", "etf")):
+                continue
+        tk = _ib_norm_ticker(d.get("ticker"))
+        if not tk:
+            continue
+        filed = _ib_parse_date(d.get("filing_date")) or _ib_parse_date(
+            d.get("transaction_date"))
+        if filed and filed < cutoff:
+            continue
+        try:
+            lo = float(d.get("amount_min_usd"))
+        except (TypeError, ValueError):
+            lo = float("nan")
+        try:
+            hi = float(d.get("amount_max_usd"))
+        except (TypeError, ValueError):
+            hi = float("nan")
+        if np.isfinite(lo) and np.isfinite(hi):
+            val = 0.5 * (lo + hi)
+        else:
+            val = lo if np.isfinite(lo) else hi
+        chamber = str(d.get("chamber") or "").strip().lower()
+        title = "Senator" if chamber == "senate" else (
+            "Representative" if chamber == "house" else "Congress")
+        flag = "Senate" if chamber == "senate" else (
+            "House" if chamber == "house" else "Senate")
+        buyer = str(d.get("filer_name") or "").strip()
+        rows.append(dict(
+            ticker=tk,
+            name=str(d.get("asset_name") or "").strip(),
+            buyer=buyer, title=title,
+            value=abs(val) if np.isfinite(val) else float("nan"),
+            filed=filed, source="Congress",
+            flag=flag,
+        ))
+    return rows
+
+
+def insider_buy_scan(lookback_days: int = 30, min_value: float = 100_000,
+                     top: int = 50, big_only: bool = False,
+                     only_sectors=None) -> pd.DataFrame:
+    """Most recent large insider / politician / mega-fund purchases.
+
+    Form 4 buys (OpenInsider + Finviz) plus House/Senate periodic reports.
+    Rank: recency of the filing, then dollars, then a flag/cluster boost.
+    """
+    empty = pd.DataFrame(columns=_IB_COLS)
+    try:
+        days = max(1, int(lookback_days or 30))
+    except (TypeError, ValueError):
+        days = 30
+    try:
+        floor = float(min_value or 0)
+    except (TypeError, ValueError):
+        floor = 0.0
+    if not np.isfinite(floor) or floor < 0:
+        floor = 0.0
+    try:
+        nkeep = max(5, int(top or 50))
+    except (TypeError, ValueError):
+        nkeep = 50
+
+    trades = []
+    for loader, args in (
+            (_ib_trades_finviz, (days, floor)),
+            (_ib_trades_congress, (days,)),
+            (_ib_trades_openinsider, (days, floor)),
+    ):
+        try:
+            trades.extend(loader(*args) or [])
+        except Exception as e:
+            _log_exc(f"insider_buy.{getattr(loader, '__name__', 'src')}", e)
+
+    names, sectors, dump_tks = {}, {}, set()
+    try:
+        for r in _keyword_corpus():
+            names[r["ticker"]] = r.get("name") or r["ticker"]
+            sectors[r["ticker"]] = r.get("sector") or "Unknown"
+            dump_tks.add(r["ticker"])
+    except Exception as e:
+        _log_exc("insider_buy.corpus", e)
+    if not dump_tks:
+        try:
+            _panel, tks, secs, _mdv, _dts = load_dump_panel()
+            dump_tks = {str(t).strip().upper() for t in tks}
+            sectors = {str(t).strip().upper(): str(s) for t, s in zip(tks, secs)}
+        except Exception as e:
+            _log_exc("insider_buy.dump", e)
+
+    cutoff = date.today() - timedelta(days=days)
+    seen = set()
+    by = {}
+    for tr in trades:
+        tk = _ib_repair_ticker(tr.get("ticker"), dump_tks)
+        if not tk:
+            continue
+        filed = tr.get("filed")
+        if filed and filed < cutoff:
+            continue
+        val = tr.get("value")
+        try:
+            val = float(val)
+        except (TypeError, ValueError):
+            val = float("nan")
+        if tr.get("source") != "Congress":
+            if np.isfinite(floor) and floor > 0 and (
+                    not np.isfinite(val) or val < floor):
+                continue
+        buyer = str(tr.get("buyer") or "").strip()
+        title = str(tr.get("title") or "").strip()
+        flag = str(tr.get("flag") or "") or insider_buyer_flag(buyer, title)
+        dup = (tk, buyer, filed, int(val) if np.isfinite(val) else 0)
+        if dup in seen:
+            continue
+        seen.add(dup)
+        rec = by.get(tk)
+        if rec is None:
+            rec = dict(
+                ticker=tk, name=str(tr.get("name") or "").strip(),
+                value=0.0, n=0, buyers=[], flags="",
+                filed=None, title=title, sources=set())
+            by[tk] = rec
+        if np.isfinite(val):
+            rec["value"] += abs(val)
+        rec["n"] += 1
+        rec["sources"].add(str(tr.get("source") or "Form 4"))
+        if buyer and buyer not in rec["buyers"]:
+            rec["buyers"].append(buyer)
+        rec["flags"] = _ib_better_flag(rec["flags"], flag)
+        if filed and (rec["filed"] is None or filed > rec["filed"]):
+            rec["filed"] = filed
+            rec["title"] = title or rec["title"]
+        if not rec["name"] and tr.get("name"):
+            rec["name"] = str(tr.get("name") or "").strip()
+
+    if not by:
+        return empty
+
+    pxmap = {}
+    try:
+        pxmap = dump_last_closes(list(by)) or {}
+    except Exception:
+        pxmap = {}
+    dump_tks = set(sectors) | set(pxmap)
+    if dump_tks:
+        by = {k: v for k, v in by.items() if k in dump_tks}
+        if not by:
+            return empty
+
+    want = None
+    if only_sectors:
+        want = {str(s).strip() for s in only_sectors if str(s).strip()}
+
+    today = date.today()
+    rows = []
+    for tk, rec in by.items():
+        sec = sectors.get(tk) or "Unknown"
+        if want and sec not in want and sec != "Unknown":
+            continue
+        filed = rec["filed"]
+        age = (today - filed).days if filed else 999
+        if age < 0:
+            age = 0
+        flag = rec["flags"] or ""
+        if big_only and not flag:
+            continue
+        dollars = float(rec["value"] or 0.0)
+        recency = 0.5 ** (age / 7.0)
+        size = np.log10(max(dollars, 1.0))
+        boost = {6: 2.4, 5: 2.2, 4: 1.8, 3: 1.9, 2: 1.5}.get(
+            _IB_FLAG_RANK.get(flag, 0), 1.0)
+        cluster = 1.0 + 0.15 * min(max(len(rec["buyers"]) - 1, 0), 6)
+        score = recency * size * boost * cluster
+        flagged = [b for b in rec["buyers"] if insider_buyer_flag(b) or flag]
+        who = " · ".join((flagged or rec["buyers"])[:3]) or "—"
+        src = " · ".join(sorted(rec["sources"])) if rec["sources"] else "Form 4"
+        rows.append(dict(
+            Ticker=tk,
+            Name=names.get(tk) or rec["name"] or tk,
+            Sector=sec,
+            Filed=filed.isoformat() if filed else "—",
+            Age=int(age),
+            **{"Bought $": round(dollars, 0) if dollars else np.nan},
+            Buyers=int(max(len(rec["buyers"]), rec["n"])),
+            Flag=flag or "—",
+            Who=who,
+            Role=rec["title"] or "—",
+            Price=pxmap.get(tk, np.nan),
+            Source=src,
+            _score=float(score),
+        ))
+    if not rows:
+        return empty
+    rows.sort(key=lambda r: (-r["_score"], r["Age"], -float(r.get("Bought $") or 0)))
+    df = pd.DataFrame(rows[:nkeep])
+    df = df.drop(columns=["_score"])
+    return stamp_rank(df)
+
+
 def drop_blank_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Hide columns that are entirely empty / placeholder so the list stays tight."""
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
@@ -4685,6 +5275,8 @@ def stamp_health_setup(df, ticker_col=None, health_map=None, setup_map=None):
         i = list(out.columns).index(tcol) + 1
     out.insert(i, HEALTH_COL, health)
     out.insert(i + 1, SETUP_COL, setup)
+    if "Piotroski" in out.columns:
+        out = out.drop(columns=["Piotroski"])
     return out
 
 

@@ -1534,7 +1534,7 @@ def render_hybrid_screener() -> None:
         getattr(ce, "SETUP_COL", "Clean Setup"),
         "Price",
         "Pricing power", "Gross Margin", "ROIC",
-        "D/E", "Current ratio", "OE Yield", "Piotroski", "ROIC Trend",
+        "D/E", "Current ratio", "OE Yield", "ROIC Trend",
         "RevenueGrowth", "EarningsGrowth",
         getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "CAT_DOWN_COL", "▼ Down"),
         "First print", "Days listed",
@@ -1587,9 +1587,6 @@ def render_hybrid_screener() -> None:
             help=_hs_help.get(_scol) or (
                 "Clean Setup trend from the nightly dump — same bull / bear / "
                 "mixed as the overlay (multi-factor trend vote)."))
-    if "Piotroski" in display.columns:
-        _cat_cfg["Piotroski"] = st.column_config.Column(
-            help="Accounting health F-Score. 7–9 strong; 0–2 weak.")
     if "D/E" in display.columns:
         _cat_cfg["D/E"] = st.column_config.Column(
             help="Debt / equity from the dump. Lower is a stronger fortress.")

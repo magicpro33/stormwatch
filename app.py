@@ -518,6 +518,7 @@ _TAB_COLOR = {
     "Apex Flow": "#7FD4FF",
     "POC Future": "#FF8FA3",
     "ShakeOut": "#C8F542",
+    "Insider Buying": "#67E8F9",
     "Hybrid Screener": "#F0A6FF",
     "Ignition Scanner": "#FFB020",
     "Key Word Search": "#2DD4BF",
@@ -543,9 +544,9 @@ _MENU_CAT_COLORS = {
         "Scan Hub", "Stock Lookup", "Bull List", "Dividend Calender", "Crypto Copycat",
         "Macro Sim", "Cascade Map", "Nerd Hub")],
     "mw_hub": [_TAB_COLOR[k] for k in (
-        "TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
-        "Ignition Scanner", "Key Word Search", "Trump Effect", "Elections",
-        "Help")],
+        "TOP20", "Apex Flow", "POC Future", "ShakeOut", "Insider Buying",
+        "Hybrid Screener", "Ignition Scanner", "Key Word Search",
+        "Trump Effect", "Elections", "Help")],
     "mw_map": [_TAB_COLOR[k] for k in (
         "Market Weather", "Cascade Pressure", "Cascade Sentinels",
         "Forced Flows", "Cascade Validation Lab", "Lenses", "Guide")],
@@ -644,6 +645,9 @@ def _menu_category_css() -> str:
         ("sw_sectors_box", "#6EE7B7"),
         ("sw_size_box", "#7FD4FF"),
         ("sw_cat_box", "#A78BFA"),
+        ("ib_hunt_box", "#67E8F9"),
+        ("ib_sectors_box", "#6EE7B7"),
+        ("ib_cat_box", "#A78BFA"),
         ("t20_run", "#A78BFA"),
         ("hs_presets_box", "#C8F542"),
         ("hs_filters_box", "#7FD4FF"),
@@ -1214,7 +1218,12 @@ def _lk_first_hit(need: str, tokens: set) -> bool:
     return any(aka in tokens for aka in _FIRST_AKA.get(need, ()))
 
 
-def _lk_owner_flag(name: str) -> str:
+def _lk_owner_flag(name: str, title: str = "") -> str:
+    fn = getattr(ce, "insider_buyer_flag", None)
+    if callable(fn):
+        got = fn(name, title)
+        if got:
+            return got
     low = _lk_owner_fold(name)
     if re.search(r"\btrump\b", low):
         return "Trump"
@@ -1693,6 +1702,16 @@ def _keyword_scan(asof: str, query: str, min_price: float, max_price: float,
                   top: int):
     return ce.keyword_scan(query, min_price=min_price, max_price=max_price,
                            top=int(top))
+
+
+@st.cache_data(ttl=1200, show_spinner="Reading latest insider and Congress buys…")
+def _insider_buy_scan(asof: str, days: int, min_value: float, top: int,
+                      big_only: bool, sectors_key: str):
+    import json as _j
+    secs = _j.loads(sectors_key) if sectors_key else None
+    return ce.insider_buy_scan(lookback_days=int(days), min_value=float(min_value),
+                               top=int(top), big_only=bool(big_only),
+                               only_sectors=secs)
 
 
 @st.cache_data(ttl=300, show_spinner="Reading latest White House remarks…")
@@ -5326,6 +5345,7 @@ _IG_FEED_LABELS = {
     "apex": "Apex Flow",
     "poc": "POC Future",
     "kw": "Key Word Search",
+    "ib": "Insider Buying",
     "te": "Trump Effect",
     "el": "Elections",
 }
@@ -5418,8 +5438,8 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
 
 # Run / result flags — bools, but not widgets. Keep them in session_state.
 _HUB_KEEP_FLAGS = {
-    "top20_go", "t20_live", "sw_go", "apex_run", "poc_run", "kw_run", "te_run",
-    "el_run",
+    "top20_go", "t20_live", "sw_go", "apex_run", "poc_run", "kw_run", "ib_run",
+    "te_run", "el_run",
     "macro_advice_on", "hs_gate_thatbiz",
     "top20_advice_on", "apex_advice_on", "sw_advice_on", "poc_advice_on",
 }
@@ -5431,11 +5451,14 @@ _HUB_KEEP_TOGGLES = {
     "apex_calm", "apex_rs",
     "ig_all_presets_mode",
     "apex_use_cat", "poc_use_cat", "sw_use_cat",
-    "hs_use_cat", "kw_use_cat", "te_use_cat", "top20_use_cat", "el_use_cat",
+    "hs_use_cat", "kw_use_cat", "ib_use_cat", "te_use_cat", "top20_use_cat",
+    "el_use_cat",
     "apex_safe_ai", "poc_safe_ai", "sw_safe_ai",
-    "hs_safe_ai", "kw_safe_ai", "te_safe_ai", "top20_safe_ai", "el_safe_ai",
+    "hs_safe_ai", "kw_safe_ai", "ib_safe_ai", "te_safe_ai", "top20_safe_ai",
+    "el_safe_ai",
     "apex_thatbiz", "poc_thatbiz", "sw_thatbiz", "hs_thatbiz",
-    "kw_thatbiz", "te_thatbiz", "top20_thatbiz", "el_thatbiz",
+    "kw_thatbiz", "ib_thatbiz", "te_thatbiz", "top20_thatbiz", "el_thatbiz",
+    "ib_big_only",
 }
 
 _HUB_KEEP_BUTTON_SUFFIXES = (
@@ -5468,6 +5491,8 @@ _HUB_KEEP_SKIP = {
     "hs_preset_thatbiz",
     "hs_dl_csv",
     "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk", "kw_go",
+    "ib_run", "ib_snap", "ib_table", "ib_inline", "ib_inline_tk", "ib_go",
+    "ib_hot_btn",
     "te_run", "te_snap", "te_words", "te_speeches", "te_inline", "te_inline_tk",
     "te_table", "te_go", "te_search", "te_px_btn", "macro_advise", "macro_apply",
     "el_run", "el_snap", "el_table", "el_sec", "el_inline", "el_inline_tk",
@@ -5489,6 +5514,7 @@ _HUB_BUTTON_KEYS = {
     "apex_go", "apex_hot", "apex_csv",
     "poc_go", "poc_hot_btn",
     "kw_go",
+    "ib_go", "ib_hot_btn",
     "te_go", "te_search", "te_px_btn",
     "el_go",
     "cc_reload_board", "cc_reload_vaults",
@@ -6182,7 +6208,7 @@ def _cat_cols(df):
 
 
 def _order_with_cat(order, df):
-    order = list(order or [])
+    order = [c for c in list(order or []) if c != "Piotroski"]
     hs = [c for c in (
         getattr(ce, "HEALTH_COL", "Health/Piotroski"),
         getattr(ce, "SETUP_COL", "Clean Setup"),
@@ -6521,6 +6547,15 @@ def _render_scan_hub_help():
             "in Advanced.",
             "You want mean-reversion candidates, not breakouts.",
             color="#FF8FA3")
+        _help_card(
+            "💼 Insider Buying",
+            "Latest large Form 4 buys plus Senate and House purchases.",
+            "Ranks names by how recently the filing hit, then by dollars, "
+            "with a boost when the buyer is a mega-fund, Trump, a senator, "
+            "or another 10% institution. Health/Piotroski and Clean Setup "
+            "stamp onto the list the same way the other scanners do.",
+            "You want to see where the big names just bought, not a technical setup.",
+            color="#67E8F9")
         _help_card(
             "📊 Hybrid Screener",
             "The dump filter suite with named presets.",
@@ -6883,9 +6918,9 @@ def _try_closes():
 
 _MAIN = ["Scan Hub", "Stock Lookup", "Bull List", "Dividend Calender", "Crypto Copycat",
          "Macro Sim", "Cascade Map", "Nerd Hub"]
-_HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
-        "Ignition Scanner", "Key Word Search", "Trump Effect", "Elections",
-        "Help"]
+_HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Insider Buying",
+        "Hybrid Screener", "Ignition Scanner", "Key Word Search",
+        "Trump Effect", "Elections", "Help"]
 _MAP = ["Market Weather", "Cascade Pressure", "Cascade Sentinels", "Forced Flows",
         "Cascade Validation Lab", "Lenses", "Guide"]
 if st.session_state.get("mw_hub") == "Key Word":
@@ -8172,6 +8207,200 @@ with st.container(border=True, key="mw_page"):
         _hub_keep_save("sw", ("sw_",))
 
 
+    # ── 💼 Insider Buying — latest Form 4 + Congress purchases ───────────
+    if _main == "Scan Hub" and _hub == "Insider Buying":
+        _hub_title("💼 Insider Buying", "#67E8F9")
+        _hub_keep_restore("ib", ("ib_",))
+        closes, asof = _try_closes_for_scan()
+        st.caption(
+            "Latest large Form 4 purchases (officers, 10% holders, mega-funds) "
+            "plus Senate and House buys. Ranked by how recently the filing "
+            "hit, then by dollars, with a boost when the buyer is Trump, a "
+            "senator, or a name-brand institution. Tap a row for the chart "
+            "and company profile.")
+
+        _hub_sec("1 · Hunt", "#67E8F9", "how recent, how large")
+        with _hub_pill("ib_hunt_box"):
+            _h1, _h2, _h3 = st.columns(3)
+            _ib_top = _h1.selectbox("How many stocks", [25, 50, 75, 100],
+                                    index=1, key="ib_top")
+            _ib_days = _h2.selectbox("Filed in the last", [7, 14, 30, 60, 90],
+                                     index=2, key="ib_days",
+                                     format_func=lambda n: f"{n} days",
+                                     help="Uses the filing date — when the buy became public.")
+            _ib_min = _h3.selectbox(
+                "Min Form 4 buy",
+                [50_000, 100_000, 250_000, 500_000, 1_000_000],
+                index=1, key="ib_min",
+                format_func=lambda n: f"${n:,.0f}",
+                help="Floor for company Form 4 purchases. Senate and House "
+                     "buys stay on the list even when smaller.")
+            _ib_big = st.toggle(
+                "Big names only", key="ib_big_only",
+                help="Keep rows flagged Trump, Senate, House, BlackRock, "
+                     "Vanguard, State Street, or another 10% institution.")
+
+        _ib_pending = st.session_state.pop("_ib_sectors_pending", None)
+        if _ib_pending:
+            st.session_state["ib_sectors"] = _ib_pending
+        try:
+            _all_secs = _apex_sector_list(asof)
+        except Exception:
+            _all_secs = []
+        _hub_sec("2 · Session and sectors", "#6EE7B7", "where the money is going")
+        with _hub_pill("ib_sectors_box"):
+            _i_lb, _i_off, _i_lbl = flow_window_picker("ib")
+            _hs1, _hs2 = st.columns([1, 3])
+            if _hs1.button("🔥 Use today's hot sectors", key="ib_hot_btn",
+                           width="stretch",
+                           help="Replace the sector selection with the sectors that "
+                                "received the most money in the chosen window."):
+                try:
+                    _hot = _hot_sectors(asof, 5, _i_lb, _i_off, dump_asof=_dump_asof_key())
+                    if _hot:
+                        st.session_state["_ib_sectors_pending"] = _hot
+                        st.rerun()
+                except Exception as _he:
+                    st.caption(f"Hot sectors unavailable: {_he}")
+            _hs_now = []
+            try:
+                _hs_now = _hot_sectors(asof, 5, _i_lb, _i_off, dump_asof=_dump_asof_key())
+                if _hs_now:
+                    _hs2.caption(f"🔥 Hottest ({_i_lbl}): " + " · ".join(_hs_now))
+            except Exception:
+                pass
+            _ms_kw = ({} if "ib_sectors" in st.session_state
+                      else {"default": _all_secs})
+            _picked_secs = st.multiselect(
+                "Sectors", _all_secs, key="ib_sectors", **_ms_kw,
+                help="Defaults to every sector. Narrow it to focus the scan — "
+                     "the top-N cut is applied within your selection.")
+            _sec_filter = (None if (not _picked_secs or len(_picked_secs) == len(_all_secs))
+                           else list(_picked_secs))
+            if _sec_filter:
+                st.caption(f"🎯 Scanning {len(_sec_filter)} of {len(_all_secs)} sectors.")
+            _where_money_went(asof, _i_lb, _i_off, _i_lbl, _hs_now)
+
+        _hub_sec("3 · Catalysts and Filters", "#A78BFA")
+        _ib_cat = _catalysts_section("ib", cat_color="#A78BFA", pill_key="ib_cat_box")
+        _ib_sec_txt = (f", limited to {len(_sec_filter)} sectors"
+                       if _sec_filter else "")
+        _ib_big_txt = ", big names only" if _ib_big else ""
+        _rank_banner(
+            f"Ranking the top <b>{int(_ib_top)}</b> by "
+            f"<b style='color:{ACCENT};'>most recent big insider buys</b> "
+            f"(last {int(_ib_days)} days, Form 4 ≥ ${int(_ib_min):,})"
+            f"{_ib_big_txt}{_ib_sec_txt}"
+            f"{_rank_filters_html('ib')}.",
+            "#67E8F9")
+        if st.button("💼 Scan insider buying", type="primary", key="ib_go",
+                     width="stretch"):
+            st.session_state["ib_run"] = True
+            st.session_state.pop("ib_snap", None)
+            st.session_state.pop("ib_inline_tk", None)
+
+        if st.session_state.get("ib_run"):
+            import json as _ib_json
+            _ib_secs_key = _ib_json.dumps(sorted(_sec_filter)) if _sec_filter else ""
+            _ib_sig = (int(_ib_days), float(_ib_min), int(_ib_top),
+                       bool(_ib_big), _ib_secs_key)
+            _isnap = st.session_state.get("ib_snap") or {}
+            if "df" in _isnap:
+                _idf = _isnap.get("df")
+                if _idf is None:
+                    _idf = pd.DataFrame()
+                if _isnap.get("sig") != _ib_sig:
+                    st.info("Hunt settings changed. Hit **Scan insider buying** to refresh.")
+            else:
+                try:
+                    _idf = _insider_buy_scan(
+                        _dump_asof_key(), int(_ib_days), float(_ib_min),
+                        int(_ib_top), bool(_ib_big), _ib_secs_key)
+                except Exception as _ie:
+                    _idf = pd.DataFrame()
+                    st.error(f"Insider scan failed: {_ie}")
+                st.session_state["ib_snap"] = {
+                    "df": _idf.copy() if isinstance(_idf, pd.DataFrame)
+                    else pd.DataFrame(),
+                    "sig": _ib_sig,
+                }
+            if _idf is None or _idf.empty:
+                st.info("No filings cleared that hunt. Widen the lookback, "
+                        "drop the dollar floor, or turn off Big names only.")
+            else:
+                _idf = _drop_blank_cols(_idf)
+                _idf = _with_catalysts(_idf, _ib_cat, safe_key="ib")
+                if _idf is None or _idf.empty:
+                    st.info(_filter_hid_msg("ib"))
+                else:
+                    _idf = _stamp_hs(_idf)
+                    _n_flag = 0
+                    if "Flag" in _idf.columns:
+                        _n_flag = int((_idf["Flag"].astype(str).str.strip()
+                                       .isin(["—", "-", "", "nan"]) == False).sum())
+                    _md_html(
+                        f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+                        f"border-left:5px solid #67E8F9;border-radius:10px;"
+                        f"padding:10px 14px;margin:8px 0;'>"
+                        f"<b>{len(_idf)} name{'s' if len(_idf) != 1 else ''}</b> "
+                        f"with recent insider buying"
+                        f"{f' · {_n_flag} flagged' if _n_flag else ''}"
+                        f"<span style='color:{DIM};font-size:12px;'> · Form 4 "
+                        f"+ Congress · ranked by recency × size</span></div>")
+                    _ib_order = _order_with_cat(
+                        [c for c in ["#", "Ticker", "Name", "Sector", "Filed",
+                                     "Age", "Bought $", "Buyers", "Flag",
+                                     "Who", "Role", "Price", "Source"]
+                         if c in _idf.columns],
+                        _idf)
+                    _ibsty = _idf.style.format(
+                        {k: v for k, v in {
+                            "Price": "${:,.2f}",
+                            "Bought $": "${:,.0f}",
+                            "Age": "{:.0f}d",
+                        }.items() if k in _idf.columns}, na_rep="—")
+                    if "Flag" in _idf.columns:
+                        _ibsty = _ibsty.map(_css_owner_flag, subset=["Flag"])
+                    _ibsel = st.dataframe(
+                        _style_health_setup(_ibsty),
+                        width=_DF_WIDTH, hide_index=True,
+                        height=_fit_list_height(len(_idf)),
+                        on_select="rerun", selection_mode="single-row",
+                        key="ib_table",
+                        column_order=_ib_order or None,
+                        column_config={
+                            "#": _rank_col_cfg(),
+                            **_health_setup_col_cfgs(),
+                            **_cat_col_cfgs(),
+                            "Filed": st.column_config.Column(
+                                help="Filing date — when the buy became public."),
+                            "Age": st.column_config.Column(
+                                help="Days since that filing. Rank leads with the newest."),
+                            "Bought $": st.column_config.Column(
+                                help="Sum of purchase value in the lookback window."),
+                            "Buyers": st.column_config.Column(
+                                help="Distinct buyers clustered on this ticker."),
+                            "Flag": st.column_config.Column(
+                                help="Trump, Senate, House, BlackRock, Vanguard, "
+                                     "State Street, or Institution."),
+                            "Who": st.column_config.Column(
+                                help="Buyer names — flagged names first."),
+                            "Role": st.column_config.Column(
+                                help="Title on the newest filing (CEO, 10% Owner, Senator…)."),
+                            "Source": st.column_config.Column(
+                                help="Form 4 (OpenInsider / Finviz) and/or Congress periodic reports."),
+                            "Price": st.column_config.Column(
+                                help="Last close in the nightly dump."),
+                        })
+                    st.caption("👆 Tap a row for the chart, cards, and company profile below.")
+                    _scan_hub_pick_and_show(_ibsel, _idf, "ib_inline", "ibaz",
+                                           source="Insider Buying")
+        else:
+            st.info("Set the hunt, then hit **Scan insider buying**. Nothing is fetched until then.")
+
+        _hub_keep_save("ib", ("ib_",))
+
+
     # ── 🏆 top 20 mega screener ──────────────────────────────────────────
     if _main == "Scan Hub" and _hub == "TOP20":
         _hub_keep_restore("top20", ("top20_", "t20_", "forecast_all_toggle"))
@@ -8503,7 +8732,7 @@ with st.container(border=True, key="mw_page"):
                 # ranking and the styling) but are hidden from the display
                 _mcols = (["Ticker", "Sector", "Price"]
                           + (["Live", "Chg%", "Src"] if "Live" in _m20.columns else [])
-                          + ["ROIC", "OE Yield", "Piotroski", "P/E", "RevGrowth"])
+                          + ["ROIC", "OE Yield", "P/E", "RevGrowth"])
                 with st.container(key="t20_tbl_mc"):
                     _msel = st.dataframe(
                         _style_health_setup(_m20.style.format(_live_fmt(_m20, {
@@ -8616,7 +8845,7 @@ with st.container(border=True, key="mw_page"):
                 _fcols = (["Ticker", "Sector", "Price"]
                           + (["Live", "Chg%", "Src"] if "Live" in _f.columns else [])
                           + (["Felix", "MacroFit"] if "MacroFit" in _f.columns else [])
-                          + ["ROIC", "OE Yield", "Piotroski", "ROIC Trend",
+                          + ["ROIC", "OE Yield", "ROIC Trend",
                              "P/E", "RevGrowth"])
                 _fsty = _style_health_setup(_fsty)
                 _fcfg = {
@@ -8697,7 +8926,7 @@ with st.container(border=True, key="mw_page"):
                         column_order=_order_with_cat(
                             ["Ticker", "Sector", "Price"]
                             + (["Live", "Chg%", "Src"] if "Live" in _t.columns else [])
-                            + ["Data", "Piotroski", "RevGrowth", "RVOL",
+                            + ["Data", "RevGrowth", "RVOL",
                                "RangePos"],
                             _t),
                         column_config={
@@ -8709,7 +8938,6 @@ with st.container(border=True, key="mw_page"):
                             "Quality": st.column_config.Column(help="Macro-simulator quality DNA: Piotroski, golden cross, ROIC, revenue & earnings growth."),
                             "Tailwind": st.column_config.Column(help="Cascade engine: how strongly the currently-firing waves historically push THIS stock over the next week (percentile)."),
                             "MacroFit": st.column_config.Column(help="Regime sector multiplier from the macro simulator's playbook — >1 means this sector historically leads in the current regime."),
-                            "Piotroski": st.column_config.Column(help="9-point fundamental health score from the nightly dump."),
                             "RevGrowth": st.column_config.Column(help="YoY revenue growth from the nightly dump."),
                             "RVOL": st.column_config.Column(help="5-day vs 63-day average volume."),
                             "RangePos": st.column_config.Column(help="Position in the 63-day range — 100% = at the highs."),
