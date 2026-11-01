@@ -876,7 +876,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             "Health/Piotroski": st.column_config.Column(
                 help="Financial Health bar (gross margin, ROIC, ROE/ROA, D/E, current ratio) plus Piotroski 9-point score. Green Strong, amber OK, red Weak."),
             "Clean Setup": st.column_config.Column(
-                help="Clean Setup trend from the nightly dump — same bull / bear / mixed as the overlay (50-EMA vs 200-EMA and price)."),
+                help="Clean Setup trend from the nightly dump — same bull / bear / mixed as the overlay (multi-factor trend vote)."),
             "▲ Up": st.column_config.Column(
                 "▲ Up", width="medium",
                 help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means."),

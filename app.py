@@ -3478,7 +3478,7 @@ def _lk_place_tags(fig, x, tags, y_lo, y_hi, row=1):
 
 
 # Clean Setup overlay — port of CleanSetup.pine (Brad @ AI Upscale LLC).
-# Pivots, gates, and the 12 patterns use the same defaults as the Pine.
+# Pivot patterns keep the Pine gates; trend label is the multi-factor vote.
 _CS_PIV = 12
 _CS_MAX_AGE = 150
 _CS_MAX_PV = 8
@@ -3545,11 +3545,17 @@ def _lk_cs_pivots(arr, left: int, right: int, want_high: bool):
     return out
 
 
-def _lk_cs_trend_of(close) -> str:
+def _lk_cs_trend_of(close, high=None, low=None, volume=None) -> str:
     """Last-bar Clean Setup trend: bull, bear, mixed, or '' if not enough tape."""
     fn = getattr(ce, "clean_setup_trend_of", None)
     if callable(fn):
-        return fn(close)
+        try:
+            return fn(close, high=high, low=low, volume=volume)
+        except TypeError:
+            return fn(close)
+    pack_fn = getattr(ce, "clean_setup_trend_pack", None)
+    if callable(pack_fn):
+        return str((pack_fn(close, high=high, low=low, volume=volume) or {}).get("trend") or "")
     try:
         c = np.asarray(close, dtype=float)
     except Exception:
@@ -3573,10 +3579,12 @@ def _lk_cs_trend_of(close) -> str:
 def _lk_clean_setup(chart: pd.DataFrame) -> dict:
     """Walk the tape the way the Pine does and return EMAs, channel, marks."""
     blank = dict(ema50=None, ema200=None, signals=[], targets=[],
-                 ch_hi=None, ch_lo=None, rsi=np.nan, trend="mixed", n_tgt=0)
+                 ch_hi=None, ch_lo=None, rsi=np.nan, trend="mixed", n_tgt=0,
+                 score=0, bull=0, bear=0, adx=np.nan)
     need = ("Open", "High", "Low", "Close")
     if chart is None or chart.empty or not set(need).issubset(chart.columns):
         return blank
+    o = chart["Open"].to_numpy(dtype=float)
     h = chart["High"].to_numpy(dtype=float)
     l = chart["Low"].to_numpy(dtype=float)
     c = chart["Close"].to_numpy(dtype=float)
@@ -3585,14 +3593,17 @@ def _lk_clean_setup(chart: pd.DataFrame) -> dict:
     else:
         v = np.zeros(len(c), dtype=float)
     n = len(c)
+    ema20 = pd.Series(c, index=chart.index).ewm(span=20, adjust=False).mean()
     ema50 = pd.Series(c, index=chart.index).ewm(span=50, adjust=False).mean()
     ema200 = pd.Series(c, index=chart.index).ewm(span=200, adjust=False).mean()
+    e20 = ema20.to_numpy(dtype=float)
     e50 = ema50.to_numpy(dtype=float)
     e200 = ema200.to_numpy(dtype=float)
     rsi = _lk_wilder_rsi(c, 14)
     vol20 = pd.Series(v).rolling(20, min_periods=20).mean().to_numpy(dtype=float)
-    bull_tr = (e50 > e200) & (c > e50)
-    bear_tr = (e50 < e200) & (c < e50)
+    # Early stack (20/50) counts as a trend so flags fire before the 200-EMA lags in.
+    bull_tr = ((e50 > e200) | (e20 > e50)) & (c > e50)
+    bear_tr = ((e50 < e200) | (e20 < e50)) & (c < e50)
     liquid = (c >= _CS_MIN_PX) & (vol20 >= _CS_MIN_VOL)
     vol_ok = v > vol20
     rsi_ok = (rsi > 40.0) & (rsi < 60.0)
@@ -3601,6 +3612,11 @@ def _lk_clean_setup(chart: pd.DataFrame) -> dict:
         if not (0 <= i < n) or not liquid[i] or not rsi_ok[i] or not vol_ok[i]:
             return False
         return bool(bull_tr[i] if is_bull else bear_tr[i])
+
+    def _rev_gate(i, is_bull):
+        if not (0 <= i < n) or not liquid[i] or not np.isfinite(rsi[i]):
+            return False
+        return bool(rsi[i] < 35.0) if is_bull else bool(rsi[i] > 65.0)
 
     def _push(ps, bs, price, bar):
         ps.append(price)
@@ -3646,6 +3662,74 @@ def _lk_clean_setup(chart: pd.DataFrame) -> dict:
         if new_pv and len(phP) >= 2 and len(plP) >= 2:
             ch_hi = (phB[-2], phP[-2], phB[-1], phP[-1])
             ch_lo = (plB[-2], plP[-2], plB[-1], plP[-1])
+        if i >= n - 90:
+            body = abs(c[i] - o[i])
+            rng = h[i] - l[i] if np.isfinite(h[i]) and np.isfinite(l[i]) else 0.0
+            up_bar = np.isfinite(c[i]) and np.isfinite(o[i]) and c[i] > o[i]
+            dn_bar = np.isfinite(c[i]) and np.isfinite(o[i]) and c[i] < o[i]
+            if rng > 0 and body > 0:
+                lo_wick = min(o[i], c[i]) - l[i]
+                hi_wick = h[i] - max(o[i], c[i])
+                if (_rev_gate(i, True) and lo_wick >= 2.0 * body and hi_wick <= 0.4 * body
+                        and up_bar):
+                    _mark(i, l[i], "Hammer", True)
+                    _add_tgt(i, c[i], c[i] + rng * 1.5, True, i)
+                if (_rev_gate(i, False) and hi_wick >= 2.0 * body and lo_wick <= 0.4 * body
+                        and dn_bar):
+                    _mark(i, h[i], "Shooting Star", False)
+                    _add_tgt(i, c[i], c[i] - rng * 1.5, False, i)
+            if i >= 1:
+                prev_body = abs(c[i - 1] - o[i - 1])
+                if (up_bar and c[i - 1] < o[i - 1] and c[i] >= o[i - 1] and o[i] <= c[i - 1]
+                        and body > prev_body * 1.05 and (_gate(i, True) or _rev_gate(i, True))):
+                    _mark(i, l[i], "Bull Engulf", True)
+                    _add_tgt(i, c[i], c[i] + body * 2.0, True, i)
+                if (dn_bar and c[i - 1] > o[i - 1] and c[i] <= o[i - 1] and o[i] >= c[i - 1]
+                        and body > prev_body * 1.05 and (_gate(i, False) or _rev_gate(i, False))):
+                    _mark(i, h[i], "Bear Engulf", False)
+                    _add_tgt(i, c[i], c[i] - body * 2.0, False, i)
+            if i >= 2:
+                if (all(c[j] > o[j] for j in (i - 2, i - 1, i))
+                        and c[i] > c[i - 1] > c[i - 2] and _gate(i, True)):
+                    _mark(i, l[i], "3 Soldiers", True)
+                    _add_tgt(i, c[i], c[i] + (c[i] - c[i - 2]), True, i)
+                if (all(c[j] < o[j] for j in (i - 2, i - 1, i))
+                        and c[i] < c[i - 1] < c[i - 2] and _gate(i, False)):
+                    _mark(i, h[i], "3 Crows", False)
+                    _add_tgt(i, c[i], c[i] - (c[i - 2] - c[i]), False, i)
+                mid_small = abs(c[i - 1] - o[i - 1]) <= 0.4 * abs(c[i - 2] - o[i - 2]) if np.isfinite(o[i - 2]) else False
+                if (c[i - 2] < o[i - 2] and mid_small and c[i] > o[i]
+                        and c[i] > ((o[i - 2] + c[i - 2]) / 2.0) and _rev_gate(i, True)):
+                    _mark(i, l[i], "Morning Star", True)
+                    _add_tgt(i, c[i], c[i] + abs(c[i - 2] - o[i - 2]), True, i)
+                if (c[i - 2] > o[i - 2] and mid_small and c[i] < o[i]
+                        and c[i] < ((o[i - 2] + c[i - 2]) / 2.0) and _rev_gate(i, False)):
+                    _mark(i, h[i], "Evening Star", False)
+                    _add_tgt(i, c[i], c[i] - abs(c[i - 2] - o[i - 2]), False, i)
+            if i >= 20 and np.isfinite(c[i]):
+                hi20 = float(np.nanmax(h[i - 20:i]))
+                lo20 = float(np.nanmin(l[i - 20:i]))
+                if np.isfinite(hi20) and c[i] > hi20 and _gate(i, True):
+                    _mark(i, c[i], "20d Breakout", True)
+                    _add_tgt(i, c[i], c[i] + (hi20 - lo20), True, i)
+                if np.isfinite(lo20) and c[i] < lo20 and _gate(i, False):
+                    _mark(i, c[i], "20d Breakdown", False)
+                    _add_tgt(i, c[i], c[i] - (hi20 - lo20), False, i)
+            if i >= 1 and np.isfinite(e50[i]) and np.isfinite(e200[i]) and np.isfinite(e50[i - 1]) and np.isfinite(e200[i - 1]):
+                if e50[i] > e200[i] and e50[i - 1] <= e200[i - 1] and liquid[i]:
+                    _mark(i, e50[i], "Golden Cross", True)
+                if e50[i] < e200[i] and e50[i - 1] >= e200[i - 1] and liquid[i]:
+                    _mark(i, e50[i], "Death Cross", False)
+            if i >= 2 and len(plP) >= 1:
+                prior = plP[-1]
+                if (l[i] < prior and c[i] > prior and _rev_gate(i, True)):
+                    _mark(i, l[i], "Spring", True)
+                    _add_tgt(i, c[i], c[i] + (c[i] - l[i]) * 2.0, True, i)
+            if i >= 2 and len(phP) >= 1:
+                prior = phP[-1]
+                if (h[i] > prior and c[i] < prior and _rev_gate(i, False)):
+                    _mark(i, h[i], "Upthrust", False)
+                    _add_tgt(i, c[i], c[i] - (h[i] - c[i]) * 2.0, False, i)
         if not new_pv:
             continue
 
@@ -3698,8 +3782,10 @@ def _lk_clean_setup(chart: pd.DataFrame) -> dict:
                 flat_lo = (abs(ll1 - ll3) / ll3 < 0.01
                            and abs(ll1 - ll2) / ll2 < 0.01)
                 if flat_hi and ll1 > ll2 > ll3 and _gate(i, True):
+                    _mark(phB[-1], hh1, "Asc Triangle", True)
                     _add_tgt(phB[-1], hh1, hh1 + (hh1 - ll3), True, i)
                 if flat_lo and hh1 < hh2 < hh3 and _gate(i, False):
+                    _mark(plB[-1], ll1, "Desc Triangle", False)
                     _add_tgt(plB[-1], ll1, ll1 - (hh3 - ll1), False, i)
 
         # 6 inverse H&S
@@ -3761,12 +3847,87 @@ def _lk_clean_setup(chart: pd.DataFrame) -> dict:
                 _mark(cb, c_lo, "Higher Lows", True)
                 _add_tgt(cb, nk, nk + (c_lo - a), True, i)
 
+        # 13 lower-high sequence (bear structure)
+        if len(phP) >= 3 and len(plP) >= 1:
+            a, b, c_hi, cb = phP[-3], phP[-2], phP[-1], phB[-1]
+            nk = plP[-1]
+            if a > 0 and b < a * 0.98 and c_hi < b * 0.98 and _gate(i, False):
+                _mark(cb, c_hi, "Lower Highs", False)
+                _add_tgt(cb, nk, nk - (a - c_hi), False, i)
+
+        # 14 double bottom / 15 double top
+        if len(plP) >= 2 and len(phP) >= 1:
+            a, b, bb = plP[-2], plP[-1], plB[-1]
+            nk = phP[-1]
+            if a > 0 and abs(b - a) / a <= 0.015 and b >= a * 0.99 and _gate(i, True):
+                _mark(bb, b, "Double Bottom", True)
+                _add_tgt(bb, nk, nk + (nk - min(a, b)), True, i)
+        if len(phP) >= 2 and len(plP) >= 1:
+            a, b, bb = phP[-2], phP[-1], phB[-1]
+            nk = plP[-1]
+            if a > 0 and abs(b - a) / a <= 0.015 and b <= a * 1.01 and _gate(i, False):
+                _mark(bb, b, "Double Top", False)
+                _add_tgt(bb, nk, nk - (max(a, b) - nk), False, i)
+
+        # 16 rounding top
+        if len(phP) >= 3 and len(plP) >= 1:
+            la, lb, lc, lc_b = phP[-3], phP[-2], phP[-1], phB[-1]
+            nk = plP[-1]
+            if (la > 0 and lb > la * 1.04 and lb > lc * 1.04
+                    and lc <= la * 1.03 and _gate(i, False)):
+                _mark(lc_b, lc, "Rounding Top", False)
+                _add_tgt(lc_b, nk, nk - (lb - nk), False, i)
+
+        # 17 pennant (pole + both sides compressing)
+        if len(phP) >= 3 and len(plP) >= 3:
+            hh1, hh0, hh00 = phP[-1], phP[-2], phP[-3]
+            ll1, ll0 = plP[-1], plP[-2]
+            pole = (hh00 - ll0) / ll0 * 100.0 if ll0 > 0 else 0.0
+            if (hh1 < hh0 and ll1 > ll0 and 6.0 < pole < 25.0 and _gate(i, True)):
+                _mark(plB[-1], ll1, "Pennant", True)
+                _add_tgt(phB[-1], hh1, hh1 + (hh00 - ll0) * 0.7, True, i)
+
+        # 18 / 19 channels
+        if len(phP) >= 3 and len(plP) >= 3:
+            if (phP[-1] > phP[-2] > phP[-3] and plP[-1] > plP[-2] > plP[-3]
+                    and _gate(i, True)):
+                _mark(plB[-1], plP[-1], "Asc Channel", True)
+                _add_tgt(phB[-1], phP[-1], phP[-1] + (phP[-1] - plP[-1]), True, i)
+            if (phP[-1] < phP[-2] < phP[-3] and plP[-1] < plP[-2] < plP[-3]
+                    and _gate(i, False)):
+                _mark(phB[-1], phP[-1], "Desc Channel", False)
+                _add_tgt(plB[-1], plP[-1], plP[-1] - (phP[-1] - plP[-1]), False, i)
+
+        # 20 rectangle / range
+        if len(phP) >= 3 and len(plP) >= 3:
+            hs, ls_ = phP[-3:], plP[-3:]
+            if (max(hs) > 0 and (max(hs) - min(hs)) / max(hs) < 0.012
+                    and max(ls_) > 0 and (max(ls_) - min(ls_)) / max(ls_) < 0.012
+                    and (min(hs) - max(ls_)) / min(hs) > 0.03):
+                if _gate(i, True):
+                    _mark(phB[-1], phP[-1], "Rectangle", True)
+                    _add_tgt(phB[-1], min(hs), min(hs) + (min(hs) - max(ls_)), True, i)
+                elif _gate(i, False):
+                    _mark(plB[-1], plP[-1], "Rectangle", False)
+                    _add_tgt(plB[-1], max(ls_), max(ls_) - (min(hs) - max(ls_)), False, i)
+
     last = n - 1
-    trend = _lk_cs_trend_of(c) or "mixed"
+    pack = {}
+    pfn = getattr(ce, "clean_setup_trend_pack", None)
+    if callable(pfn):
+        try:
+            pack = pfn(c, high=h, low=l, volume=v) or {}
+        except Exception:
+            pack = {}
+    trend = str(pack.get("trend") or "") or _lk_cs_trend_of(c, h, l, v) or "mixed"
     return dict(ema50=ema50, ema200=ema200, signals=signals, targets=targets,
                 ch_hi=ch_hi, ch_lo=ch_lo,
                 rsi=float(rsi[last]) if last >= 0 and np.isfinite(rsi[last]) else np.nan,
-                trend=trend, n_tgt=len(targets))
+                trend=trend, n_tgt=len(targets),
+                score=int(pack.get("score") or 0),
+                bull=int(pack.get("bull") or 0),
+                bear=int(pack.get("bear") or 0),
+                adx=pack.get("adx", np.nan))
 
 
 def _lk_clip_seg(i0, y0, i1, y1, vis0, vis1):
@@ -3857,12 +4018,14 @@ def _lk_bicolor_line(fig, xx, y, use_a, col_a, col_b, name, width, dash=None):
 def _lk_cs_readout(cs: dict) -> None:
     """Pine-style Trend / Active / RSI strip above the Clean Setup chart."""
     trend = cs.get("trend") or "mixed"
+    bu, be = int(cs.get("bull") or 0), int(cs.get("bear") or 0)
+    tally = f" · {bu}–{be}" if (bu or be) else ""
     if trend == "bull":
-        label, col = "▲  Bull", _CS_BULL
+        label, col = f"▲  Bull{tally}", _CS_BULL
     elif trend == "bear":
-        label, col = "▼  Bear", _CS_BEAR
+        label, col = f"▼  Bear{tally}", _CS_BEAR
     else:
-        label, col = "—  Mixed", DIM
+        label, col = f"—  Mixed{tally}", DIM
     n = int(cs.get("n_tgt") or 0)
     active = f"{n} target" + ("" if n == 1 else "s")
     rsi = cs.get("rsi")
@@ -5296,7 +5459,7 @@ def _health_setup_col_cfgs():
         scol: st.column_config.Column(
             help=helpmap.get(scol) or (
                 "Clean Setup trend from the nightly dump — same bull / bear / "
-                "mixed as the overlay (50-EMA vs 200-EMA and price).")),
+                "mixed as the overlay (multi-factor trend vote).")),
     }
 
 
@@ -6858,7 +7021,7 @@ with st.container(border=True, key="mw_page"):
                     "Health/Piotroski": st.column_config.Column(
                         help="Financial Health bar (gross margin, ROIC, ROE/ROA, D/E, current ratio) plus Piotroski 9-point score. Green Strong, amber OK, red Weak."),
                     "Clean Setup": st.column_config.Column(
-                        help="Clean Setup trend from the nightly dump — same bull / bear / mixed as the overlay (50-EMA vs 200-EMA and price)."),
+                        help="Clean Setup trend from the nightly dump — same bull / bear / mixed as the overlay (EMA stack, MACD, ADX, Donchian, Supertrend, Aroon, structure)."),
                     "Saved": st.column_config.Column(
                         help="Calendar day you saved it, in your timezone. No clock."),
                     "Since saved": st.column_config.Column(

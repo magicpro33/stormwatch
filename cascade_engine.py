@@ -1608,8 +1608,9 @@ HEALTH_SETUP_HELP = {
         "ratio) plus Piotroski 9-point score. Green Strong, amber OK, red Weak."
     ),
     SETUP_COL: (
-        "Clean Setup trend from the nightly dump — same bull / bear / mixed "
-        "as the overlay (50-EMA vs 200-EMA and price)."
+        "Clean Setup trend — multi-factor vote (EMA stack, MACD, ADX, "
+        "Donchian, Supertrend, Aroon, structure, ROC, PSAR, Ichimoku). "
+        "▲ Bull / ▼ Bear / — Mixed, same as the overlay."
     ),
 }
 
@@ -4215,30 +4216,358 @@ def health_cell_text(h) -> str:
     return f"{bar} {label}{pio_s}"
 
 
-def clean_setup_trend_of(close) -> str:
-    """Last-bar Clean Setup trend: bull, bear, mixed, or '' if not enough tape."""
+def _cs_ema_series(x, span: int) -> np.ndarray:
+    """adjust=False EMA, carrying through gaps the way pandas does."""
+    x = np.asarray(x, dtype=float)
+    n = len(x)
+    out = np.full(n, np.nan)
+    if n == 0 or span <= 0:
+        return out
+    alpha = 2.0 / (float(span) + 1.0)
+    e = np.nan
+    for i in range(n):
+        v = x[i]
+        if not np.isfinite(v):
+            out[i] = e
+            continue
+        e = v if not np.isfinite(e) else (alpha * v + (1.0 - alpha) * e)
+        out[i] = e
+    return out
+
+
+def _cs_wilder_series(x, n: int) -> np.ndarray:
+    """Wilder moving average (mean of first n, then (prev*(n-1)+x)/n)."""
+    x = np.asarray(x, dtype=float)
+    out = np.full(len(x), np.nan)
+    if len(x) < n or n <= 0:
+        return out
+    s = 0.0
+    k = 0
+    m = np.nan
+    for i, v in enumerate(x):
+        if not np.isfinite(v):
+            continue
+        if k < n:
+            s += float(v)
+            k += 1
+            if k == n:
+                m = s / n
+                out[i] = m
+            continue
+        m = (m * (n - 1) + float(v)) / n
+        out[i] = m
+    return out
+
+
+def _cs_last(x):
+    x = np.asarray(x, dtype=float)
+    finite = np.isfinite(x)
+    if not finite.any():
+        return np.nan
+    return float(x[np.where(finite)[0][-1]])
+
+
+def _cs_vote(pos, neg) -> int:
+    if pos:
+        return 1
+    if neg:
+        return -1
+    return 0
+
+
+def _cs_linreg_vote(c, n: int = 40) -> int:
+    y = np.asarray(c, dtype=float)[-n:]
+    m = np.isfinite(y) & (y > 0)
+    if int(m.sum()) < 15:
+        return 0
+    y = np.log(y[m])
+    x = np.arange(len(y), dtype=float)
+    slope, intercept = np.polyfit(x, y, 1)
+    yhat = slope * x + intercept
+    ss_res = float(np.sum((y - yhat) ** 2))
+    ss_tot = float(np.sum((y - y.mean()) ** 2))
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-18 else 0.0
+    if r2 < 0.22:
+        return 0
+    if slope > 0:
+        return 1
+    if slope < 0:
+        return -1
+    return 0
+
+
+def _cs_aroon_vote(h, l, n: int = 25) -> int:
+    h = np.asarray(h, dtype=float)[-n:]
+    l = np.asarray(l, dtype=float)[-n:]
+    if len(h) < n or not np.isfinite(h).any() or not np.isfinite(l).any():
+        return 0
+    hi = int(np.nanargmax(h))
+    lo = int(np.nanargmin(l))
+    bars_up = n - 1 - hi
+    bars_dn = n - 1 - lo
+    up = 100.0 * (n - bars_up) / n
+    dn = 100.0 * (n - bars_dn) / n
+    return _cs_vote(up >= 70 and up > dn, dn >= 70 and dn > up)
+
+
+def _cs_adx_di(h, l, c, n: int = 14):
+    h = np.asarray(h, dtype=float)
+    l = np.asarray(l, dtype=float)
+    c = np.asarray(c, dtype=float)
+    T = min(len(h), len(l), len(c))
+    if T < n + 2:
+        return np.nan, np.nan, np.nan
+    h, l, c = h[-T:], l[-T:], c[-T:]
+    up = np.diff(h)
+    dn = -np.diff(l)
+    plus_dm = np.where((up > dn) & (up > 0), up, 0.0).astype(float)
+    minus_dm = np.where((dn > up) & (dn > 0), dn, 0.0).astype(float)
+    prev = c[:-1]
+    tr = np.maximum(h[1:] - l[1:],
+                    np.maximum(np.abs(h[1:] - prev), np.abs(l[1:] - prev)))
+    atr = _cs_wilder_series(tr, n)
+    pdm = _cs_wilder_series(plus_dm, n)
+    mdm = _cs_wilder_series(minus_dm, n)
+    denom = np.where(atr > 0, atr, np.nan)
+    pdi = 100.0 * pdm / denom
+    mdi = 100.0 * mdm / denom
+    dx = 100.0 * np.abs(pdi - mdi) / np.where((pdi + mdi) > 0, pdi + mdi, np.nan)
+    adx_s = _cs_wilder_series(np.where(np.isfinite(dx), dx, np.nan), n)
+    return _cs_last(adx_s), _cs_last(pdi), _cs_last(mdi)
+
+
+def _cs_supertrend_last(h, l, c, n: int = 10, mult: float = 3.0) -> int:
+    h = np.asarray(h, dtype=float)
+    l = np.asarray(l, dtype=float)
+    c = np.asarray(c, dtype=float)
+    T = min(len(h), len(l), len(c))
+    if T < n + 3:
+        return 0
+    h, l, c = h[-T:], l[-T:], c[-T:]
+    prev = np.roll(c, 1)
+    prev[0] = c[0]
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prev), np.abs(l - prev)))
+    atr = _cs_wilder_series(tr, n)
+    hl2 = (h + l) / 2.0
+    upper = hl2 + mult * atr
+    lower = hl2 - mult * atr
+    st = np.full(T, np.nan)
+    up = True
+    for i in range(T):
+        if not (np.isfinite(upper[i]) and np.isfinite(lower[i]) and np.isfinite(c[i])):
+            st[i] = st[i - 1] if i else np.nan
+            continue
+        if i == 0 or not np.isfinite(st[i - 1]):
+            up = True
+            st[i] = lower[i]
+            continue
+        if up:
+            lo = max(lower[i], st[i - 1]) if np.isfinite(st[i - 1]) else lower[i]
+            if c[i] < lo:
+                up = False
+                st[i] = upper[i]
+            else:
+                st[i] = lo
+        else:
+            hi = min(upper[i], st[i - 1]) if np.isfinite(st[i - 1]) else upper[i]
+            if c[i] > hi:
+                up = True
+                st[i] = lower[i]
+            else:
+                st[i] = hi
+    last_c, last_st = _cs_last(c), _cs_last(st)
+    if not (np.isfinite(last_c) and np.isfinite(last_st)):
+        return 0
+    return 1 if last_c > last_st else -1
+
+
+def _cs_psar_last(h, l, step: float = 0.02, maxaf: float = 0.2) -> int:
+    h = np.asarray(h, dtype=float)
+    l = np.asarray(l, dtype=float)
+    T = min(len(h), len(l))
+    if T < 5:
+        return 0
+    h, l = h[-T:], l[-T:]
+    up = True
+    af = step
+    hp, lp = h[0], l[0]
+    sar = l[0] if np.isfinite(l[0]) else h[0]
+    last_sar, last_c = sar, (h[0] + l[0]) / 2.0
+    for i in range(1, T):
+        hi, lo = h[i], l[i]
+        if not (np.isfinite(hi) and np.isfinite(lo) and np.isfinite(sar)):
+            continue
+        if up:
+            sar = sar + af * (hp - sar)
+            sar = min(sar, l[i - 1], l[i - 2] if i >= 2 else l[i - 1])
+            if lo < sar:
+                up = False
+                sar = hp
+                lp = lo
+                af = step
+            else:
+                if hi > hp:
+                    hp = hi
+                    af = min(maxaf, af + step)
+        else:
+            sar = sar + af * (lp - sar)
+            sar = max(sar, h[i - 1], h[i - 2] if i >= 2 else h[i - 1])
+            if hi > sar:
+                up = True
+                sar = lp
+                hp = hi
+                af = step
+            else:
+                if lo < lp:
+                    lp = lo
+                    af = min(maxaf, af + step)
+        last_sar = sar
+        last_c = (hi + lo) / 2.0
+    if not (np.isfinite(last_sar) and np.isfinite(last_c)):
+        return 0
+    return 1 if last_c > last_sar else -1
+
+
+def clean_setup_trend_pack(close, high=None, low=None, volume=None) -> dict:
+    """Last-bar Clean Setup trend plus the vote board that produced it.
+
+    Close-only votes always run. High/low unlock ADX, Supertrend, PSAR,
+    true Donchian, Aroon, and Ichimoku. Volume unlocks OBV slope.
+    """
+    blank = dict(trend="", score=0, bull=0, bear=0, n=0, adx=np.nan, votes={})
     try:
         c = np.asarray(close, dtype=float)
     except Exception:
-        return ""
-    finite = np.isfinite(c)
-    if int(finite.sum()) < 50:
-        return ""
-    s = pd.Series(c[finite])
-    e50 = float(s.ewm(span=50, adjust=False).mean().iloc[-1])
-    e200 = float(s.ewm(span=200, adjust=False).mean().iloc[-1])
-    last = float(s.iloc[-1])
-    if not (np.isfinite(e50) and np.isfinite(e200) and np.isfinite(last)):
-        return ""
-    if e50 > e200 and last > e50:
-        return "bull"
-    if e50 < e200 and last < e50:
-        return "bear"
-    return "mixed"
+        return blank
+    if int(np.isfinite(c).sum()) < 50:
+        return blank
+    h = np.asarray(high, dtype=float) if high is not None else None
+    l = np.asarray(low, dtype=float) if low is not None else None
+    v = np.asarray(volume, dtype=float) if volume is not None else None
+    if h is not None and (len(h) != len(c) or not np.isfinite(h).any()):
+        h = None
+    if l is not None and (len(l) != len(c) or not np.isfinite(l).any()):
+        l = None
+    if h is None or l is None:
+        h = l = None
+    last = _cs_last(c)
+    if not np.isfinite(last) or last <= 0:
+        return blank
+    e20 = _cs_ema_series(c, 20)
+    e50 = _cs_ema_series(c, 50)
+    long_span = 200 if int(np.isfinite(c).sum()) >= 200 else 100
+    e200 = _cs_ema_series(c, long_span)
+    e20l, e50l, e200l = _cs_last(e20), _cs_last(e50), _cs_last(e200)
+    votes = {}
+    votes["ema_slow"] = _cs_vote(
+        np.isfinite(e50l) and np.isfinite(e200l) and e50l > e200l and last > e50l,
+        np.isfinite(e50l) and np.isfinite(e200l) and e50l < e200l and last < e50l)
+    votes["ema_fast"] = _cs_vote(
+        np.isfinite(e20l) and np.isfinite(e50l) and e20l > e50l and last > e20l,
+        np.isfinite(e20l) and np.isfinite(e50l) and e20l < e50l and last < e20l)
+    if len(c) >= 35:
+        macd = _cs_ema_series(c, 12) - _cs_ema_series(c, 26)
+        sig = _cs_ema_series(macd, 9)
+        ml, sl = _cs_last(macd), _cs_last(sig)
+        votes["macd"] = _cs_vote(np.isfinite(ml) and np.isfinite(sl) and ml > sl,
+                                 np.isfinite(ml) and np.isfinite(sl) and ml < sl)
+    if len(c) >= 22:
+        prev = c[-22] if np.isfinite(c[-22]) else np.nan
+        roc = last / prev - 1.0 if np.isfinite(prev) and prev > 0 else np.nan
+        votes["roc"] = _cs_vote(np.isfinite(roc) and roc > 0.03,
+                                np.isfinite(roc) and roc < -0.03)
+    votes["linreg"] = _cs_linreg_vote(c, 40)
+    src_h = h if h is not None else c
+    src_l = l if l is not None else c
+    w = min(20, len(c))
+    hi20, lo20 = np.nanmax(src_h[-w:]), np.nanmin(src_l[-w:])
+    if np.isfinite(hi20) and np.isfinite(lo20) and hi20 > lo20:
+        pos = (last - lo20) / (hi20 - lo20)
+        votes["donchian"] = _cs_vote(pos >= 0.70, pos <= 0.30)
+    if len(c) >= 40:
+        hi_now, hi_was = np.nanmax(src_h[-20:]), np.nanmax(src_h[-40:-20])
+        lo_now, lo_was = np.nanmin(src_l[-20:]), np.nanmin(src_l[-40:-20])
+        hh = np.isfinite(hi_now) and np.isfinite(hi_was) and hi_now > hi_was
+        hl = np.isfinite(lo_now) and np.isfinite(lo_was) and lo_now > lo_was
+        lh = np.isfinite(hi_now) and np.isfinite(hi_was) and hi_now < hi_was
+        ll = np.isfinite(lo_now) and np.isfinite(lo_was) and lo_now < lo_was
+        votes["structure"] = _cs_vote(hh and hl, lh and ll)
+    votes["aroon"] = _cs_aroon_vote(src_h, src_l, 25)
+    adx = pdi = mdi = np.nan
+    if h is not None:
+        adx, pdi, mdi = _cs_adx_di(h, l, c, 14)
+        votes["di"] = _cs_vote(
+            np.isfinite(pdi) and np.isfinite(mdi) and np.isfinite(adx)
+            and adx >= 12 and pdi > mdi,
+            np.isfinite(pdi) and np.isfinite(mdi) and np.isfinite(adx)
+            and adx >= 12 and mdi > pdi)
+        votes["supertrend"] = _cs_supertrend_last(h, l, c)
+        votes["psar"] = _cs_psar_last(h, l)
+        if len(c) >= 52:
+            tenkan = 0.5 * (np.nanmax(src_h[-9:]) + np.nanmin(src_l[-9:]))
+            kijun = 0.5 * (np.nanmax(src_h[-26:]) + np.nanmin(src_l[-26:]))
+            ssa = 0.5 * (tenkan + kijun)
+            ssb = 0.5 * (np.nanmax(src_h[-52:]) + np.nanmin(src_l[-52:]))
+            cloud_top, cloud_bot = max(ssa, ssb), min(ssa, ssb)
+            votes["ichimoku"] = _cs_vote(
+                last > cloud_top and tenkan > kijun,
+                last < cloud_bot and tenkan < kijun)
+    if v is not None and len(v) == len(c) and int(np.isfinite(v).sum()) >= 25:
+        obv = np.zeros(len(c), dtype=float)
+        for i in range(1, len(c)):
+            if not (np.isfinite(c[i]) and np.isfinite(c[i - 1]) and np.isfinite(v[i])):
+                obv[i] = obv[i - 1]
+                continue
+            if c[i] > c[i - 1]:
+                obv[i] = obv[i - 1] + float(v[i])
+            elif c[i] < c[i - 1]:
+                obv[i] = obv[i - 1] - float(v[i])
+            else:
+                obv[i] = obv[i - 1]
+        votes["obv"] = _cs_linreg_vote(np.clip(obv[-40:] - np.nanmin(obv[-40:]) + 1.0, 1.0, None), 40)
+    score = int(sum(int(v) for v in votes.values()))
+    n_up = sum(1 for v in votes.values() if v > 0)
+    n_dn = sum(1 for v in votes.values() if v < 0)
+    n = len(votes)
+    if np.isfinite(adx) and adx >= 35:
+        need = 2
+    elif np.isfinite(adx) and adx >= 25:
+        need = 3
+    else:
+        need = 4 if h is not None else 3
+    if score >= need:
+        trend = "bull"
+    elif score <= -need:
+        trend = "bear"
+    else:
+        trend = "mixed"
+    # Pullback still in a trend: structure agrees even if price slipped under EMA50.
+    core = ("linreg", "structure", "aroon", "ema_slow", "ema_fast", "di")
+    cu = sum(1 for k in core if votes.get(k, 0) > 0)
+    cd = sum(1 for k in core if votes.get(k, 0) < 0)
+    if trend == "mixed":
+        if cu >= 3 and cu >= cd + 2:
+            trend = "bull"
+        elif cd >= 3 and cd >= cu + 2:
+            trend = "bear"
+    triple_up = all(int(votes.get(k, 0) or 0) > 0 for k in ("linreg", "structure", "aroon"))
+    triple_dn = all(int(votes.get(k, 0) or 0) < 0 for k in ("linreg", "structure", "aroon"))
+    if triple_up and score > -need:
+        trend = "bull"
+    elif triple_dn and score < need:
+        trend = "bear"
+    return dict(trend=trend, score=score, bull=n_up, bear=n_dn, n=n,
+                adx=float(adx) if np.isfinite(adx) else np.nan, votes=votes)
+
+
+def clean_setup_trend_of(close, high=None, low=None, volume=None) -> str:
+    """Last-bar Clean Setup trend: bull, bear, mixed, or '' if not enough tape."""
+    pack = clean_setup_trend_pack(close, high=high, low=low, volume=volume)
+    return str(pack.get("trend") or "")
 
 
 def clean_setup_trends(tickers) -> dict:
-    """▲ Bull / ▼ Bear / — Mixed labels keyed by ticker, from dump closes."""
+    """▲ Bull / ▼ Bear / — Mixed labels keyed by ticker, from dump OHLCV."""
     labels = {"bull": "▲ Bull", "bear": "▼ Bear", "mixed": "— Mixed"}
     out = {}
     wanted = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
@@ -4246,7 +4575,7 @@ def clean_setup_trends(tickers) -> dict:
         return out
     try:
         panel, tks, *_rest = load_dump_panel()
-        C = panel["c"]
+        C, H, L, V = panel["c"], panel["h"], panel["l"], panel["v"]
         imap = _tick_ix_map(tks)
     except Exception as e:
         _log_exc("clean_setup_trends.panel", e)
@@ -4257,7 +4586,11 @@ def clean_setup_trends(tickers) -> dict:
             out[t] = "—"
             continue
         try:
-            key = clean_setup_trend_of(np.asarray(C[:, j], dtype=float))
+            key = clean_setup_trend_of(
+                np.asarray(C[:, j], dtype=float),
+                high=np.asarray(H[:, j], dtype=float),
+                low=np.asarray(L[:, j], dtype=float),
+                volume=np.asarray(V[:, j], dtype=float))
         except Exception:
             key = ""
         out[t] = labels.get(key, "—")

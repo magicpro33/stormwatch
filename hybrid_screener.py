@@ -1586,7 +1586,7 @@ def render_hybrid_screener() -> None:
         _cat_cfg[_scol] = st.column_config.Column(
             help=_hs_help.get(_scol) or (
                 "Clean Setup trend from the nightly dump — same bull / bear / "
-                "mixed as the overlay."))
+                "mixed as the overlay (multi-factor trend vote)."))
     if "Piotroski" in display.columns:
         _cat_cfg["Piotroski"] = st.column_config.Column(
             help="Accounting health F-Score. 7–9 strong; 0–2 weak.")
