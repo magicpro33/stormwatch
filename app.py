@@ -671,6 +671,7 @@ def _menu_category_css() -> str:
         ("_az_value", "#C8F542"),
         ("_az_health", "#A78BFA"),
         ("_az_scan", "#C5D4FF"),
+        ("_az_insider", "#67E8F9"),
     ):
         rules.append(
             f'[class*="{_slug}"]{{border-left:3px solid {_pc} !important;'
@@ -3159,51 +3160,52 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
             f"{nb} buys / {ns} sells · {_usd_txt(net90)} {net_lbl}</span>"))
         mtable(rows)
         owners = list(pack.get("owners") or [])
-        if owners:
-            odf = pd.DataFrame(owners)
-            st.caption("Top 10 owners — same person or fund combined. "
-                       "Flags: BlackRock, Vanguard, State Street, Trump, U.S. Senate.")
-            _ost = odf.style.format(
-                {"Shares": "{:,.0f}"}, na_rep="—",
-                subset=["Shares"] if "Shares" in odf.columns else [])
-            if "Flag" in odf.columns:
-                _ost = _ost.map(_css_owner_flag, subset=["Flag"])
-            st.dataframe(
-                _ost, width="stretch", hide_index=True,
-                height=_fit_list_height(min(len(odf), 10)),
-                column_config={
-                    "Owner": st.column_config.Column(help="Insider or 13F institution. Repeat filings are summed."),
-                    "Role": st.column_config.Column(help="Title on the Form 4, or Institution for 13F holders."),
-                    "Shares": st.column_config.Column(help="Total reported shares for this owner."),
-                    "Flag": st.column_config.Column(
-                        help="BlackRock, Vanguard, State Street, Trump, or a sitting U.S. senator."),
-                    "Date": st.column_config.Column(help="Latest filing date in the combined rows."),
-                })
-        else:
-            st.caption("No holder list on file for this name.")
+        _own_lbl = f"Top 10 owners · {len(owners)}" if owners else "Top 10 owners"
+        with st.expander(_own_lbl, expanded=False):
+            if owners:
+                odf = pd.DataFrame(owners)
+                _ost = odf.style.format(
+                    {"Shares": "{:,.0f}"}, na_rep="—",
+                    subset=["Shares"] if "Shares" in odf.columns else [])
+                if "Flag" in odf.columns:
+                    _ost = _ost.map(_css_owner_flag, subset=["Flag"])
+                st.dataframe(
+                    _ost, width="stretch", hide_index=True,
+                    height=_fit_list_height(min(len(odf), 10)),
+                    column_config={
+                        "Owner": st.column_config.Column(help="Insider or 13F institution. Repeat filings are summed."),
+                        "Role": st.column_config.Column(help="Title on the Form 4, or Institution for 13F holders."),
+                        "Shares": st.column_config.Column(help="Total reported shares for this owner."),
+                        "Flag": st.column_config.Column(
+                            help="BlackRock, Vanguard, State Street, Trump, or a sitting U.S. senator."),
+                        "Date": st.column_config.Column(help="Latest filing date in the combined rows."),
+                    })
+            else:
+                st.caption("No holder list on file for this name.")
         trades = list(pack.get("trades") or [])
-        if trades:
-            tdf = pd.DataFrame(trades)
-            st.caption("Recent Form 4 activity")
-            _tst = tdf.style.format(
-                {"Shares": "{:,.0f}", "Value": "${:,.0f}"},
-                na_rep="—", subset=["Shares", "Value"])
-            if "Action" in tdf.columns:
-                _tst = _tst.map(_css_insider_act, subset=["Action"])
-            st.dataframe(
-                _tst, width="stretch", hide_index=True,
-                height=_fit_list_height(min(len(tdf), 12)),
-                column_config={
-                    "Date": st.column_config.Column(help="Form 4 start date."),
-                    "Insider": st.column_config.Column(help="Officer, director, or 10% holder."),
-                    "Role": st.column_config.Column(help="Title on the filing."),
-                    "Action": st.column_config.Column(
-                        help="Buy/Sell are open-market. Grant, Exercise, and Gift are not cash conviction."),
-                    "Shares": st.column_config.Column(help="Share count on the filing."),
-                    "Value": st.column_config.Column(help="Dollar value when Yahoo reports a price."),
-                })
-        else:
-            st.caption("No Form 4 trades on file for this name.")
+        _f4_lbl = f"Recent Form 4 activity · {len(trades)}" if trades else "Recent Form 4 activity"
+        with st.expander(_f4_lbl, expanded=False):
+            if trades:
+                tdf = pd.DataFrame(trades)
+                _tst = tdf.style.format(
+                    {"Shares": "{:,.0f}", "Value": "${:,.0f}"},
+                    na_rep="—", subset=["Shares", "Value"])
+                if "Action" in tdf.columns:
+                    _tst = _tst.map(_css_insider_act, subset=["Action"])
+                st.dataframe(
+                    _tst, width="stretch", hide_index=True,
+                    height=_fit_list_height(min(len(tdf), 12)),
+                    column_config={
+                        "Date": st.column_config.Column(help="Form 4 start date."),
+                        "Insider": st.column_config.Column(help="Officer, director, or 10% holder."),
+                        "Role": st.column_config.Column(help="Title on the filing."),
+                        "Action": st.column_config.Column(
+                            help="Buy/Sell are open-market. Grant, Exercise, and Gift are not cash conviction."),
+                        "Shares": st.column_config.Column(help="Share count on the filing."),
+                        "Value": st.column_config.Column(help="Dollar value when Yahoo reports a price."),
+                    })
+            else:
+                st.caption("No Form 4 trades on file for this name.")
 
 
 def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
