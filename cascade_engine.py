@@ -117,7 +117,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.48"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.49"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -2290,8 +2290,12 @@ def fetch_lookup_news(ticker: str, name: str = "") -> list:
             "pos": int(pos),
             "neg": int(neg),
         })
-    order = {"up": 0, "down": 1, "mixed": 2, "neutral": 3}
-    items.sort(key=lambda a: (order.get(a["side"], 9), -a["pos"] - a["neg"]))
+    def _pub_key(a):
+        ts = pd.to_datetime(a.get("published"), errors="coerce", utc=True)
+        if pd.isna(ts):
+            return pd.Timestamp("1970-01-01", tz="UTC")
+        return ts
+    items.sort(key=_pub_key, reverse=True)
     return items[:48]
 
 
@@ -4118,6 +4122,7 @@ def watchlist_health_rows(tickers: list) -> dict:
             (roa, 0.08, 0.04, False),
             (de, 150, 80, True),
             (cr, 1.5, 1.0, False),
+            (pio, 7, 5, False),
         ):
             g = _health_grade(v, hi, lo, invert=inv)
             if g is not None:
@@ -4768,66 +4773,74 @@ def _ny_calendar_date():
 
 
 def watchlist_stamp_date() -> str:
-    """America/New_York save stamp: 'YYYY-MM-DD HH:MM ET'.
-
-    Uses the wall clock in Eastern time (not the server's UTC date). Date-only
-    legacy rows stay date-only; new saves keep the time so Saturday night is
-    not stored as Sunday UTC.
-    """
+    """UTC ISO save stamp. Display converts to the viewer's timezone."""
     try:
-        now = pd.Timestamp.now(tz="America/New_York")
-        return f"{now.strftime('%Y-%m-%d %H:%M')} ET"
+        now = pd.Timestamp.now(tz="UTC")
+        return now.strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         return str(date.today())
 
 
 def watchlist_normalize_added(raw) -> str:
-    """Coerce stored added values to an Eastern stamp.
+    """Keep date-only rows; coerce timed stamps to UTC ISO.
 
-    Date-only strings stay YYYY-MM-DD (already a NY calendar date). Datetimes
-    convert to America/New_York as 'YYYY-MM-DD HH:MM ET'. Empty if unreadable.
+    Date-only YYYY-MM-DD stays a calendar date. Timed values (ISO, Z, or the
+    older 'YYYY-MM-DD HH:MM ET' form) become UTC ISO so the UI can show them
+    in the user's timezone.
     """
     if raw is None:
         return ""
     s = str(raw).strip()
     if not s or s.lower() in ("nan", "nat", "none", "—"):
         return ""
-    if s.endswith(" ET") and len(s) >= 16:
-        return s
     if len(s) == 10 and s[4] == "-" and s[7] == "-" and s[:10].replace("-", "").isdigit():
         return s[:10]
-    has_time = ("T" in s) or (":" in s) or s.endswith("Z") or s.endswith("z")
+    et = s.endswith(" ET")
+    body = s[:-3].strip() if et else s
+    has_time = ("T" in body) or (":" in body) or body.endswith("Z") or body.endswith("z")
     try:
-        ts = pd.to_datetime(s, errors="coerce")
+        ts = pd.to_datetime(body, errors="coerce")
         if pd.isna(ts):
             return s[:10] if len(s) >= 10 and s[0].isdigit() else ""
-        if getattr(ts, "tzinfo", None) is not None:
-            ts = ts.tz_convert("America/New_York")
-        elif has_time:
-            # Naive clock times were written as Eastern; do not treat as UTC.
-            ts = ts.tz_localize("America/New_York")
         if not has_time:
             return str(pd.Timestamp(ts).date())
-        return f"{pd.Timestamp(ts).strftime('%Y-%m-%d %H:%M')} ET"
+        if getattr(ts, "tzinfo", None) is not None:
+            ts = ts.tz_convert("UTC")
+        elif et:
+            ts = ts.tz_localize("America/New_York").tz_convert("UTC")
+        else:
+            ts = ts.tz_localize("UTC")
+        return pd.Timestamp(ts).strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         pass
     return s[:10] if len(s) >= 10 and s[0].isdigit() else ""
 
 
-def watchlist_format_added(raw) -> str:
-    """Watchlist Saved cell: 'Oct 31, 10:42 PM ET' or 'Oct 15' for date-only."""
+def watchlist_format_added(raw, tz_name: str | None = None) -> str:
+    """Watchlist Saved cell in the viewer's timezone, or a date-only label."""
     s = watchlist_normalize_added(raw)
     if not s:
         return "—"
+    tz_name = str(tz_name or "").strip() or None
     try:
-        body = s[:-3].strip() if s.endswith(" ET") else s
-        ts = pd.to_datetime(body, errors="coerce")
+        if len(s) == 10 and s[4] == "-" and s[7] == "-":
+            ts = pd.to_datetime(s, errors="coerce")
+            if pd.isna(ts):
+                return s
+            return f"{ts.strftime('%b')} {int(ts.day)}"
+        ts = pd.to_datetime(s, errors="coerce", utc=True)
         if pd.isna(ts):
             return s
-        if s.endswith(" ET") or ":" in body:
-            clock = ts.strftime("%I:%M %p").lstrip("0")
-            return f"{ts.strftime('%b')} {int(ts.day)}, {clock} ET"
-        return f"{ts.strftime('%b')} {int(ts.day)}"
+        if tz_name:
+            try:
+                ts = ts.tz_convert(tz_name)
+            except Exception:
+                pass
+        clock = ts.strftime("%I:%M %p").lstrip("0")
+        abbr = (ts.tzname() or ts.strftime("%Z") or "").replace(" ", "")
+        if not abbr:
+            abbr = (tz_name or "UTC").split("/")[-1]
+        return f"{ts.strftime('%b')} {int(ts.day)}, {clock} {abbr}"
     except Exception:
         return s
 

@@ -151,7 +151,7 @@ try:
 except Exception as _che:
     render_charts_tab, _CH_ERR = None, _che
 
-REQUIRED_ENGINE = "2.48"
+REQUIRED_ENGINE = "2.49"
 st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -806,56 +806,15 @@ def _css_sign(v, pos_good=True, dead=0.0):
     return f"color:{GREEN};font-weight:600" if good else f"color:{RED};font-weight:600"
 
 
-def _css_band(v, hi, lo, invert=False):
-    """Same green / amber / red bands as the Financial Health chart tags."""
-    if v is None or (isinstance(v, str) and v.strip() in ("", "—", "-", "None", "nan")):
-        return f"color:{DIM}"
-    s = str(v).replace("%", "").replace("x", "").replace("/9", "").replace(",", "").strip()
-    try:
-        fv = float(s)
-    except (TypeError, ValueError):
-        return f"color:{DIM}"
-    if not np.isfinite(fv):
-        return f"color:{DIM}"
-    if invert:
-        if fv >= hi:
-            return f"color:{RED};font-weight:600"
-        if fv >= lo:
-            return f"color:{MIX_COLOR};font-weight:600"
-        return f"color:{GREEN};font-weight:600"
-    if fv >= hi:
-        return f"color:{GREEN};font-weight:600"
-    if fv >= lo:
-        return f"color:{MIX_COLOR};font-weight:600"
-    return f"color:{RED};font-weight:600"
-
-
 def _css_health_lbl(v):
-    s = str(v or "").strip()
-    if s.startswith("Strong"):
+    s = str(v or "")
+    if "Strong" in s:
         return f"color:{GREEN};font-weight:600"
-    if s.startswith("OK"):
+    if "OK" in s:
         return f"color:{MIX_COLOR};font-weight:600"
-    if s.startswith("Weak"):
+    if "Weak" in s:
         return f"color:{RED};font-weight:600"
     return f"color:{DIM}"
-
-
-def _css_pio(v):
-    if v is None or (isinstance(v, str) and v.strip() in ("", "—", "-", "None", "nan")):
-        return f"color:{DIM}"
-    s = str(v).split("/")[0].strip()
-    try:
-        fv = float(s)
-    except (TypeError, ValueError):
-        return f"color:{DIM}"
-    if not np.isfinite(fv):
-        return f"color:{DIM}"
-    if fv >= 7:
-        return f"color:{GREEN};font-weight:600"
-    if fv >= 5:
-        return f"color:{MIX_COLOR};font-weight:600"
-    return f"color:{RED};font-weight:600"
 
 
 def _css_earn_cell(v):
@@ -5411,6 +5370,13 @@ def _render_signed_catalysts(tk: str, sector: str = "", *, notes: bool = True) -
                 st.caption(str(line))
 
 
+def _news_pub_ts(raw):
+    ts = pd.to_datetime(raw, errors="coerce", utc=True)
+    if pd.isna(ts):
+        return pd.Timestamp("1970-01-01", tz="UTC")
+    return ts
+
+
 def _news_when(raw) -> str:
     ts = pd.to_datetime(raw, errors="coerce", utc=True)
     if pd.isna(ts):
@@ -5421,6 +5387,17 @@ def _news_when(raw) -> str:
     if hours < 24:
         return f"{int(hours)}h ago"
     return f"{int(hours / 24)}d ago"
+
+
+def _user_tz() -> str:
+    """IANA timezone from the viewer's browser, else Eastern."""
+    try:
+        tz = getattr(st.context, "timezone", None)
+        if tz:
+            return str(tz)
+    except Exception:
+        pass
+    return "America/New_York"
 
 
 def _news_items_html(items, color, border, bg, badge, empty):
@@ -5469,6 +5446,7 @@ def _render_lookup_news(tk: str, name: str = "") -> None:
     if not items:
         st.caption("No headlines returned. Yahoo or Google News may be rate-limiting.")
         return
+    items = sorted(items, key=lambda x: _news_pub_ts(x.get("published")), reverse=True)
     pos = [x for x in items if x.get("side") == "up"]
     neg = [x for x in items if x.get("side") == "down"]
     other = [x for x in items if x.get("side") not in ("up", "down")]
@@ -6617,8 +6595,9 @@ with st.container(border=True, key="mw_page"):
             wdf["scanner"] = _scan_names
             wdf["scan_data"] = _glances
             _fmt_added = (ce.watchlist_format_added
-                          if hasattr(ce, "watchlist_format_added") else (lambda v: str(v or "—")))
-            wdf["added"] = wdf["added"].map(_fmt_added)
+                          if hasattr(ce, "watchlist_format_added") else (lambda v, **k: str(v or "—")))
+            _tz = _user_tz()
+            wdf["added"] = wdf["added"].map(lambda v: _fmt_added(v, tz_name=_tz))
             _earn_iso = {}
             try:
                 _earn_iso = _wl_earn_map(_tks, "v1") or {}
@@ -6645,19 +6624,46 @@ with st.container(border=True, key="mw_page"):
                     return f"Today · {sub}"
                 return f"{days}d · {sub}"
             wdf["earn"] = wdf.ticker.map(_wl_earn_lbl)
-            show = wdf[["ticker", "sector", "scanner", "earn",
+            _hmap = {}
+            try:
+                _hmap = _wl_health_map(_tks, "v3") or {}
+            except Exception as _he:
+                log_exc("watchlist_health", _he)
+                _hmap = {}
+            def _wl_health_cell(t):
+                h = _hmap.get(str(t).strip().upper()) or {}
+                score = h.get("score")
+                label = h.get("health") or "—"
+                if score is None:
+                    return "—"
+                try:
+                    n = int(round(max(0.0, min(1.0, float(score))) * 10))
+                except (TypeError, ValueError):
+                    return label
+                bar = "█" * n + "░" * (10 - n)
+                pio_s = ""
+                try:
+                    pf = float(h.get("pio"))
+                    if np.isfinite(pf):
+                        pio_s = f" · {pf:.0f}/9"
+                except (TypeError, ValueError):
+                    pass
+                return f"{bar} {label}{pio_s}"
+            wdf["health"] = wdf.ticker.map(_wl_health_cell)
+            show = wdf[["ticker", "sector", "scanner", "earn", "health",
                         "added", "price_at_add", "price_now", "since_add"]]
-            show.columns = ["Ticker", "Sector", "Scanner", "Earnings",
+            show.columns = ["Ticker", "Sector", "Scanner", "Earnings", "Health",
                             "Saved", "Price then", "Price now", "Since saved"]
             _wl_sel_epoch = int(st.session_state.get("_wl_sel_epoch", 0) or 0)
             _wsel = st.dataframe(
                 show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
                                    "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—")
                 .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"])
-                .map(_css_earn_cell, subset=["Earnings"]),
-                width=_DF_WIDTH, hide_index=True,
+                .map(_css_earn_cell, subset=["Earnings"])
+                .map(_css_health_lbl, subset=["Health"]),
+                width="stretch", hide_index=True,
                 on_select="rerun", selection_mode="multi-row",
-                key=f"wl_table_earn_{_wl_sel_epoch}",
+                key=f"wl_table_health_{_wl_sel_epoch}",
                 column_config={
                     "Ticker": st.column_config.Column(help="Saved ticker."),
                     "Sector": st.column_config.Column(help="Nightly dump sector."),
@@ -6665,8 +6671,10 @@ with st.container(border=True, key="mw_page"):
                         help="Which scanners saved this name. A second scanner is kept beside the first."),
                     "Earnings": st.column_config.Column(
                         help="Days until the next earnings print, Eastern US calendar. Green is clear, amber inside 21 days, red inside a week."),
+                    "Health": st.column_config.Column(
+                        help="One bar for Financial Health + Piotroski: margins, ROE/ROA, D/E, current ratio, and the 9-point score. Green Strong, amber OK, red Weak."),
                     "Saved": st.column_config.Column(
-                        help="When you saved it, America/New_York date and time."),
+                        help="When you saved it, in your local timezone."),
                     "Since saved": st.column_config.Column(
                     help="Your scorecard: return since the day you saved it. Live Alpaca/Yahoo quote when available.")})
             _wr = (_wsel.selection.rows if _wsel and getattr(_wsel, "selection", None) else [])
@@ -6700,125 +6708,6 @@ with st.container(border=True, key="mw_page"):
                     st.session_state.pop(_k, None)
                 st.success("Removed " + ", ".join(_sel_tks))
                 st.rerun()
-            _hmap = {}
-            try:
-                _hmap = _wl_health_map(_tks, "v2") or {}
-            except Exception as _he:
-                log_exc("watchlist_health", _he)
-                _hmap = {}
-            _hrows = []
-            for _ht in _tks:
-                _h = _hmap.get(_ht) or {}
-                def _hpct(key):
-                    v = _h.get(key)
-                    try:
-                        f = float(v)
-                        return f * 100.0 if np.isfinite(f) else np.nan
-                    except (TypeError, ValueError):
-                        return np.nan
-                def _hnum(key):
-                    v = _h.get(key)
-                    try:
-                        f = float(v)
-                        return f if np.isfinite(f) else np.nan
-                    except (TypeError, ValueError):
-                        return np.nan
-                _hrows.append({
-                    "Ticker": _ht,
-                    "Health": _h.get("health") or "—",
-                    "Piotroski": _hnum("pio"),
-                    "ROCE": _hpct("roce"),
-                    "Gross": _hpct("gm"),
-                    "Op": _hpct("opm"),
-                    "CF": _hpct("cfm"),
-                    "FCF": _hpct("fcfm"),
-                    "Profit": _hpct("pm"),
-                    "ROE": _hpct("roe"),
-                    "ROA": _hpct("roa"),
-                    "D/E": _hnum("de"),
-                    "Current": _hnum("cr"),
-                })
-            def _fmt_pct_cell(v):
-                try:
-                    f = float(v)
-                except (TypeError, ValueError):
-                    return "—"
-                return "—" if not np.isfinite(f) else f"{f:.1f}%"
-            def _fmt_pio_cell(v):
-                try:
-                    f = float(v)
-                except (TypeError, ValueError):
-                    return "—"
-                return "—" if not np.isfinite(f) else f"{f:.0f}/9"
-            def _fmt_de_cell(v):
-                try:
-                    f = float(v)
-                except (TypeError, ValueError):
-                    return "—"
-                return "—" if not np.isfinite(f) else f"{f:.0f}%"
-            def _fmt_cr_cell(v):
-                try:
-                    f = float(v)
-                except (TypeError, ValueError):
-                    return "—"
-                return "—" if not np.isfinite(f) else f"{f:.2f}x"
-            _hdf = pd.DataFrame(_hrows)
-            _keep = ["Ticker", "Health", "Piotroski"]
-            for _col in ("ROCE", "Gross", "Op", "CF", "FCF", "Profit", "ROE", "ROA", "D/E", "Current"):
-                if _col in _hdf.columns and _hdf[_col].notna().any():
-                    _keep.append(_col)
-            _hdf = _hdf[_keep]
-            for _col in _hdf.columns:
-                if _col in ("Ticker", "Health"):
-                    _hdf[_col] = _hdf[_col].fillna("—").replace({None: "—", "None": "—", "nan": "—"})
-                    continue
-                _fn = {
-                    "Piotroski": _fmt_pio_cell,
-                    "D/E": _fmt_de_cell,
-                    "Current": _fmt_cr_cell,
-                }.get(_col, _fmt_pct_cell)
-                _hdf[_col] = _hdf[_col].map(_fn)
-            st.markdown("#### Financial Health")
-            st.caption("Same thresholds as the Stock Lookup Financial Health chart. "
-                       "Piotroski is the nightly 9-point score — 7+ is fortress.")
-            _hsty = _hdf.style
-            _hsty = _hsty.map(_css_health_lbl, subset=["Health"])
-            _hsty = _hsty.map(_css_pio, subset=["Piotroski"])
-            for _col, _hi, _lo, _inv in (
-                ("ROCE", 15, 8, False),
-                ("Gross", 50, 30, False),
-                ("Op", 15, 5, False),
-                ("Profit", 15, 5, False),
-                ("CF", 15, 8, False),
-                ("FCF", 10, 5, False),
-                ("ROE", 15, 8, False),
-                ("ROA", 8, 4, False),
-                ("D/E", 150, 80, True),
-                ("Current", 1.5, 1.0, False),
-            ):
-                if _col in _hdf.columns:
-                    _hsty = _hsty.map(
-                        lambda v, hi=_hi, lo=_lo, inv=_inv: _css_band(v, hi, lo, invert=inv),
-                        subset=[_col])
-            _hcfg = {
-                "Health": st.column_config.Column(
-                    help="Composite of the Financial Health chart metrics. Strong / OK / Weak."),
-                "Piotroski": st.column_config.Column(
-                    help="9-point fundamental health score from the nightly scan. 7+ = fortress."),
-                "ROCE": st.column_config.Column(help="Return on capital employed. Good 15%+."),
-                "Gross": st.column_config.Column(help="Gross margin. Good 50%+."),
-                "Op": st.column_config.Column(help="Operating margin. Good 15%+."),
-                "CF": st.column_config.Column(help="Operating cash-flow margin. Good 15%+."),
-                "FCF": st.column_config.Column(help="Free cash-flow margin. Good 10%+."),
-                "Profit": st.column_config.Column(help="Net profit margin. Good 15%+."),
-                "ROE": st.column_config.Column(help="Return on equity. Good 15%+."),
-                "ROA": st.column_config.Column(help="Return on assets. Good 8%+."),
-                "D/E": st.column_config.Column(help="Debt / equity. Good under 80%."),
-                "Current": st.column_config.Column(help="Current ratio. Good 1.5x+."),
-            }
-            st.dataframe(
-                _hsty, width=_DF_WIDTH, hide_index=True,
-                column_config={k: v for k, v in _hcfg.items() if k in _hdf.columns})
             _render_saved_scans(wl)
 
         # ── Backup / restore — always visible, even with an empty list ──
