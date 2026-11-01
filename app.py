@@ -95,6 +95,23 @@ def _md_html(html: str) -> None:
     else:
         st.markdown(html.replace("$", "&#36;"), unsafe_allow_html=True)
 
+
+def _embed_html(html: str, height: int = 0, scrolling: bool = False) -> None:
+    """HTML iframe. Streamlit 1.5x removed components.v1.html — use st.iframe."""
+    h = max(int(height or 0), 1)
+    iframe = getattr(st, "iframe", None)
+    if callable(iframe):
+        try:
+            iframe(html, height=h)
+            return
+        except TypeError:
+            try:
+                iframe(srcdoc=html, height=h, scrolling=bool(scrolling))
+                return
+            except TypeError:
+                pass
+    st.warning("This Streamlit build cannot embed HTML via st.iframe.")
+
 try:
     af = _load_local_mod("apex_flow")
     _APEX_ERR = ""
@@ -971,14 +988,18 @@ def _drivers(tk: str, asof: str):
     return dr
 
 
-@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def _tk_earnings(tk: str, ver: str = "v4"):
     tk = str(tk or "").strip().upper()
+    fn = getattr(ce, "watchlist_earnings_dates", None)
+    if callable(fn) and tk:
+        got = fn([tk]) or {}
+        return {str(k).strip().upper(): v for k, v in got.items()}
     got = ce.upcoming_earnings([tk]) if tk else {}
     return {str(k).strip().upper(): v for k, v in (got or {}).items()}
 
 
-@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def _wl_earn_map(tks: tuple, ver: str = "v1"):
     fn = getattr(ce, "watchlist_earnings_dates", None)
     if fn is None:
@@ -997,7 +1018,7 @@ def _wl_health_map(tks: tuple, ver: str = "v1"):
     return fn(list(tks)) or {}
 
 
-@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def _wl_cs_trend_map(tks: tuple, ver: str = "v1"):
     """Clean Setup bull/bear/mixed for each watchlist ticker, from dump closes."""
     fn = getattr(ce, "clean_setup_trends", None)
@@ -1018,25 +1039,25 @@ def _wl_cs_trend_map(tks: tuple, ver: str = "v1"):
     return out
 
 
-@st.cache_data(ttl=1800, persist="disk",
+@st.cache_data(ttl=1800,
                show_spinner="Running the full analyzer chain (Alpaca → Yahoo → dump)…")
 def _analyzer(tk: str, asof: str, ver: str = ce.ENGINE_VERSION, eps_ver: str = "v7"):
     return ce.fetch_analyzer(tk)
 
 
-@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def _lookup_news(tk: str, name: str = ""):
     """Yahoo + Google News RSS headlines, tagged up/down."""
     return ce.fetch_lookup_news(tk, name)
 
 
-@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def _lookup_cats(tk: str, sector: str = ""):
     fn = getattr(ce, "lookup_catalysts", None) or ce.ticker_catalysts
     return fn(tk, sector)
 
 
-@st.cache_data(ttl=1800, persist="disk", show_spinner="Fetching company profile…")
+@st.cache_data(ttl=1800, show_spinner="Fetching company profile…")
 def _yf_info(tk: str) -> dict:
     """Live Yahoo profile — same pull as IGNITION's Analyze a Stock tab.
 
@@ -1048,13 +1069,17 @@ def _yf_info(tk: str) -> dict:
     import time
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     try:
-        from mw_yf import yf_call
+        from mw_yf import yf_call, cooling
         import yfinance as yf
+        if cooling():
+            return {}
         stock = yf_call(lambda: yf.Ticker(str(tk).strip().upper()))
     except Exception:
         return {}
     info = {}
     for attempt in range(3):
+        if cooling():
+            return info
         try:
             fetched = yf_call(lambda: stock.info or {})
             if (fetched.get("quoteType") or fetched.get("symbol")
@@ -1063,6 +1088,8 @@ def _yf_info(tk: str) -> dict:
             if attempt < 2:
                 time.sleep(2)
         except Exception:
+            if cooling():
+                return info
             if attempt < 2:
                 time.sleep(2)
     return info
@@ -1104,7 +1131,7 @@ def _css_insider_act(v):
     return f"color:{DIM}"
 
 
-@st.cache_data(ttl=1800, persist="disk", show_spinner="Loading insider trades…")
+@st.cache_data(ttl=1800, show_spinner="Loading insider trades…")
 def _lk_insiders(tk: str, ver: str = "v1") -> dict:
     """SEC Form 4 via Yahoo: ownership %, 6-month summary, trades, roster."""
     blank = dict(insider_pct=None, inst_pct=None, purch_shares=None,
@@ -1115,8 +1142,10 @@ def _lk_insiders(tk: str, ver: str = "v1") -> dict:
         return blank
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     try:
-        from mw_yf import yf_call
+        from mw_yf import yf_call, cooling
         import yfinance as yf
+        if cooling():
+            return blank
         stock = yf_call(lambda: yf.Ticker(tk))
     except Exception:
         return blank
@@ -1264,7 +1293,7 @@ def _live_quotes(tickers: tuple, nonce: int = 0):
     return px, src
 
 
-@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def _live_one(tk: str, nonce: int = 0):
     """Single-ticker live quote for lookup. Refresh Prices bumps nonce."""
     return ce.live_quotes([str(tk).strip().upper()], use_dump=True)
@@ -3407,8 +3436,10 @@ def _lk_alpaca_bars(tk: str, alpaca_tf: str, start_iso: str) -> pd.DataFrame:
 
 def _lk_yahoo_bars(tk: str, interval: str, period: str) -> pd.DataFrame:
     try:
-        from mw_yf import yf_call
+        from mw_yf import yf_call, cooling
         import yfinance as yf
+        if cooling():
+            return pd.DataFrame()
     except Exception:
         return pd.DataFrame()
     ig = globals().get("_ig")
@@ -3427,7 +3458,7 @@ def _lk_yahoo_bars(tk: str, interval: str, period: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
-@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def _lookup_chart_bars(tk: str, tf: str, nonce: int = 0):
     """OHLCV for the Stock Lookup chart. Daily prefers the dump."""
     _ = _LK_BARS_VER
@@ -5282,9 +5313,8 @@ def _nav_instant_hide():
     Streamlit only unmounts them after the next full rerun. Pointer-down on a
     main chip hides the extra row immediately so the bar does not lag.
     """
-    import streamlit.components.v1 as components
     with st.container(key="mw_nav_js"):
-        components.html(
+        _embed_html(
             """<script>
 (function () {
   const doc = window.parent.document;
@@ -5306,7 +5336,7 @@ def _nav_instant_hide():
   doc.addEventListener("touchstart", onPtr, true);
 })();
 </script>""",
-            height=0,
+            height=1,
         )
 
 
@@ -8697,7 +8727,6 @@ with st.container(border=True, key="mw_page"):
                 # embed the HTML CONTENT (not the path) — on Streamlit Cloud
                 # st.iframe(path) renders the filename as text, so read + inject
                 import json as _json
-                import streamlit.components.v1 as components
                 with open(_sim_path, encoding="utf-8") as _f:
                     _sim_html = _f.read()
                 _mw = {}
@@ -8724,7 +8753,7 @@ with st.container(border=True, key="mw_page"):
                     "<script src=",
                     f"<script>window.MW_MACRO={_payload};</script>\n<script src=",
                     1)
-                components.html(_sim_html, height=2900, scrolling=True)
+                _embed_html(_sim_html, height=2900, scrolling=True)
             except Exception as _e1:
                 try:
                     st.iframe(_sim_path, height=2900)

@@ -1951,9 +1951,11 @@ def _lookup_live_keys(ticker: str, sector: str) -> tuple:
     """Yahoo news, calendar, analyst actions, insiders, targets."""
     keys, evidence = [], []
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+    if _yahoo_cooling():
+        return keys, evidence
     try:
         import yfinance as yf
-        tobj = yf.Ticker(ticker)
+        tobj = _yf_call(lambda s=ticker: yf.Ticker(s))
     except Exception:
         return keys, evidence
 
@@ -2210,10 +2212,12 @@ def _rss_items(url: str, source: str, timeout: int = 8) -> list:
 
 def _yf_news_items(ticker: str) -> list:
     out = []
+    if _yahoo_cooling():
+        return out
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     try:
         import yfinance as yf
-        arts = yf.Ticker(ticker).news or []
+        arts = _yf_call(lambda s=ticker: yf.Ticker(s).news) or []
     except Exception as e:
         _log_exc("lookup_news_yf", e)
         return out
@@ -3910,6 +3914,8 @@ def _yahoo_next_earnings(tk: str, tobj=None) -> date | None:
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     today = _ny_calendar_date()
     found: list[date] = []
+    if _yahoo_cooling():
+        return None
 
     def _keep(val) -> None:
         d = _coerce_earn_date(val)
@@ -3935,6 +3941,8 @@ def _yahoo_next_earnings(tk: str, tobj=None) -> date | None:
                         break
         except Exception as e:
             _log_exc(f"yahoo_earnings.calendar.{tk}", e)
+            if _yahoo_cooling():
+                return min(found) if found else None
         if found:
             return min(found)
         try:
@@ -3944,6 +3952,8 @@ def _yahoo_next_earnings(tk: str, tobj=None) -> date | None:
                 _keep(info.get(k))
         except Exception as e:
             _log_exc(f"yahoo_earnings.info.{tk}", e)
+            if _yahoo_cooling():
+                return min(found) if found else None
         if found:
             return min(found)
         try:
@@ -3967,21 +3977,24 @@ def resolve_earnings_date(ticker: str, tobj=None) -> date | None:
     today = _ny_calendar_date()
     ed = None
     try:
-        ed = _yahoo_next_earnings(tk, tobj=tobj)
+        ed = _earn_disk_get(tk)
     except Exception as e:
-        _log_exc(f"resolve_earnings.yahoo.{tk}", e)
-    if ed is None:
-        try:
-            ed = _nasdaq_earnings_date(tk)
-        except Exception as e:
-            _log_exc(f"resolve_earnings.nasdaq.{tk}", e)
+        _log_exc(f"resolve_earnings.disk.{tk}", e)
     if ed is None:
         try:
             ed = _dump_earnings_date(tk)
         except Exception as e:
             _log_exc(f"resolve_earnings.dump.{tk}", e)
     if ed is None:
-        ed = _earn_disk_get(tk)
+        try:
+            ed = _nasdaq_earnings_date(tk)
+        except Exception as e:
+            _log_exc(f"resolve_earnings.nasdaq.{tk}", e)
+    if ed is None and not _yahoo_cooling():
+        try:
+            ed = _yahoo_next_earnings(tk, tobj=tobj)
+        except Exception as e:
+            _log_exc(f"resolve_earnings.yahoo.{tk}", e)
     if ed is not None and ed >= today:
         _earn_disk_put(tk, ed)
         return ed
@@ -5040,21 +5053,23 @@ def _feature_panels():
     days = list(range(70, T - 22, 3))
     feats, fwds = [], []
     dvol = C * V
-    for t in days:
-        mom = C[t - 5] / C[t - 63] - 1.0
-        mom_pct = pd.Series(mom).rank(pct=True).values
-        lo = np.nanmin(panel["l"][t - 62:t + 1], 0)
-        hi = np.nanmax(panel["h"][t - 62:t + 1], 0)
-        rangepos = (C[t] - lo) / np.where(hi - lo == 0, np.nan, hi - lo)
-        rvol = V[t - 4:t + 1].mean(0) / np.where(V[t - 62:t + 1].mean(0) == 0,
-                                                 np.nan, V[t - 62:t + 1].mean(0))
-        above = (C[t] > np.nanmean(C[t - 49:t + 1], 0)).astype(np.float32)
-        ok = np.isfinite(C[t]) & (C[t] >= 3) &              (np.nanmedian(dvol[max(t - 20, 0):t + 1], 0) >= 2e6)
-        f10 = C[t + 10] / C[t] - 1.0
-        f21 = C[t + 21] / C[t] - 1.0
-        m = ok & np.isfinite(mom_pct) & np.isfinite(rangepos) &             np.isfinite(rvol) & np.isfinite(f21)
-        feats.append(np.column_stack([mom_pct[m], rangepos[m], rvol[m], above[m]]))
-        fwds.append(np.column_stack([f10[m], f21[m]]))
+    with np.errstate(all="ignore"):
+        for t in days:
+            mom = C[t - 5] / C[t - 63] - 1.0
+            mom_pct = pd.Series(mom).rank(pct=True).values
+            lo = np.nanmin(panel["l"][t - 62:t + 1], 0)
+            hi = np.nanmax(panel["h"][t - 62:t + 1], 0)
+            rangepos = (C[t] - lo) / np.where(hi - lo == 0, np.nan, hi - lo)
+            rvol = V[t - 4:t + 1].mean(0) / np.where(V[t - 62:t + 1].mean(0) == 0,
+                                                     np.nan, V[t - 62:t + 1].mean(0))
+            above = (C[t] > np.nanmean(C[t - 49:t + 1], 0)).astype(np.float32)
+            ok = np.isfinite(C[t]) & (C[t] >= 3) & (
+                np.nanmedian(dvol[max(t - 20, 0):t + 1], 0) >= 2e6)
+            f10 = C[t + 10] / C[t] - 1.0
+            f21 = C[t + 21] / C[t] - 1.0
+            m = ok & np.isfinite(mom_pct) & np.isfinite(rangepos) & np.isfinite(rvol) & np.isfinite(f21)
+            feats.append(np.column_stack([mom_pct[m], rangepos[m], rvol[m], above[m]]))
+            fwds.append(np.column_stack([f10[m], f21[m]]))
     F = np.vstack(feats).astype(np.float32)
     R = np.vstack(fwds).astype(np.float32)
     _PANEL_CACHE["featpan"] = (mt, (F, R))
@@ -5069,14 +5084,15 @@ def _now_features(ticker: str):
     j = ix[0]
     C, V = panel["c"], np.nan_to_num(panel["v"])
     t = C.shape[0] - 1
-    mom = C[t - 5] / C[t - 63] - 1.0
-    mom_pct = float(pd.Series(mom).rank(pct=True).iloc[j])
-    lo = np.nanmin(panel["l"][t - 62:t + 1, j])
-    hi = np.nanmax(panel["h"][t - 62:t + 1, j])
-    rangepos = float((C[t, j] - lo) / (hi - lo)) if hi > lo else np.nan
-    rv_d = V[t - 62:t + 1, j].mean()
-    rvol = float(V[t - 4:t + 1, j].mean() / rv_d) if rv_d > 0 else np.nan
-    above = float(C[t, j] > np.nanmean(C[t - 49:t + 1, j]))
+    with np.errstate(all="ignore"):
+        mom = C[t - 5] / C[t - 63] - 1.0
+        mom_pct = float(pd.Series(mom).rank(pct=True).iloc[j])
+        lo = np.nanmin(panel["l"][t - 62:t + 1, j])
+        hi = np.nanmax(panel["h"][t - 62:t + 1, j])
+        rangepos = float((C[t, j] - lo) / (hi - lo)) if hi > lo else np.nan
+        rv_d = V[t - 62:t + 1, j].mean()
+        rvol = float(V[t - 4:t + 1, j].mean() / rv_d) if rv_d > 0 else np.nan
+        above = float(C[t, j] > np.nanmean(C[t - 49:t + 1, j]))
     return np.array([mom_pct, rangepos, rvol, above], dtype=np.float32), sectors[j]
 
 
@@ -6472,7 +6488,7 @@ def _put_eps_hist(bag: dict, quarter, actual=None, estimate=None, surprise=None)
 
 
 def _yahoo_eps_history(tk) -> list[dict]:
-    if tk is None:
+    if tk is None or _yahoo_cooling():
         return []
     out = []
     try:
@@ -6504,7 +6520,7 @@ def _yahoo_eps_history(tk) -> list[dict]:
 
 def _yahoo_eps_forward(tk, info: dict | None) -> list[dict]:
     rows = []
-    if tk is not None:
+    if tk is not None and not _yahoo_cooling():
         try:
             ee = _yf_call(lambda t=tk: t.earnings_estimate)
             if ee is not None and hasattr(ee, "empty") and not ee.empty:
@@ -6647,7 +6663,7 @@ def _month_end(year: int, month: int) -> date:
 
 def _yahoo_report_schedule(tk) -> list[dict]:
     """Upcoming/recent prints from Yahoo earnings_dates: date, estimate, actual."""
-    if tk is None:
+    if tk is None or _yahoo_cooling():
         return []
     out = []
     try:
@@ -6729,15 +6745,24 @@ def _stamp_eps_forward_dates(fwd: list[dict], reports: list[dict],
 
 def _load_eps(ticker: str, tk, cached: list | None, info: dict | None,
               next_earn=None):
-    """History + farthest published forward EPS. Yahoo first, Nasdaq backup."""
+    """History + farthest published forward EPS. Dump cache, Nasdaq, Yahoo last."""
     tk_s = str(ticker).strip().upper()
     bag: dict = {}
     sources = []
-    for q in _yahoo_eps_history(tk):
-        _put_eps_hist(bag, q["quarter"], q.get("actual"), q.get("estimate"),
-                      q.get("surprise"))
-    if bag:
-        sources.append("Yahoo")
+    if cached:
+        for q in cached:
+            _put_eps_hist(bag, q.get("quarter"), q.get("actual"),
+                          q.get("estimate"), q.get("surprise"))
+        if bag:
+            sources.append("Dump")
+    cool = _yahoo_cooling()
+    y_n = len(bag)
+    if not cool:
+        for q in _yahoo_eps_history(tk):
+            _put_eps_hist(bag, q["quarter"], q.get("actual"), q.get("estimate"),
+                          q.get("surprise"))
+        if len(bag) > y_n:
+            sources.append("Yahoo")
     n_surp = _nasdaq_eps_surprise(tk_s)
     n_hist = len(bag)
     for q in n_surp:
@@ -6745,11 +6770,7 @@ def _load_eps(ticker: str, tk, cached: list | None, info: dict | None,
                       q.get("surprise"))
     if n_surp and (len(bag) > n_hist or "Yahoo" not in sources):
         sources.append("Nasdaq")
-    if cached:
-        for q in cached:
-            _put_eps_hist(bag, q.get("quarter"), q.get("actual"),
-                          q.get("estimate"), q.get("surprise"))
-    if tk is not None and len(bag) < 4:
+    if tk is not None and len(bag) < 4 and not _yahoo_cooling():
         try:
             qis = _yf_call(lambda t=tk: t.quarterly_income_stmt)
             if qis is not None and hasattr(qis, "empty") and not qis.empty:
@@ -6770,7 +6791,7 @@ def _load_eps(ticker: str, tk, cached: list | None, info: dict | None,
             _log_exc("yahoo_qis_eps", ex)
     hist = [bag[k] for k in sorted(bag)][-12:]
     hist_keys = set(bag.keys())
-    y_fwd = _yahoo_eps_forward(tk, info)
+    y_fwd = [] if _yahoo_cooling() else _yahoo_eps_forward(tk, info)
     nq, ny = _nasdaq_eps_forecast(tk_s)
     if nq:
         nq = [r for r in nq if (_fiscal_key(r.get("period")) not in hist_keys)]
@@ -6780,10 +6801,12 @@ def _load_eps(ticker: str, tk, cached: list | None, info: dict | None,
     if y_fwd and "Yahoo" not in sources:
         sources.append("Yahoo")
     fwd = _merge_eps_forward(y_fwd, nq, ny)
-    try:
-        reports = _yahoo_report_schedule(tk)
-    except Exception:
-        reports = []
+    reports = []
+    if not _yahoo_cooling():
+        try:
+            reports = _yahoo_report_schedule(tk)
+        except Exception:
+            reports = []
     if next_earn is None:
         try:
             next_earn = resolve_earnings_date(ticker, tobj=tk)
@@ -6818,11 +6841,12 @@ def fetch_analyzer(ticker: str):
         if h_a is not None and len(h_a) >= 50:
             hist, hist_src = h_a, "alpaca"
     tk = None
-    try:
-        import yfinance as yf
-        tk = _yf_call(lambda s=ticker: yf.Ticker(s))
-    except Exception:
-        pass
+    if not _yahoo_cooling():
+        try:
+            import yfinance as yf
+            tk = _yf_call(lambda s=ticker: yf.Ticker(s))
+        except Exception:
+            pass
     if hist.empty and tk is not None:
         try:
             h = _yf_call(lambda t=tk: t.history(period="1y", interval="1d"))
@@ -8298,6 +8322,8 @@ def news_catalyst_detail(tickers: list, sectors: dict | None = None) -> dict:
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     sectors = sectors or {}
     out = {}
+    if _yahoo_cooling():
+        return out
     try:
         import yfinance as yf
     except Exception:
@@ -8306,8 +8332,10 @@ def news_catalyst_detail(tickers: list, sectors: dict | None = None) -> dict:
         tk = str(raw or "").strip().upper()
         if not tk:
             continue
+        if _yahoo_cooling():
+            break
         try:
-            arts = yf.Ticker(tk).news or []
+            arts = _yf_call(lambda s=tk: yf.Ticker(s).news) or []
         except Exception:
             continue
         blob = " ".join(
@@ -8619,14 +8647,15 @@ def _now_features_all():
     panel, tickers, sectors, mdv, dts = load_dump_panel()
     C, V = panel["c"], np.nan_to_num(panel["v"])
     t = C.shape[0] - 1
-    mom = C[t - 5] / C[t - 63] - 1.0
-    mom_pct = pd.Series(mom).rank(pct=True).values
-    lo = np.nanmin(panel["l"][t - 62:t + 1], 0)
-    hi = np.nanmax(panel["h"][t - 62:t + 1], 0)
-    rangepos = (C[t] - lo) / np.where(hi - lo == 0, np.nan, hi - lo)
-    rvbase = V[t - 62:t + 1].mean(0)
-    rvol = V[t - 4:t + 1].mean(0) / np.where(rvbase == 0, np.nan, rvbase)
-    above = (C[t] > np.nanmean(C[t - 49:t + 1], 0)).astype(np.float32)
+    with np.errstate(all="ignore"):
+        mom = C[t - 5] / C[t - 63] - 1.0
+        mom_pct = pd.Series(mom).rank(pct=True).values
+        lo = np.nanmin(panel["l"][t - 62:t + 1], 0)
+        hi = np.nanmax(panel["h"][t - 62:t + 1], 0)
+        rangepos = (C[t] - lo) / np.where(hi - lo == 0, np.nan, hi - lo)
+        rvbase = V[t - 62:t + 1].mean(0)
+        rvol = V[t - 4:t + 1].mean(0) / np.where(rvbase == 0, np.nan, rvbase)
+        above = (C[t] > np.nanmean(C[t - 49:t + 1], 0)).astype(np.float32)
     # NOTE: rvol is stored UNCAPPED here. forecast_all caps both sides at 3 when
     # matching (same as outcome_forecast); pre-capping only one side made the
     # universe scan select different analogs than the per-ticker Lookup.
@@ -8792,12 +8821,25 @@ def _yahoo_symbol(t: str) -> str:
     return t
 
 
-def _yf_call(fn, *args, **kwargs):
+def _yahoo_cooling() -> bool:
     try:
-        from mw_yf import yf_call
-        return yf_call(fn, *args, **kwargs)
+        from mw_yf import cooling
+        return bool(cooling())
     except Exception:
-        return fn(*args, **kwargs)
+        return False
+
+
+def _yf_call(fn, *args, **kwargs):
+    """Yahoo I/O on the dedicated thread. Does not retry after a rate limit."""
+    try:
+        from mw_yf import yf_call as _run, cooling as _cool
+    except Exception:
+        _run, _cool = None, lambda: False
+    if _cool():
+        raise RuntimeError("YFRateLimitError: cooling off")
+    if _run is not None:
+        return _run(fn, *args, **kwargs)
+    return fn(*args, **kwargs)
 
 
 def _yahoo_from_frame(data, requested: list) -> dict:
@@ -8843,7 +8885,7 @@ def yahoo_prices(tickers: list) -> dict:
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     out = {}
     tickers = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
-    if not tickers:
+    if not tickers or _yahoo_cooling():
         return out
     try:
         import yfinance as yf
@@ -9158,14 +9200,18 @@ def macro_news_scan(max_articles: int = 10) -> dict:
     """Keyword-scan headlines on macro proxies. Returns {regime: (hits, note)}."""
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     out, blob = {}, ""
+    if _yahoo_cooling():
+        return out
     try:
         import yfinance as yf
     except Exception:
         return out
     seen = 0
     for tk in MACRO_NEWS_PROXIES:
+        if _yahoo_cooling():
+            break
         try:
-            arts = yf.Ticker(tk).news or []
+            arts = _yf_call(lambda s=tk: yf.Ticker(s).news) or []
         except Exception:
             continue
         for a in arts[:max_articles]:

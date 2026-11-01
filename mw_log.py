@@ -58,4 +58,10 @@ def get_logger() -> logging.Logger:
 
 
 def log_exc(where: str, exc: BaseException) -> None:
-    get_logger().warning("%s: %s: %s", where, type(exc).__name__, exc)
+    name = type(exc).__name__
+    msg = str(exc)
+    low = f"{name} {msg}".lower()
+    if ("ratelimit" in low or "too many requests" in low
+            or "cooling off" in low):
+        return
+    get_logger().warning("%s: %s: %s", where, name, exc)
