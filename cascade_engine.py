@@ -4945,14 +4945,21 @@ def bull_list_save(pack) -> bool:
     }
     path = _bull_list_path()
     import tempfile
+    import shutil
     dest_dir = os.path.dirname(path) or "."
     os.makedirs(dest_dir, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix="bull_list_", suffix=".json", dir=dest_dir)
+    payload = json.dumps(out, indent=2, allow_nan=False, default=_bull_json_default) + "\n"
+    fd, tmp = tempfile.mkstemp(prefix="bull_list_", suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(out, f, indent=2, allow_nan=False, default=_bull_json_default)
-            f.write("\n")
-        os.replace(tmp, path)
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.replace(tmp, path)
+        except OSError:
+            shutil.copyfile(tmp, path)
+            os.remove(tmp)
         return True
     except Exception as e:
         _BULL_LIST_ERR = f"{type(e).__name__}: {e}"
@@ -4966,10 +4973,10 @@ def bull_list_save(pack) -> bool:
 
 
 def bull_list_add(tickers, note: str = "", prices=None) -> list:
-    """Append unique tickers. Snapshots price-then from `prices` or dump close.
+    """Append unique tickers and write the JSON immediately.
 
-    Live quotes are not fetched here — they can stall Streamlit long enough
-    that the write never lands. Price now on the table is still live.
+    Do not wait on dump/Yahoo here — that stall is why names never landed.
+    Price-then is filled later from the dump on the table if it is missing.
     """
     global _BULL_LIST_ERR
     _BULL_LIST_ERR = ""
@@ -4994,14 +5001,6 @@ def bull_list_add(tickers, note: str = "", prices=None) -> list:
             tk = _bull_norm_ticker(k)
             if tk:
                 px_map[tk] = _bull_px(v)
-    missing = [t for t in want if px_map.get(t) is None]
-    if missing:
-        try:
-            for t, v in (dump_last_closes(missing) or {}).items():
-                if px_map.get(t) is None:
-                    px_map[t] = _bull_px(v)
-        except Exception as e:
-            _log_exc("bull_list_add.dump", e)
     added = []
     for tk in want:
         rows.append({
@@ -5014,7 +5013,22 @@ def bull_list_add(tickers, note: str = "", prices=None) -> list:
         added.append(tk)
     pack["tickers"] = rows
     pack["updated"] = today
-    return added if bull_list_save(pack) else []
+    if not bull_list_save(pack):
+        return []
+    missing = [t for t in added if px_map.get(t) is None]
+    if missing and (_PANEL_CACHE.get("panel") or _RECORDS_CACHE.get("by_ticker")):
+        try:
+            for t, v in (dump_last_closes(missing) or {}).items():
+                px = _bull_px(v)
+                if px is None:
+                    continue
+                for row in pack["tickers"]:
+                    if row["ticker"] == t and row.get("price_at_add") is None:
+                        row["price_at_add"] = px
+            bull_list_save(pack)
+        except Exception as e:
+            _log_exc("bull_list_add.dump", e)
+    return added
 
 
 def bull_list_remove(tickers) -> int:

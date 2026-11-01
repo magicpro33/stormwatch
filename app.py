@@ -6820,6 +6820,53 @@ def _require_closes():
     return closes, asof
 
 
+def _bull_add_clicked():
+    """Write the new tickers before the rest of the Bull List tab runs."""
+    raw = str(st.session_state.get("bull_add_raw") or "")
+    note = str(st.session_state.get("bull_add_note") or "")
+    bits = [p.strip().upper() for p in re.split(r"[\s,;]+", raw) if p.strip()]
+    if not bits:
+        st.session_state["_bull_flash"] = ("warn", "Type a ticker, then click Add.")
+        return
+    if not hasattr(ce, "bull_list_add"):
+        st.session_state["_bull_flash"] = ("err", "Restart the app — the bull list saver did not load.")
+        return
+    added = ce.bull_list_add(bits, note) or []
+    if added:
+        st.session_state["_bull_flash"] = ("ok", "Saved " + ", ".join(added))
+        return
+    err = ""
+    if getattr(ce, "bull_list_last_error", None):
+        err = ce.bull_list_last_error() or ""
+    st.session_state["_bull_flash"] = (
+        "err", err or "Nothing new to add — already on the list, or the ticker was blank.")
+
+
+def _bull_remove_clicked():
+    pick = [str(t).strip().upper() for t in (st.session_state.get("_bull_pick") or [])
+            if str(t).strip()]
+    if not pick:
+        st.session_state["_bull_flash"] = ("warn", "Select rows above, then remove them here.")
+        return
+    n = ce.bull_list_remove(pick) if hasattr(ce, "bull_list_remove") else 0
+    st.session_state.pop("bull_inline", None)
+    st.session_state["_bull_pick"] = []
+    if n:
+        st.session_state["_bull_flash"] = ("ok", "Removed " + ", ".join(pick))
+    else:
+        err = ce.bull_list_last_error() if getattr(ce, "bull_list_last_error", None) else ""
+        st.session_state["_bull_flash"] = ("err", err or "Nothing removed.")
+
+
+def _bull_head_clicked():
+    text = str(st.session_state.get("bull_headline") or "")
+    if getattr(ce, "bull_list_set_headline", None):
+        ok = ce.bull_list_set_headline(text)
+        st.session_state["_bull_flash"] = (
+            "ok" if ok else "err",
+            "Headline saved." if ok else (ce.bull_list_last_error() or "Could not save headline."))
+
+
 def _try_closes():
     """Best-effort history for sections that can run without it."""
     global closes, asof
@@ -6881,6 +6928,53 @@ def _dump_asof_key() -> str:
         return "" if d is None else str(pd.Timestamp(d).date())
     except Exception:
         return ""
+
+
+def _bull_add_clicked():
+    """Write the new tickers before the rest of the Bull List tab runs."""
+    raw = str(st.session_state.get("bull_add_raw") or "")
+    note = str(st.session_state.get("bull_add_note") or "")
+    bits = [p.strip().upper() for p in re.split(r"[\s,;]+", raw) if p.strip()]
+    if not bits:
+        st.session_state["_bull_flash"] = ("warn", "Type a ticker, then click Add.")
+        return
+    if not hasattr(ce, "bull_list_add"):
+        st.session_state["_bull_flash"] = ("err", "Restart the app — the bull list saver did not load.")
+        return
+    added = ce.bull_list_add(bits, note) or []
+    if added:
+        st.session_state["_bull_flash"] = ("ok", "Saved " + ", ".join(added))
+        return
+    err = ""
+    if getattr(ce, "bull_list_last_error", None):
+        err = ce.bull_list_last_error() or ""
+    st.session_state["_bull_flash"] = (
+        "err", err or "Nothing new to add — already on the list, or the ticker was blank.")
+
+
+def _bull_remove_clicked():
+    pick = [str(t).strip().upper() for t in (st.session_state.get("_bull_pick") or [])
+            if str(t).strip()]
+    if not pick:
+        st.session_state["_bull_flash"] = ("warn", "Select rows above, then remove them here.")
+        return
+    n = ce.bull_list_remove(pick) if hasattr(ce, "bull_list_remove") else 0
+    st.session_state.pop("bull_inline", None)
+    st.session_state["_bull_pick"] = []
+    if n:
+        st.session_state["_bull_flash"] = ("ok", "Removed " + ", ".join(pick))
+    else:
+        err = ce.bull_list_last_error() if getattr(ce, "bull_list_last_error", None) else ""
+        st.session_state["_bull_flash"] = ("err", err or "Nothing removed.")
+
+
+def _bull_head_clicked():
+    text = str(st.session_state.get("bull_headline") or "")
+    if getattr(ce, "bull_list_set_headline", None):
+        ok = ce.bull_list_set_headline(text)
+        st.session_state["_bull_flash"] = (
+            "ok" if ok else "err",
+            "Headline saved." if ok else (ce.bull_list_last_error() or "Could not save headline."))
 
 
 def _try_closes_for_scan():
@@ -7958,6 +8052,7 @@ with st.container(border=True, key="mw_page"):
         else:
             st.info("The bull list is empty. The owner can add names after unlocking.")
             _bpick = []
+        st.session_state["_bull_pick"] = list(_bpick or [])
 
         _pin_on = bool(getattr(ce, "bull_list_pin_configured", lambda: False)())
         with st.expander("Update this list (owner)", expanded=_bunlock):
@@ -7967,49 +8062,35 @@ with st.container(border=True, key="mw_page"):
             elif _bunlock:
                 st.caption("Unlocked. Changes write to the shared bull list that "
                            "everyone sees. Lock when you are done.")
-                _hn = st.text_input("Headline", value=_b_head,
-                                    key="bull_headline",
-                                    placeholder="Optional note at the top of the list")
-                if st.button("Save headline", key="bull_head_save"):
-                    if getattr(ce, "bull_list_set_headline", None):
-                        ce.bull_list_set_headline(_hn)
-                        st.rerun()
+                _flash = st.session_state.pop("_bull_flash", None)
+                if isinstance(_flash, (list, tuple)) and len(_flash) == 2:
+                    _fk, _fm = _flash
+                    if _fk == "ok":
+                        st.success(_fm)
+                    elif _fk == "err":
+                        st.error(_fm)
+                    else:
+                        st.warning(_fm)
+                st.text_input("Headline", value=_b_head,
+                              key="bull_headline",
+                              placeholder="Optional note at the top of the list")
+                st.button("Save headline", key="bull_head_save",
+                          on_click=_bull_head_clicked)
                 with st.form("bull_add_form", clear_on_submit=True):
                     _ac1, _ac2, _ac3 = st.columns([2, 2, 1], vertical_alignment="bottom")
-                    _add_raw = _ac1.text_input("Add tickers",
-                                               placeholder="AAPL, MSFT, BRK.B")
-                    _add_note = _ac2.text_input("Note for those names",
-                                                placeholder="optional")
-                    _add_go = _ac3.form_submit_button("Add", type="primary",
-                                                      width="stretch")
-                if _add_go:
-                    _bits = [p.strip().upper() for p in re.split(r"[\s,;]+", _add_raw or "")
-                             if p.strip()]
-                    if not _bits:
-                        st.warning("Type a ticker, then click Add.")
-                    elif not hasattr(ce, "bull_list_add"):
-                        st.error("Restart the app — the bull list saver did not load.")
-                    else:
-                        _new = ce.bull_list_add(_bits, _add_note) or []
-                        if _new:
-                            st.success("Added " + ", ".join(_new))
-                            st.rerun()
-                        else:
-                            _berr = ""
-                            if getattr(ce, "bull_list_last_error", None):
-                                _berr = ce.bull_list_last_error() or ""
-                            if _berr:
-                                st.error(f"Could not save the bull list: {_berr}")
-                            else:
-                                st.warning("Nothing new to add — already on the list, or the ticker was blank.")
+                    _ac1.text_input("Add tickers", key="bull_add_raw",
+                                    placeholder="AAPL, MSFT, BRK.B")
+                    _ac2.text_input("Note for those names", key="bull_add_note",
+                                    placeholder="optional")
+                    _ac3.form_submit_button("Add", type="primary",
+                                            width="stretch",
+                                            on_click=_bull_add_clicked)
+                st.session_state["_bull_pick"] = list(_bpick or [])
                 _rc1, _rc2 = st.columns([3, 1], vertical_alignment="center")
                 _rc1.caption("Select rows above, then remove them here.")
-                if _rc2.button(f"🗑 Remove ({len(_bpick)})", width="stretch",
-                               disabled=not _bpick, key="bull_remove"):
-                    _n = ce.bull_list_remove(_bpick) if hasattr(ce, "bull_list_remove") else 0
-                    st.session_state.pop("bull_inline", None)
-                    st.success("Removed " + ", ".join(_bpick) if _n else "Nothing removed.")
-                    st.rerun()
+                _rc2.button(f"🗑 Remove ({len(_bpick)})", width="stretch",
+                            disabled=not _bpick, key="bull_remove",
+                            on_click=_bull_remove_clicked)
                 if st.button("Lock edits", key="bull_lock"):
                     st.session_state["_bull_unlocked"] = False
                     st.rerun()
