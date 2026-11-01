@@ -1042,6 +1042,9 @@ def _wl_health_map(tks: tuple, ver: str = "v1"):
 @st.cache_data(ttl=1800, persist="disk", show_spinner=False)
 def _wl_cs_trend_map(tks: tuple, ver: str = "v1"):
     """Clean Setup bull/bear/mixed for each watchlist ticker, from dump closes."""
+    fn = getattr(ce, "clean_setup_trends", None)
+    if callable(fn):
+        return fn(list(tks or ())) or {}
     out = {}
     for raw in tks or ():
         t = str(raw).strip().upper()
@@ -3586,6 +3589,9 @@ def _lk_cs_pivots(arr, left: int, right: int, want_high: bool):
 
 def _lk_cs_trend_of(close) -> str:
     """Last-bar Clean Setup trend: bull, bear, mixed, or '' if not enough tape."""
+    fn = getattr(ce, "clean_setup_trend_of", None)
+    if callable(fn):
+        return fn(close)
     try:
         c = np.asarray(close, dtype=float)
     except Exception:
@@ -5319,6 +5325,58 @@ def _cat_col_cfgs():
     }
 
 
+def _health_setup_col_cfgs():
+    helpmap = getattr(ce, "HEALTH_SETUP_HELP", {}) or {}
+    hcol = getattr(ce, "HEALTH_COL", "Health/Piotroski")
+    scol = getattr(ce, "SETUP_COL", "Clean Setup")
+    return {
+        hcol: st.column_config.Column(
+            help=helpmap.get(hcol) or (
+                "Financial Health bar plus Piotroski 9-point score. "
+                "Green Strong, amber OK, red Weak.")),
+        scol: st.column_config.Column(
+            help=helpmap.get(scol) or (
+                "Clean Setup trend from the nightly dump — same bull / bear / "
+                "mixed as the overlay (50-EMA vs 200-EMA and price).")),
+    }
+
+
+def _stamp_hs(df):
+    """Stamp Health/Piotroski + Clean Setup onto a generated ticker list."""
+    fn = getattr(ce, "stamp_health_setup", None)
+    if not callable(fn) or df is None or getattr(df, "empty", True):
+        return df
+    tcol = "Ticker" if "Ticker" in getattr(df, "columns", []) else (
+        "ticker" if "ticker" in getattr(df, "columns", []) else None)
+    hmap = smap = None
+    if tcol:
+        tks = tuple(sorted({
+            str(t).strip().upper() for t in df[tcol].tolist() if str(t).strip()}))
+        if tks:
+            try:
+                hmap = _wl_health_map(tks, "v3") or {}
+            except Exception:
+                hmap = None
+            try:
+                smap = _wl_cs_trend_map(tks, "v1") or {}
+            except Exception:
+                smap = None
+    return fn(df, health_map=hmap, setup_map=smap)
+
+
+def _style_health_setup(obj):
+    styler = obj if hasattr(obj, "data") else obj.style
+    data = getattr(styler, "data", None)
+    cols = list(getattr(data, "columns", [])) if data is not None else []
+    hcol = getattr(ce, "HEALTH_COL", "Health/Piotroski")
+    scol = getattr(ce, "SETUP_COL", "Clean Setup")
+    if hcol in cols:
+        styler = styler.map(_css_health_lbl, subset=[hcol])
+    if scol in cols:
+        styler = styler.map(_css_cs_trend, subset=[scol])
+    return styler
+
+
 def _cat_side_help(side: str, lead: str) -> str:
     metrics = getattr(ce, "CATALYST_METRICS", {}) or {}
     meanings = getattr(ce, "CATALYST_MEANINGS", {}) or {}
@@ -5361,11 +5419,27 @@ def _cat_cols(df):
 
 def _order_with_cat(order, df):
     order = list(order or [])
+    hs = [c for c in (
+        getattr(ce, "HEALTH_COL", "Health/Piotroski"),
+        getattr(ce, "SETUP_COL", "Clean Setup"),
+    ) if c in getattr(df, "columns", [])]
+    if hs:
+        order = [c for c in order if c not in hs]
+        if "Sector" in order:
+            i = order.index("Sector") + 1
+        elif "Ticker" in order:
+            i = order.index("Ticker") + 1
+        else:
+            i = 0
+        order = order[:i] + hs + order[i:]
     cat_cols = _cat_cols(df)
     if cat_cols:
         order = [c for c in order if c not in cat_cols]
         placed = False
-        for after in ("Price", "Sector", "Ticker"):
+        for after in ("Price",
+                      getattr(ce, "SETUP_COL", "Clean Setup"),
+                      getattr(ce, "HEALTH_COL", "Health/Piotroski"),
+                      "Sector", "Ticker"):
             if after in order:
                 i = order.index(after) + 1
                 order = order[:i] + cat_cols + order[i:]
@@ -6330,15 +6404,21 @@ with st.container(border=True, key="mw_page"):
                                         "historically chase this market's moves within ~5 "
                                         "sessions"
                                         + (", live Alpaca prices" if live else "") + ":")
+                            fl = _stamp_hs(fl)
                             _sel = st.dataframe(
-                                fl.style.format({"Price": "${:,.2f}",
+                                _style_health_setup(fl.style.format({"Price": "${:,.2f}",
                                                  "FollowCorr": "{:+.2f}",
                                                  "Beta": "{:+.2f}"})
-                                .map(lambda v: _css_sign(v, dead=0.05), subset=["FollowCorr"]),
+                                .map(lambda v: _css_sign(v, dead=0.05), subset=["FollowCorr"])),
                                 width=_DF_WIDTH, hide_index=True,
                                 on_select="rerun", selection_mode="single-row",
                                 key=f"fl_{b.target}",
+                                column_order=_order_with_cat(
+                                    [c for c in ["Ticker", "Sector", "Price",
+                                                 "FollowCorr", "Beta"]
+                                     if c in fl.columns], fl) or None,
                                 column_config={
+                                    **_health_setup_col_cfgs(),
                                     "FollowCorr": st.column_config.Column(
                                         help="Correlation between this node's 5-day move and the stock's 5-day move ONE WEEK LATER — a lagged response, not same-day beta."),
                                     "Beta": st.column_config.Column(
@@ -6740,8 +6820,11 @@ with st.container(border=True, key="mw_page"):
             except Exception as _he:
                 log_exc("watchlist_health", _he)
                 _hmap = {}
+            _hcell = getattr(ce, "health_cell_text", None)
             def _wl_health_cell(t):
                 h = _hmap.get(str(t).strip().upper()) or {}
+                if callable(_hcell):
+                    return _hcell(h)
                 score = h.get("score")
                 label = h.get("health") or "—"
                 if score is None:
@@ -7246,10 +7329,10 @@ with st.container(border=True, key="mw_page"):
                 _fc = fc20.copy()
                 _fc, _lmeta = _apply_live(_fc)
                 _live_banner(_lmeta)
-                _fc = _with_catalysts(_fc, _t20_cat, safe_key="top20")
+                _fc = _stamp_hs(_with_catalysts(_fc, _t20_cat, safe_key="top20"))
                 with st.container(key="t20_tbl_fc"):
                     _fcsel = st.dataframe(
-                        _fc.style.format(_live_fmt(_fc, {
+                        _style_health_setup(_fc.style.format(_live_fmt(_fc, {
                             "Price": "${:,.2f}", "OddsUp": "{:.0f}%",
                             "Typical": "{:+.1f}%", "PopOdds": "{:.0f}%",
                             "Worst10": "{:+.0f}%", "Best10": "{:+.0f}%",
@@ -7257,7 +7340,7 @@ with st.container(border=True, key="mw_page"):
                         .map(lambda v: f"color:{GREEN};font-weight:700" if isinstance(v,(int,float)) and v>=60
                              else (f"color:{RED}" if isinstance(v,(int,float)) and v<50 else ""),
                              subset=["OddsUp"])
-                        .map(lambda v: _css_sign(v) if isinstance(v,(int,float)) else "", subset=["Typical"]),
+                        .map(lambda v: _css_sign(v) if isinstance(v,(int,float)) else "", subset=["Typical"])),
                         width=_DF_WIDTH, hide_index=True, height=740,
                         on_select="rerun", selection_mode="single-row", key="forecast_table",
                         column_order=_order_with_cat(
@@ -7267,6 +7350,7 @@ with st.container(border=True, key="mw_page"):
                             _fc),
                         column_config={
                             "#": _rank_col_cfg(),
+                            **_health_setup_col_cfgs(),
                             **_cat_col_cfgs(),
                             "OddsUp": st.column_config.Column(help="Share of analog look-alike cases that finished HIGHER after 21 sessions. This is what the preset ranks by."),
                             "Typical": st.column_config.Column(help="Median analog outcome — the middle-of-the-pack result. Breaks ties on odds."),
@@ -7312,7 +7396,7 @@ with st.container(border=True, key="mw_page"):
                     unsafe_allow_html=True)
                 _m20, _lmeta = _apply_live(_m20)
                 _live_banner(_lmeta)
-                _m20 = _with_catalysts(_m20, _t20_cat, safe_key="top20")
+                _m20 = _stamp_hs(_with_catalysts(_m20, _t20_cat, safe_key="top20"))
                 # Fit / MacroFit / Quality / Data stay in the frame (they drive the
                 # ranking and the styling) but are hidden from the display
                 _mcols = (["Ticker", "Sector", "Price"]
@@ -7320,7 +7404,7 @@ with st.container(border=True, key="mw_page"):
                           + ["ROIC", "OE Yield", "Piotroski", "P/E", "RevGrowth"])
                 with st.container(key="t20_tbl_mc"):
                     _msel = st.dataframe(
-                        _m20.style.format(_live_fmt(_m20, {
+                        _style_health_setup(_m20.style.format(_live_fmt(_m20, {
                             "Price": "${:,.2f}", "Fit": "{:.1f}", "MacroFit": "{:.2f}",
                             "Quality": "{:.0f}", "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
                             "Piotroski": "{:.0f}", "P/E": "{:.1f}",
@@ -7330,13 +7414,15 @@ with st.container(border=True, key="mw_page"):
                              else (f"color:{RED}" if isinstance(v, (int, float)) and v < 1.0
                                    else ""), subset=["MacroFit"])
                         .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
-                                        else f"color:{DIM}"), subset=["Data"]),
+                                        else f"color:{DIM}"), subset=["Data"])),
                         width=_DF_WIDTH, hide_index=True, height=740,
                         on_select="rerun", selection_mode="single-row", key="macro_table",
                         column_order=_order_with_cat(
                             [c for c in _mcols if c in _m20.columns], _m20),
                         column_config={
                             "#": _rank_col_cfg(),
+                            **_health_setup_col_cfgs(),
+                            **_cat_col_cfgs(),
                             "Fit": st.column_config.Column(help="Quality score multiplied by this sector's multiplier under the chosen scenario."),
                             "MacroFit": st.column_config.Column(help="The scenario's sector multiplier. Above 1.00 = a sector this regime favours."),
                             "Quality": st.column_config.Column(help="Composite of ROIC, owner-earnings yield, Piotroski, ROIC trend and growth. Missing inputs rank at the bottom."),
@@ -7400,7 +7486,7 @@ with st.container(border=True, key="mw_page"):
                 _f = f20.copy()
                 _f, _lmeta = _apply_live(_f)
                 _live_banner(_lmeta)
-                _f = _with_catalysts(_f, _t20_cat, safe_key="top20")
+                _f = _stamp_hs(_with_catalysts(_f, _t20_cat, safe_key="top20"))
                 _ffmt = {
                     "Price": "${:,.2f}", "Felix": "{:.1f}",
                     "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
@@ -7430,8 +7516,11 @@ with st.container(border=True, key="mw_page"):
                           + (["Felix", "MacroFit"] if "MacroFit" in _f.columns else [])
                           + ["ROIC", "OE Yield", "Piotroski", "ROIC Trend",
                              "P/E", "RevGrowth"])
+                _fsty = _style_health_setup(_fsty)
                 _fcfg = {
                     "#": _rank_col_cfg(),
+                    **_health_setup_col_cfgs(),
+                    **_cat_col_cfgs(),
                     "Felix": st.column_config.Column(help="Weighted checklist score, mirroring the screener preset exactly: ROIC x5, OE Yield x4, Piotroski x4, ROIC Trend x2, growth x1 each — percentile-ranked, P/E-gated. The macro lens does not change this number."),
                     "MacroFit": st.column_config.Column(help="This sector's multiplier under the lens. Above 1.00 means the playbook favors the sector. It changes who makes the list, not the Felix score."),
                     "Tests": st.column_config.Column(help="How many of the four measurable quality bars this stock clears. A missing input can never pass a test."),
@@ -7484,10 +7573,10 @@ with st.container(border=True, key="mw_page"):
                             getattr(ce, "CAT_DOWN_COL", "▼ Down"), "Catalysts"):
                     if _cc in _t.columns:
                         _t = _t.drop(columns=[_cc])
-                _t = _with_catalysts(_t, _t20_cat, safe_key="top20")
+                _t = _stamp_hs(_with_catalysts(_t, _t20_cat, safe_key="top20"))
                 with st.container(key="t20_tbl_cs"):
                     _sel20 = st.dataframe(
-                        _t.style.format(_live_fmt(_t, {
+                        _style_health_setup(_t.style.format(_live_fmt(_t, {
                             "Price": "${:,.2f}", "Score": "{:.1f}", "Tech": "{:.0f}",
                             "Quality": "{:.0f}", "Tailwind": "{:.0f}", "MacroFit": "{:.2f}",
                             "Piotroski": "{:.0f}", "RevGrowth": "{:+.0%}",
@@ -7500,7 +7589,7 @@ with st.container(border=True, key="mw_page"):
                         .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "5/5"
                                         else (f"color:{RED};font-weight:600"
                                               if isinstance(v, str) and v[:1] in "012"
-                                              else f"color:{DIM}")), subset=["Data"]),
+                                              else f"color:{DIM}")), subset=["Data"])),
                         width=_DF_WIDTH, hide_index=True, height=740,
                         on_select="rerun", selection_mode="single-row", key="top20_table",
                         column_order=_order_with_cat(
@@ -7511,6 +7600,7 @@ with st.container(border=True, key="mw_page"):
                             _t),
                         column_config={
                             "#": _rank_col_cfg(),
+                            **_health_setup_col_cfgs(),
                             **_cat_col_cfgs(),
                             "Score": st.column_config.Column(help="Combined score: 42% technicals + 23% quality + 29% cascade tailwind + 6% catalysts, multiplied by the macro-regime sector fit."),
                             "Tech": st.column_config.Column(help="IGNITION technical percentile: momentum, range position, relative volume, trend, RSI sweet spot, MACD."),
@@ -7842,9 +7932,10 @@ with st.container(border=True, key="mw_page"):
                         _m3.metric("Median vol", f"{_show['Vol%'].median():.2f}%")
                         st.caption(f"Source: {_src} · scored {asof if _meta['validated'] else 'live'}")
                         _ax_hide = {"Data", "Score", "Risk"}
-                        _ax_view = _show.drop(columns=[c for c in _ax_hide if c in _show.columns])
+                        _ax_view = _stamp_hs(
+                            _show.drop(columns=[c for c in _ax_hide if c in _show.columns]))
                         _sel_ax = st.dataframe(
-                            _ax_view.style.format({
+                            _style_health_setup(_ax_view.style.format({
                                 k: v for k, v in {
                                     "Adj": "{:.1f}", "Macro": "{:.2f}",
                                     "Price": "${:,.2f}", "Vol%": "{:.2f}%",
@@ -7855,7 +7946,7 @@ with st.container(border=True, key="mw_page"):
                                             else (f"color:{DIM}" if v == "IN VALUE"
                                                   else "color:#b565f3")), subset=["ValueArea"])
                             .map(lambda v: _css_sign(-abs(v) + 3, dead=0) if isinstance(v, (int, float))
-                                 else "", subset=["RS"]),
+                                 else "", subset=["RS"])),
                             width=_DF_WIDTH, hide_index=True, height=620,
                             on_select="rerun", selection_mode="single-row", key="apex_table",
                             column_order=_order_with_cat(
@@ -7867,6 +7958,7 @@ with st.container(border=True, key="mw_page"):
                                 _ax_view),
                             column_config={
                                 "#": _rank_col_cfg(),
+                                **_health_setup_col_cfgs(),
                                 **_cat_col_cfgs(),
                                 "Vol%": st.column_config.Column(help="20-bar realized volatility, this timeframe's own scale."),
                                 "RangePos": st.column_config.Column(help="Position in the 20-bar range. 0% = at the lows. Lower scores better."),
@@ -8260,6 +8352,7 @@ with st.container(border=True, key="mw_page"):
                     if _pdf is None or _pdf.empty:
                         st.info(_filter_hid_msg("poc", "setup"))
                     else:
+                        _pdf = _stamp_hs(_pdf)
                         _cnt = _pdf.Stage.value_counts().to_dict()
                         st.markdown(f"""<div style="background:#0c1829;border:1px solid #3d6a94;
                             border-left:5px solid #6EE7B7;border-radius:10px;padding:10px 14px;margin:8px 0;">
@@ -8274,7 +8367,7 @@ with st.container(border=True, key="mw_page"):
                             reclaim. The coiling list is the early-warning queue.</span></div>""",
                             unsafe_allow_html=True)
                         _psel = st.dataframe(
-                            _pdf.style.format({
+                            _style_health_setup(_pdf.style.format({
                                 "Price": "${:,.2f}", "POC": "${:,.2f}", "ToPOC%": "{:+.1f}%",
                                 "Entry": "${:,.2f}", "Stop": "${:,.2f}", "Target": "${:,.2f}",
                                 "R:R": "{:.2f}", "RangeATR": "{:.2f}",
@@ -8291,7 +8384,7 @@ with st.container(border=True, key="mw_page"):
                                  if isinstance(v, (int, float)) else "", subset=["Win%"])
                             .map(lambda v: (f"color:{GREEN};font-weight:700" if v >= 0.50
                                             else (f"color:{DIM}" if v >= 0.25 else f"color:{RED}"))
-                                 if isinstance(v, (int, float)) else "", subset=["ExpR"]),
+                                 if isinstance(v, (int, float)) else "", subset=["ExpR"])),
                             width=_DF_WIDTH, hide_index=True, height=620,
                             on_select="rerun", selection_mode="single-row", key="poc_table",
                             column_order=_order_with_cat(
@@ -8303,6 +8396,7 @@ with st.container(border=True, key="mw_page"):
                                 _pdf),
                             column_config={
                                 "#": _rank_col_cfg(),
+                                **_health_setup_col_cfgs(),
                                 **_cat_col_cfgs(),
                                 "Stage": st.column_config.Column(help="TRIGGERED = POC reclaimed. SWEPT = lows taken, reclaim pending. COILING = range forming."),
                                 "BarsAgo": st.column_config.Column(help="Sessions since the stage began. 0 = it happened on the latest bar."),
@@ -8411,6 +8505,7 @@ with st.container(border=True, key="mw_page"):
                 if _kdf is None or _kdf.empty:
                     st.info(_filter_hid_msg("kw"))
                 else:
+                    _kdf = _stamp_hs(_kdf)
                     _qshow = (_ksnap.get("query")
                           if isinstance(_ksnap, dict) and _ksnap.get("query")
                           else str(_kw_q or "").strip())
@@ -8428,9 +8523,9 @@ with st.container(border=True, key="mw_page"):
                                      "Where", "Snippet"] if c in _kdf.columns],
                         _kdf)
                     _ksel = st.dataframe(
-                        _kdf.style.format(
+                        _style_health_setup(_kdf.style.format(
                             {k: v for k, v in {"Price": "${:,.2f}"}.items()
-                             if k in _kdf.columns}, na_rep="—"),
+                             if k in _kdf.columns}, na_rep="—")),
                         width=_DF_WIDTH, hide_index=True,
                         height=_fit_list_height(len(_kdf)),
                         on_select="rerun", selection_mode="single-row",
@@ -8438,6 +8533,7 @@ with st.container(border=True, key="mw_page"):
                         column_order=_korder or None,
                         column_config={
                             "#": _rank_col_cfg(),
+                            **_health_setup_col_cfgs(),
                             **_cat_col_cfgs(),
                             "Name": st.column_config.Column(help="Dump company name."),
                             "Where": st.column_config.Column(
@@ -8699,12 +8795,13 @@ with st.container(border=True, key="mw_page"):
                                 return now / then - 1.0
                             _tdf["Current"] = _tdf.Ticker.map(_te_nowpx)
                             _tdf["Change"] = _tdf.Ticker.map(_te_chg)
-                            _tdf = _with_catalysts(_tdf, _te_cat)
+                            _tdf = _stamp_hs(_with_catalysts(_tdf, _te_cat))
                             _te_fmt = {k: v for k, v in {
                                 "Price": "${:,.2f}", "Current": "${:,.2f}",
                                 "Change": "{:+.1%}",
                             }.items() if k in _tdf.columns}
-                            _te_styled = _tdf.style.format(_te_fmt, na_rep="—")
+                            _te_styled = _style_health_setup(
+                                _tdf.style.format(_te_fmt, na_rep="—"))
                             if "Change" in _tdf.columns:
                                 _te_styled = _te_styled.map(
                                     lambda v: _css_sign(v, dead=0.002),
@@ -8723,6 +8820,7 @@ with st.container(border=True, key="mw_page"):
                                     _tdf) or None,
                                 column_config={
                                     "#": _rank_col_cfg(),
+                                    **_health_setup_col_cfgs(),
                                     **_cat_col_cfgs(),
                                     "Price": st.column_config.Column(
                                         help="Last close in the nightly dump."),
@@ -8920,7 +9018,7 @@ with st.container(border=True, key="mw_page"):
                 if _edf is None or (isinstance(_edf, pd.DataFrame) and _edf.empty):
                     st.warning("No names passed. Loosen min price or dollar volume.")
                 else:
-                    _show = _with_catalysts(_edf.copy(), _el_cat, safe_key="el")
+                    _show = _stamp_hs(_with_catalysts(_edf.copy(), _el_cat, safe_key="el"))
                     if _show is None or _show.empty:
                         st.info(_filter_hid_msg("el"))
                     else:
@@ -8944,7 +9042,8 @@ with st.container(border=True, key="mw_page"):
                             "Live21": "{:+.1%}",
                             "Price": "${:,.2f}",
                         }.items() if k in _show.columns}
-                        _el_styled = _show.style.format(_el_fmt, na_rep="—")
+                        _el_styled = _style_health_setup(
+                            _show.style.format(_el_fmt, na_rep="—"))
                         for _col in ("Elec%", "XS%", "Ctrl%", "Alpha", "Live21"):
                             if _col in _show.columns:
                                 _el_styled = _el_styled.map(
@@ -8962,6 +9061,7 @@ with st.container(border=True, key="mw_page"):
                                 _show),
                             column_config={
                                 "#": _rank_col_cfg(),
+                                **_health_setup_col_cfgs(),
                                 **_cat_col_cfgs(),
                                 "Score": st.column_config.Column(
                                     help="0–100 percentile of election edge "

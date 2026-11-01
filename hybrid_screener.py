@@ -1427,6 +1427,10 @@ def render_hybrid_screener() -> None:
             pass
     if display is not None and not getattr(display, "empty", True):
         display = ce.stamp_rank(display)
+        try:
+            display = ce.stamp_health_setup(display)
+        except Exception:
+            pass
     if display is not None:
         _register_for_ignition(display)
     diag = st.session_state.get("_hs_diag") or {}
@@ -1525,7 +1529,10 @@ def render_hybrid_screener() -> None:
                             pass
 
     order = [c for c in [
-        "#", "Ticker", "Sector", "Price",
+        "#", "Ticker", "Sector",
+        getattr(ce, "HEALTH_COL", "Health/Piotroski"),
+        getattr(ce, "SETUP_COL", "Clean Setup"),
+        "Price",
         "Pricing power", "Gross Margin", "ROIC",
         "D/E", "Current ratio", "OE Yield", "Piotroski", "ROIC Trend",
         "RevenueGrowth", "EarningsGrowth",
@@ -1566,6 +1573,19 @@ def render_hybrid_screener() -> None:
         _cat_cfg["EarningsGrowth"] = st.column_config.Column(
             "Earn Growth",
             help="Year-over-year earnings growth.")
+    _hs_help = getattr(ce, "HEALTH_SETUP_HELP", {}) or {}
+    _hcol = getattr(ce, "HEALTH_COL", "Health/Piotroski")
+    _scol = getattr(ce, "SETUP_COL", "Clean Setup")
+    if _hcol in display.columns:
+        _cat_cfg[_hcol] = st.column_config.Column(
+            help=_hs_help.get(_hcol) or (
+                "Financial Health bar plus Piotroski 9-point score. "
+                "Green Strong, amber OK, red Weak."))
+    if _scol in display.columns:
+        _cat_cfg[_scol] = st.column_config.Column(
+            help=_hs_help.get(_scol) or (
+                "Clean Setup trend from the nightly dump — same bull / bear / "
+                "mixed as the overlay."))
     if "Piotroski" in display.columns:
         _cat_cfg["Piotroski"] = st.column_config.Column(
             help="Accounting health F-Score. 7–9 strong; 0–2 weak.")
@@ -1590,7 +1610,11 @@ def render_hybrid_screener() -> None:
             _dn, width="medium",
             help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means.")
     try:
-        styled = display.style.map(_color_score, subset=["Score"]) if "Score" in display.columns else display
+        if "Score" in display.columns:
+            styled = display.style.map(_color_score, subset=["Score"])
+        else:
+            styled = display.style
+        styled = ce.style_health_setup(styled)
         _tsel = st.dataframe(
             styled, width="content", height=560, column_order=order or None,
             hide_index=True, on_select="rerun", selection_mode="single-row",

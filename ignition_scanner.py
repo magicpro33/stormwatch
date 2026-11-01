@@ -3353,6 +3353,11 @@ def render_ignition_scanner_tab(render_detail=None):
             df = df[[c for c in keep if c in df.columns]]
             if "NightlyRank" in df.columns and df["NightlyRank"].isna().all():
                 df = df.drop(columns=["NightlyRank"])
+        try:
+            import cascade_engine as _ig_ce_hs
+            df = _ig_ce_hs.stamp_health_setup(df)
+        except Exception:
+            _ig_ce_hs = None
         col_cfg = {
             "#": st.column_config.NumberColumn(
                 "#", width="small", format="%d",
@@ -3365,8 +3370,21 @@ def render_ignition_scanner_tab(render_detail=None):
         for col in df.columns:
             if col not in col_cfg:
                 col_cfg[col] = st.column_config.Column(col, help=HELP.get(col, ""))
+        if _ig_ce_hs is not None:
+            _hs_help = getattr(_ig_ce_hs, "HEALTH_SETUP_HELP", {}) or {}
+            for _hc in (getattr(_ig_ce_hs, "HEALTH_COL", "Health/Piotroski"),
+                        getattr(_ig_ce_hs, "SETUP_COL", "Clean Setup")):
+                if _hc in df.columns:
+                    col_cfg[_hc] = st.column_config.Column(
+                        help=_hs_help.get(_hc, HELP.get(_hc, "")))
+        _ig_view = df
+        try:
+            if _ig_ce_hs is not None:
+                _ig_view = _ig_ce_hs.style_health_setup(df)
+        except Exception:
+            _ig_view = df
         _igsel = st.dataframe(
-            df,
+            _ig_view,
             width="content",
             hide_index=True,
             column_config=col_cfg,

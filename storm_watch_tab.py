@@ -833,6 +833,12 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             st.info("No names match those filters — lower the shakeout minimum or add sectors.")
         return
 
+    try:
+        import cascade_engine as ce
+        show = ce.stamp_health_setup(show)
+    except Exception:
+        pass
+
     styler = (
         show.style.format({
             "Price": "${:,.2f}", "StormScore": "{:.3f}", "Shakeout": "{:.0f}",
@@ -850,6 +856,11 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     )
     if "MacroFit" in show.columns:
         styler = styler.map(lambda v: _band_fit(v), subset=["MacroFit"])
+    try:
+        import cascade_engine as ce
+        styler = ce.style_health_setup(styler)
+    except Exception:
+        pass
 
     _hub_sec(f"Results · {len(show)} of {ranked_n}", "#FF8FA3",
              "green is in the zone this setup wants")
@@ -862,6 +873,10 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             "#": st.column_config.NumberColumn(
                 "#", width="small", format="%d",
                 help="Scan rank. 1 is first on this list. Click the header to sort."),
+            "Health/Piotroski": st.column_config.Column(
+                help="Financial Health bar plus Piotroski 9-point score. Green Strong, amber OK, red Weak."),
+            "Clean Setup": st.column_config.Column(
+                help="Clean Setup trend from the nightly dump — same bull / bear / mixed as the overlay (50-EMA vs 200-EMA and price)."),
             "▲ Up": st.column_config.Column(
                 "▲ Up", width="medium",
                 help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means."),

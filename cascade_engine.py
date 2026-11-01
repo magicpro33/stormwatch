@@ -1600,6 +1600,18 @@ NEWS_TO_CATALYST = {
 
 CAT_UP_COL = "▲ Up"
 CAT_DOWN_COL = "▼ Down"
+HEALTH_COL = "Health/Piotroski"
+SETUP_COL = "Clean Setup"
+HEALTH_SETUP_HELP = {
+    HEALTH_COL: (
+        "Financial Health bar (margins, ROE/ROA, D/E, current ratio) plus "
+        "Piotroski 9-point score. Green Strong, amber OK, red Weak."
+    ),
+    SETUP_COL: (
+        "Clean Setup trend from the nightly dump — same bull / bear / mixed "
+        "as the overlay (50-EMA vs 200-EMA and price)."
+    ),
+}
 
 
 def _cat_tag(key: str) -> str:
@@ -2976,7 +2988,7 @@ def drop_blank_columns(df: pd.DataFrame) -> pd.DataFrame:
         return df
     keep = []
     blank = {"", "nan", "none", "nat", "—", "-", "n/a", "na"}
-    always = {CAT_UP_COL, CAT_DOWN_COL, "#"}
+    always = {CAT_UP_COL, CAT_DOWN_COL, "#", HEALTH_COL, SETUP_COL}
     for c in df.columns:
         if c in always:
             keep.append(c)
@@ -4153,6 +4165,156 @@ def watchlist_health_rows(tickers: list) -> dict:
             "de": de,
             "cr": cr,
         }
+    return out
+
+
+def health_cell_text(h) -> str:
+    """Watchlist Health/Piotroski cell: bar + Strong/OK/Weak + · 5/9."""
+    if not isinstance(h, dict):
+        return "—"
+    score = h.get("score")
+    label = h.get("health") or "—"
+    if score is None:
+        return "—"
+    try:
+        n = int(round(max(0.0, min(1.0, float(score))) * 10))
+    except (TypeError, ValueError):
+        return label
+    bar = "█" * n + "░" * (10 - n)
+    pio_s = ""
+    try:
+        pf = float(h.get("pio"))
+        if np.isfinite(pf):
+            pio_s = f" · {pf:.0f}/9"
+    except (TypeError, ValueError):
+        pass
+    return f"{bar} {label}{pio_s}"
+
+
+def clean_setup_trend_of(close) -> str:
+    """Last-bar Clean Setup trend: bull, bear, mixed, or '' if not enough tape."""
+    try:
+        c = np.asarray(close, dtype=float)
+    except Exception:
+        return ""
+    finite = np.isfinite(c)
+    if int(finite.sum()) < 50:
+        return ""
+    s = pd.Series(c[finite])
+    e50 = float(s.ewm(span=50, adjust=False).mean().iloc[-1])
+    e200 = float(s.ewm(span=200, adjust=False).mean().iloc[-1])
+    last = float(s.iloc[-1])
+    if not (np.isfinite(e50) and np.isfinite(e200) and np.isfinite(last)):
+        return ""
+    if e50 > e200 and last > e50:
+        return "bull"
+    if e50 < e200 and last < e50:
+        return "bear"
+    return "mixed"
+
+
+def clean_setup_trends(tickers) -> dict:
+    """▲ Bull / ▼ Bear / — Mixed labels keyed by ticker, from dump closes."""
+    labels = {"bull": "▲ Bull", "bear": "▼ Bear", "mixed": "— Mixed"}
+    out = {}
+    wanted = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
+    if not wanted:
+        return out
+    try:
+        panel, tks, *_rest = load_dump_panel()
+        C = panel["c"]
+        imap = _tick_ix_map(tks)
+    except Exception as e:
+        _log_exc("clean_setup_trends.panel", e)
+        return {t: "—" for t in wanted}
+    for t in wanted:
+        j = imap.get(t)
+        if j is None:
+            out[t] = "—"
+            continue
+        try:
+            key = clean_setup_trend_of(np.asarray(C[:, j], dtype=float))
+        except Exception:
+            key = ""
+        out[t] = labels.get(key, "—")
+    return out
+
+
+def css_health_lbl(v) -> str:
+    s = str(v or "")
+    if "Strong" in s:
+        return "color:#3fbf7f;font-weight:600"
+    if "OK" in s:
+        return "color:#E87722;font-weight:600"
+    if "Weak" in s:
+        return "color:#e05252;font-weight:600"
+    return "color:#9aa8bd"
+
+
+def css_cs_trend(v) -> str:
+    s = str(v or "").lower()
+    if "bull" in s:
+        return "color:#3fbf7f;font-weight:600"
+    if "bear" in s:
+        return "color:#e05252;font-weight:600"
+    if "mixed" in s:
+        return "color:#E87722;font-weight:600"
+    return "color:#9aa8bd"
+
+
+def style_health_setup(obj):
+    """Color Health/Piotroski and Clean Setup the same way the watchlist does."""
+    styler = obj if hasattr(obj, "data") else obj.style
+    data = getattr(styler, "data", None)
+    cols = list(getattr(data, "columns", [])) if data is not None else []
+    if HEALTH_COL in cols:
+        styler = styler.map(css_health_lbl, subset=[HEALTH_COL])
+    if SETUP_COL in cols:
+        styler = styler.map(css_cs_trend, subset=[SETUP_COL])
+    return styler
+
+
+def stamp_health_setup(df, ticker_col=None, health_map=None, setup_map=None):
+    """Add Health/Piotroski and Clean Setup immediately after Sector.
+
+    Same cell format as the watchlist. Missing Sector falls back to after Ticker.
+    """
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    out = df.copy()
+    tcol = ticker_col
+    if not tcol:
+        for c in ("Ticker", "ticker"):
+            if c in out.columns:
+                tcol = c
+                break
+    if not tcol:
+        return out
+    tks = [str(t).strip().upper() for t in out[tcol].tolist()]
+    uniq = [t for t in dict.fromkeys(tks) if t]
+    if health_map is None:
+        try:
+            health_map = watchlist_health_rows(uniq) or {}
+        except Exception as e:
+            _log_exc("stamp_health_setup.health", e)
+            health_map = {}
+    if setup_map is None:
+        try:
+            setup_map = clean_setup_trends(uniq) or {}
+        except Exception as e:
+            _log_exc("stamp_health_setup.setup", e)
+            setup_map = {}
+    health = [health_cell_text(health_map.get(t) or {}) for t in tks]
+    setup = [setup_map.get(t) or "—" for t in tks]
+    for c in (HEALTH_COL, SETUP_COL):
+        if c in out.columns:
+            out = out.drop(columns=[c])
+    if "Sector" in out.columns:
+        i = list(out.columns).index("Sector") + 1
+    else:
+        i = list(out.columns).index(tcol) + 1
+    out.insert(i, HEALTH_COL, health)
+    out.insert(i + 1, SETUP_COL, setup)
     return out
 
 
