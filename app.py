@@ -471,6 +471,56 @@ div[data-testid="stPlotlyChart"] > div {
     margin: 8px 0 12px 0 !important;
     padding: 12px 14px 14px 14px !important;
 }
+.st-key-wl_fav_col,
+.st-key-wl_fav_col[data-testid="stVerticalBlock"] {
+    gap: 0 !important;
+    row-gap: 0 !important;
+}
+.st-key-wl_fav_col [data-testid="stElementContainer"],
+.st-key-wl_fav_col [data-testid="element-container"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 35px !important;
+}
+.wl-fav-h {
+    height: 35px;
+    line-height: 35px;
+    text-align: center;
+    color: #9aa8bd;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+.st-key-wl_fav_col [data-testid="stButton"] button,
+.st-key-wl_fav_col [data-testid="stButton"] p,
+.st-key-wl_fav_col [data-testid="stButton"] span {
+    font-size: 28px !important;
+    line-height: 35px !important;
+    min-height: 35px !important;
+    height: 35px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+.st-key-wl_fav_col [data-testid="stBaseButton-primary"],
+.st-key-wl_fav_col [data-testid="stBaseButton-primary"] p {
+    color: #F5C542 !important;
+    background: transparent !important;
+    border: none !important;
+}
+.st-key-wl_fav_col [data-testid="stBaseButton-secondary"],
+.st-key-wl_fav_col [data-testid="stBaseButton-secondary"] p {
+    color: #6b7c91 !important;
+    background: transparent !important;
+    border: none !important;
+}
+.st-key-wl_fav_col [data-testid="stButton"] button:hover,
+.st-key-wl_fav_col [data-testid="stButton"] button:hover p {
+    color: #F5C542 !important;
+    background: transparent !important;
+}
 .mw-menu-title {
     background: rgba(255,255,255,0.05);
     border: 1px solid color-mix(in srgb, var(--mc,#67E8F9) 45%, rgba(255,255,255,0.12));
@@ -6729,13 +6779,34 @@ with st.container(border=True, key="mw_page"):
                         "added", "price_at_add", "price_now", "since_add"]]
             show.columns = ["Ticker", "Sector", "Scanner", "Earnings", "Health/Piotroski",
                             "Clean Setup", "Saved", "Price then", "Price now", "Since saved"]
-            _WL_FAV_ON, _WL_FAV_OFF = "★", "☆"
-            show.insert(0, "Fav", [_WL_FAV_ON if x else _WL_FAV_OFF
-                                   for x in wdf["_fav"].tolist()])
             show.insert(0, "sel", [False] * len(show))
             show["sel"] = show["sel"].astype(bool)
             _wl_sel_epoch = int(st.session_state.get("_wl_sel_epoch", 0) or 0)
-            _edited = st.data_editor(
+            _fav_tks = [str(t).strip().upper() for t in wdf.ticker.tolist()]
+            _fav_flags = [bool(x) for x in wdf["_fav"].tolist()]
+            _on_css = "".join(
+                f".st-key-wl_favbtn_{_tk} button,.st-key-wl_favbtn_{_tk} p"
+                f"{{color:#F5C542 !important;}}"
+                for _tk, _on in zip(_fav_tks, _fav_flags) if _on)
+            if _on_css:
+                st.markdown(f"<style>{_on_css}</style>", unsafe_allow_html=True)
+            _fc, _tc = st.columns([0.07, 0.93], gap="small")
+            with _fc:
+                with st.container(key="wl_fav_col"):
+                    st.markdown("<div class='wl-fav-h'>Fav</div>",
+                                unsafe_allow_html=True)
+                    for _tk, _on in zip(_fav_tks, _fav_flags):
+                        if st.button("★" if _on else "☆",
+                                     key=f"wl_favbtn_{_tk}",
+                                     type="secondary",
+                                     help="Favorite — click to turn on or off. Does not select the row.",
+                                     width="stretch"):
+                            ce.watchlist_set_favorite(_tk, not _on)
+                            st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
+                            st.session_state.pop(f"wl_table_favbtn_{_wl_sel_epoch}", None)
+                            st.rerun()
+            with _tc:
+                _edited = st.data_editor(
                 show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
                                    "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—",
                                    subset=["Price then", "Price now", "Since saved", "Scanner"])
@@ -6745,18 +6816,13 @@ with st.container(border=True, key="mw_page"):
                 .map(_css_cs_trend, subset=["Clean Setup"]),
                 width="stretch", hide_index=True, height="content",
                 row_height=35, num_rows="fixed",
-                disabled=[c for c in show.columns if c not in ("sel", "Fav")],
-                key=f"wl_table_favsel_{_wl_sel_epoch}",
+                disabled=[c for c in show.columns if c not in ("sel",)],
+                key=f"wl_table_favbtn_{_wl_sel_epoch}",
                 column_config={
                     "sel": st.column_config.CheckboxColumn(
                         " ",
                         help="Select to open or remove. Separate from the favorite star.",
                         default=False, width="small", pinned=True),
-                    "Fav": st.column_config.SelectboxColumn(
-                        "Fav",
-                        options=[_WL_FAV_OFF, _WL_FAV_ON],
-                        help="Pick ★ to pin a favorite. ☆ is unstarred. This does not select the row.",
-                        width="small", pinned=True, required=True),
                     "Ticker": st.column_config.Column(help="Saved ticker."),
                     "Sector": st.column_config.Column(help="Nightly dump sector."),
                     "Scanner": st.column_config.Column(
@@ -6782,26 +6848,7 @@ with st.container(border=True, key="mw_page"):
                 except Exception:
                     pass
                 return bool(v)
-            def _wl_as_fav(v):
-                if isinstance(v, str):
-                    s = v.strip()
-                    if s in ("★", "⭐"):
-                        return True
-                    if s in ("☆", "✩", "") or s.lower() in ("off", "no", "false"):
-                        return False
-                    return s.lower() in ("true", "1", "yes", "on")
-                return _wl_as_bool(v)
-            _old_stars = [_wl_as_fav(x) for x in show["Fav"].tolist()]
-            _new_stars = ([_wl_as_fav(x) for x in _edited["Fav"].tolist()]
-                          if _edited is not None and "Fav" in _edited.columns else _old_stars)
             _star_tks = [str(t).strip().upper() for t in (_edited["Ticker"] if _edited is not None else show["Ticker"]).tolist()]
-            if len(_new_stars) == len(_old_stars) and _new_stars != _old_stars:
-                for _tk, _on, _was in zip(_star_tks, _new_stars, _old_stars):
-                    if _on != _was and _tk:
-                        ce.watchlist_set_favorite(_tk, _on)
-                st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
-                st.session_state.pop(f"wl_table_favsel_{_wl_sel_epoch}", None)
-                st.rerun()
             _sel_flags = ([_wl_as_bool(x) for x in _edited["sel"].tolist()]
                           if _edited is not None and "sel" in _edited.columns else [])
             _sel_tks = [t for t, on in zip(_star_tks, _sel_flags) if on and t]
@@ -6817,7 +6864,7 @@ with st.container(border=True, key="mw_page"):
                         (_ent or {}).get("source"), (_ent or {}).get("note"))
                     st.rerun()
             _cap, _rm = st.columns([4, 1], vertical_alignment="center")
-            _cap.caption("Fav is ☆ or ★ — pick ★ to pin a favorite. That does not "
+            _cap.caption("Click the star to favorite — on or off. That does not "
                          "select the row. Check a row to open it. Select one or more "
                          "rows, then remove them here.")
             if _rm.button(f"🗑 Remove ({len(_sel_tks)})", width="stretch",
@@ -6827,8 +6874,8 @@ with st.container(border=True, key="mw_page"):
                 st.session_state.pop("_wl_handled", None)
                 st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
                 for _k in (f"wl_table_{_wl_sel_epoch}", f"wl_table_health_{_wl_sel_epoch}",
-                           f"wl_table_favsel_{_wl_sel_epoch}", f"wl_stars_{_wl_sel_epoch}",
-                           "wl_table", "wl_mgmt_editor"):
+                           f"wl_table_favsel_{_wl_sel_epoch}", f"wl_table_favbtn_{_wl_sel_epoch}",
+                           f"wl_stars_{_wl_sel_epoch}", "wl_table", "wl_mgmt_editor"):
                     st.session_state.pop(_k, None)
                 st.success("Removed " + ", ".join(_sel_tks))
                 st.rerun()
@@ -6837,8 +6884,8 @@ with st.container(border=True, key="mw_page"):
         # ── Backup / restore — always visible, even with an empty list ──
         with st.expander("Manage watchlist", expanded=False):
             st.caption("Select rows on the list above to open or remove them. "
-                       "Pin favorites in the Fav column (☆ / ★) — that mark is stored "
-                       "with the row. The backup file stores every field — ticker, favorite, "
+                       "Click the star to favorite — that mark is stored with the "
+                       "row. The backup file stores every field — ticker, favorite, "
                        "scanner, saved date, price then, note, and each scanner's full "
                        "row. The same row is already saved on disk and in this page's URL.")
             bc1, bc2 = st.columns(2)
