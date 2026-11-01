@@ -490,6 +490,7 @@ div[data-testid="stPlotlyChart"] > div {
 _TAB_COLOR = {
     "Scan Hub": "#FFD15C",
     "Stock Lookup": "#7FD4FF",
+    "Bull List": "#3fbf7f",
     "Dividend Calender": "#F0A6FF",
     "Crypto Copycat": "#C8F542",
     "Macro Sim": "#FF8FA3",
@@ -522,7 +523,7 @@ _TAB_COLOR = {
 }
 _MENU_CAT_COLORS = {
     "mw_main": [_TAB_COLOR[k] for k in (
-        "Scan Hub", "Stock Lookup", "Dividend Calender", "Crypto Copycat",
+        "Scan Hub", "Stock Lookup", "Bull List", "Dividend Calender", "Crypto Copycat",
         "Macro Sim", "Cascade Map", "Nerd Hub")],
     "mw_hub": [_TAB_COLOR[k] for k in (
         "TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
@@ -6028,7 +6029,7 @@ def _try_closes():
     return closes, asof
 
 
-_MAIN = ["Scan Hub", "Stock Lookup", "Dividend Calender", "Crypto Copycat",
+_MAIN = ["Scan Hub", "Stock Lookup", "Bull List", "Dividend Calender", "Crypto Copycat",
          "Macro Sim", "Cascade Map", "Nerd Hub"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Hybrid Screener",
         "Ignition Scanner", "Key Word Search", "Trump Effect", "Elections",
@@ -6971,6 +6972,164 @@ with st.container(border=True, key="mw_page"):
                     st.rerun()
                 except Exception as _ue:
                     st.error(f"Could not read that backup: {_ue}")
+
+
+    # ── 🐂 master bull list (public view, PIN to edit) ────────────────
+    if _main == "Bull List":
+        _hub_title("🐂 Bull List", "#3fbf7f", tagline="Master list")
+        closes, asof = _try_closes_for_scan()
+        st.caption("Shared names the owner is watching on the long side. "
+                   "Anyone using the app can read this list. Adding or removing "
+                   "names needs the owner's 4-digit PIN.")
+        _bunlock = bool(st.session_state.get("_bull_unlocked"))
+        _bpick = []
+        _show_tk = ""
+        _pack = {}
+        try:
+            _pack = ce.bull_list_load() if hasattr(ce, "bull_list_load") else {}
+        except Exception as _ble:
+            log_exc("bull_list_load", _ble)
+            _pack = {}
+        _b_rows = list((_pack or {}).get("tickers") or [])
+        _b_head = str((_pack or {}).get("headline") or "").strip()
+        _b_upd = str((_pack or {}).get("updated") or "").strip()
+        if _b_head:
+            st.markdown(f"**{_esc(_b_head)}**")
+        _bm1, _bm2 = st.columns(2)
+        _bm1.metric("Names", f"{len(_b_rows):,}")
+        _bm2.metric("Updated", _b_upd or "—")
+        _bdf = pd.DataFrame(_b_rows) if _b_rows else pd.DataFrame()
+        if not _bdf.empty:
+            if "ticker" in _bdf.columns:
+                _bdf = _bdf.rename(columns={"ticker": "Ticker", "note": "Note",
+                                            "added": "Added"})
+            _btks = [str(t).strip().upper() for t in _bdf["Ticker"].tolist()]
+            try:
+                _p, _dump_tks, _secs, _mdv, _dts = ce.load_dump_panel()
+                _sec_map = {str(t): str(s) for t, s in zip(_dump_tks, _secs)}
+            except Exception:
+                _sec_map = {}
+            _bdf["Sector"] = [(_sec_map.get(t) if _sec_map.get(t) and _sec_map.get(t) != "nan"
+                               else "—") for t in _btks]
+            try:
+                _bpx = ce.dump_last_closes(_btks) or {}
+            except Exception:
+                _bpx = {}
+            try:
+                _blive, _ = _live_quotes(tuple(_btks), _px_nonce())
+            except Exception:
+                _blive = {}
+            _bdf["Price"] = [(_blive.get(t) if t in (_blive or {}) else _bpx.get(t))
+                             for t in _btks]
+            _bdf = _stamp_hs(_bdf)
+            if "#" in _bdf.columns:
+                _bdf = _bdf.drop(columns=["#"])
+            _bdf.insert(0, "#", list(range(1, len(_bdf) + 1)))
+            _border = _order_with_cat(
+                ["#", "Ticker", "Sector", "Price", "Note", "Added"], _bdf)
+            _bunlock = bool(st.session_state.get("_bull_unlocked"))
+            _bsel = st.dataframe(
+                _style_health_setup(_bdf.style.format(
+                    {k: v for k, v in {"Price": "${:,.2f}"}.items()
+                     if k in _bdf.columns}, na_rep="—")),
+                width=_DF_WIDTH, hide_index=True,
+                height=_fit_list_height(len(_bdf)),
+                on_select="rerun",
+                selection_mode="multi-row" if _bunlock else "single-row",
+                key="bull_table_edit" if _bunlock else "bull_table",
+                column_order=_border or None,
+                column_config={
+                    "#": _rank_col_cfg(),
+                    **_health_setup_col_cfgs(),
+                    "Note": st.column_config.Column(
+                        help="Owner note for why this name is on the bull list."),
+                    "Added": st.column_config.Column(
+                        help="Calendar day the owner added it."),
+                    "Price": st.column_config.Column(
+                        help="Live quote when available, otherwise last dump close."),
+                })
+            st.caption("👆 Tap a row for the chart, cards, and company profile below.")
+            _brows = (_bsel.selection.rows
+                      if _bsel and getattr(_bsel, "selection", None) else [])
+            _bpick = []
+            if _brows and "Ticker" in _bdf.columns:
+                for _i in _brows:
+                    try:
+                        _tk = str(_bdf.iloc[int(_i)]["Ticker"]).strip().upper()
+                    except Exception:
+                        _tk = ""
+                    if _tk:
+                        _bpick.append(_tk)
+            if len(_bpick) == 1:
+                st.session_state["bull_inline"] = _bpick[0]
+                st.session_state["lk_tk"] = _bpick[0]
+            _show_tk = _bpick[0] if len(_bpick) == 1 else str(
+                st.session_state.get("bull_inline") or "").strip().upper()
+        else:
+            st.info("The bull list is empty. The owner can add names after unlocking.")
+            _bpick = []
+
+        _pin_on = bool(getattr(ce, "bull_list_pin_configured", lambda: False)())
+        with st.expander("Update this list (owner)", expanded=_bunlock):
+            if not _pin_on:
+                st.caption("Edits stay locked until `BULL_LIST_PIN` (4 digits) is set "
+                           "in Streamlit secrets. Everyone can still view the list.")
+            elif _bunlock:
+                st.caption("Unlocked. Changes write to the shared bull list that "
+                           "everyone sees. Lock when you are done.")
+                _hn = st.text_input("Headline", value=_b_head,
+                                    key="bull_headline",
+                                    placeholder="Optional note at the top of the list")
+                if st.button("Save headline", key="bull_head_save"):
+                    if getattr(ce, "bull_list_set_headline", None):
+                        ce.bull_list_set_headline(_hn)
+                        st.rerun()
+                _ac1, _ac2, _ac3 = st.columns([2, 2, 1], vertical_alignment="bottom")
+                _add_raw = _ac1.text_input("Add tickers", key="bull_add_raw",
+                                           placeholder="AAPL, MSFT, BRK.B")
+                _add_note = _ac2.text_input("Note for those names", key="bull_add_note",
+                                            placeholder="optional")
+                if _ac3.button("Add", type="primary", width="stretch", key="bull_add_go"):
+                    _bits = [p.strip().upper() for p in re.split(r"[\s,;]+", _add_raw or "")
+                             if p.strip()]
+                    _new = ce.bull_list_add(_bits, _add_note) if hasattr(ce, "bull_list_add") else []
+                    if _new:
+                        st.success("Added " + ", ".join(_new))
+                        st.rerun()
+                    else:
+                        st.warning("Nothing new to add — check the ticker, or it is already on the list.")
+                _rc1, _rc2 = st.columns([3, 1], vertical_alignment="center")
+                _rc1.caption("Select rows above, then remove them here.")
+                if _rc2.button(f"🗑 Remove ({len(_bpick)})", width="stretch",
+                               disabled=not _bpick, key="bull_remove"):
+                    _n = ce.bull_list_remove(_bpick) if hasattr(ce, "bull_list_remove") else 0
+                    st.session_state.pop("bull_inline", None)
+                    st.success("Removed " + ", ".join(_bpick) if _n else "Nothing removed.")
+                    st.rerun()
+                if st.button("Lock edits", key="bull_lock"):
+                    st.session_state["_bull_unlocked"] = False
+                    st.rerun()
+            else:
+                _fails = int(st.session_state.get("_bull_fails", 0) or 0)
+                if _fails >= 5:
+                    st.error("Too many wrong PIN tries this session. Reload the app to try again.")
+                else:
+                    with st.form("bull_pin_form"):
+                        _pin = st.text_input("4-digit PIN", type="password",
+                                             max_chars=8, key="bull_pin")
+                        _go = st.form_submit_button("Unlock")
+                    if _go:
+                        if getattr(ce, "bull_list_pin_ok", lambda *_: False)(_pin):
+                            st.session_state["_bull_unlocked"] = True
+                            st.session_state["_bull_fails"] = 0
+                            st.rerun()
+                        else:
+                            st.session_state["_bull_fails"] = _fails + 1
+                            st.error("Wrong PIN.")
+
+        if _show_tk:
+            _render_scan_hub_detail(_show_tk, "bull_detail", "bullaz",
+                                    closable=False)
 
 
     # ── 📊 hybrid screener (nightly-dump filters from magicpro33/stock) ──

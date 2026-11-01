@@ -4409,6 +4409,180 @@ def alpaca_history(symbols: list, years: int = HISTORY_YEARS) -> pd.DataFrame:
 # ═════════════════════════════════════════════════════════════════════
 WATCHLIST_PATH = os.path.join(_mw_data_dir(), "watchlist.json")
 TRUMP_LIST_PATH = os.path.join(_mw_data_dir(), "trump_effect_list.json")
+BULL_LIST_PATH = os.path.join(_mw_data_dir(), "bull_list.json")
+_BULL_LIST_MAX = 200
+
+
+def _bull_list_blank():
+    return {"updated": "", "headline": "", "tickers": []}
+
+
+def _bull_norm_ticker(raw) -> str:
+    t = str(raw or "").strip().upper()
+    if not t or t in ("NAN", "NONE", "NULL"):
+        return ""
+    return t[:12]
+
+
+def bull_list_pin() -> str:
+    """4-digit owner PIN from secrets / env. Empty means edits stay locked."""
+    raw = ""
+    try:
+        from mw_secrets import get_secret
+        raw = get_secret("BULL_LIST_PIN") or ""
+    except Exception:
+        raw = ""
+    digits = "".join(c for c in str(raw) if c.isdigit())
+    return digits[:4] if len(digits) >= 4 else ""
+
+
+def bull_list_pin_configured() -> bool:
+    return len(bull_list_pin()) == 4
+
+
+def bull_list_pin_ok(guess) -> bool:
+    import hmac
+    want = bull_list_pin()
+    got = "".join(c for c in str(guess or "") if c.isdigit())[:4]
+    if len(want) != 4 or len(got) != 4:
+        return False
+    return hmac.compare_digest(got.encode("ascii"), want.encode("ascii"))
+
+
+def _bull_list_row(item) -> dict | None:
+    if isinstance(item, str):
+        tk = _bull_norm_ticker(item)
+        if not tk:
+            return None
+        return {"ticker": tk, "note": "", "added": ""}
+    if not isinstance(item, dict):
+        return None
+    tk = _bull_norm_ticker(item.get("ticker") or item.get("Ticker"))
+    if not tk:
+        return None
+    return {
+        "ticker": tk,
+        "note": str(item.get("note") or "").strip()[:240],
+        "added": str(item.get("added") or "").strip()[:32],
+    }
+
+
+def bull_list_load() -> dict:
+    """Public master bull list. Everyone can read; writes go through save()."""
+    path = BULL_LIST_PATH
+    pack = _bull_list_blank()
+    try:
+        if not os.path.isfile(path):
+            return pack
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception as e:
+        _log_exc("bull_list_load", e)
+        return pack
+    if isinstance(raw, list):
+        rows_in = raw
+        updated = ""
+        headline = ""
+    elif isinstance(raw, dict):
+        rows_in = raw.get("tickers") or raw.get("rows") or []
+        updated = str(raw.get("updated") or "")
+        headline = str(raw.get("headline") or "").strip()[:160]
+    else:
+        return pack
+    rows, seen = [], set()
+    for item in rows_in:
+        row = _bull_list_row(item)
+        if not row or row["ticker"] in seen:
+            continue
+        seen.add(row["ticker"])
+        rows.append(row)
+        if len(rows) >= _BULL_LIST_MAX:
+            break
+    pack["tickers"] = rows
+    pack["updated"] = updated
+    pack["headline"] = headline
+    return pack
+
+
+def bull_list_save(pack) -> bool:
+    src = pack if isinstance(pack, dict) else {}
+    rows, seen = [], set()
+    for item in src.get("tickers") or []:
+        row = _bull_list_row(item)
+        if not row or row["ticker"] in seen:
+            continue
+        seen.add(row["ticker"])
+        rows.append(row)
+        if len(rows) >= _BULL_LIST_MAX:
+            break
+    out = {
+        "updated": str(src.get("updated") or datetime.now(timezone.utc).date().isoformat()),
+        "headline": str(src.get("headline") or "").strip()[:160],
+        "tickers": rows,
+    }
+    path = BULL_LIST_PATH
+    tmp = path + ".tmp"
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(out, f, indent=2, allow_nan=False)
+            f.write("\n")
+        os.replace(tmp, path)
+        return True
+    except Exception as e:
+        _log_exc("bull_list_save", e)
+        try:
+            if os.path.isfile(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        return False
+
+
+def bull_list_add(tickers, note: str = "") -> list:
+    """Append unique tickers. Returns the names actually added."""
+    pack = bull_list_load()
+    rows = list(pack.get("tickers") or [])
+    have = {r["ticker"] for r in rows}
+    today = datetime.now(timezone.utc).date().isoformat()
+    note = str(note or "").strip()[:240]
+    added = []
+    for raw in tickers or []:
+        if len(rows) >= _BULL_LIST_MAX:
+            break
+        tk = _bull_norm_ticker(raw)
+        if not tk or tk in have:
+            continue
+        rows.append({"ticker": tk, "note": note, "added": today})
+        have.add(tk)
+        added.append(tk)
+    if not added:
+        return []
+    pack["tickers"] = rows
+    pack["updated"] = today
+    return added if bull_list_save(pack) else []
+
+
+def bull_list_remove(tickers) -> int:
+    drop = {_bull_norm_ticker(t) for t in (tickers or [])}
+    drop.discard("")
+    if not drop:
+        return 0
+    pack = bull_list_load()
+    rows = [r for r in (pack.get("tickers") or []) if r["ticker"] not in drop]
+    n = len(pack.get("tickers") or []) - len(rows)
+    if n <= 0:
+        return 0
+    pack["tickers"] = rows
+    pack["updated"] = datetime.now(timezone.utc).date().isoformat()
+    return n if bull_list_save(pack) else 0
+
+
+def bull_list_set_headline(text: str) -> bool:
+    pack = bull_list_load()
+    pack["headline"] = str(text or "").strip()[:160]
+    pack["updated"] = datetime.now(timezone.utc).date().isoformat()
+    return bull_list_save(pack)
 
 
 def _feature_panels():
