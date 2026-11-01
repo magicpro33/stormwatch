@@ -759,23 +759,89 @@ def _color_score(val):
         return ""
 
 
-def _format_display(screened: pd.DataFrame, enabled: dict) -> pd.DataFrame:
+def _hs_cell_pct(x, signed=False, digits=1):
+    try:
+        if x is None or (isinstance(x, float) and not np.isfinite(x)):
+            return "—"
+        if pd.isna(x):
+            return "—"
+        v = float(x)
+        if not np.isfinite(v):
+            return "—"
+        spec = f"{{:{'+' if signed else ''}.{digits}%}}"
+        return spec.format(v)
+    except Exception:
+        return "—"
+
+
+def _hs_cell_money(x):
+    try:
+        if pd.isna(x):
+            return "—"
+        v = float(x)
+        if not np.isfinite(v):
+            return "—"
+        return f"${v:,.2f}"
+    except Exception:
+        return "—"
+
+
+def _hs_short_pct(x):
+    try:
+        if pd.isna(x) or not x:
+            return "—"
+        v = float(x)
+        if not np.isfinite(v) or v == 0:
+            return "—"
+        if abs(v) <= 1.5:
+            v *= 100.0
+        return f"{v:.1f}%"
+    except Exception:
+        return "—"
+
+
+def _format_display(screened: pd.DataFrame, enabled: dict,
+                    show_listing: bool = False) -> pd.DataFrame:
     display = screened.copy()
+    if "OE_Yield" in display.columns:
+        display["OE Yield"] = display["OE_Yield"]
+    if "ROIC_Trend" in display.columns:
+        display["ROIC Trend"] = display["ROIC_Trend"]
+    if "GrossMargin" in display.columns:
+        display["Gross Margin"] = display["GrossMargin"]
     if "MarketCap" in display.columns:
         display["MarketCap"] = display["MarketCap"].apply(
-            lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
+            lambda x: f"${x:,.0f}" if pd.notnull(x) else "—")
     if "OwnerEarnings" in display.columns:
         display["OwnerEarnings"] = display["OwnerEarnings"].apply(
-            lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
+            lambda x: f"${x:,.0f}" if pd.notnull(x) else "—")
+    if "Price" in display.columns:
+        display["Price"] = display["Price"].apply(_hs_cell_money)
+    if "MA50" in display.columns:
+        display["MA50"] = display["MA50"].apply(_hs_cell_money)
+    if "RangeHigh" in display.columns:
+        display["RangeHigh"] = display["RangeHigh"].apply(_hs_cell_money)
+    if "RangeLow" in display.columns:
+        display["RangeLow"] = display["RangeLow"].apply(_hs_cell_money)
+    if "ROIC" in display.columns:
+        display["ROIC"] = display["ROIC"].apply(lambda x: _hs_cell_pct(x, digits=1))
+    if "OE Yield" in display.columns:
+        display["OE Yield"] = display["OE Yield"].apply(lambda x: _hs_cell_pct(x, digits=1))
+    if "ROIC Trend" in display.columns:
+        display["ROIC Trend"] = display["ROIC Trend"].apply(
+            lambda x: _hs_cell_pct(x, signed=True, digits=1))
+    if "Gross Margin" in display.columns:
+        display["Gross Margin"] = display["Gross Margin"].apply(
+            lambda x: _hs_cell_pct(x, digits=0))
     if "RevenueGrowth" in display.columns:
         display["RevenueGrowth"] = display["RevenueGrowth"].apply(
-            lambda x: f"{x:.2%}" if pd.notnull(x) else "")
+            lambda x: _hs_cell_pct(x, signed=True, digits=1))
     if "EarningsGrowth" in display.columns:
         display["EarningsGrowth"] = display["EarningsGrowth"].apply(
-            lambda x: f"{x:.2%}" if pd.notnull(x) else "")
+            lambda x: _hs_cell_pct(x, signed=True, digits=1))
     if "RangePct" in display.columns:
         display["RangePct"] = display["RangePct"].apply(
-            lambda x: f"{x:.1f}%" if pd.notnull(x) else "")
+            lambda x: f"{x:.1f}%" if pd.notnull(x) else "—")
     if "RangePos" in display.columns:
         bars = "▁▂▃▄▅▆▇█"
 
@@ -786,8 +852,9 @@ def _format_display(screened: pd.DataFrame, enabled: dict) -> pd.DataFrame:
 
         display["RangePos"] = display["RangePos"].apply(_bar)
     if "ShortPctFloatRaw" in display.columns:
-        display["Short % Float"] = display["ShortPctFloatRaw"].apply(
-            lambda x: f"{x:.1f}%" if pd.notnull(x) and x else "—")
+        display["Short % Float"] = display["ShortPctFloatRaw"].apply(_hs_short_pct)
+    elif "ShortPctFloat" in display.columns:
+        display["Short % Float"] = display["ShortPctFloat"].apply(_hs_short_pct)
     if "DaysToCover" in display.columns:
         display["Days to Cover"] = display["DaysToCover"].apply(
             lambda x: f"{x:.1f}" if pd.notnull(x) and x else "—")
@@ -804,9 +871,14 @@ def _format_display(screened: pd.DataFrame, enabled: dict) -> pd.DataFrame:
             lambda x: f"{int(x)}" if pd.notnull(x) else "—")
     if "FirstTrade" in display.columns:
         display["First print"] = display["FirstTrade"].fillna("").astype(str)
-    if "GrossMargin" in display.columns:
-        display["GrossMargin"] = display["GrossMargin"].apply(
-            lambda x: f"{x:.0%}" if pd.notnull(x) else "—")
+        display["First print"] = display["First print"].replace(
+            {"nan": "—", "None": "—", "NaT": "—"})
+    if "Piotroski" in display.columns:
+        display["Piotroski"] = display["Piotroski"].apply(
+            lambda x: f"{float(x):.0f}" if pd.notnull(x) else "—")
+    if "P/E" in display.columns:
+        display["P/E"] = display["P/E"].apply(
+            lambda x: f"{float(x):.1f}" if pd.notnull(x) else "—")
     if "debtToEquity" in display.columns:
         display["D/E"] = display["debtToEquity"].apply(
             lambda x: f"{x:.0f}" if pd.notnull(x) else "—")
@@ -815,32 +887,38 @@ def _format_display(screened: pd.DataFrame, enabled: dict) -> pd.DataFrame:
             lambda x: f"{x:.2f}" if pd.notnull(x) else "—")
     if "PricingPower" in display.columns:
         display["Pricing power"] = display["PricingPower"].apply(
-            lambda x: f"{x:.2f}" if pd.notnull(x) else "—")
+            lambda x: _hs_cell_pct(x, digits=0))
     if "MoatScore" in display.columns:
         display["Moat"] = display["MoatScore"].apply(
-            lambda x: f"{x:.2f}" if pd.notnull(x) else "—")
+            lambda x: _hs_cell_pct(x, digits=0))
     if "Fortress" in display.columns:
         display["Fortress"] = display["Fortress"].apply(
-            lambda x: f"{x:.2f}" if pd.notnull(x) else "—")
+            lambda x: _hs_cell_pct(x, digits=0))
 
-    skip = {"Ticker", "Sector", "MarketCap", "OwnerEarnings",
-            "RevenueGrowth", "EarningsGrowth", "RangePct", "RangePos",
-            "MFI_Signal", "_exchanges", "FirstTrade"}
+    skip = {"Ticker", "Sector", "MarketCap", "OwnerEarnings", "Price", "MA50",
+            "RangeHigh", "RangeLow", "ROIC", "OE Yield", "ROIC Trend",
+            "Gross Margin", "RevenueGrowth", "EarningsGrowth", "RangePct",
+            "RangePos", "MFI_Signal", "_exchanges", "FirstTrade", "Piotroski",
+            "P/E", "D/E", "Current ratio", "Pricing power", "Moat", "Fortress",
+            "Short % Float", "Days to Cover", "Div Yield", "Div Rate",
+            "Days listed", "First print"}
     for col in display.columns:
         if col not in skip and pd.api.types.is_numeric_dtype(display[col]):
             display[col] = display[col].apply(lambda x: round(x, 2) if pd.notnull(x) else x)
 
     hidden = [k for k in METRICS if not enabled.get(k) and k in display.columns]
     always = {
-        "ROIC", "OBV", "PCV", "RSI", "MACD", "GoldenCross", "MFI",
+        "OE_Yield", "ROIC_Trend", "OBV", "PCV", "RSI", "MACD", "GoldenCross", "MFI",
         "MFISweetSpot", "NoBearDiv", "ShortPctFloat", "ShortPctFloatRaw",
         "DaysToCover", "ShortChange", "ShortSqueeze",
         "DividendYieldPct", "DividendRate", "DividendPayoutRatio",
         "DividendFrequency", "DividendScore", "CleanSetupScore",
-        "GrossMargin", "IPOAge", "DaysListed", "Sessions", "FirstTradeDate",
+        "GrossMargin", "IPOAge", "DaysListed", "Sessions",
+        "FirstTrade", "FirstTradeDate",
         "_exchanges", "_exchange",
         "PricingPower", "MoatScore", "operatingMargins", "profitMargins",
         "priceToBook", "debtToEquity", "currentRatio", "grossMargins", "Industry",
+        "RangePosScore", "MA50Proximity",
     }
     hidden += [c for c in always if c in display.columns and c not in hidden]
     if not enabled.get("MFI") and "MFI_Signal" in display.columns:
@@ -849,19 +927,48 @@ def _format_display(screened: pd.DataFrame, enabled: dict) -> pd.DataFrame:
         hidden += [c for c in ("Short % Float", "Days to Cover") if c in display.columns]
     if not enabled.get("DividendScore"):
         hidden += [c for c in ("Div Yield", "Div Rate") if c in display.columns]
+    # Score / moat / fortress stay off every preset table. Listing age is
+    # only for the Just IPO'd / recent-listings screen.
+    hidden += [c for c in ("Score", "Moat", "Fortress") if c in display.columns]
     _thatbiz_on = any(enabled.get(k) for k in ("PricingPower", "MoatScore", "Fortress"))
-    if _thatbiz_on:
-        for c in ("GrossMargin", "ROIC", "OE_Yield", "Piotroski"):
+    if not enabled.get("OE_Yield") and not _thatbiz_on:
+        hidden.append("OE Yield")
+    if not enabled.get("ROIC") and not _thatbiz_on:
+        hidden.append("ROIC")
+    if not enabled.get("ROIC_Trend"):
+        hidden.append("ROIC Trend")
+    if not enabled.get("GrossMargin") and not _thatbiz_on:
+        hidden.append("Gross Margin")
+    if show_listing:
+        for c in ("Days listed", "First print"):
             if c in hidden:
                 hidden.remove(c)
-        for c in ("Pricing power", "Moat", "Fortress", "D/E", "Current ratio"):
+    else:
+        hidden += [c for c in ("Days listed", "First print")
+                   if c in display.columns and c not in hidden]
+    if _thatbiz_on:
+        for c in ("Gross Margin", "ROIC", "OE Yield", "Piotroski"):
+            if c in hidden:
+                hidden.remove(c)
+        for c in ("Pricing power", "D/E", "Current ratio"):
             if c in hidden:
                 hidden.remove(c)
         hidden += [c for c in ("PricingPower", "MoatScore", "debtToEquity",
-                               "currentRatio") if c in display.columns]
+                               "currentRatio", "GrossMargin", "OE_Yield",
+                               "Moat", "Fortress") if c in display.columns]
     else:
         hidden += [c for c in ("Pricing power", "Moat", "D/E", "Current ratio")
                    if c in display.columns]
+    if enabled.get("ROIC") and "ROIC" in hidden:
+        hidden.remove("ROIC")
+    if enabled.get("OE_Yield") and "OE Yield" in hidden:
+        hidden.remove("OE Yield")
+    if enabled.get("ROIC_Trend") and "ROIC Trend" in hidden:
+        hidden.remove("ROIC Trend")
+    if enabled.get("GrossMargin") and "Gross Margin" in hidden:
+        hidden.remove("Gross Margin")
+    seen = set()
+    hidden = [c for c in hidden if not (c in seen or seen.add(c))]
     return display.drop(columns=hidden, errors="ignore")
 
 
@@ -1265,14 +1372,23 @@ def render_hybrid_screener() -> None:
             except Exception as exc:
                 st.error(str(exc))
                 return
-        display = _format_display(screened, enabled) if not screened.empty else screened
-        st.session_state["_hs_display"] = display
         st.session_state["_hs_raw"] = screened
+        display = (_format_display(screened, enabled,
+                                   show_listing=bool(st.session_state.get(_k("ipo"))))
+                   if not screened.empty else screened)
+        st.session_state["_hs_display"] = display
         st.session_state["_hs_diag"] = diag
         st.session_state["_hs_sector"] = _sector_label
         st.session_state.pop(_k("inline"), None)
 
-    display = st.session_state.get("_hs_display")
+    _raw = st.session_state.get("_hs_raw")
+    if _raw is not None:
+        display = (_format_display(_raw, enabled,
+                                   show_listing=bool(st.session_state.get(_k("ipo"))))
+                   if not getattr(_raw, "empty", True) else _raw)
+        st.session_state["_hs_display"] = display
+    else:
+        display = st.session_state.get("_hs_display")
     if safe_ai and display is not None and not getattr(display, "empty", True):
         _n0 = len(display)
         try:
@@ -1383,10 +1499,22 @@ def render_hybrid_screener() -> None:
                     st.session_state["lk_tk"] = tk
                     st.session_state["wl_source"] = "Hybrid Screener"
                     try:
-                        px = float(display.loc[display["Ticker"] == tk, "Price"].iloc[0])
+                        _pxsrc = st.session_state.get("_hs_raw")
+                        if _pxsrc is not None and "Ticker" in getattr(_pxsrc, "columns", []):
+                            px = float(_pxsrc.loc[_pxsrc["Ticker"] == tk, "Price"].iloc[0])
+                        else:
+                            px = float(display.loc[display["Ticker"] == tk, "Price"].iloc[0])
                     except Exception:
                         px = float("nan")
                     _hs_row = display.loc[display["Ticker"] == tk].iloc[0]
+                    try:
+                        _pxsrc = st.session_state.get("_hs_raw")
+                        if _pxsrc is not None and "Ticker" in getattr(_pxsrc, "columns", []):
+                            _hit = _pxsrc.loc[_pxsrc["Ticker"] == tk]
+                            if not _hit.empty:
+                                _hs_row = _hit.iloc[0]
+                    except Exception:
+                        pass
                     if ce.watchlist_add(tk, px, source="Hybrid Screener",
                                         scan=ce.watchlist_scan_snapshot(_hs_row),
                                         settings=ce.watchlist_settings_from_state(
@@ -1398,13 +1526,14 @@ def render_hybrid_screener() -> None:
 
     order = [c for c in [
         "#", "Ticker", "Sector", "Price",
-        "Pricing power", "Moat", "Fortress", "GrossMargin", "ROIC",
-        "D/E", "Current ratio", "OE_Yield", "Piotroski",
+        "Pricing power", "Gross Margin", "ROIC",
+        "D/E", "Current ratio", "OE Yield", "Piotroski", "ROIC Trend",
+        "RevenueGrowth", "EarningsGrowth",
         getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "CAT_DOWN_COL", "▼ Down"),
         "First print", "Days listed",
         "MarketCap", "P/E",
         "OwnerEarnings", "MA50", "RangeHigh", "RangeLow", "RangePos",
-        "MFI_Signal", "Score", "Short % Float", "Days to Cover",
+        "MFI_Signal", "Short % Float", "Days to Cover",
         "Div Yield", "Div Rate",
     ] if c in display.columns]
     _cat_cfg = {
@@ -1417,14 +1546,41 @@ def render_hybrid_screener() -> None:
         _cat_cfg["Pricing power"] = st.column_config.Column(
             "Pricing power", width="small",
             help="Can it raise prices without losing customers? Habit, necessity, no substitute.")
-    if "Moat" in display.columns:
-        _cat_cfg["Moat"] = st.column_config.Column(
-            "Moat", width="small",
-            help="Does it own something genuinely hard to copy? Brand, network, licence.")
-    if "Fortress" in display.columns:
-        _cat_cfg["Fortress"] = st.column_config.Column(
-            "Fortress", width="small",
-            help="Does it NOT owe a mountain of money? High = low leverage. The quiet killer.")
+    if "ROIC" in display.columns:
+        _cat_cfg["ROIC"] = st.column_config.Column(
+            help="Return on invested capital. 15%+ is a durable moat.")
+    if "OE Yield" in display.columns:
+        _cat_cfg["OE Yield"] = st.column_config.Column(
+            help="Owner-earnings yield — cash generated relative to price. 4%+ is solid.")
+    if "ROIC Trend" in display.columns:
+        _cat_cfg["ROIC Trend"] = st.column_config.Column(
+            help="Year-over-year change in ROIC. Positive = the moat is widening.")
+    if "Gross Margin" in display.columns:
+        _cat_cfg["Gross Margin"] = st.column_config.Column(
+            help="Gross profit ÷ revenue. 60%+ is pricing power.")
+    if "RevenueGrowth" in display.columns:
+        _cat_cfg["RevenueGrowth"] = st.column_config.Column(
+            "Rev Growth",
+            help="Year-over-year revenue growth.")
+    if "EarningsGrowth" in display.columns:
+        _cat_cfg["EarningsGrowth"] = st.column_config.Column(
+            "Earn Growth",
+            help="Year-over-year earnings growth.")
+    if "Piotroski" in display.columns:
+        _cat_cfg["Piotroski"] = st.column_config.Column(
+            help="Accounting health F-Score. 7–9 strong; 0–2 weak.")
+    if "D/E" in display.columns:
+        _cat_cfg["D/E"] = st.column_config.Column(
+            help="Debt / equity from the dump. Lower is a stronger fortress.")
+    if "Current ratio" in display.columns:
+        _cat_cfg["Current ratio"] = st.column_config.Column(
+            help="Current assets ÷ current liabilities. Above 1.0 covers near-term bills.")
+    if "First print" in display.columns:
+        _cat_cfg["First print"] = st.column_config.Column(
+            help="First date this name appears on the nightly tape.")
+    if "Days listed" in display.columns:
+        _cat_cfg["Days listed"] = st.column_config.Column(
+            help="Sessions on the tape since the first print. Proxy for a recent IPO.")
     if _up in display.columns:
         _cat_cfg[_up] = st.column_config.Column(
             _up, width="medium",
@@ -1459,10 +1615,22 @@ def render_hybrid_screener() -> None:
             st.session_state["lk_tk"] = _ttk
             st.session_state["wl_source"] = "Hybrid Screener"
             try:
-                _tpx = float(display.loc[display["Ticker"] == _ttk, "Price"].iloc[0])
+                _pxsrc = st.session_state.get("_hs_raw")
+                if _pxsrc is not None and "Ticker" in getattr(_pxsrc, "columns", []):
+                    _tpx = float(_pxsrc.loc[_pxsrc["Ticker"] == _ttk, "Price"].iloc[0])
+                else:
+                    _tpx = float(display.loc[display["Ticker"] == _ttk, "Price"].iloc[0])
             except Exception:
                 _tpx = float("nan")
             _hs_row = display.iloc[_trows[0]]
+            try:
+                _pxsrc = st.session_state.get("_hs_raw")
+                if _pxsrc is not None and "Ticker" in getattr(_pxsrc, "columns", []):
+                    _hit = _pxsrc.loc[_pxsrc["Ticker"] == _ttk]
+                    if not _hit.empty:
+                        _hs_row = _hit.iloc[0]
+            except Exception:
+                pass
             if ce.watchlist_add(_ttk, _tpx, source="Hybrid Screener",
                                 scan=ce.watchlist_scan_snapshot(_hs_row),
                                 settings=ce.watchlist_settings_from_state(

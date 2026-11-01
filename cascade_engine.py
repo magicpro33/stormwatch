@@ -5135,8 +5135,10 @@ _WL_SCAN_GROUPS = (
 )
 
 _WL_PCT_FRACTION = {
-    "RangePos", "RevGrowth", "Short % Float", "Div Yield", "Win%", "ExpR",
-    "ROIC", "OE Yield",
+    "RangePos", "RevGrowth", "RevenueGrowth", "EarningsGrowth",
+    "Short % Float", "Div Yield", "Win%", "ExpR",
+    "ROIC", "OE Yield", "OE_Yield", "ROIC Trend", "ROIC_Trend",
+    "Gross Margin", "GrossMargin", "Pricing power",
 }
 _WL_PCT_POINTS = {"Chg %", "Chg%", "Gap %", "Vel %/5m", "Short%Flt", "Vol%"}
 _WL_MONEY = {
