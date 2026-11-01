@@ -2610,7 +2610,7 @@ def render_ignition_scanner_tab(render_detail=None):
         return f"<span style='font-family:Space Mono,monospace;color:{col}'>{'+' if v >= 0 else ''}{v:.2f}%</span>"
 
 
-    def render_eps_trend(eps_history, eps_forward=None, why=""):
+    def render_eps_trend(eps_history, eps_forward=None, why="", source=""):
         """SVG bar chart of quarterly EPS (actual vs estimate) plus forward
         analyst projections. eps_history = oldest→newest historicals; eps_forward
         = forward consensus estimates (next qtr, qtr after, this yr, next yr)."""
@@ -2629,10 +2629,29 @@ def render_ignition_scanner_tab(render_detail=None):
                 timeline.append({"label": (q["quarter"].split()[0] if q["quarter"] else ""),
                                  "value": q["actual"], "kind": kind, "est": q["estimate"]})
         # Forward — only quarterly periods on the chart (years would distort scale)
-        fwd_quarters = [f for f in eps_forward if "Qtr" in f["period"]]
+        def _fwd_q(f):
+            if f.get("kind") == "y":
+                return False
+            if f.get("kind") == "q":
+                return True
+            p = str(f.get("period") or "")
+            if p.upper().startswith("FY") or "Year" in p:
+                return False
+            return "Qtr" in p or p.startswith("Q+") or bool(
+                re.search(r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{2,4}\b", p))
+        def _fwd_lab(f):
+            p = str(f.get("period") or "")
+            if p == "Next Qtr":
+                return "Next Q"
+            if p in ("Qtr After", "Q+2"):
+                return "Q+2"
+            m = re.match(r"([A-Za-z]{3})[a-z]*\s+(\d{2,4})", p)
+            if m:
+                return f"{m.group(1)} {m.group(2)[-2:]}"
+            return p[:8]
+        fwd_quarters = [f for f in eps_forward if _fwd_q(f)]
         for f in fwd_quarters:
-            short = "Next Q" if f["period"] == "Next Qtr" else "Q+2"
-            timeline.append({"label": short, "value": f["estimate"],
+            timeline.append({"label": _fwd_lab(f), "value": f["estimate"],
                              "kind": "projected", "est": None})
 
         if not timeline:
@@ -2640,7 +2659,7 @@ def render_ignition_scanner_tab(render_detail=None):
             return
 
         n = len(timeline)
-        W, H = 320, 110
+        W, H = max(320, min(720, 44 * n + 36)), 110
         pad_l, pad_r, pad_t, pad_b = 8, 8, 10, 22
         plot_w = W - pad_l - pad_r
         plot_h = H - pad_t - pad_b
@@ -2696,7 +2715,7 @@ def render_ignition_scanner_tab(render_detail=None):
         )
         svg = (
             f"<svg width='100%' height='{H}' viewBox='0 0 {W} {H}' "
-            f"preserveAspectRatio='xMidYMid meet' style='max-width:360px'>"
+            f"preserveAspectRatio='xMidYMid meet' style='max-width:100%'>"
             f"{zero_line}{''.join(bars_svg)}{''.join(labels_svg)}</svg>"
         )
 
@@ -2770,6 +2789,8 @@ def render_ignition_scanner_tab(render_detail=None):
                 "</tr></thead><tbody>" + "".join(frows) + "</tbody></table>",
                 unsafe_allow_html=True,
             )
+            if source:
+                st.caption(f"EPS source · {source}")
 
 
     def render_dividend_info(info):
@@ -2818,7 +2839,7 @@ def render_ignition_scanner_tab(render_detail=None):
         # Normalise yield — yfinance returns it as a fraction (0.035) OR percent (3.5)
         yld_pct = None
         if yield_ is not None:
-            yld_pct = yield_ * 100 if yield_ < 1 else yield_
+            yld_pct = yield_ * 100 if yield_ <= 0.25 else yield_
 
         # Infer frequency from annual rate / single payment
         freq_label = "--"
@@ -3781,7 +3802,9 @@ def render_ignition_scanner_tab(render_detail=None):
                     st.caption("No active signals this scan.")
 
                 az_section("Earnings Breakdown (EPS Trend)")
-                render_eps_trend(eps_history, eps_forward, why='; '.join(info.get('_data_issues', [])))
+                render_eps_trend(eps_history, eps_forward,
+                                 why='; '.join(info.get('_data_issues', [])),
+                                 source=str(info.get('_eps_source') or ""))
 
                 az_section("Dividend")
                 render_dividend_info(info)

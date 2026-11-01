@@ -117,7 +117,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.46"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.47"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -3797,29 +3797,43 @@ def _coerce_earn_date(val) -> date | None:
         return None
 
 
+def _nasdaq_api(path: str, timeout: int = 12):
+    """JSON `data` blob from Nasdaq's public analyst/company API, or None."""
+    try:
+        r = requests.get(
+            "https://api.nasdaq.com" + path,
+            timeout=timeout,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Origin": "https://www.nasdaq.com",
+                "Referer": "https://www.nasdaq.com/",
+            },
+        )
+        if r.status_code != 200:
+            return None
+        return (r.json() or {}).get("data")
+    except Exception as e:
+        _log_exc(f"nasdaq_api.{path}", e)
+        return None
+
+
 def _nasdaq_earnings_date(tk: str) -> date | None:
     """Nasdaq analyst earnings-date page. Confirmed print when Yahoo is quiet."""
     tk = str(tk or "").strip().upper()
     if not tk or tk.endswith("-USD") or "/" in tk:
         return None
-    url = f"https://api.nasdaq.com/api/analyst/{tk}/earnings-date"
-    try:
-        r = requests.get(
-            url, timeout=12,
-            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
-        )
-        if r.status_code != 200:
-            return None
-        data = (r.json() or {}).get("data") or {}
-        blob = " ".join(str(data.get(k) or "") for k in ("announcement", "reportText"))
-        m = re.search(r"([A-Z][a-z]{2} \d{1,2}, \d{4})", blob)
-        if m:
-            return _coerce_earn_date(m.group(1))
-        m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", blob)
-        if m:
-            return _coerce_earn_date(m.group(1))
-    except Exception as e:
-        _log_exc(f"nasdaq_earnings.{tk}", e)
+    data = _nasdaq_api(f"/api/analyst/{tk}/earnings-date")
+    if not data:
+        return None
+    blob = " ".join(str(data.get(k) or "") for k in ("announcement", "reportText"))
+    m = re.search(r"([A-Z][a-z]{2} \d{1,2}, \d{4})", blob)
+    if m:
+        return _coerce_earn_date(m.group(1))
+    m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", blob)
+    if m:
+        return _coerce_earn_date(m.group(1))
     return None
 
 
@@ -5265,7 +5279,312 @@ ANALYZER_INFO_MAP = {
     "marketCap": "marketCap", "dividendRate": "dividendRate",
     "dividendYield": "dividendYield", "floatShares": "floatShares",
     "sharesOutstanding": "sharesOutstanding",
+    "_roce": "_roce", "_gross_margin": "_gross_margin",
+    "_op_margin": "_op_margin", "_cf_margin": "_cf_margin",
+    "_fcf_margin": "_fcf_margin",
 }
+
+
+def _eps_float(val):
+    if val is None or val == "" or val == "--":
+        return None
+    if isinstance(val, str):
+        val = val.replace("$", "").replace(",", "").replace("%", "").strip()
+    try:
+        f = float(val)
+        return f if np.isfinite(f) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _fiscal_key(label):
+    """'Jun 2026' / Timestamp / 'FY Sep 2027' → (year, month) for merge+sort."""
+    if label is None:
+        return None
+    s = str(label).strip()
+    s = re.sub(r"^FY\s+", "", s, flags=re.I)
+    ts = pd.to_datetime(s, errors="coerce")
+    if pd.notna(ts):
+        return (int(ts.year), int(ts.month))
+    m = re.search(
+        r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{2,4})",
+        s, re.I)
+    if not m:
+        return None
+    months = {n: i for i, n in enumerate(
+        ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep",
+         "oct", "nov", "dec"], 1)}
+    yr = int(m.group(2))
+    if yr < 100:
+        yr += 2000
+    return (yr, months[m.group(1)[:3].lower()])
+
+
+def _fiscal_label(key) -> str:
+    if not key:
+        return ""
+    names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    return f"{names[int(key[1]) - 1]} {int(key[0])}"
+
+
+def _surprise_pct(actual, estimate, raw=None):
+    """Always a percent (4.5 = +4.5%). Recompute from actual/est when possible."""
+    a, e = _eps_float(actual), _eps_float(estimate)
+    if a is not None and e not in (None, 0):
+        try:
+            return (a - e) / abs(e) * 100.0
+        except Exception:
+            pass
+    s = _eps_float(raw)
+    if s is None:
+        return None
+    return s * 100.0 if abs(s) <= 1.5 else s
+
+
+def _put_eps_hist(bag: dict, quarter, actual=None, estimate=None, surprise=None):
+    key = _fiscal_key(quarter)
+    if key is None:
+        return
+    row = bag.get(key) or dict(quarter=_fiscal_label(key), actual=None,
+                               estimate=None, surprise=None)
+    a, e = _eps_float(actual), _eps_float(estimate)
+    if row["actual"] is None and a is not None:
+        row["actual"] = a
+    if row["estimate"] is None and e is not None:
+        row["estimate"] = e
+    if row["surprise"] is None:
+        row["surprise"] = _surprise_pct(row["actual"], row["estimate"], surprise)
+    bag[key] = row
+
+
+def _yahoo_eps_history(tk) -> list[dict]:
+    if tk is None:
+        return []
+    out = []
+    try:
+        eh = _yf_call(lambda t=tk: t.earnings_history)
+        if eh is None or getattr(eh, "empty", True):
+            return []
+        cols = {str(c).lower(): c for c in eh.columns}
+        ac = cols.get("epsactual")
+        ec = cols.get("epsestimate")
+        sc = cols.get("surprisepercent")
+        for idx, row in eh.iterrows():
+            a = row.get(ac) if ac else None
+            e = row.get(ec) if ec else None
+            s = row.get(sc) if sc else None
+            if a is None and e is None:
+                continue
+            try:
+                qd = pd.to_datetime(idx, errors="coerce")
+                ql = qd.strftime("%b %Y") if pd.notna(qd) else str(idx)
+            except Exception:
+                ql = str(idx)
+            out.append(dict(quarter=ql, actual=_eps_float(a),
+                            estimate=_eps_float(e),
+                            surprise=_surprise_pct(a, e, s)))
+    except Exception as ex:
+        _log_exc("yahoo_eps_history", ex)
+    return out
+
+
+def _yahoo_eps_forward(tk, info: dict | None) -> list[dict]:
+    rows = []
+    if tk is not None:
+        try:
+            ee = _yf_call(lambda t=tk: t.earnings_estimate)
+            if ee is not None and hasattr(ee, "empty") and not ee.empty:
+                labels = {"0q": ("Next Qtr", "q"), "+1q": ("Qtr After", "q"),
+                          "0y": ("This Year", "y"), "+1y": ("Next Year", "y")}
+                cols = {str(c).lower(): c for c in ee.columns}
+                av = cols.get("avg") or cols.get("average")
+                nn = cols.get("numberofanalysts")
+                for pk, (lab, kind) in labels.items():
+                    if pk not in ee.index:
+                        continue
+                    row = ee.loc[pk]
+                    est = _eps_float(row.get(av) if av else None)
+                    na = row.get(nn) if nn else None
+                    if est is None:
+                        continue
+                    try:
+                        na = int(na) if na is not None and pd.notna(na) else None
+                    except Exception:
+                        na = None
+                    rows.append(dict(period=lab, estimate=est, n_analysts=na,
+                                     is_forward=True, kind=kind, slot=pk))
+        except Exception as ex:
+            _log_exc("yahoo_eps_forward", ex)
+    if rows:
+        return rows
+    info = info or {}
+    cy = _eps_float(info.get("epsCurrentYear"))
+    ny = _eps_float(info.get("epsNextYear") or info.get("epsForward")
+                    or info.get("forwardEps"))
+    na = info.get("numberOfAnalystOpinions")
+    try:
+        na = int(na) if na is not None else None
+    except Exception:
+        na = None
+    if cy is not None:
+        rows.append(dict(period="This Year", estimate=cy, n_analysts=na,
+                         is_forward=True, kind="y", slot="0y"))
+    if ny is not None and ny != cy:
+        rows.append(dict(period="Next Year", estimate=ny, n_analysts=na,
+                         is_forward=True, kind="y", slot="+1y"))
+    return rows
+
+
+def _nasdaq_eps_surprise(tk: str) -> list[dict]:
+    data = _nasdaq_api(f"/api/company/{tk}/earnings-surprise")
+    if not data:
+        return []
+    table = (data.get("earningsSurpriseTable") or {}).get("rows") or []
+    out = []
+    for row in table:
+        q = row.get("fiscalQtrEnd") or row.get("dateReported")
+        a = _eps_float(row.get("eps"))
+        e = _eps_float(row.get("consensusForecast"))
+        s = _eps_float(str(row.get("percentageSurprise") or "").replace("%", ""))
+        if q is None or (a is None and e is None):
+            continue
+        out.append(dict(quarter=str(q), actual=a, estimate=e,
+                        surprise=_surprise_pct(a, e, s)))
+    return out
+
+
+def _nasdaq_eps_forecast(tk: str) -> tuple[list[dict], list[dict]]:
+    data = _nasdaq_api(f"/api/analyst/{tk}/earnings-forecast")
+    if not data:
+        return [], []
+    q_out, y_out = [], []
+    for row in (data.get("quarterlyForecast") or {}).get("rows") or []:
+        est = _eps_float(row.get("consensusEPSForecast"))
+        if est is None:
+            continue
+        na = row.get("noOfEstimates")
+        try:
+            na = int(na) if na is not None else None
+        except Exception:
+            na = None
+        q_out.append(dict(period=str(row.get("fiscalEnd") or "").strip(),
+                          estimate=est, n_analysts=na, is_forward=True,
+                          kind="q"))
+    for row in (data.get("yearlyForecast") or {}).get("rows") or []:
+        est = _eps_float(row.get("consensusEPSForecast"))
+        if est is None:
+            continue
+        na = row.get("noOfEstimates")
+        try:
+            na = int(na) if na is not None else None
+        except Exception:
+            na = None
+        end = str(row.get("fiscalEnd") or "").strip()
+        y_out.append(dict(period=f"FY {end}" if end else "FY",
+                          estimate=est, n_analysts=na, is_forward=True,
+                          kind="y", fiscal=end))
+    return q_out, y_out
+
+
+def _merge_eps_forward(yahoo: list[dict], nq: list[dict],
+                       ny: list[dict]) -> list[dict]:
+    """Yahoo near-term (more analysts) + Nasdaq extra quarters/years."""
+    yq = [r for r in yahoo if r.get("kind") == "q"]
+    yy = [r for r in yahoo if r.get("kind") == "y"]
+    out = []
+    if nq:
+        for i, row in enumerate(nq):
+            est, na = row["estimate"], row.get("n_analysts")
+            if i < len(yq):
+                yest, yna = yq[i]["estimate"], yq[i].get("n_analysts") or 0
+                if (yna or 0) >= (na or 0):
+                    est, na = yest, yq[i].get("n_analysts")
+            out.append(dict(period=row["period"], estimate=est, n_analysts=na,
+                            is_forward=True, kind="q"))
+    else:
+        out.extend(yq)
+    if ny:
+        for i, row in enumerate(ny):
+            est, na = row["estimate"], row.get("n_analysts")
+            if i < len(yy):
+                yest, yna = yy[i]["estimate"], yy[i].get("n_analysts") or 0
+                if (yna or 0) >= (na or 0):
+                    est, na = yest, yy[i].get("n_analysts")
+            out.append(dict(period=row["period"], estimate=est, n_analysts=na,
+                            is_forward=True, kind="y"))
+    else:
+        out.extend(yy)
+    seen = set()
+    uniq = []
+    for r in out:
+        k = (r.get("kind"), _fiscal_key(r.get("period")) or r.get("period"))
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(r)
+    return uniq
+
+
+def _load_eps(ticker: str, tk, cached: list | None, info: dict | None):
+    """History + farthest published forward EPS. Yahoo first, Nasdaq backup."""
+    tk_s = str(ticker).strip().upper()
+    bag: dict = {}
+    sources = []
+    for q in _yahoo_eps_history(tk):
+        _put_eps_hist(bag, q["quarter"], q.get("actual"), q.get("estimate"),
+                      q.get("surprise"))
+    if bag:
+        sources.append("Yahoo")
+    n_surp = _nasdaq_eps_surprise(tk_s)
+    n_hist = len(bag)
+    for q in n_surp:
+        _put_eps_hist(bag, q["quarter"], q.get("actual"), q.get("estimate"),
+                      q.get("surprise"))
+    if n_surp and (len(bag) > n_hist or "Yahoo" not in sources):
+        sources.append("Nasdaq")
+    if cached:
+        for q in cached:
+            _put_eps_hist(bag, q.get("quarter"), q.get("actual"),
+                          q.get("estimate"), q.get("surprise"))
+    if tk is not None and len(bag) < 4:
+        try:
+            qis = _yf_call(lambda t=tk: t.quarterly_income_stmt)
+            if qis is not None and hasattr(qis, "empty") and not qis.empty:
+                ri = {str(i).strip().lower(): i for i in qis.index}
+                er = ri.get("diluted eps") or ri.get("basic eps")
+                if er is not None:
+                    for col in qis.columns:
+                        v = qis.loc[er, col]
+                        if pd.isna(v):
+                            continue
+                        try:
+                            qd = pd.to_datetime(col, errors="coerce")
+                            ql = qd.strftime("%b %Y") if pd.notna(qd) else str(col)
+                        except Exception:
+                            ql = str(col)
+                        _put_eps_hist(bag, ql, actual=float(v))
+        except Exception as ex:
+            _log_exc("yahoo_qis_eps", ex)
+    hist = [bag[k] for k in sorted(bag)][-12:]
+    hist_keys = set(bag.keys())
+    y_fwd = _yahoo_eps_forward(tk, info)
+    nq, ny = _nasdaq_eps_forecast(tk_s)
+    if nq:
+        nq = [r for r in nq if (_fiscal_key(r.get("period")) not in hist_keys)]
+    if nq or ny:
+        if "Nasdaq" not in sources:
+            sources.append("Nasdaq")
+    if y_fwd and "Yahoo" not in sources:
+        sources.append("Yahoo")
+    fwd = _merge_eps_forward(y_fwd, nq, ny)
+    src = " + ".join(sources) if sources else ""
+    if nq:
+        last_q = nq[-1].get("period") or ""
+        last_y = (ny[-1].get("period") if ny else "") or ""
+        extra = " through " + " / ".join(x for x in (last_q, last_y) if x)
+        src = (src + extra) if src else extra.strip()
+    return hist, fwd, src.strip(" +")
 
 
 def fetch_analyzer(ticker: str):
@@ -5289,12 +5608,12 @@ def fetch_analyzer(ticker: str):
     tk = None
     try:
         import yfinance as yf
-        tk = yf.Ticker(ticker)
+        tk = _yf_call(lambda s=ticker: yf.Ticker(s))
     except Exception:
         pass
     if hist.empty and tk is not None:
         try:
-            h = tk.history(period="1y", interval="1d")
+            h = _yf_call(lambda t=tk: t.history(period="1y", interval="1d"))
             if h is not None and not h.empty:
                 if isinstance(h.columns, pd.MultiIndex):
                     h.columns = h.columns.get_level_values(0)
@@ -5327,7 +5646,7 @@ def fetch_analyzer(ticker: str):
              "fiftyTwoWeekHigh", "beta", "forwardPE")
     if tk is not None and any(not info.get(k) for k in _CORE):
         try:
-            live_info = tk.info or {}
+            live_info = _yf_call(lambda t=tk: t.info or {}) or {}
             if live_info and len(live_info) >= 3:
                 for k, v in live_info.items():
                     if v is None:
@@ -5347,8 +5666,32 @@ def fetch_analyzer(ticker: str):
                 _issues.append(f"fundamentals: {m}")
 
     # ── Step 2b: extended profitability from the statements ──────────
-    # ROCE + the margin suite. Statements beat info-fields; info-fields
-    # fill the gaps (grossMargins / operatingMargins).
+    # Dump/info ratios first. Statements still run when ROCE or any
+    # remaining margin is missing.
+    if info.get("_gross_margin") is None and info.get("grossMargins"):
+        info["_gross_margin"] = info["grossMargins"]
+    if info.get("_op_margin") is None and info.get("operatingMargins"):
+        info["_op_margin"] = info["operatingMargins"]
+    try:
+        _rev = float(info["totalRevenue"]) if info.get("totalRevenue") not in (None, "") else None
+    except (TypeError, ValueError):
+        _rev = None
+    if _rev and _rev > 0:
+        if info.get("_cf_margin") is None:
+            try:
+                ocf = info.get("operatingCashflow")
+                if ocf not in (None, ""):
+                    info["_cf_margin"] = float(ocf) / _rev
+            except (TypeError, ValueError):
+                pass
+        if info.get("_fcf_margin") is None:
+            try:
+                fcf = info.get("freeCashflow")
+                if fcf not in (None, ""):
+                    info["_fcf_margin"] = float(fcf) / _rev
+            except (TypeError, ValueError):
+                pass
+
     def _srow(df_, *names):
         try:
             if df_ is None or not hasattr(df_, "empty") or df_.empty:
@@ -5364,11 +5707,13 @@ def fetch_analyzer(ticker: str):
             pass
         return None
 
-    if tk is not None:
+    _need_stmt = any(info.get(k) is None for k in (
+        "_gross_margin", "_op_margin", "_cf_margin", "_fcf_margin"))
+    if tk is not None and _need_stmt:
         try:
-            fin = getattr(tk, "financials", None)
-            bs = getattr(tk, "balance_sheet", None)
-            cf = getattr(tk, "cashflow", None)
+            fin = _yf_call(lambda t=tk: t.financials)
+            bs = _yf_call(lambda t=tk: t.balance_sheet)
+            cf = _yf_call(lambda t=tk: t.cashflow)
             rev = _srow(fin, "Total Revenue", "Operating Revenue")
             opinc = _srow(fin, "Operating Income", "EBIT")
             gp = _srow(fin, "Gross Profit")
@@ -5418,97 +5763,15 @@ def fetch_analyzer(ticker: str):
         info["_from_scan_dump"] = True
         info["_dump_fields"] = filled
 
-    # ── Step 4: EPS history — earnings_history → income stmt fallback ─
-    # (NEVER tk.quarterly_earnings: deprecated + crash-prone upstream)
-    eps_history = []
-    if info.get("_cached_eps"):
-        eps_history = [q for q in info["_cached_eps"]
-                       if q.get("actual") is not None or q.get("estimate") is not None][-8:]
-    if not eps_history and tk is not None:
-        try:
-            eh = getattr(tk, "earnings_history", None)
-            if eh is not None and hasattr(eh, "empty") and not eh.empty:
-                cols = {c.lower(): c for c in eh.columns}
-                ac = cols.get("epsactual"); ec = cols.get("epsestimate")
-                sc = cols.get("surprisepercent")
-                for idx, row in eh.iterrows():
-                    a = row.get(ac) if ac else None
-                    e = row.get(ec) if ec else None
-                    s = row.get(sc) if sc else None
-                    if a is None and e is None:
-                        continue
-                    if s is None and a is not None and e not in (None, 0):
-                        try: s = (float(a) - float(e)) / abs(float(e)) * 100
-                        except Exception: s = None
-                    try:
-                        qd = pd.to_datetime(idx, errors="coerce")
-                        ql = qd.strftime("%b %Y") if pd.notna(qd) else str(idx)
-                    except Exception:
-                        ql = str(idx)
-                    eps_history.append(dict(quarter=ql,
-                                            actual=float(a) if a is not None and pd.notna(a) else None,
-                                            estimate=float(e) if e is not None and pd.notna(e) else None,
-                                            surprise=float(s) if s is not None and pd.notna(s) else None))
-                eps_history = eps_history[-8:]
-        except Exception:
-            eps_history = []
-    if not eps_history and tk is not None:
-        try:
-            qis = getattr(tk, "quarterly_income_stmt", None)
-            if qis is not None and hasattr(qis, "empty") and not qis.empty:
-                ri = {str(i).strip().lower(): i for i in qis.index}
-                er = ri.get("diluted eps") or ri.get("basic eps")
-                if er is not None:
-                    for col in qis.columns:
-                        v = qis.loc[er, col]
-                        if pd.isna(v):
-                            continue
-                        try:
-                            qd = pd.to_datetime(col, errors="coerce")
-                            ql = qd.strftime("%b %Y") if pd.notna(qd) else str(col)
-                        except Exception:
-                            ql = str(col)
-                        eps_history.append(dict(quarter=ql, actual=float(v),
-                                                estimate=None, surprise=None))
-                    eps_history = list(reversed(eps_history))[-8:]
-        except Exception:
-            pass
-    if not eps_history:
-        _issues.append("EPS history: earnings records unavailable (thin coverage, ETF, or feed blocked)")
-
-    # ── Forward EPS estimates ─────────────────────────────────────────
-    eps_forward = []
-    if tk is not None:
-        try:
-            ee = getattr(tk, "earnings_estimate", None)
-            if ee is not None and hasattr(ee, "empty") and not ee.empty:
-                labels = {"0q": "Next Qtr", "+1q": "Qtr After",
-                          "0y": "This Year", "+1y": "Next Year"}
-                cols = {c.lower(): c for c in ee.columns}
-                av = cols.get("avg") or cols.get("average")
-                nn = cols.get("numberofanalysts")
-                for pk in ["0q", "+1q", "0y", "+1y"]:
-                    if pk in ee.index:
-                        row = ee.loc[pk]
-                        est = row.get(av) if av else None
-                        na = row.get(nn) if nn else None
-                        if est is not None and pd.notna(est):
-                            eps_forward.append(dict(period=labels[pk], estimate=float(est),
-                                                    n_analysts=int(na) if na is not None and pd.notna(na) else None,
-                                                    is_forward=True))
-        except Exception:
-            pass
-    if not eps_forward and info:
-        try:
-            cy, ny = info.get("epsCurrentYear"), info.get("epsNextYear") or info.get("forwardEps")
-            if cy is not None:
-                eps_forward.append(dict(period="This Year (est)", estimate=float(cy),
-                                        n_analysts=info.get("numberOfAnalystOpinions"), is_forward=True))
-            if ny is not None and ny != cy:
-                eps_forward.append(dict(period="Next Year (est)", estimate=float(ny),
-                                        n_analysts=info.get("numberOfAnalystOpinions"), is_forward=True))
-        except Exception:
-            pass
+    # ── Step 4: EPS history + farthest published forward estimates ──
+    # Yahoo near-term consensus, Nasdaq for extra quarters/years when Yahoo
+    # is thin or rate-limited. Dump cache fills holes only.
+    eps_history, eps_forward, eps_src = _load_eps(
+        ticker, tk, info.get("_cached_eps"), info)
+    if eps_src:
+        info["_eps_source"] = eps_src
+    if not eps_history and not eps_forward:
+        _issues.append("EPS: no history or forward estimates (Yahoo and Nasdaq quiet)")
 
     if info.get("currentPrice") in (None, "") and not hist.empty:
         try:

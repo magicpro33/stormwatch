@@ -13,6 +13,7 @@ caches to data/history.parquet.
 """
 from __future__ import annotations
 import os
+import re
 os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")   # curl_cffi segfault guard
 
 import importlib.util
@@ -150,7 +151,7 @@ try:
 except Exception as _che:
     render_charts_tab, _CH_ERR = None, _che
 
-REQUIRED_ENGINE = "2.46"
+REQUIRED_ENGINE = "2.47"
 st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -930,7 +931,7 @@ def _tk_earnings(tk: str, ver: str = "v3"):
 
 
 @st.cache_data(ttl=900, show_spinner="Running the full analyzer chain (Alpaca → Yahoo → dump)…")
-def _analyzer(tk: str, asof: str, ver: str = ce.ENGINE_VERSION):
+def _analyzer(tk: str, asof: str, ver: str = ce.ENGINE_VERSION, eps_ver: str = "v5"):
     return ce.fetch_analyzer(tk)
 
 
@@ -1473,7 +1474,34 @@ def price_range_window(hist: pd.DataFrame, spec, px: float | None = None):
                 n=int(len(w)), start=w.index[0], end=w.index[-1])
 
 
-def render_eps_trend(eps_history, eps_forward=None, why=""):
+def _eps_fwd_is_quarter(f: dict) -> bool:
+    if (f or {}).get("kind") == "y":
+        return False
+    if (f or {}).get("kind") == "q":
+        return True
+    p = str((f or {}).get("period") or "")
+    if p.upper().startswith("FY") or "Year" in p:
+        return False
+    if "Qtr" in p or p.startswith("Q+"):
+        return True
+    return bool(re.search(
+        r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{2,4}\b", p))
+
+
+def _eps_fwd_label(f: dict) -> str:
+    p = str((f or {}).get("period") or "")
+    if p == "Next Qtr":
+        return "Next Q"
+    if p in ("Qtr After", "Q+2"):
+        return "Q+2"
+    m = re.match(r"([A-Za-z]{3})[a-z]*\s+(\d{2,4})", p)
+    if m:
+        yr = m.group(2)
+        return f"{m.group(1)} {yr[-2:]}"
+    return p[:8]
+
+
+def render_eps_trend(eps_history, eps_forward=None, why="", source=""):
     """SVG bar chart of quarterly EPS (actual vs estimate) plus forward
     analyst projections — same block the Ignition Scanner analyzer uses."""
     eps_history = eps_history or []
@@ -1487,10 +1515,12 @@ def render_eps_trend(eps_history, eps_forward=None, why=""):
         if q.get("actual") is not None:
             beat = q.get("surprise")
             kind = "beat" if (beat is None or beat >= 0) else "miss"
-            timeline.append({"label": (str(q.get("quarter") or "").split()[0]),
+            qlab = str(q.get("quarter") or "")
+            m = re.match(r"([A-Za-z]{3})", qlab)
+            timeline.append({"label": m.group(1) if m else qlab.split()[0],
                              "value": q["actual"], "kind": kind, "est": q.get("estimate")})
-    for f in [f for f in eps_forward if "Qtr" in str(f.get("period", ""))]:
-        timeline.append({"label": "Next Q" if f["period"] == "Next Qtr" else "Q+2",
+    for f in [x for x in eps_forward if _eps_fwd_is_quarter(x)]:
+        timeline.append({"label": _eps_fwd_label(f),
                          "value": f.get("estimate"), "kind": "projected", "est": None})
 
     if not timeline:
@@ -1498,7 +1528,7 @@ def render_eps_trend(eps_history, eps_forward=None, why=""):
         return
 
     n = len(timeline)
-    W, H = 320, 110
+    W, H = max(320, min(720, 44 * n + 36)), 110
     pad_l, pad_r, pad_t, pad_b = 8, 8, 10, 22
     plot_w, plot_h = W - pad_l - pad_r, H - pad_t - pad_b
     slot = plot_w / n
@@ -1544,7 +1574,7 @@ def render_eps_trend(eps_history, eps_forward=None, why=""):
     )
     st.markdown(
         legend
-        + f"<svg width='100%' height='{H}' viewBox='0 0 {W} {H}' style='max-width:360px'>"
+        + f"<svg width='100%' height='{H}' viewBox='0 0 {W} {H}' style='max-width:100%'>"
         + f"<line x1='{pad_l}' y1='{zy:.1f}' x2='{W-pad_r}' y2='{zy:.1f}' stroke='#1e3a5f'/>"
         + "".join(bars) + "".join(labs) + "</svg>",
         unsafe_allow_html=True)
@@ -1603,6 +1633,8 @@ def render_eps_trend(eps_history, eps_forward=None, why=""):
             "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Analysts</th>"
             "</tr></thead><tbody>" + "".join(frows) + "</tbody></table>"
         )
+    if source:
+        st.caption(f"EPS source · {source}")
 
 
 def render_dividend_info(info: dict | None) -> None:
@@ -1652,7 +1684,9 @@ def render_dividend_info(info: dict | None) -> None:
     yld_pct = None
     if yield_ is not None:
         try:
-            yld_pct = float(yield_) * 100 if float(yield_) < 1 else float(yield_)
+            y = float(yield_)
+            # Yahoo/dump mix fractions (0.007) with already-percent (0.78).
+            yld_pct = y * 100.0 if y <= 0.25 else y
         except (TypeError, ValueError):
             yld_pct = None
 
@@ -1907,7 +1941,7 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
         if rate and price:
             yld = rate / price
     if yld is not None:
-        yld_pct = yld * 100.0 if yld < 1 else yld
+        yld_pct = yld * 100.0 if yld <= 0.25 else yld
         base = _qalong(yld_pct, [(0, 8), (0.5, 28), (1.5, 48), (2.5, 65), (4, 85), (6, 100)])
         pr = _qnum(payout)
         if pr is not None:
@@ -2350,7 +2384,8 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                 st.caption("No short-interest or growth data from any source.")
         with az_section("Earnings Breakdown (EPS Trend)", key_prefix):
             render_eps_trend(eps_history, eps_forward,
-                             why=next((i for i in info.get("_data_issues", []) if "EPS" in i), ""))
+                             why=next((i for i in info.get("_data_issues", []) if "EPS" in i), ""),
+                             source=str(info.get("_eps_source") or ""))
         with az_section("Dividend", key_prefix):
             render_dividend_info(info)
 
