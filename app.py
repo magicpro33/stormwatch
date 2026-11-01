@@ -1068,6 +1068,195 @@ def _yf_info(tk: str) -> dict:
     return info
 
 
+def _lk_pct_held(v):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(x) or x < 0:
+        return None
+    return x * 100.0 if x <= 1.5 else x
+
+
+def _lk_insider_action(text, transaction="") -> str:
+    blob = f"{transaction or ''} {text or ''}".strip().lower()
+    if not blob:
+        return "Grant"
+    if "gift" in blob:
+        return "Gift"
+    if "sale" in blob or "sell" in blob:
+        return "Sell"
+    if "purchase" in blob or "buy" in blob:
+        return "Buy"
+    if "award" in blob or "grant" in blob:
+        return "Award"
+    if "exercise" in blob or "conversion" in blob or "option" in blob:
+        return "Exercise"
+    return (str(transaction).strip() or "Other")[:16]
+
+
+def _css_insider_act(v):
+    s = str(v or "").strip().lower()
+    if s == "buy":
+        return f"color:{GREEN};font-weight:600"
+    if s == "sell":
+        return f"color:{RED};font-weight:600"
+    return f"color:{DIM}"
+
+
+@st.cache_data(ttl=1800, persist="disk", show_spinner="Loading insider trades…")
+def _lk_insiders(tk: str, ver: str = "v1") -> dict:
+    """SEC Form 4 via Yahoo: ownership %, 6-month summary, trades, roster."""
+    blank = dict(insider_pct=None, inst_pct=None, purch_shares=None,
+                 sale_shares=None, purch_n=None, sale_n=None, net_shares=None,
+                 net_90d=None, buys_90d=0, sells_90d=0, trades=[], roster=[])
+    tk = str(tk or "").strip().upper()
+    if not tk:
+        return blank
+    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+    try:
+        from mw_yf import yf_call
+        import yfinance as yf
+        stock = yf_call(lambda: yf.Ticker(tk))
+    except Exception:
+        return blank
+    out = dict(blank)
+
+    def _yf_attr(name):
+        try:
+            return yf_call(lambda n=name: getattr(stock, n, None))
+        except Exception:
+            return None
+
+    info = {}
+    try:
+        info = yf_call(lambda: stock.info or {}) or {}
+    except Exception:
+        info = {}
+    out["insider_pct"] = _lk_pct_held(info.get("heldPercentInsiders"))
+    out["inst_pct"] = _lk_pct_held(info.get("heldPercentInstitutions"))
+    majors = _yf_attr("major_holders")
+    if out["insider_pct"] is None and majors is not None and hasattr(majors, "index"):
+        try:
+            if "insidersPercentHeld" in getattr(majors, "index", []):
+                out["insider_pct"] = _lk_pct_held(majors.loc["insidersPercentHeld"].iloc[0])
+            if "institutionsPercentHeld" in getattr(majors, "index", []):
+                out["inst_pct"] = _lk_pct_held(majors.loc["institutionsPercentHeld"].iloc[0])
+        except Exception:
+            pass
+
+    purch = _yf_attr("insider_purchases")
+    if purch is not None and hasattr(purch, "iterrows") and not getattr(purch, "empty", True):
+        label_col = purch.columns[0] if len(purch.columns) else None
+        for _, row in purch.iterrows():
+            lab = str(row.get(label_col, "") if label_col else "").strip().lower()
+            sh = row.get("Shares")
+            ntx = row.get("Trans")
+            try:
+                sh = float(sh) if pd.notna(sh) else None
+            except Exception:
+                sh = None
+            try:
+                ntx = int(ntx) if pd.notna(ntx) else None
+            except Exception:
+                ntx = None
+            if lab.startswith("purchase"):
+                out["purch_shares"], out["purch_n"] = sh, ntx
+            elif lab.startswith("sale"):
+                out["sale_shares"], out["sale_n"] = sh, ntx
+            elif "net shares" in lab:
+                out["net_shares"] = sh
+
+    trades = []
+    net_90 = 0.0
+    buys_90 = sells_90 = 0
+    cutoff = pd.Timestamp.now(tz="UTC").tz_localize(None) - pd.Timedelta(days=90)
+    ins = _yf_attr("insider_transactions")
+    if ins is not None and hasattr(ins, "iterrows") and not getattr(ins, "empty", True):
+        df = ins.copy()
+        date_col = next((c for c in ("Start Date", "startDate", "Date") if c in df.columns), None)
+        if date_col:
+            df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+            try:
+                df[date_col] = df[date_col].dt.tz_localize(None)
+            except Exception:
+                pass
+            df = df.sort_values(date_col, ascending=False)
+        for _, row in df.head(80).iterrows():
+            dt = row.get(date_col) if date_col else None
+            try:
+                dts = pd.Timestamp(dt).strftime("%b %d, %Y") if pd.notna(dt) else "—"
+            except Exception:
+                dts = "—"
+            text = str(row.get("Text") or "").strip()
+            trn = str(row.get("Transaction") or "").strip()
+            act = _lk_insider_action(text, trn)
+            try:
+                shares = float(row.get("Shares")) if pd.notna(row.get("Shares")) else None
+            except Exception:
+                shares = None
+            try:
+                val = float(row.get("Value")) if pd.notna(row.get("Value")) else None
+            except Exception:
+                val = None
+            if shares is not None and not np.isfinite(shares):
+                shares = None
+            if val is not None and not np.isfinite(val):
+                val = None
+            in_90 = False
+            try:
+                in_90 = pd.notna(dt) and pd.Timestamp(dt) >= cutoff
+            except Exception:
+                in_90 = False
+            if in_90 and act == "Buy":
+                buys_90 += 1
+                net_90 += abs(val) if val is not None else 0.0
+            elif in_90 and act == "Sell":
+                sells_90 += 1
+                net_90 -= abs(val) if val is not None else 0.0
+            trades.append(dict(
+                Date=dts,
+                Insider=str(row.get("Insider") or "—").strip() or "—",
+                Role=str(row.get("Position") or "—").strip() or "—",
+                Action=act,
+                Shares=shares,
+                Value=val,
+            ))
+    out["trades"] = trades
+    out["net_90d"] = net_90 if (buys_90 or sells_90) else None
+    out["buys_90d"] = buys_90
+    out["sells_90d"] = sells_90
+
+    roster = []
+    hold = _yf_attr("insider_roster_holders")
+    if hold is not None and hasattr(hold, "iterrows") and not getattr(hold, "empty", True):
+        hdf = hold.copy()
+        dcol = next((c for c in ("Latest Transaction Date", "Position Direct Date")
+                     if c in hdf.columns), None)
+        if dcol:
+            hdf[dcol] = pd.to_datetime(hdf[dcol], errors="coerce")
+            hdf = hdf.sort_values(dcol, ascending=False)
+        for _, row in hdf.head(20).iterrows():
+            dt = row.get(dcol) if dcol else None
+            try:
+                dts = pd.Timestamp(dt).strftime("%b %d, %Y") if pd.notna(dt) else "—"
+            except Exception:
+                dts = "—"
+            try:
+                sh = float(row.get("Shares Owned Directly")) if pd.notna(row.get("Shares Owned Directly")) else None
+            except Exception:
+                sh = None
+            roster.append(dict(
+                Insider=str(row.get("Name") or "—").strip() or "—",
+                Role=str(row.get("Position") or "—").strip() or "—",
+                Shares=sh,
+                Last=str(row.get("Most Recent Transaction") or "—").strip() or "—",
+                Date=dts,
+            ))
+    out["roster"] = roster
+    return out
+
+
 @st.cache_data(ttl=25, show_spinner="📡 Fetching live quotes…")
 def _live_quotes(tickers: tuple, nonce: int = 0):
     """Short-lived batch quotes for the watchlist table. Refresh bumps nonce."""
@@ -1458,6 +1647,7 @@ _AZ_TONE = {
     "Valuation": "#C8F542",
     "Financial Health": "#A78BFA",
     "Nightly Scan Signals": "#C5D4FF",
+    "Insider Ownership": "#67E8F9",
 }
 _AZ_SLUG = {
     "Price Range Analysis": "az_range",
@@ -1469,6 +1659,7 @@ _AZ_SLUG = {
     "Valuation": "az_value",
     "Financial Health": "az_health",
     "Nightly Scan Signals": "az_scan",
+    "Insider Ownership": "az_insider",
 }
 class az_section:
     """Scanner-style section: colored bar, then a bordered box in that color."""
@@ -2563,8 +2754,101 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
             with az_section("Nightly Scan Signals", key_prefix):
                 mtable(scan_rows)
 
-
-
+    pack = {}
+    try:
+        pack = _lk_insiders(str(tk).strip().upper(), "v1") or {}
+    except Exception as _ie:
+        log_exc("lookup_insiders", _ie)
+        pack = {}
+    with az_section("Insider Ownership", key_prefix):
+        st.caption("SEC Form 4 filings via Yahoo. Open-market buys and sells "
+                   "are what matter; grants, option exercises, and gifts are listed "
+                   "but do not count in the 90-day net.")
+        def _pct_txt(v):
+            return "--" if v is None else f"{float(v):.1f}%"
+        def _sh_txt(v):
+            try:
+                return f"{int(round(float(v))):,}"
+            except (TypeError, ValueError):
+                return "—"
+        def _usd_txt(v):
+            try:
+                x = float(v)
+            except (TypeError, ValueError):
+                return "—"
+            if not np.isfinite(x):
+                return "—"
+            ax = abs(x)
+            if ax >= 1e6:
+                return f"${x/1e6:,.1f}M"
+            if ax >= 1e3:
+                return f"${x/1e3:,.0f}K"
+            return f"${x:,.0f}"
+        ins_p = pack.get("insider_pct")
+        inst_p = pack.get("inst_pct")
+        net90 = pack.get("net_90d")
+        nb, ns = int(pack.get("buys_90d") or 0), int(pack.get("sells_90d") or 0)
+        net_col = GREEN if (net90 is not None and net90 > 0) else (
+            RED if (net90 is not None and net90 < 0) else DIM)
+        net_lbl = ("net buying" if (net90 is not None and net90 > 0) else
+                   "net selling" if (net90 is not None and net90 < 0) else "flat")
+        rows = [
+            mrow("Insiders", "Shares held by officers and directors. High skin in the game.",
+                 f"<span style='font-family:monospace;color:#b0c8e8'>{_pct_txt(ins_p)}</span>"),
+            mrow("Institutions", "Percent of shares held by funds and other institutions.",
+                 f"<span style='font-family:monospace;color:#b0c8e8'>{_pct_txt(inst_p)}</span>"),
+        ]
+        if pack.get("purch_n") is not None or pack.get("sale_n") is not None:
+            rows.append(mrow(
+                "6-month tape",
+                "Yahoo's last-6-month Form 4 summary: purchases vs sales (shares).",
+                f"<span style='color:{GREEN}'>{_sh_txt(pack.get('purch_shares'))} bought</span>"
+                f" · <span style='color:{RED}'>{_sh_txt(pack.get('sale_shares'))} sold</span>"
+                f" · net {_sh_txt(pack.get('net_shares'))}"))
+        rows.append(mrow(
+            "90-day open market",
+            "Cash buys minus cash sells in the last 90 days. Awards and option exercises are excluded.",
+            f"<span style='font-family:monospace;color:{net_col}'>"
+            f"{nb} buys / {ns} sells · {_usd_txt(net90)} {net_lbl}</span>"))
+        mtable(rows)
+        trades = list(pack.get("trades") or [])
+        if trades:
+            tdf = pd.DataFrame(trades)
+            _tst = tdf.style.format(
+                {"Shares": "{:,.0f}", "Value": "${:,.0f}"},
+                na_rep="—", subset=["Shares", "Value"])
+            if "Action" in tdf.columns:
+                _tst = _tst.map(_css_insider_act, subset=["Action"])
+            st.dataframe(
+                _tst, width="stretch", hide_index=True,
+                height=_fit_list_height(min(len(tdf), 12)),
+                column_config={
+                    "Date": st.column_config.Column(help="Form 4 start date."),
+                    "Insider": st.column_config.Column(help="Officer, director, or 10% holder."),
+                    "Role": st.column_config.Column(help="Title on the filing."),
+                    "Action": st.column_config.Column(
+                        help="Buy/Sell are open-market. Grant, Exercise, and Gift are not cash conviction."),
+                    "Shares": st.column_config.Column(help="Share count on the filing."),
+                    "Value": st.column_config.Column(help="Dollar value when Yahoo reports a price."),
+                })
+        else:
+            st.caption("No Form 4 trades on file for this name.")
+        roster = list(pack.get("roster") or [])
+        if roster:
+            rdf = pd.DataFrame(roster)
+            st.caption("Who holds now")
+            st.dataframe(
+                rdf.style.format({"Shares": "{:,.0f}"}, na_rep="—",
+                                 subset=["Shares"] if "Shares" in rdf.columns else []),
+                width="stretch", hide_index=True,
+                height=_fit_list_height(min(len(rdf), 8)),
+                column_config={
+                    "Insider": st.column_config.Column(help="Current insider on the Yahoo roster."),
+                    "Role": st.column_config.Column(help="Title."),
+                    "Shares": st.column_config.Column(help="Shares owned directly."),
+                    "Last": st.column_config.Column(help="Most recent Form 4 type."),
+                    "Date": st.column_config.Column(help="Date of that filing."),
+                })
 
 
 def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
