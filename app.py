@@ -5440,7 +5440,6 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
 # Run / result flags — bools, but not widgets. Keep them in session_state.
 _HUB_KEEP_FLAGS = {
     "top20_go", "t20_live", "sw_go", "apex_run", "poc_run", "kw_run", "ib_run",
-    "ib_officials",
     "te_run", "el_run",
     "macro_advice_on", "hs_gate_thatbiz",
     "top20_advice_on", "apex_advice_on", "sw_advice_on", "poc_advice_on",
@@ -5460,7 +5459,7 @@ _HUB_KEEP_TOGGLES = {
     "el_safe_ai",
     "apex_thatbiz", "poc_thatbiz", "sw_thatbiz", "hs_thatbiz",
     "kw_thatbiz", "ib_thatbiz", "te_thatbiz", "top20_thatbiz", "el_thatbiz",
-    "ib_big_only",
+    "ib_big_only", "ib_officials",
 }
 
 _HUB_KEEP_BUTTON_SUFFIXES = (
@@ -5494,7 +5493,7 @@ _HUB_KEEP_SKIP = {
     "hs_dl_csv",
     "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk", "kw_go",
     "ib_run", "ib_snap", "ib_table", "ib_inline", "ib_inline_tk", "ib_go",
-    "ib_hot_btn", "ib_gov_btn",
+    "ib_hot_btn",
     "te_run", "te_snap", "te_words", "te_speeches", "te_inline", "te_inline_tk",
     "te_table", "te_go", "te_search", "te_px_btn", "macro_advise", "macro_apply",
     "el_run", "el_snap", "el_table", "el_sec", "el_inline", "el_inline_tk",
@@ -5516,7 +5515,7 @@ _HUB_BUTTON_KEYS = {
     "apex_go", "apex_hot", "apex_csv",
     "poc_go", "poc_hot_btn",
     "kw_go",
-    "ib_go", "ib_hot_btn", "ib_gov_btn",
+    "ib_go", "ib_hot_btn",
     "te_go", "te_search", "te_px_btn",
     "el_go",
     "cc_reload_board", "cc_reload_vaults",
@@ -5785,6 +5784,8 @@ def _rank_filters_html(key: str) -> str:
         extra.append("<b style='color:#E8C872;'>3 Magic Rules</b>")
     if st.session_state.get(f"{key}_safe_ai"):
         extra.append("<b style='color:#6EE7B7;'>SAFE FROM AI</b>")
+    if key == "ib" and st.session_state.get("ib_officials"):
+        extra.append("<b style='color:#67E8F9;'>Officials</b>")
     if not extra:
         return ""
     if len(extra) == 1:
@@ -5963,7 +5964,7 @@ def _render_macro_lens_block(prefix: str, asof, closes, gauge, *,
 
 
 def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
-                       pill_key: str | None = None):
+                       pill_key: str | None = None, extra_filters=None):
     """Catalyst rank toggle plus 3 Magic Rules and SAFE FROM AI filters."""
     ctx = _hub_pill(pill_key) if pill else st.container()
     with ctx:
@@ -5999,6 +6000,8 @@ def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
             )
             if _safe_ai_on(key):
                 st.caption("On — services AI is replacing stay off this list.")
+            if extra_filters:
+                extra_filters()
     return bool(on)
 
 
@@ -8284,27 +8287,24 @@ with st.container(border=True, key="mw_page"):
             _where_money_went(asof, _i_lb, _i_off, _i_lbl, _hs_now)
 
         _hub_sec("3 · Catalysts and Filters", "#A78BFA")
-        _ib_cat = _catalysts_section("ib", cat_color="#A78BFA", pill_key="ib_cat_box")
-        _ib1, _ib2 = st.columns(2, gap="medium")
-        if _ib1.button("💼 Scan insider buying", type="primary", key="ib_go",
-                       width="stretch"):
-            st.session_state["ib_officials"] = False
-            st.session_state["ib_run"] = True
-            st.session_state.pop("ib_snap", None)
-            st.session_state.pop("ib_inline_tk", None)
-        if _ib2.button("🏛 Government officials only", key="ib_gov_btn",
-                       width="stretch",
-                       help="Scan Senate, House, and Trump purchases only — "
-                            "no company officers or funds."):
-            st.session_state["ib_officials"] = True
-            st.session_state["ib_run"] = True
-            st.session_state.pop("ib_snap", None)
-            st.session_state.pop("ib_inline_tk", None)
+
+        def _ib_officials_filter():
+            st.toggle(
+                "Government officials only",
+                key="ib_officials",
+                help="Keep Senate, House, and Trump purchases only — "
+                     "no company officers or funds.",
+            )
+            if st.session_state.get("ib_officials"):
+                st.caption("On — Senate, House, and Trump only.")
+
+        _ib_cat = _catalysts_section(
+            "ib", cat_color="#A78BFA", pill_key="ib_cat_box",
+            extra_filters=_ib_officials_filter)
         _ib_officials = bool(st.session_state.get("ib_officials"))
         _ib_sec_txt = (f", limited to {len(_sec_filter)} sectors"
                        if _sec_filter else "")
         _ib_big_txt = ", big names only" if (_ib_big and not _ib_officials) else ""
-        _ib_gov_txt = ", Senate / House / Trump" if _ib_officials else ""
         _rank_banner(
             f"Ranking the top <b>{int(_ib_top)}</b> by "
             f"<b style='color:{ACCENT};'>"
@@ -8312,9 +8312,14 @@ with st.container(border=True, key="mw_page"):
             f"</b> "
             f"(last {int(_ib_days)} days"
             f"{'' if _ib_officials else f', Form 4 ≥ ${int(_ib_min):,}'})"
-            f"{_ib_gov_txt}{_ib_big_txt}{_ib_sec_txt}"
+            f"{_ib_big_txt}{_ib_sec_txt}"
             f"{_rank_filters_html('ib')}.",
             "#67E8F9")
+        if st.button("💼 Scan insider buying", type="primary", key="ib_go",
+                     width="stretch"):
+            st.session_state["ib_run"] = True
+            st.session_state.pop("ib_snap", None)
+            st.session_state.pop("ib_inline_tk", None)
 
         if st.session_state.get("ib_run"):
             import json as _ib_json
@@ -8328,8 +8333,7 @@ with st.container(border=True, key="mw_page"):
                 if _idf is None:
                     _idf = pd.DataFrame()
                 if _isnap.get("sig") != _ib_sig:
-                    st.info("Hunt settings changed. Hit **Scan insider buying** "
-                            "or **Government officials only** to refresh.")
+                    st.info("Hunt settings changed. Hit **Scan insider buying** to refresh.")
             else:
                 try:
                     _idf = _insider_buy_scan(
