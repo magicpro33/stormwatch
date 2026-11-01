@@ -7011,6 +7011,32 @@ with st.container(border=True, key="mw_page"):
                 _sec_map = {}
             _bdf["Sector"] = [(_sec_map.get(t) if _sec_map.get(t) and _sec_map.get(t) != "nan"
                                else "—") for t in _btks]
+            _earn_iso = {}
+            try:
+                _earn_iso = _wl_earn_map(tuple(_btks), "v1") or {}
+            except Exception as _ee:
+                log_exc("bull_list_earnings", _ee)
+                _earn_iso = {}
+            _today_ny = ce._ny_calendar_date()
+            def _bull_earn_lbl(t):
+                ed = None
+                try:
+                    ed = ce._coerce_earn_date(_earn_iso.get(str(t).strip().upper()))
+                except Exception:
+                    ed = None
+                if ed is None:
+                    return "—"
+                try:
+                    days = (ed - _today_ny).days
+                except Exception:
+                    return f"{ed:%b} {ed.day}"
+                sub = f"{ed:%b} {ed.day}"
+                if days < 0:
+                    return "Done"
+                if days == 0:
+                    return f"Today · {sub}"
+                return f"{days}d · {sub}"
+            _bdf["Earnings"] = [_bull_earn_lbl(t) for t in _btks]
             try:
                 _bpx = ce.dump_last_closes(_btks) or {}
             except Exception:
@@ -7068,8 +7094,11 @@ with st.container(border=True, key="mw_page"):
                 _bdf = _bdf.drop(columns=["#"])
             _bdf.insert(0, "#", list(range(1, len(_bdf) + 1)))
             _border = _order_with_cat(
-                ["#", "Ticker", "Sector", "Added", "Price then", "Price now",
-                 "Since saved", "Note"], _bdf)
+                ["#", "Ticker", "Sector", "Earnings", "Added", "Price then",
+                 "Price now", "Since saved", "Note"], _bdf)
+            if "Earnings" in _border and "Sector" in _border:
+                _border = [c for c in _border if c != "Earnings"]
+                _border.insert(_border.index("Sector") + 1, "Earnings")
             _bunlock = bool(st.session_state.get("_bull_unlocked"))
             _bfmt = {k: v for k, v in {
                 "Price then": "${:,.2f}",
@@ -7080,6 +7109,8 @@ with st.container(border=True, key="mw_page"):
             if "Since saved" in _bdf.columns:
                 _bsty = _bsty.map(lambda v: _css_sign(v, dead=0.002),
                                   subset=["Since saved"])
+            if "Earnings" in _bdf.columns:
+                _bsty = _bsty.map(_css_earn_cell, subset=["Earnings"])
             _bsel = st.dataframe(
                 _bsty,
                 width=_DF_WIDTH, hide_index=True,
@@ -7091,6 +7122,8 @@ with st.container(border=True, key="mw_page"):
                 column_config={
                     "#": _rank_col_cfg(),
                     **_health_setup_col_cfgs(),
+                    "Earnings": st.column_config.Column(
+                        help="Days until the next earnings print, Eastern US calendar. Green is clear, amber inside 21 days, red inside a week."),
                     "Note": st.column_config.Column(
                         help="Owner note for why this name is on the bull list."),
                     "Added": st.column_config.Column(
