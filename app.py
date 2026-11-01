@@ -1131,12 +1131,126 @@ def _css_insider_act(v):
     return f"color:{DIM}"
 
 
+def _lk_owner_fold(name: str) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(name or ""))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = re.sub(r"[^a-z0-9 ]+", " ", s.lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _lk_owner_key(name: str) -> str:
+    s = _lk_owner_fold(name)
+    for w in ("the", "inc", "llc", "ltd", "corp", "corporation", "co", "lp",
+              "llp", "plc", "na", "company", "group", "holdings", "advisors",
+              "advisers", "management", "fund", "funds"):
+        s = re.sub(rf"\b{w}\b", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+# Sitting U.S. Senate (119th Congress). First and last name must both match.
+_SENATORS = (
+    ("alsobrooks", "angela"), ("baldwin", "tammy"), ("banks", "jim"),
+    ("barrasso", "john"), ("bennet", "michael"), ("blackburn", "marsha"),
+    ("blumenthal", "richard"), ("blunt rochester", "lisa"),
+    ("booker", "cory"), ("boozman", "john"), ("britt", "katie"),
+    ("budd", "ted"), ("cantwell", "maria"), ("capito", "shelley"),
+    ("cassidy", "bill"), ("collins", "susan"), ("coons", "chris"),
+    ("cornyn", "john"), ("cortez masto", "catherine"), ("cotton", "tom"),
+    ("cramer", "kevin"), ("crapo", "mike"), ("cruz", "ted"),
+    ("curtis", "john"), ("daines", "steve"), ("duckworth", "tammy"),
+    ("durbin", "dick"), ("ernst", "joni"),
+    ("fetterman", "john"), ("fischer", "deb"), ("gallego", "ruben"),
+    ("gillibrand", "kirsten"), ("graham", "lindsey"), ("grassley", "chuck"),
+    ("hagerty", "bill"), ("hassan", "maggie"), ("hawley", "josh"),
+    ("heinrich", "martin"), ("hickenlooper", "john"), ("hirono", "mazie"),
+    ("hoeven", "john"), ("husted", "jon"), ("hyde smith", "cindy"),
+    ("johnson", "ron"), ("justice", "jim"), ("kaine", "tim"),
+    ("kelly", "mark"), ("kennedy", "john"), ("kim", "andy"),
+    ("king", "angus"), ("klobuchar", "amy"), ("lankford", "james"),
+    ("lee", "mike"), ("lujan", "ben"), ("lummis", "cynthia"),
+    ("markey", "ed"), ("marshall", "roger"), ("mcconnell", "mitch"),
+    ("mccormick", "dave"), ("merkley", "jeff"),
+    ("moody", "ashley"), ("moran", "jerry"), ("moreno", "bernie"),
+    ("mullin", "markwayne"), ("murkowski", "lisa"), ("murphy", "chris"),
+    ("murray", "patty"), ("ossoff", "jon"), ("padilla", "alex"),
+    ("paul", "rand"), ("peters", "gary"), ("reed", "jack"),
+    ("ricketts", "pete"), ("risch", "jim"), ("rosen", "jacky"),
+    ("rounds", "mike"), ("sanders", "bernie"), ("schatz", "brian"),
+    ("schiff", "adam"), ("schmitt", "eric"), ("schumer", "chuck"),
+    ("scott", "rick"), ("scott", "tim"), ("shaheen", "jeanne"),
+    ("sheehy", "tim"), ("slotkin", "elissa"), ("smith", "tina"),
+    ("sullivan", "dan"), ("thune", "john"), ("tillis", "thom"),
+    ("tuberville", "tommy"), ("van hollen", "chris"), ("warner", "mark"),
+    ("warnock", "raphael"), ("warren", "elizabeth"), ("welch", "peter"),
+    ("whitehouse", "sheldon"), ("wicker", "roger"), ("wyden", "ron"),
+    ("young", "todd"),
+)
+
+
+_FIRST_AKA = {
+    "dick": ("richard",), "richard": ("dick",),
+    "chuck": ("charles",), "charles": ("chuck",),
+    "maggie": ("margaret",), "ed": ("edward",), "edward": ("ed", "ted"),
+    "chris": ("christopher",), "christopher": ("chris",),
+    "mike": ("michael",), "michael": ("mike",),
+    "bill": ("william",), "william": ("bill",),
+    "tom": ("thomas",), "thom": ("thomas", "tom"), "thomas": ("tom", "thom"),
+    "dave": ("david",), "david": ("dave",),
+    "steve": ("steven",), "steven": ("steve",),
+    "jim": ("james",), "james": ("jim",),
+    "ben": ("benjamin",), "benjamin": ("ben",),
+    "jon": ("jonathan",), "jonathan": ("jon",),
+    "ted": ("theodore", "edward", "rafael"), "rafael": ("ted",),
+    "katie": ("kathryn", "kate"), "patty": ("patricia",),
+    "liz": ("elizabeth",), "elizabeth": ("liz",),
+}
+
+
+def _lk_first_hit(need: str, tokens: set) -> bool:
+    if need in tokens:
+        return True
+    return any(aka in tokens for aka in _FIRST_AKA.get(need, ()))
+
+
+def _lk_owner_flag(name: str) -> str:
+    low = _lk_owner_fold(name)
+    if re.search(r"\btrump\b", low):
+        return "Trump"
+    if "blackrock" in low or "black rock" in low or "ishares" in low:
+        return "BlackRock"
+    if "vanguard" in low:
+        return "Vanguard"
+    if "state street" in low or "statestreet" in low or re.search(r"\bssga\b", low):
+        return "State Street"
+    tokens = set(low.replace("-", " ").split())
+    for last, first in _SENATORS:
+        lt = last.replace("-", " ").split()
+        ft = first.replace("-", " ").split()
+        if lt and ft and all(t in tokens for t in lt) and all(_lk_first_hit(t, tokens) for t in ft):
+            return "Senate"
+    return ""
+
+
+def _lk_owner_bucket(name: str, flag: str) -> str:
+    if flag in ("BlackRock", "Vanguard", "State Street", "Trump"):
+        return flag.lower()
+    return _lk_owner_key(name) or _lk_owner_fold(name)
+
+
+def _css_owner_flag(v):
+    if str(v or "").strip() and str(v).strip() != "—":
+        return f"color:{ACCENT};font-weight:600"
+    return f"color:{DIM}"
+
+
 @st.cache_data(ttl=1800, show_spinner="Loading insider trades…")
-def _lk_insiders(tk: str, ver: str = "v1") -> dict:
-    """SEC Form 4 via Yahoo: ownership %, 6-month summary, trades, roster."""
+def _lk_insiders(tk: str, ver: str = "v2") -> dict:
+    """SEC Form 4 via Yahoo: ownership %, 6-month summary, trades, top holders."""
     blank = dict(insider_pct=None, inst_pct=None, purch_shares=None,
                  sale_shares=None, purch_n=None, sale_n=None, net_shares=None,
-                 net_90d=None, buys_90d=0, sells_90d=0, trades=[], roster=[])
+                 net_90d=None, buys_90d=0, sells_90d=0, trades=[], roster=[],
+                 owners=[])
     tk = str(tk or "").strip().upper()
     if not tk:
         return blank
@@ -1257,6 +1371,72 @@ def _lk_insiders(tk: str, ver: str = "v1") -> dict:
     out["sells_90d"] = sells_90
 
     roster = []
+    owners: dict = {}
+
+    def _as_shares(v):
+        try:
+            if v is None or (isinstance(v, float) and not np.isfinite(v)):
+                return None
+            if pd.isna(v):
+                return None
+            return float(v)
+        except Exception:
+            return None
+
+    def _as_ts(v):
+        try:
+            ts = pd.to_datetime(v, errors="coerce")
+            if pd.isna(ts):
+                return None
+            tz = getattr(ts, "tz", None) or getattr(ts, "tzinfo", None)
+            if tz is not None:
+                try:
+                    ts = ts.tz_convert("UTC").tz_localize(None)
+                except Exception:
+                    try:
+                        ts = ts.tz_localize(None)
+                    except Exception:
+                        pass
+            return ts
+        except Exception:
+            return None
+
+    def _put_owner(name, role, shares, date_ts, last="", how="max"):
+        name = str(name or "").strip()
+        if not name or name == "—":
+            return
+        flag = _lk_owner_flag(name)
+        key = _lk_owner_bucket(name, flag)
+        if not key:
+            return
+        disp = flag if flag in ("BlackRock", "Vanguard", "State Street") else name
+        row = owners.get(key)
+        if row is None:
+            owners[key] = dict(
+                Owner=disp, Role=(role or "—").strip() or "—",
+                Shares=shares, Flag=flag or "—", Date=date_ts,
+                Last=(last or "—").strip() or "—")
+            return
+        if how == "sum" and shares is not None:
+            row["Shares"] = (row["Shares"] or 0.0) + shares
+        else:
+            newer = date_ts is not None and (row["Date"] is None or date_ts > row["Date"])
+            older = row["Date"] is not None and date_ts is not None and date_ts < row["Date"]
+            if newer or (not older and shares is not None
+                         and shares > (row["Shares"] or 0)):
+                if shares is not None:
+                    row["Shares"] = shares
+        if flag:
+            row["Flag"] = flag
+        if date_ts is not None and (row["Date"] is None or date_ts > row["Date"]):
+            row["Date"] = date_ts
+            if last:
+                row["Last"] = last
+            if flag not in ("BlackRock", "Vanguard", "State Street"):
+                row["Owner"] = name
+                if role:
+                    row["Role"] = role
+
     hold = _yf_attr("insider_roster_holders")
     if hold is not None and hasattr(hold, "iterrows") and not getattr(hold, "empty", True):
         hdf = hold.copy()
@@ -1265,24 +1445,53 @@ def _lk_insiders(tk: str, ver: str = "v1") -> dict:
         if dcol:
             hdf[dcol] = pd.to_datetime(hdf[dcol], errors="coerce")
             hdf = hdf.sort_values(dcol, ascending=False)
-        for _, row in hdf.head(20).iterrows():
+        for _, row in hdf.iterrows():
             dt = row.get(dcol) if dcol else None
             try:
                 dts = pd.Timestamp(dt).strftime("%b %d, %Y") if pd.notna(dt) else "—"
             except Exception:
                 dts = "—"
-            try:
-                sh = float(row.get("Shares Owned Directly")) if pd.notna(row.get("Shares Owned Directly")) else None
-            except Exception:
-                sh = None
-            roster.append(dict(
-                Insider=str(row.get("Name") or "—").strip() or "—",
-                Role=str(row.get("Position") or "—").strip() or "—",
-                Shares=sh,
-                Last=str(row.get("Most Recent Transaction") or "—").strip() or "—",
-                Date=dts,
-            ))
+            direct = _as_shares(row.get("Shares Owned Directly"))
+            indirect = _as_shares(row.get("Shares Owned Indirectly"))
+            sh = None
+            if direct is not None or indirect is not None:
+                sh = (direct or 0.0) + (indirect or 0.0)
+            name = str(row.get("Name") or "—").strip() or "—"
+            role = str(row.get("Position") or "—").strip() or "—"
+            last = str(row.get("Most Recent Transaction") or "—").strip() or "—"
+            roster.append(dict(Insider=name, Role=role, Shares=sh, Last=last, Date=dts))
+            _put_owner(name, role, sh, _as_ts(dt), last)
     out["roster"] = roster
+
+    inst = _yf_attr("institutional_holders")
+    if inst is not None and hasattr(inst, "iterrows") and not getattr(inst, "empty", True):
+        cols = {str(c).strip().lower(): c for c in inst.columns}
+        hcol = cols.get("holder") or cols.get("name")
+        scol = cols.get("shares")
+        dcol = cols.get("date reported") or cols.get("date")
+        for _, row in inst.iterrows():
+            name = str(row.get(hcol) if hcol else "").strip()
+            _put_owner(name, "Institution",
+                       _as_shares(row.get(scol) if scol else None),
+                       _as_ts(row.get(dcol) if dcol else None),
+                       "13F", how="sum")
+
+    ranked = sorted(
+        owners.values(),
+        key=lambda r: (r.get("Shares") is not None, r.get("Shares") or 0.0),
+        reverse=True)[:10]
+    for row in ranked:
+        dt = row.get("Date")
+        try:
+            row["Date"] = pd.Timestamp(dt).strftime("%b %d, %Y") if dt is not None and pd.notna(dt) else "—"
+        except Exception:
+            row["Date"] = "—"
+        if not row.get("Flag"):
+            row["Flag"] = "—"
+    out["owners"] = [
+        dict(Owner=r["Owner"], Role=r["Role"], Shares=r.get("Shares"),
+             Flag=r.get("Flag") or "—", Date=r["Date"])
+        for r in ranked]
     return out
 
 
@@ -2785,12 +2994,13 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
 
     pack = {}
     try:
-        pack = _lk_insiders(str(tk).strip().upper(), "v1") or {}
+        pack = _lk_insiders(str(tk).strip().upper(), "v2") or {}
     except Exception as _ie:
         log_exc("lookup_insiders", _ie)
         pack = {}
     with az_section("Insider Ownership", key_prefix):
-        st.caption("SEC Form 4 filings via Yahoo. Open-market buys and sells "
+        st.caption("Top holders combine insider Form 4s and 13F institutions, "
+                   "one row per person or fund. Open-market buys and sells "
                    "are what matter; grants, option exercises, and gifts are listed "
                    "but do not count in the 90-day net.")
         def _pct_txt(v):
@@ -2840,9 +3050,33 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
             f"<span style='font-family:monospace;color:{net_col}'>"
             f"{nb} buys / {ns} sells · {_usd_txt(net90)} {net_lbl}</span>"))
         mtable(rows)
+        owners = list(pack.get("owners") or [])
+        if owners:
+            odf = pd.DataFrame(owners)
+            st.caption("Top 10 owners — same person or fund combined. "
+                       "Flags: BlackRock, Vanguard, State Street, Trump, U.S. Senate.")
+            _ost = odf.style.format(
+                {"Shares": "{:,.0f}"}, na_rep="—",
+                subset=["Shares"] if "Shares" in odf.columns else [])
+            if "Flag" in odf.columns:
+                _ost = _ost.map(_css_owner_flag, subset=["Flag"])
+            st.dataframe(
+                _ost, width="stretch", hide_index=True,
+                height=_fit_list_height(min(len(odf), 10)),
+                column_config={
+                    "Owner": st.column_config.Column(help="Insider or 13F institution. Repeat filings are summed."),
+                    "Role": st.column_config.Column(help="Title on the Form 4, or Institution for 13F holders."),
+                    "Shares": st.column_config.Column(help="Total reported shares for this owner."),
+                    "Flag": st.column_config.Column(
+                        help="BlackRock, Vanguard, State Street, Trump, or a sitting U.S. senator."),
+                    "Date": st.column_config.Column(help="Latest filing date in the combined rows."),
+                })
+        else:
+            st.caption("No holder list on file for this name.")
         trades = list(pack.get("trades") or [])
         if trades:
             tdf = pd.DataFrame(trades)
+            st.caption("Recent Form 4 activity")
             _tst = tdf.style.format(
                 {"Shares": "{:,.0f}", "Value": "${:,.0f}"},
                 na_rep="—", subset=["Shares", "Value"])
@@ -2862,22 +3096,6 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                 })
         else:
             st.caption("No Form 4 trades on file for this name.")
-        roster = list(pack.get("roster") or [])
-        if roster:
-            rdf = pd.DataFrame(roster)
-            st.caption("Who holds now")
-            st.dataframe(
-                rdf.style.format({"Shares": "{:,.0f}"}, na_rep="—",
-                                 subset=["Shares"] if "Shares" in rdf.columns else []),
-                width="stretch", hide_index=True,
-                height=_fit_list_height(min(len(rdf), 8)),
-                column_config={
-                    "Insider": st.column_config.Column(help="Current insider on the Yahoo roster."),
-                    "Role": st.column_config.Column(help="Title."),
-                    "Shares": st.column_config.Column(help="Shares owned directly."),
-                    "Last": st.column_config.Column(help="Most recent Form 4 type."),
-                    "Date": st.column_config.Column(help="Date of that filing."),
-                })
 
 
 def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
