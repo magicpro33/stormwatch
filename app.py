@@ -817,6 +817,17 @@ def _css_health_lbl(v):
     return f"color:{DIM}"
 
 
+def _css_cs_trend(v):
+    s = str(v or "").lower()
+    if "bull" in s:
+        return f"color:{GREEN};font-weight:600"
+    if "bear" in s:
+        return f"color:{RED};font-weight:600"
+    if "mixed" in s:
+        return f"color:{MIX_COLOR};font-weight:600"
+    return f"color:{DIM}"
+
+
 def _css_earn_cell(v):
     s = str(v or "").strip()
     if not s or s in ("—", "Done"):
@@ -976,6 +987,24 @@ def _wl_health_map(tks: tuple, ver: str = "v1"):
     if fn is None:
         return {}
     return fn(list(tks)) or {}
+
+
+@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
+def _wl_cs_trend_map(tks: tuple, ver: str = "v1"):
+    """Clean Setup bull/bear/mixed for each watchlist ticker, from dump closes."""
+    out = {}
+    for raw in tks or ():
+        t = str(raw).strip().upper()
+        if not t:
+            continue
+        try:
+            df = ce.dump_ohlcv(t)
+            close = df["Close"] if df is not None and not getattr(df, "empty", True) else None
+            key = _lk_cs_trend_of(close)
+        except Exception:
+            key = ""
+        out[t] = {"bull": "▲ Bull", "bear": "▼ Bear", "mixed": "— Mixed"}.get(key, "—")
+    return out
 
 
 @st.cache_data(ttl=1800, persist="disk",
@@ -3505,6 +3534,28 @@ def _lk_cs_pivots(arr, left: int, right: int, want_high: bool):
     return out
 
 
+def _lk_cs_trend_of(close) -> str:
+    """Last-bar Clean Setup trend: bull, bear, mixed, or '' if not enough tape."""
+    try:
+        c = np.asarray(close, dtype=float)
+    except Exception:
+        return ""
+    finite = np.isfinite(c)
+    if int(finite.sum()) < 50:
+        return ""
+    s = pd.Series(c[finite])
+    e50 = float(s.ewm(span=50, adjust=False).mean().iloc[-1])
+    e200 = float(s.ewm(span=200, adjust=False).mean().iloc[-1])
+    last = float(s.iloc[-1])
+    if not (np.isfinite(e50) and np.isfinite(e200) and np.isfinite(last)):
+        return ""
+    if e50 > e200 and last > e50:
+        return "bull"
+    if e50 < e200 and last < e50:
+        return "bear"
+    return "mixed"
+
+
 def _lk_clean_setup(chart: pd.DataFrame) -> dict:
     """Walk the tape the way the Pine does and return EMAs, channel, marks."""
     blank = dict(ema50=None, ema200=None, signals=[], targets=[],
@@ -3697,8 +3748,7 @@ def _lk_clean_setup(chart: pd.DataFrame) -> dict:
                 _add_tgt(cb, nk, nk + (c_lo - a), True, i)
 
     last = n - 1
-    trend = "bull" if last >= 0 and bull_tr[last] else (
-        "bear" if last >= 0 and bear_tr[last] else "mixed")
+    trend = _lk_cs_trend_of(c) or "mixed"
     return dict(ema50=ema50, ema200=ema200, signals=signals, targets=targets,
                 ch_hi=ch_hi, ch_lo=ch_lo,
                 rsi=float(rsi[last]) if last >= 0 and np.isfinite(rsi[last]) else np.nan,
@@ -6660,6 +6710,14 @@ with st.container(border=True, key="mw_page"):
                     pass
                 return f"{bar} {label}{pio_s}"
             wdf["health"] = wdf.ticker.map(_wl_health_cell)
+            _csmap = {}
+            try:
+                _csmap = _wl_cs_trend_map(_tks, "v1") or {}
+            except Exception as _cse:
+                log_exc("watchlist_clean_setup", _cse)
+                _csmap = {}
+            wdf["setup"] = wdf.ticker.map(
+                lambda t: _csmap.get(str(t).strip().upper()) or "—")
             _fav_of = {}
             for _it in wl:
                 if isinstance(_it, dict):
@@ -6667,10 +6725,10 @@ with st.container(border=True, key="mw_page"):
             wdf["_fav"] = wdf.ticker.map(lambda t: bool(_fav_of.get(str(t).strip().upper())))
             wdf["_ord"] = np.arange(len(wdf))
             wdf = wdf.sort_values(["_fav", "_ord"], ascending=[False, True]).reset_index(drop=True)
-            show = wdf[["ticker", "sector", "scanner", "earn", "health",
+            show = wdf[["ticker", "sector", "scanner", "earn", "health", "setup",
                         "added", "price_at_add", "price_now", "since_add"]]
             show.columns = ["Ticker", "Sector", "Scanner", "Earnings", "Health/Piotroski",
-                            "Saved", "Price then", "Price now", "Since saved"]
+                            "Clean Setup", "Saved", "Price then", "Price now", "Since saved"]
             _WL_FAV_ON, _WL_FAV_OFF = "★", "☆"
             show.insert(0, "Fav", [_WL_FAV_ON if x else _WL_FAV_OFF
                                    for x in wdf["_fav"].tolist()])
@@ -6683,7 +6741,8 @@ with st.container(border=True, key="mw_page"):
                                    subset=["Price then", "Price now", "Since saved", "Scanner"])
                 .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"])
                 .map(_css_earn_cell, subset=["Earnings"])
-                .map(_css_health_lbl, subset=["Health/Piotroski"]),
+                .map(_css_health_lbl, subset=["Health/Piotroski"])
+                .map(_css_cs_trend, subset=["Clean Setup"]),
                 width="stretch", hide_index=True, height="content",
                 row_height=35, num_rows="fixed",
                 disabled=[c for c in show.columns if c not in ("sel", "Fav")],
@@ -6706,8 +6765,10 @@ with st.container(border=True, key="mw_page"):
                         help="Days until the next earnings print, Eastern US calendar. Green is clear, amber inside 21 days, red inside a week."),
                     "Health/Piotroski": st.column_config.Column(
                         help="Financial Health bar (margins, ROE/ROA, D/E, current ratio) plus Piotroski 9-point score. Green Strong, amber OK, red Weak."),
+                    "Clean Setup": st.column_config.Column(
+                        help="Clean Setup trend from the nightly dump — same bull / bear / mixed as the overlay (50-EMA vs 200-EMA and price)."),
                     "Saved": st.column_config.Column(
-                        help="When you saved it, in your local timezone."),
+                        help="Calendar day you saved it, in your timezone. No clock."),
                     "Since saved": st.column_config.Column(
                     help="Your scorecard: return since the day you saved it. Live Alpaca/Yahoo quote when available.")})
             def _wl_as_bool(v):

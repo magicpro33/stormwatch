@@ -4817,7 +4817,7 @@ def watchlist_normalize_added(raw) -> str:
 
 
 def watchlist_format_added(raw, tz_name: str | None = None) -> str:
-    """Watchlist Saved cell in the viewer's timezone, or a date-only label."""
+    """Watchlist Saved cell: calendar day only, in the viewer's timezone."""
     s = watchlist_normalize_added(raw)
     if not s:
         return "—"
@@ -4836,11 +4836,7 @@ def watchlist_format_added(raw, tz_name: str | None = None) -> str:
                 ts = ts.tz_convert(tz_name)
             except Exception:
                 pass
-        clock = ts.strftime("%I:%M %p").lstrip("0")
-        abbr = (ts.tzname() or ts.strftime("%Z") or "").replace(" ", "")
-        if not abbr:
-            abbr = (tz_name or "UTC").split("/")[-1]
-        return f"{ts.strftime('%b')} {int(ts.day)}, {clock} {abbr}"
+        return f"{ts.strftime('%b')} {int(ts.day)}"
     except Exception:
         return s
 
