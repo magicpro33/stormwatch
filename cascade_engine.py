@@ -3837,7 +3837,58 @@ def _nasdaq_earnings_date(tk: str) -> date | None:
     return None
 
 
-def _yahoo_next_earnings(tk: str) -> date | None:
+def _earn_disk_path() -> str:
+    return os.path.join(_mw_data_dir(), "earnings_dates.json")
+
+
+def _earn_disk_load() -> dict:
+    path = _earn_disk_path()
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
+
+
+def _earn_disk_get(tk: str) -> date | None:
+    rec = _earn_disk_load().get(str(tk or "").strip().upper()) or {}
+    return _coerce_earn_date(rec.get("date") if isinstance(rec, dict) else rec)
+
+
+def _earn_disk_put(tk: str, d: date) -> None:
+    tk = str(tk or "").strip().upper()
+    if not tk or d is None:
+        return
+    try:
+        bag = _earn_disk_load()
+        bag[tk] = {"date": d.isoformat(),
+                   "saved": _ny_calendar_date().isoformat()}
+        path = _earn_disk_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(bag, f, indent=0)
+        os.replace(tmp, path)
+    except Exception as e:
+        _log_exc("earn_disk_put", e)
+
+
+def _dump_earnings_date(tk: str) -> date | None:
+    pack = dump_analyzer_pack(tk) or {}
+    today = _ny_calendar_date()
+    found = []
+    for k in ("earningsTimestampStart", "earningsTimestamp",
+              "earningsTimestampEnd", "earningsDate"):
+        d = _coerce_earn_date(pack.get(k))
+        if d is not None and d >= today:
+            found.append(d)
+    return min(found) if found else None
+
+
+def _yahoo_next_earnings(tk: str, tobj=None) -> date | None:
     """Next print from Yahoo calendar, then quote timestamps, then history."""
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     today = _ny_calendar_date()
@@ -3848,12 +3899,13 @@ def _yahoo_next_earnings(tk: str) -> date | None:
         if d is not None and d >= today:
             found.append(d)
 
-    try:
-        import yfinance as yf
-        tobj = _yf_call(lambda s=tk: yf.Ticker(s))
-    except Exception as e:
-        _log_exc(f"yahoo_earnings.ticker.{tk}", e)
-        tobj = None
+    if tobj is None:
+        try:
+            import yfinance as yf
+            tobj = _yf_call(lambda s=tk: yf.Ticker(s))
+        except Exception as e:
+            _log_exc(f"yahoo_earnings.ticker.{tk}", e)
+            tobj = None
     if tobj is not None:
         try:
             cal = _yf_call(lambda t=tobj: t.calendar)
@@ -3890,6 +3942,37 @@ def _yahoo_next_earnings(tk: str) -> date | None:
     return min(found) if found else None
 
 
+def resolve_earnings_date(ticker: str, tobj=None) -> date | None:
+    """Next earnings date: Yahoo calendar, Nasdaq, dump, then last-known file."""
+    tk = str(ticker or "").strip().upper()
+    if not tk:
+        return None
+    today = _ny_calendar_date()
+    ed = None
+    try:
+        ed = _yahoo_next_earnings(tk, tobj=tobj)
+    except Exception as e:
+        _log_exc(f"resolve_earnings.yahoo.{tk}", e)
+    if ed is None:
+        try:
+            ed = _nasdaq_earnings_date(tk)
+        except Exception as e:
+            _log_exc(f"resolve_earnings.nasdaq.{tk}", e)
+    if ed is None:
+        try:
+            ed = _dump_earnings_date(tk)
+        except Exception as e:
+            _log_exc(f"resolve_earnings.dump.{tk}", e)
+    if ed is None:
+        ed = _earn_disk_get(tk)
+    if ed is not None and ed >= today:
+        _earn_disk_put(tk, ed)
+        return ed
+    if ed is not None:
+        return ed
+    return _earn_disk_get(tk)
+
+
 def upcoming_earnings(tickers: list) -> dict:
     """{TICKER: next earnings date}. Yahoo calendar first, Nasdaq fallback."""
     out = {}
@@ -3897,16 +3980,7 @@ def upcoming_earnings(tickers: list) -> dict:
         tk = str(raw or "").strip().upper()
         if not tk:
             continue
-        ed = None
-        try:
-            ed = _yahoo_next_earnings(tk)
-        except Exception as e:
-            _log_exc(f"upcoming_earnings.yahoo.{tk}", e)
-        if ed is None:
-            try:
-                ed = _nasdaq_earnings_date(tk)
-            except Exception as e:
-                _log_exc(f"upcoming_earnings.nasdaq.{tk}", e)
+        ed = resolve_earnings_date(tk)
         if ed is not None:
             out[tk] = ed
     return out
@@ -5772,6 +5846,13 @@ def fetch_analyzer(ticker: str):
         info["_eps_source"] = eps_src
     if not eps_history and not eps_forward:
         _issues.append("EPS: no history or forward estimates (Yahoo and Nasdaq quiet)")
+
+    try:
+        _ed = resolve_earnings_date(ticker, tobj=tk)
+        if _ed is not None:
+            info["_next_earnings"] = _ed.isoformat()
+    except Exception as _ee:
+        _log_exc("fetch_analyzer.earnings_date", _ee)
 
     if info.get("currentPrice") in (None, "") and not hist.empty:
         try:

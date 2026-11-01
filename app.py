@@ -923,25 +923,32 @@ def _drivers(tk: str, asof: str):
     return dr
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def _tk_earnings(tk: str, ver: str = "v3"):
+@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
+def _tk_earnings(tk: str, ver: str = "v4"):
     tk = str(tk or "").strip().upper()
     got = ce.upcoming_earnings([tk]) if tk else {}
     return {str(k).strip().upper(): v for k, v in (got or {}).items()}
 
 
-@st.cache_data(ttl=900, show_spinner="Running the full analyzer chain (Alpaca → Yahoo → dump)…")
-def _analyzer(tk: str, asof: str, ver: str = ce.ENGINE_VERSION, eps_ver: str = "v5"):
+@st.cache_data(ttl=1800, persist="disk",
+               show_spinner="Running the full analyzer chain (Alpaca → Yahoo → dump)…")
+def _analyzer(tk: str, asof: str, ver: str = ce.ENGINE_VERSION, eps_ver: str = "v6"):
     return ce.fetch_analyzer(tk)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
 def _lookup_news(tk: str, name: str = ""):
     """Yahoo + Google News RSS headlines, tagged up/down."""
     return ce.fetch_lookup_news(tk, name)
 
 
-@st.cache_data(ttl=900, show_spinner="Fetching company profile…")
+@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
+def _lookup_cats(tk: str, sector: str = ""):
+    fn = getattr(ce, "lookup_catalysts", None) or ce.ticker_catalysts
+    return fn(tk, sector)
+
+
+@st.cache_data(ttl=1800, persist="disk", show_spinner="Fetching company profile…")
 def _yf_info(tk: str) -> dict:
     """Live Yahoo profile — same pull as IGNITION's Analyze a Stock tab.
 
@@ -980,9 +987,9 @@ def _live_quotes(tickers: tuple, nonce: int = 0):
     return px, src
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
 def _live_one(tk: str, nonce: int = 0):
-    """Single-ticker live quote for chart load. Refresh / new ticker bumps nonce."""
+    """Single-ticker live quote for lookup. Refresh Prices bumps nonce."""
     return ce.live_quotes([str(tk).strip().upper()], use_dump=True)
 
 
@@ -2708,9 +2715,14 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
 
     earn_ed = None
     try:
-        earn_ed = _tk_earnings(str(tk).strip().upper()).get(str(tk).strip().upper())
+        earn_ed = ce._coerce_earn_date((info or {}).get("_next_earnings"))
     except Exception:
         earn_ed = None
+    if earn_ed is None:
+        try:
+            earn_ed = _tk_earnings(str(tk).strip().upper()).get(str(tk).strip().upper())
+        except Exception:
+            earn_ed = None
     earn_days = None
     if earn_ed is not None:
         try:
@@ -2719,10 +2731,13 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
         except Exception:
             earn_days = None
     earn_sub = f"{earn_ed:%b} {earn_ed.day}" if earn_ed is not None else ""
-    if earn_days is None:
+    if earn_ed is None or earn_days is None:
         earn_txt, earn_col = "—", _HY_MUTED
         earn_tip = "No upcoming earnings date on file."
-    elif earn_days <= 0:
+    elif earn_days < 0:
+        earn_txt, earn_col = "Done", _HY_MUTED
+        earn_tip = f"Last print on file {earn_ed:%a %b %d}."
+    elif earn_days == 0:
         earn_txt, earn_col = "Today", _HY_DN
         earn_tip = f"Earnings {earn_ed:%a %b %d}. Print is today — binary gap risk."
     elif earn_days <= 7:
@@ -3030,7 +3045,7 @@ def _lk_yahoo_bars(tk: str, interval: str, period: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
 def _lookup_chart_bars(tk: str, tf: str, nonce: int = 0):
     """OHLCV for the Stock Lookup chart. Daily prefers the dump."""
     _ = _LK_BARS_VER
@@ -3824,6 +3839,118 @@ def _lk_draw_clean_setup(fig, xx, d, chart_df, pack):
     return note, cs
 
 
+def _lk_measure_slice(d: pd.DataFrame, xx, pack: bool, x0, x1):
+    """Bars covered by a Plotly box (integer axis or timestamps)."""
+    if d is None or d.empty or x0 is None or x1 is None:
+        return d.iloc[0:0]
+    lo, hi = (x0, x1) if x0 <= x1 else (x1, x0)
+    if pack:
+        i0 = int(np.floor(float(lo)))
+        i1 = int(np.ceil(float(hi)))
+        i0 = max(0, min(i0, len(d) - 1))
+        i1 = max(0, min(i1, len(d) - 1))
+        if i1 < i0:
+            i0, i1 = i1, i0
+        return d.iloc[i0:i1 + 1]
+    try:
+        t0, t1 = pd.Timestamp(lo), pd.Timestamp(hi)
+        idx = d.index
+        if getattr(idx, "tz", None) is not None:
+            if t0.tzinfo is None:
+                t0 = t0.tz_localize(idx.tz)
+            else:
+                t0 = t0.tz_convert(idx.tz)
+            if t1.tzinfo is None:
+                t1 = t1.tz_localize(idx.tz)
+            else:
+                t1 = t1.tz_convert(idx.tz)
+        else:
+            t0 = t0.tz_localize(None) if t0.tzinfo is not None else t0
+            t1 = t1.tz_localize(None) if t1.tzinfo is not None else t1
+        sl = d.loc[(idx >= t0) & (idx <= t1)]
+        return sl if not sl.empty else d.iloc[0:0]
+    except Exception:
+        return d.iloc[0:0]
+
+
+def _lk_measure_from_event(ev, d: pd.DataFrame, xx, pack: bool):
+    sel = getattr(ev, "selection", None)
+    if sel is None:
+        return None
+    boxes = list(getattr(sel, "box", None) or [])
+    x0 = x1 = None
+    for box in boxes:
+        if not isinstance(box, dict):
+            continue
+        a, b = box.get("x0"), box.get("x1")
+        if a is None or b is None:
+            continue
+        x0, x1 = a, b
+        break
+    if x0 is None:
+        pts = list(getattr(sel, "points", None) or [])
+        xs = []
+        for p in pts:
+            if isinstance(p, dict) and p.get("x") is not None:
+                xs.append(p["x"])
+            elif hasattr(p, "x"):
+                xs.append(p.x)
+        if len(xs) >= 2:
+            x0, x1 = min(xs), max(xs)
+        elif len(xs) == 1:
+            x0 = x1 = xs[0]
+    if x0 is None:
+        return None
+    sl = _lk_measure_slice(d, xx, pack, x0, x1)
+    if sl is None or sl.empty:
+        return None
+    start = float(sl["Close"].iloc[0])
+    end = float(sl["Close"].iloc[-1])
+    if not (np.isfinite(start) and np.isfinite(end)) or start == 0:
+        return None
+    hi_s = sl["High"] if "High" in sl.columns else sl["Close"]
+    lo_s = sl["Low"] if "Low" in sl.columns else sl["Close"]
+    hi, lo = float(np.nanmax(hi_s.to_numpy(dtype=float))), float(
+        np.nanmin(lo_s.to_numpy(dtype=float)))
+    t0, t1 = sl.index[0], sl.index[-1]
+    def _lab(ts):
+        try:
+            return pd.Timestamp(ts).strftime("%b %d")
+        except Exception:
+            return str(ts)[:10]
+    return dict(start=start, end=end, chg=end - start,
+                pct=(end / start - 1.0) * 100.0,
+                high=hi, low=lo, rng=hi - lo, n=int(len(sl)),
+                a=_lab(t0), b=_lab(t1), x0=x0, x1=x1)
+
+
+def _lk_measure_hud(m: dict | None, hint: bool = False) -> None:
+    cell = ("flex:1;min-width:92px;padding:8px 12px;"
+            "background:rgba(8,19,37,0.72);"
+            "border:1px solid rgba(255,255,255,0.08);border-radius:10px")
+    lab = ("font-size:11px;letter-spacing:1px;text-transform:uppercase;"
+           "color:#9aa8bd;margin-bottom:4px")
+    val = "font-size:16px;font-weight:700;font-family:JetBrains Mono,monospace"
+    if not m:
+        if hint:
+            st.caption("Measure is on — drag a box across bars for change, range, and percent.")
+        return
+    col = GREEN if m["chg"] >= 0 else RED
+    sign = "+" if m["chg"] >= 0 else "−"
+    st.markdown(
+        f"<div style='display:flex;gap:10px;margin:4px 0 10px;flex-wrap:wrap'>"
+        f"<div style='{cell}'><div style='{lab}'>Span</div>"
+        f"<div style='{val};color:#EAF2FF'>{_esc(m['a'])} → {_esc(m['b'])}</div></div>"
+        f"<div style='{cell}'><div style='{lab}'>Change</div>"
+        f"<div style='{val};color:{col}'>{sign}${abs(m['chg']):,.2f}  {m['pct']:+.2f}%</div></div>"
+        f"<div style='{cell}'><div style='{lab}'>Range</div>"
+        f"<div style='{val};color:#EAF2FF'>${m['low']:,.2f} – ${m['high']:,.2f}</div></div>"
+        f"<div style='{cell}'><div style='{lab}'>Bars</div>"
+        f"<div style='{val};color:#EAF2FF'>{m['n']}</div></div>"
+        f"</div>",
+        unsafe_allow_html=True)
+
+
 def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                            state_key: str = "mw_analyze", closable: bool = True,
                            df: pd.DataFrame | None = None,
@@ -3899,7 +4026,16 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     vol_key = f"{state_key}_chart_vol_on"
     if vol_key not in st.session_state:
         st.session_state[vol_key] = True
-    chart_vol_on = st.toggle("Volume", key=vol_key)
+    meas_key = f"{state_key}_chart_measure"
+    if meas_key not in st.session_state:
+        st.session_state[meas_key] = False
+    _vt, _mt = st.columns(2)
+    with _vt:
+        chart_vol_on = st.toggle("Volume", key=vol_key)
+    with _mt:
+        chart_measure = st.toggle(
+            "Measure", key=meas_key,
+            help="Drag a box across candles to see price change, range, and percent.")
 
     chart_df, chart_src = df, (src_label or "nightly dump")
     if chart_tf != "1 Day":
@@ -4007,7 +4143,19 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                       xaxis_rangeslider_visible=False,
                       barmode="overlay",
                       margin=dict(l=10, r=88, t=10, b=10),
-                      hovermode="x unified")
+                      hovermode="x unified",
+                      dragmode="select" if chart_measure else "zoom")
+    if chart_measure:
+        fig.update_layout(selectdirection="h")
+    _mbox_key = f"{state_key}_mbox_{tk}_{chart_tf}"
+    _prev_box = st.session_state.get(_mbox_key) if chart_measure else None
+    if _prev_box and _prev_box.get("x0") is not None:
+        try:
+            fig.add_vrect(x0=_prev_box["x0"], x1=_prev_box["x1"],
+                          fillcolor=ACCENT, opacity=0.12, line_width=1,
+                          line_color=ACCENT, row=1, col=1)
+        except Exception:
+            pass
     grid = dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", zeroline=False)
     fig.update_yaxes(**grid)
     fig.update_xaxes(**grid, rangeslider_visible=False)
@@ -4024,8 +4172,20 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         _lk_cs_readout(cs_hud)
     if has_ohlc:
         _lk_bar_legend()
-    st.plotly_chart(fig, width="stretch",
-                    key=f"chart_{state_key}_{tk}_{chart_tf}_{chart_ov}_{int(bool(chart_vol_on))}")
+    _chart_key = (f"chart_{state_key}_{tk}_{chart_tf}_{chart_ov}_"
+                  f"{int(bool(chart_vol_on))}_{int(bool(chart_measure))}")
+    if chart_measure:
+        _ev = st.plotly_chart(
+            fig, width="stretch", key=_chart_key,
+            on_select="rerun", selection_mode=("box", "points"))
+        _m = _lk_measure_from_event(_ev, d, xx, pack)
+        if _m:
+            st.session_state[_mbox_key] = _m
+        _shown = _m or st.session_state.get(_mbox_key)
+        _lk_measure_hud(_shown, hint=_shown is None)
+    else:
+        st.session_state.pop(_mbox_key, None)
+        st.plotly_chart(fig, width="stretch", key=_chart_key)
     n_bars = len(d)
     tf_bit = f"{chart_tf} · {n_bars} bars · {chart_src}" if chart_src else chart_tf
     st.caption(f"{tf_bit}" + (f" · {note}" if note else "")
@@ -5071,9 +5231,7 @@ def _render_signed_catalysts(tk: str, sector: str = "", *, notes: bool = True) -
     if not tk:
         return
     try:
-        with st.spinner("Deep-searching catalysts…"):
-            fn = getattr(ce, "lookup_catalysts", None) or ce.ticker_catalysts
-            pack = fn(tk, sector)
+        pack = _lookup_cats(tk, sector or "") or {}
     except Exception as e:
         st.caption(f"Catalysts unavailable: {e}")
         return
@@ -5215,8 +5373,7 @@ def _render_lookup_news(tk: str, name: str = "") -> None:
     st.caption("Web search across Yahoo News, Yahoo RSS, and Google News. "
                "Every headline is marked positive, negative, mixed, or unmarked.")
     try:
-        with st.spinner("Searching the web for headlines…"):
-            items = _lookup_news(tk, name or "") or []
+        items = _lookup_news(tk, name or "") or []
     except Exception as e:
         st.caption(f"News unavailable: {e}")
         return
@@ -6140,14 +6297,12 @@ with st.container(border=True, key="mw_page"):
                 if q:
                     st.session_state["lk_tk"] = q
                     st.session_state["wl_source"] = "Stock Lookup"
-                    st.session_state["_wl_px_nonce"] = _px_nonce() + 1
             _q = lc1.text_input("Ticker", key="lk_query", placeholder="e.g. NVDA",
                                 label_visibility="collapsed",
                                 on_change=_lk_submit).strip().upper()
             if lc2.button("🔎 Look up", type="primary", width="stretch") and _q:
                 st.session_state["lk_tk"] = _q
                 st.session_state["wl_source"] = "Stock Lookup"
-                st.session_state["_wl_px_nonce"] = _px_nonce() + 1
 
         tk = st.session_state.get("lk_tk")
         if tk:
@@ -6412,7 +6567,6 @@ with st.container(border=True, key="mw_page"):
                                 if hasattr(ce, "watchlist_source_label") else (lambda s, n="": str(s or n or "Stock Lookup")))
                     st.session_state["wl_source"] = _src_lbl(
                         (_ent or {}).get("source"), (_ent or {}).get("note"))
-                    st.session_state["_wl_px_nonce"] = _px_nonce() + 1
                     st.rerun()
             _cap, _rm = st.columns([4, 1], vertical_alignment="center")
             _cap.caption("👆 Tap a row to open it. Select one or more rows, then remove them here.")
