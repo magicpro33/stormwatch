@@ -1579,8 +1579,9 @@ def render_hybrid_screener() -> None:
     if _hcol in display.columns:
         _cat_cfg[_hcol] = st.column_config.Column(
             help=_hs_help.get(_hcol) or (
-                "Financial Health bar plus Piotroski 9-point score. "
-                "Green Strong, amber OK, red Weak."))
+                "Financial Health bar (gross margin, ROIC, ROE/ROA, D/E, "
+                "current ratio) plus Piotroski 9-point score. Green Strong, "
+                "amber OK, red Weak."))
     if _scol in display.columns:
         _cat_cfg[_scol] = st.column_config.Column(
             help=_hs_help.get(_scol) or (

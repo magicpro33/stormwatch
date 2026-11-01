@@ -1604,8 +1604,8 @@ HEALTH_COL = "Health/Piotroski"
 SETUP_COL = "Clean Setup"
 HEALTH_SETUP_HELP = {
     HEALTH_COL: (
-        "Financial Health bar (margins, ROE/ROA, D/E, current ratio) plus "
-        "Piotroski 9-point score. Green Strong, amber OK, red Weak."
+        "Financial Health bar (gross margin, ROIC, ROE/ROA, D/E, current "
+        "ratio) plus Piotroski 9-point score. Green Strong, amber OK, red Weak."
     ),
     SETUP_COL: (
         "Clean Setup trend from the nightly dump — same bull / bear / mixed "
@@ -4100,12 +4100,38 @@ def watchlist_health_rows(tickers: list) -> dict:
         tk = str(raw or "").strip().upper()
         if not tk:
             continue
+        rec = {}
+        try:
+            rec = _dump_record(tk) or {}
+        except Exception:
+            rec = {}
         pack = {}
         try:
             pack = dump_analyzer_pack(tk) or {}
         except Exception:
             pack = {}
+        if not pack and isinstance(rec.get("_analyzer"), dict):
+            pack = rec.get("_analyzer") or {}
+
+        def _fund_val(field):
+            if fa is None:
+                return None
+            j = ix.get(tk)
+            if j is None:
+                return None
+            arr = (fa or {}).get(field)
+            if arr is None or j >= len(arr):
+                return None
+            return _finite_num(arr[j])
+
         gm = _health_pick(pack, "_gross_margin", "grossMargins")
+        if gm is None:
+            gm = _finite_num(rec.get("GrossMargin"))
+        roic = _health_pick(pack, "_scan_roic")
+        if roic is None:
+            roic = _finite_num(rec.get("ROIC"))
+        if roic is None:
+            roic = _fund_val("ROIC")
         opm = _health_pick(pack, "_op_margin", "operatingMargins")
         cfm = _health_pick(pack, "_cf_margin")
         fcfm = _health_pick(pack, "_fcf_margin")
@@ -4116,15 +4142,12 @@ def watchlist_health_rows(tickers: list) -> dict:
         cr = _health_pick(pack, "currentRatio")
         roce = _health_pick(pack, "_roce")
         pio = _health_pick(pack, "_scan_piotroski")
-        if pio is None and fa is not None:
-            j = ix.get(tk)
-            if j is not None:
-                arr = (fa or {}).get("Piotroski")
-                if arr is not None and j < len(arr):
-                    pio = _finite_num(arr[j])
+        if pio is None:
+            pio = _fund_val("Piotroski")
         grades = []
         for v, hi, lo, inv in (
             (roce, 0.15, 0.08, False),
+            (roic, 0.15, 0.08, False),
             (gm, 0.50, 0.30, False),
             (opm, 0.15, 0.05, False),
             (cfm, 0.15, 0.08, False),
@@ -4155,6 +4178,7 @@ def watchlist_health_rows(tickers: list) -> dict:
             "score": score,
             "pio": pio,
             "roce": roce,
+            "roic": roic,
             "gm": gm,
             "opm": opm,
             "cfm": cfm,

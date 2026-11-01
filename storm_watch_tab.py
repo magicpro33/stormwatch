@@ -874,7 +874,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                 "#", width="small", format="%d",
                 help="Scan rank. 1 is first on this list. Click the header to sort."),
             "Health/Piotroski": st.column_config.Column(
-                help="Financial Health bar plus Piotroski 9-point score. Green Strong, amber OK, red Weak."),
+                help="Financial Health bar (gross margin, ROIC, ROE/ROA, D/E, current ratio) plus Piotroski 9-point score. Green Strong, amber OK, red Weak."),
             "Clean Setup": st.column_config.Column(
                 help="Clean Setup trend from the nightly dump — same bull / bear / mixed as the overlay (50-EMA vs 200-EMA and price)."),
             "▲ Up": st.column_config.Column(
