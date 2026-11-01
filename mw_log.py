@@ -62,6 +62,10 @@ def log_exc(where: str, exc: BaseException) -> None:
     msg = str(exc)
     low = f"{name} {msg}".lower()
     if ("ratelimit" in low or "too many requests" in low
-            or "cooling off" in low):
+            or "cooling off" in low
+            or "connection refused" in low
+            or "errno 111" in low
+            or "winerror 10061" in low
+            or "max retries exceeded" in low):
         return
     get_logger().warning("%s: %s: %s", where, name, exc)

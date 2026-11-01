@@ -3215,6 +3215,11 @@ def _ib_get(url: str, timeout: int = 22, accept: str = "text/html"):
         return r.content
     except Exception as e:
         _IB_HOST_DOWN[host] = now
+        name = type(e).__name__.lower()
+        msg = str(e).lower()
+        if ("connection" in name or "connection" in msg
+                or "111" in msg or "10061" in msg or "refused" in msg):
+            return None
         _log_exc(f"insider_buy.get.{url.split('/', 3)[-1][:48]}", e)
         return None
 
@@ -5368,6 +5373,34 @@ def _bull_list_path() -> str:
         return BULL_LIST_PATH
 
 
+def _bull_list_store_paths() -> list:
+    """Repo data/, user data, and temp — same idea as the watchlist.
+
+    Streamlit Cloud reclones the repo on reboot. A git-tracked empty
+    bull_list.json used to wipe names that had been saved in data/.
+    Extra copies keep the list when one path is reset or not writable.
+    """
+    import tempfile
+    paths = []
+    try:
+        from mw_paths import user_data_dir
+        paths.append(os.path.join(user_data_dir(), "data", "bull_list.json"))
+    except Exception:
+        pass
+    paths.append(_bull_list_path())
+    paths.append(os.path.join(tempfile.gettempdir(), "mw_bull_list.json"))
+    out, seen = [], set()
+    for path in paths:
+        try:
+            ap = os.path.abspath(path)
+        except Exception:
+            continue
+        if ap not in seen:
+            seen.add(ap)
+            out.append(ap)
+    return out
+
+
 def _bull_list_blank():
     return {"updated": "", "headline": "", "tickers": []}
 
@@ -5474,28 +5507,15 @@ def _bull_list_row(item) -> dict | None:
     }
 
 
-def bull_list_load() -> dict:
-    """Public master bull list. Everyone can read; writes go through save()."""
-    path = _bull_list_path()
-    pack = _bull_list_blank()
-    try:
-        if not os.path.isfile(path):
-            return pack
-        with open(path, encoding="utf-8") as f:
-            raw = json.load(f)
-    except Exception as e:
-        _log_exc("bull_list_load", e)
-        return pack
+def _bull_list_parse(raw) -> dict | None:
     if isinstance(raw, list):
-        rows_in = raw
-        updated = ""
-        headline = ""
+        rows_in, updated, headline = raw, "", ""
     elif isinstance(raw, dict):
         rows_in = raw.get("tickers") or raw.get("rows") or []
         updated = str(raw.get("updated") or "")
         headline = str(raw.get("headline") or "").strip()[:160]
     else:
-        return pack
+        return None
     rows, seen = [], set()
     for item in rows_in:
         row = _bull_list_row(item)
@@ -5505,10 +5525,46 @@ def bull_list_load() -> dict:
         rows.append(row)
         if len(rows) >= _BULL_LIST_MAX:
             break
+    pack = _bull_list_blank()
     pack["tickers"] = rows
     pack["updated"] = updated
     pack["headline"] = headline
     return pack
+
+
+def _bull_list_read_file(path: str) -> dict | None:
+    """None if missing or unreadable — never treat a bad file as an empty list."""
+    try:
+        if not os.path.isfile(path):
+            return None
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception as e:
+        _log_exc("bull_list_load", e)
+        return None
+    return _bull_list_parse(raw)
+
+
+def bull_list_load() -> dict:
+    """Public master bull list. Everyone can read; writes go through save().
+
+    Prefer the copy with the most names so an empty git checkout cannot
+    hide a list that was saved to temp or the user data dir.
+    """
+    found = []
+    for path in _bull_list_store_paths():
+        pack = _bull_list_read_file(path)
+        if pack is None:
+            continue
+        try:
+            mt = os.path.getmtime(path)
+        except OSError:
+            mt = 0.0
+        found.append((len(pack.get("tickers") or []), mt, pack))
+    if not found:
+        return _bull_list_blank()
+    found.sort(key=lambda x: (x[0], x[1]))
+    return found[-1][2]
 
 
 def _bull_json_default(o):
@@ -5540,33 +5596,39 @@ def bull_list_save(pack) -> bool:
         "headline": str(src.get("headline") or "").strip()[:160],
         "tickers": rows,
     }
-    path = _bull_list_path()
-    import tempfile
     import shutil
-    dest_dir = os.path.dirname(path) or "."
-    os.makedirs(dest_dir, exist_ok=True)
     payload = json.dumps(out, indent=2, allow_nan=False, default=_bull_json_default) + "\n"
-    fd, tmp = tempfile.mkstemp(prefix="bull_list_", suffix=".json")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(payload)
-            f.flush()
-            os.fsync(f.fileno())
+    ok = False
+    last_err = ""
+    for path in _bull_list_store_paths():
+        dest_dir = os.path.dirname(path) or "."
+        tmp = path + ".tmp"
         try:
-            os.replace(tmp, path)
-        except OSError:
-            shutil.copyfile(tmp, path)
-            os.remove(tmp)
-        return True
-    except Exception as e:
-        _BULL_LIST_ERR = f"{type(e).__name__}: {e}"
-        _log_exc("bull_list_save", e)
-        try:
-            if os.path.isfile(tmp):
-                os.remove(tmp)
-        except Exception:
-            pass
-        return False
+            os.makedirs(dest_dir, exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            try:
+                os.replace(tmp, path)
+            except OSError:
+                shutil.copyfile(tmp, path)
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+            ok = True
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+            _log_exc("bull_list_save", e)
+            try:
+                if os.path.isfile(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
+    if not ok:
+        _BULL_LIST_ERR = last_err or "could not write bull list"
+    return ok
 
 
 def bull_list_add(tickers, note: str = "", prices=None) -> list:
@@ -10413,14 +10475,15 @@ def sector_flow(lookback: int = SECTOR_FLOW_LOOKBACK,
     prev = C[start]
     r = px / np.where(prev == 0, np.nan, prev) - 1.0
     dvol = C * V
-    dv_now = np.nanmean(dvol[start + 1:end + 1], axis=0)
-    dv_base = np.nanmean(dvol[max(0, end - 62):end + 1], axis=0)
-    surge = dv_now / np.where(dv_base == 0, np.nan, dv_base)
-    ok = (np.isfinite(r) & np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6)
-          & _recent_ok_mask(panel))
-    if not ok.any():
-        return pd.DataFrame()
-    mkt = float(np.nanmean(np.where(ok, r, np.nan)))
+    with np.errstate(all="ignore"):
+        dv_now = np.nanmean(dvol[start + 1:end + 1], axis=0)
+        dv_base = np.nanmean(dvol[max(0, end - 62):end + 1], axis=0)
+        surge = dv_now / np.where(dv_base == 0, np.nan, dv_base)
+        ok = (np.isfinite(r) & np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6)
+              & _recent_ok_mask(panel))
+        if not ok.any():
+            return pd.DataFrame()
+        mkt = float(np.nanmean(np.where(ok, r, np.nan)))
 
     sec_arr = np.array([str(s) for s in sectors])
     rows = []
@@ -10435,8 +10498,9 @@ def sector_flow(lookback: int = SECTOR_FLOW_LOOKBACK,
         if n < 15:                      # too thin to call a "sector flow"
             continue
         w = np.nan_to_num(dv_now[m])
-        ret = float(np.nansum(r[m] * (w / w.sum()))) if w.sum() > 0 else float(np.nanmean(r[m]))
-        breadth = float(np.nanmean(r[m] > 0))
+        with np.errstate(all="ignore"):
+            ret = float(np.nansum(r[m] * (w / w.sum()))) if w.sum() > 0 else float(np.nanmean(r[m]))
+            breadth = float(np.nanmean(r[m] > 0))
         sg = float(np.nanmedian(surge[m])) if np.isfinite(surge[m]).any() else 1.0
         flow = (0.40 * (ret - mkt) + 0.25 * (breadth - 0.5) * 0.10
                 + 0.20 * np.tanh(sg - 1.0) * 0.02 + 0.15 * ret)

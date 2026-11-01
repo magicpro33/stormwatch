@@ -1309,7 +1309,8 @@ def _lk_insiders(tk: str, ver: str = "v3") -> dict:
     owners: dict = {}
     trades = []
     trade_seen: set = set()
-    cutoff = pd.Timestamp.now(tz="UTC").tz_localize(None) - pd.Timedelta(days=90)
+    cutoff = pd.Timestamp(datetime.now(timezone.utc).replace(tzinfo=None)
+                          - timedelta(days=90))
 
     def _as_ts(v):
         try:
