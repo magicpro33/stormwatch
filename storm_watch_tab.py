@@ -628,7 +628,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                             fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
                             .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
                                            "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"}),
-                            width="stretch", hide_index=True,
+                            width="content", hide_index=True,
                             column_config={
                                 "Ret": st.column_config.Column(help="Dollar-weighted sector return."),
                                 "RS": st.column_config.Column(help="Sector return minus the market."),
@@ -856,7 +856,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     st.caption("Green = in the zone this setup wants · red = against it · dim = noise. "
                "Tap a row for the chart, cards, and company profile.")
     sel = st.dataframe(
-        styler, width="stretch", hide_index=True, height=min(740, 80 + 34 * len(show)),
+        styler, width="content", hide_index=True, height=min(740, 80 + 34 * len(show)),
         on_select="rerun", selection_mode="single-row", key="sw_table",
         column_config={
             "#": st.column_config.NumberColumn(

@@ -623,7 +623,7 @@ def _grid(
         styled = styled.map(_side_css, subset=[side_col])
     st.dataframe(
         styled,
-        width="stretch",
+        width="content",
         hide_index=True,
         height=min(int(height), 48 + 36 * max(len(visible), 1)),
         column_config=config,

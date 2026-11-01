@@ -151,7 +151,7 @@ try:
 except Exception as _che:
     render_charts_tab, _CH_ERR = None, _che
 
-REQUIRED_ENGINE = "2.47"
+REQUIRED_ENGINE = "2.48"
 st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -791,6 +791,7 @@ MIX_COLOR = "#E87722"   # "either way" / mixed news keeps its amber meaning
 GREEN = "#3fbf7f"
 RED = "#e05252"
 DIM = "#9aa8bd"
+_DF_WIDTH = "content"   # size dataframe columns to cell contents; no leftover pad
 
 
 def _css_sign(v, pos_good=True, dead=0.0):
@@ -803,6 +804,75 @@ def _css_sign(v, pos_good=True, dead=0.0):
         return f"color:{DIM}"
     good = (v > 0) if pos_good else (v < 0)
     return f"color:{GREEN};font-weight:600" if good else f"color:{RED};font-weight:600"
+
+
+def _css_band(v, hi, lo, invert=False):
+    """Same green / amber / red bands as the Financial Health chart tags."""
+    if v is None or (isinstance(v, str) and v.strip() in ("", "—", "-", "None", "nan")):
+        return f"color:{DIM}"
+    s = str(v).replace("%", "").replace("x", "").replace("/9", "").replace(",", "").strip()
+    try:
+        fv = float(s)
+    except (TypeError, ValueError):
+        return f"color:{DIM}"
+    if not np.isfinite(fv):
+        return f"color:{DIM}"
+    if invert:
+        if fv >= hi:
+            return f"color:{RED};font-weight:600"
+        if fv >= lo:
+            return f"color:{MIX_COLOR};font-weight:600"
+        return f"color:{GREEN};font-weight:600"
+    if fv >= hi:
+        return f"color:{GREEN};font-weight:600"
+    if fv >= lo:
+        return f"color:{MIX_COLOR};font-weight:600"
+    return f"color:{RED};font-weight:600"
+
+
+def _css_health_lbl(v):
+    s = str(v or "").strip()
+    if s.startswith("Strong"):
+        return f"color:{GREEN};font-weight:600"
+    if s.startswith("OK"):
+        return f"color:{MIX_COLOR};font-weight:600"
+    if s.startswith("Weak"):
+        return f"color:{RED};font-weight:600"
+    return f"color:{DIM}"
+
+
+def _css_pio(v):
+    if v is None or (isinstance(v, str) and v.strip() in ("", "—", "-", "None", "nan")):
+        return f"color:{DIM}"
+    s = str(v).split("/")[0].strip()
+    try:
+        fv = float(s)
+    except (TypeError, ValueError):
+        return f"color:{DIM}"
+    if not np.isfinite(fv):
+        return f"color:{DIM}"
+    if fv >= 7:
+        return f"color:{GREEN};font-weight:600"
+    if fv >= 5:
+        return f"color:{MIX_COLOR};font-weight:600"
+    return f"color:{RED};font-weight:600"
+
+
+def _css_earn_cell(v):
+    s = str(v or "").strip()
+    if not s or s in ("—", "Done"):
+        return f"color:{DIM}"
+    if s.startswith("Today"):
+        return f"color:{RED};font-weight:600"
+    try:
+        n = int(s.split("d", 1)[0])
+    except (TypeError, ValueError):
+        return ""
+    if n <= 7:
+        return f"color:{RED};font-weight:600"
+    if n <= 21:
+        return f"color:{MIX_COLOR};font-weight:600"
+    return f"color:{GREEN};font-weight:600"
 
 
 def _css_hit(v):
@@ -928,6 +998,25 @@ def _tk_earnings(tk: str, ver: str = "v4"):
     tk = str(tk or "").strip().upper()
     got = ce.upcoming_earnings([tk]) if tk else {}
     return {str(k).strip().upper(): v for k, v in (got or {}).items()}
+
+
+@st.cache_data(ttl=1800, persist="disk", show_spinner=False)
+def _wl_earn_map(tks: tuple, ver: str = "v1"):
+    fn = getattr(ce, "watchlist_earnings_dates", None)
+    if fn is None:
+        raw = ce.upcoming_earnings(list(tks)) if tks else {}
+        return {str(k).strip().upper():
+                (v.isoformat() if hasattr(v, "isoformat") else str(v))
+                for k, v in (raw or {}).items()}
+    return fn(list(tks)) or {}
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _wl_health_map(tks: tuple, ver: str = "v1"):
+    fn = getattr(ce, "watchlist_health_rows", None)
+    if fn is None:
+        return {}
+    return fn(list(tks)) or {}
 
 
 @st.cache_data(ttl=1800, persist="disk",
@@ -1326,7 +1415,7 @@ def render_lens_playbook(cd: dict, regkey: str | None = None, *, full: bool = Tr
                         "(themes — this is where Reset actually paid)")
             _tm = pd.DataFrame(ce.RESET_THEMES,
                                columns=["Ticker", "Theme", "Excess % / 21d"])
-            st.dataframe(_tm, width="stretch", hide_index=True)
+            st.dataframe(_tm, width=_DF_WIDTH, hide_index=True)
         tilts = (ce.SECTOR_TILTS.get(regkey) or {}) if regkey else {}
         if tilts:
             _rows = sorted(tilts.items(), key=lambda kv: -kv[1])
@@ -4949,7 +5038,7 @@ def _render_macro_lens_block(prefix: str, asof, closes, gauge, *,
                     st.dataframe(
                         ev[["Signal", "Reading", "Argues for", "Weight"]]
                         .style.format({"Weight": "{:.1f}"}),
-                        width="stretch", hide_index=True)
+                        width=_DF_WIDTH, hide_index=True)
                 st.caption(
                     "Headlines are capped at 2 points — news confirms "
                     "the tape, it never outvotes it.")
@@ -5906,7 +5995,7 @@ def _where_money_went(asof, lookback, offset, label, hot_now=None):
                            "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
             .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
                  subset=["Ret", "RS"]),
-            width="stretch", hide_index=True,
+            width=_DF_WIDTH, hide_index=True,
             column_config={
                 "Ret": st.column_config.Column(help="Dollar-weighted sector return."),
                 "RS": st.column_config.Column(help="Sector return minus the market's."),
@@ -6158,7 +6247,7 @@ with st.container(border=True, key="mw_page"):
                                                  "FollowCorr": "{:+.2f}",
                                                  "Beta": "{:+.2f}"})
                                 .map(lambda v: _css_sign(v, dead=0.05), subset=["FollowCorr"]),
-                                width="stretch", hide_index=True,
+                                width=_DF_WIDTH, hide_index=True,
                                 on_select="rerun", selection_mode="single-row",
                                 key=f"fl_{b.target}",
                                 column_config={
@@ -6233,7 +6322,7 @@ with st.container(border=True, key="mw_page"):
                     .map(lambda v: _css_sign(abs(v) if v == v else v, dead=0.15)
                          if isinstance(v, float) else "", subset=["IC"])
                     .map(_css_hit, subset=["Hit %"]),
-                    width="stretch", hide_index=True,
+                    width=_DF_WIDTH, hide_index=True,
                     column_config={
                         "Leads": st.column_config.Column(help="Upstream node — its moves come first."),
                         "Follows": st.column_config.Column(help="Downstream node — historically reacts within the horizon."),
@@ -6251,7 +6340,7 @@ with st.container(border=True, key="mw_page"):
                                    "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
                     .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
                          subset=["Ret", "RS"]),
-                    width="stretch", hide_index=True,
+                    width=_DF_WIDTH, hide_index=True,
                     column_config={
                         "Ret": st.column_config.Column(help="Sector return, weighted by where the money actually traded."),
                         "RS": st.column_config.Column(help="How much better or worse than the whole market."),
@@ -6485,11 +6574,8 @@ with st.container(border=True, key="mw_page"):
             wdf["price_now"] = wdf.ticker.map(_nowpx)
             wdf["since_add"] = wdf.price_now / wdf.price_at_add - 1
             try:
-                if ce.dump_is_loaded():
-                    _p, _tks, _secs, _mdv, _dts = ce.load_dump_panel()
-                    _sec_map = {str(t): str(s) for t, s in zip(_tks, _secs)}
-                else:
-                    _sec_map = {}
+                _p, _dump_tks, _secs, _mdv, _dts = ce.load_dump_panel()
+                _sec_map = {str(t): str(s) for t, s in zip(_dump_tks, _secs)}
             except Exception:
                 _sec_map = {}
             def _wl_sector(t):
@@ -6530,23 +6616,57 @@ with st.container(border=True, key="mw_page"):
                 _glances.append(_head)
             wdf["scanner"] = _scan_names
             wdf["scan_data"] = _glances
-            show = wdf[["ticker", "sector", "scanner", "scan_data", "added", "price_at_add", "price_now", "since_add"]]
-            show.columns = ["Ticker", "Sector", "Scanner", "At a glance", "Saved", "Price then", "Price now", "Since saved"]
+            _fmt_added = (ce.watchlist_format_added
+                          if hasattr(ce, "watchlist_format_added") else (lambda v: str(v or "—")))
+            wdf["added"] = wdf["added"].map(_fmt_added)
+            _earn_iso = {}
+            try:
+                _earn_iso = _wl_earn_map(_tks, "v1") or {}
+            except Exception as _ee:
+                log_exc("watchlist_earnings", _ee)
+                _earn_iso = {}
+            _today_ny = ce._ny_calendar_date()
+            def _wl_earn_lbl(t):
+                ed = None
+                try:
+                    ed = ce._coerce_earn_date(_earn_iso.get(str(t).strip().upper()))
+                except Exception:
+                    ed = None
+                if ed is None:
+                    return "—"
+                try:
+                    days = (ed - _today_ny).days
+                except Exception:
+                    return f"{ed:%b} {ed.day}"
+                sub = f"{ed:%b} {ed.day}"
+                if days < 0:
+                    return "Done"
+                if days == 0:
+                    return f"Today · {sub}"
+                return f"{days}d · {sub}"
+            wdf["earn"] = wdf.ticker.map(_wl_earn_lbl)
+            show = wdf[["ticker", "sector", "scanner", "earn",
+                        "added", "price_at_add", "price_now", "since_add"]]
+            show.columns = ["Ticker", "Sector", "Scanner", "Earnings",
+                            "Saved", "Price then", "Price now", "Since saved"]
             _wl_sel_epoch = int(st.session_state.get("_wl_sel_epoch", 0) or 0)
             _wsel = st.dataframe(
                 show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
                                    "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—")
-                .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"]),
-                width="stretch", hide_index=True,
+                .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"])
+                .map(_css_earn_cell, subset=["Earnings"]),
+                width=_DF_WIDTH, hide_index=True,
                 on_select="rerun", selection_mode="multi-row",
-                key=f"wl_table_{_wl_sel_epoch}",
+                key=f"wl_table_earn_{_wl_sel_epoch}",
                 column_config={
+                    "Ticker": st.column_config.Column(help="Saved ticker."),
+                    "Sector": st.column_config.Column(help="Nightly dump sector."),
                     "Scanner": st.column_config.Column(
                         help="Which scanners saved this name. A second scanner is kept beside the first."),
-                    "At a glance": st.column_config.Column(
-                        help="One line from the saved scan. Open Saved scan fields under the table for every column that scanner had."),
+                    "Earnings": st.column_config.Column(
+                        help="Days until the next earnings print, Eastern US calendar. Green is clear, amber inside 21 days, red inside a week."),
                     "Saved": st.column_config.Column(
-                        help="New York session date you saved it. Weekends use the last completed session."),
+                        help="When you saved it, America/New_York date and time."),
                     "Since saved": st.column_config.Column(
                     help="Your scorecard: return since the day you saved it. Live Alpaca/Yahoo quote when available.")})
             _wr = (_wsel.selection.rows if _wsel and getattr(_wsel, "selection", None) else [])
@@ -6580,6 +6700,125 @@ with st.container(border=True, key="mw_page"):
                     st.session_state.pop(_k, None)
                 st.success("Removed " + ", ".join(_sel_tks))
                 st.rerun()
+            _hmap = {}
+            try:
+                _hmap = _wl_health_map(_tks, "v2") or {}
+            except Exception as _he:
+                log_exc("watchlist_health", _he)
+                _hmap = {}
+            _hrows = []
+            for _ht in _tks:
+                _h = _hmap.get(_ht) or {}
+                def _hpct(key):
+                    v = _h.get(key)
+                    try:
+                        f = float(v)
+                        return f * 100.0 if np.isfinite(f) else np.nan
+                    except (TypeError, ValueError):
+                        return np.nan
+                def _hnum(key):
+                    v = _h.get(key)
+                    try:
+                        f = float(v)
+                        return f if np.isfinite(f) else np.nan
+                    except (TypeError, ValueError):
+                        return np.nan
+                _hrows.append({
+                    "Ticker": _ht,
+                    "Health": _h.get("health") or "—",
+                    "Piotroski": _hnum("pio"),
+                    "ROCE": _hpct("roce"),
+                    "Gross": _hpct("gm"),
+                    "Op": _hpct("opm"),
+                    "CF": _hpct("cfm"),
+                    "FCF": _hpct("fcfm"),
+                    "Profit": _hpct("pm"),
+                    "ROE": _hpct("roe"),
+                    "ROA": _hpct("roa"),
+                    "D/E": _hnum("de"),
+                    "Current": _hnum("cr"),
+                })
+            def _fmt_pct_cell(v):
+                try:
+                    f = float(v)
+                except (TypeError, ValueError):
+                    return "—"
+                return "—" if not np.isfinite(f) else f"{f:.1f}%"
+            def _fmt_pio_cell(v):
+                try:
+                    f = float(v)
+                except (TypeError, ValueError):
+                    return "—"
+                return "—" if not np.isfinite(f) else f"{f:.0f}/9"
+            def _fmt_de_cell(v):
+                try:
+                    f = float(v)
+                except (TypeError, ValueError):
+                    return "—"
+                return "—" if not np.isfinite(f) else f"{f:.0f}%"
+            def _fmt_cr_cell(v):
+                try:
+                    f = float(v)
+                except (TypeError, ValueError):
+                    return "—"
+                return "—" if not np.isfinite(f) else f"{f:.2f}x"
+            _hdf = pd.DataFrame(_hrows)
+            _keep = ["Ticker", "Health", "Piotroski"]
+            for _col in ("ROCE", "Gross", "Op", "CF", "FCF", "Profit", "ROE", "ROA", "D/E", "Current"):
+                if _col in _hdf.columns and _hdf[_col].notna().any():
+                    _keep.append(_col)
+            _hdf = _hdf[_keep]
+            for _col in _hdf.columns:
+                if _col in ("Ticker", "Health"):
+                    _hdf[_col] = _hdf[_col].fillna("—").replace({None: "—", "None": "—", "nan": "—"})
+                    continue
+                _fn = {
+                    "Piotroski": _fmt_pio_cell,
+                    "D/E": _fmt_de_cell,
+                    "Current": _fmt_cr_cell,
+                }.get(_col, _fmt_pct_cell)
+                _hdf[_col] = _hdf[_col].map(_fn)
+            st.markdown("#### Financial Health")
+            st.caption("Same thresholds as the Stock Lookup Financial Health chart. "
+                       "Piotroski is the nightly 9-point score — 7+ is fortress.")
+            _hsty = _hdf.style
+            _hsty = _hsty.map(_css_health_lbl, subset=["Health"])
+            _hsty = _hsty.map(_css_pio, subset=["Piotroski"])
+            for _col, _hi, _lo, _inv in (
+                ("ROCE", 15, 8, False),
+                ("Gross", 50, 30, False),
+                ("Op", 15, 5, False),
+                ("Profit", 15, 5, False),
+                ("CF", 15, 8, False),
+                ("FCF", 10, 5, False),
+                ("ROE", 15, 8, False),
+                ("ROA", 8, 4, False),
+                ("D/E", 150, 80, True),
+                ("Current", 1.5, 1.0, False),
+            ):
+                if _col in _hdf.columns:
+                    _hsty = _hsty.map(
+                        lambda v, hi=_hi, lo=_lo, inv=_inv: _css_band(v, hi, lo, invert=inv),
+                        subset=[_col])
+            _hcfg = {
+                "Health": st.column_config.Column(
+                    help="Composite of the Financial Health chart metrics. Strong / OK / Weak."),
+                "Piotroski": st.column_config.Column(
+                    help="9-point fundamental health score from the nightly scan. 7+ = fortress."),
+                "ROCE": st.column_config.Column(help="Return on capital employed. Good 15%+."),
+                "Gross": st.column_config.Column(help="Gross margin. Good 50%+."),
+                "Op": st.column_config.Column(help="Operating margin. Good 15%+."),
+                "CF": st.column_config.Column(help="Operating cash-flow margin. Good 15%+."),
+                "FCF": st.column_config.Column(help="Free cash-flow margin. Good 10%+."),
+                "Profit": st.column_config.Column(help="Net profit margin. Good 15%+."),
+                "ROE": st.column_config.Column(help="Return on equity. Good 15%+."),
+                "ROA": st.column_config.Column(help="Return on assets. Good 8%+."),
+                "D/E": st.column_config.Column(help="Debt / equity. Good under 80%."),
+                "Current": st.column_config.Column(help="Current ratio. Good 1.5x+."),
+            }
+            st.dataframe(
+                _hsty, width=_DF_WIDTH, hide_index=True,
+                column_config={k: v for k, v in _hcfg.items() if k in _hdf.columns})
             _render_saved_scans(wl)
 
         # ── Backup / restore — always visible, even with an empty list ──
@@ -6958,7 +7197,7 @@ with st.container(border=True, key="mw_page"):
                              else (f"color:{RED}" if isinstance(v,(int,float)) and v<50 else ""),
                              subset=["OddsUp"])
                         .map(lambda v: _css_sign(v) if isinstance(v,(int,float)) else "", subset=["Typical"]),
-                        width="stretch", hide_index=True, height=740,
+                        width=_DF_WIDTH, hide_index=True, height=740,
                         on_select="rerun", selection_mode="single-row", key="forecast_table",
                         column_order=_order_with_cat(
                             ["Ticker", "Sector", "Price"]
@@ -7031,7 +7270,7 @@ with st.container(border=True, key="mw_page"):
                                    else ""), subset=["MacroFit"])
                         .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
                                         else f"color:{DIM}"), subset=["Data"]),
-                        width="stretch", hide_index=True, height=740,
+                        width=_DF_WIDTH, hide_index=True, height=740,
                         on_select="rerun", selection_mode="single-row", key="macro_table",
                         column_order=_order_with_cat(
                             [c for c in _mcols if c in _m20.columns], _m20),
@@ -7142,7 +7381,7 @@ with st.container(border=True, key="mw_page"):
                 with st.container(key="t20_tbl_fx"):
                     _fsel = st.dataframe(
                         _fsty,
-                        width="stretch", hide_index=True, height=740,
+                        width=_DF_WIDTH, hide_index=True, height=740,
                         on_select="rerun", selection_mode="single-row", key="felix_table",
                         column_order=_order_with_cat(
                             [c for c in _fcols if c in _f.columns], _f),
@@ -7201,7 +7440,7 @@ with st.container(border=True, key="mw_page"):
                                         else (f"color:{RED};font-weight:600"
                                               if isinstance(v, str) and v[:1] in "012"
                                               else f"color:{DIM}")), subset=["Data"]),
-                        width="stretch", hide_index=True, height=740,
+                        width=_DF_WIDTH, hide_index=True, height=740,
                         on_select="rerun", selection_mode="single-row", key="top20_table",
                         column_order=_order_with_cat(
                             ["Ticker", "Sector", "Price"]
@@ -7556,7 +7795,7 @@ with st.container(border=True, key="mw_page"):
                                                   else "color:#b565f3")), subset=["ValueArea"])
                             .map(lambda v: _css_sign(-abs(v) + 3, dead=0) if isinstance(v, (int, float))
                                  else "", subset=["RS"]),
-                            width="stretch", hide_index=True, height=620,
+                            width=_DF_WIDTH, hide_index=True, height=620,
                             on_select="rerun", selection_mode="single-row", key="apex_table",
                             column_order=_order_with_cat(
                                 ["#", "Ticker", "Sector"]
@@ -7736,7 +7975,7 @@ with st.container(border=True, key="mw_page"):
                 "Wins": _gcd.get("leads", ""),
                 "Loses": _gcd.get("lags", ""),
             })
-        st.dataframe(pd.DataFrame(_glance_rows), width="stretch", hide_index=True)
+        st.dataframe(pd.DataFrame(_glance_rows), width=_DF_WIDTH, hide_index=True)
 
         st.divider()
         st.markdown("#### Open a playbook")
@@ -7781,7 +8020,7 @@ with st.container(border=True, key="mw_page"):
             _fmt = _grid.style.format("{:.2f}")
             _styled = (_fmt.map(_tilt_css) if hasattr(_fmt, "map")
                        else _fmt.applymap(_tilt_css))
-            st.dataframe(_styled, width="stretch")
+            st.dataframe(_styled, width=_DF_WIDTH)
 
 
     # ── 🎯 POC Future — AMD accumulation / manipulation / distribution ────
@@ -7992,7 +8231,7 @@ with st.container(border=True, key="mw_page"):
                             .map(lambda v: (f"color:{GREEN};font-weight:700" if v >= 0.50
                                             else (f"color:{DIM}" if v >= 0.25 else f"color:{RED}"))
                                  if isinstance(v, (int, float)) else "", subset=["ExpR"]),
-                            width="stretch", hide_index=True, height=620,
+                            width=_DF_WIDTH, hide_index=True, height=620,
                             on_select="rerun", selection_mode="single-row", key="poc_table",
                             column_order=_order_with_cat(
                                 ["Ticker", "Sector"]
@@ -8131,7 +8370,7 @@ with st.container(border=True, key="mw_page"):
                         _kdf.style.format(
                             {k: v for k, v in {"Price": "${:,.2f}"}.items()
                              if k in _kdf.columns}, na_rep="—"),
-                        width="stretch", hide_index=True,
+                        width=_DF_WIDTH, hide_index=True,
                         height=_fit_list_height(len(_kdf)),
                         on_select="rerun", selection_mode="single-row",
                         key="kw_table",
@@ -8286,7 +8525,7 @@ with st.container(border=True, key="mw_page"):
                     f"repeated topics · tap a row to hunt the dump</span></div>")
                 _wshow = _wdf.copy()
                 _te_sel = st.dataframe(
-                    _wshow, width="stretch", hide_index=True,
+                    _wshow, width=_DF_WIDTH, hide_index=True,
                     height=_fit_list_height(len(_wshow)),
                     on_select="rerun", selection_mode="single-row",
                     key="te_words",
@@ -8411,7 +8650,7 @@ with st.container(border=True, key="mw_page"):
                                     subset=["Change"])
                             _tsel = st.dataframe(
                                 _te_styled,
-                                width="stretch", hide_index=True,
+                                width=_DF_WIDTH, hide_index=True,
                                 height=_fit_list_height(len(_tdf)),
                                 on_select="rerun", selection_mode="single-row",
                                 key="te_table",
@@ -8440,7 +8679,7 @@ with st.container(border=True, key="mw_page"):
             if _sdf is not None and not _sdf.empty:
                 with st.expander("Sources scanned", expanded=bool(_te_qhit)):
                     st.dataframe(
-                        _sdf, width="stretch", hide_index=True,
+                        _sdf, width=_DF_WIDTH, hide_index=True,
                         column_config={
                             "Hits": st.column_config.Column(
                                 help="How many times the searched phrase "
@@ -8596,7 +8835,7 @@ with st.container(border=True, key="mw_page"):
                                     lambda v: _css_sign(v, dead=0.005),
                                     subset=[_col])
                         st.dataframe(
-                            _el_sec_st, width="stretch", hide_index=True,
+                            _el_sec_st, width=_DF_WIDTH, hide_index=True,
                             height=_fit_list_height(len(_eshow), max_h=280),
                             key="el_sec",
                             column_config={
@@ -8651,7 +8890,7 @@ with st.container(border=True, key="mw_page"):
                                     lambda v: _css_sign(v, dead=0.005),
                                     subset=[_col])
                         _sel_el = st.dataframe(
-                            _el_styled, width="stretch", hide_index=True,
+                            _el_styled, width=_DF_WIDTH, hide_index=True,
                             height=_fit_list_height(len(_show)),
                             on_select="rerun", selection_mode="single-row",
                             key="el_table",
@@ -8774,7 +9013,7 @@ with st.container(border=True, key="mw_page"):
                      subset=["Signal"])
                 .map(lambda v: _css_sign(v, dead=0.75), subset=["ImpulseZ"])
                 .map(lambda v: _css_sign(v, dead=0.5), subset=["5d %", "21d %"]),
-                width="stretch", hide_index=True,
+                width=_DF_WIDTH, hide_index=True,
                 column_config={
                     "Sentinel": st.column_config.Column(help=HELP["sentinel_why"]),
                     "Last": st.column_config.Column(help="Latest close (or last trade for 24/7 assets)."),
@@ -8825,7 +9064,7 @@ with st.container(border=True, key="mw_page"):
                 .style.format({"z-score": "{:+.2f}", "21d move %": "{:+.2f}%"})
                 .map(lambda v: _css_sign(v) if isinstance(v, (int, float)) else "",
                      subset=["z-score"]),
-                width="stretch", hide_index=True,
+                width=_DF_WIDTH, hide_index=True,
                 column_config={
                     "z-score": st.column_config.Column(help="How unusual this 21-day move is versus its own past year. Negative on a spread proxy = spreads WIDENING."),
                     "Role": st.column_config.Column(help="Only the junk-credit leg tested predictive, so only it votes in the macro advisor."),
@@ -8982,7 +9221,7 @@ with st.container(border=True, key="mw_page"):
                         {"strat": "{:+.2%}", "bench": "{:+.2%}", "excess": "{:+.2%}"})
                     .map(lambda v: _css_sign(v), subset=["strat", "excess"])
                     .map(lambda v: f"color:{DIM}", subset=["bench"]),
-                    width="stretch", hide_index=True,
+                    width=_DF_WIDTH, hide_index=True,
                     column_config={
                         "strat": st.column_config.Column(help="Direction-adjusted mean return of the top-5 forecasts that week."),
                         "bench": st.column_config.Column(help="Equal-weight universe over the same horizon — the bar to beat."),

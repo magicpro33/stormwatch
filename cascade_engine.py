@@ -117,7 +117,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.47"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.48"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -3986,6 +3986,171 @@ def upcoming_earnings(tickers: list) -> dict:
     return out
 
 
+def watchlist_earnings_dates(tickers: list) -> dict:
+    """ISO earnings dates for a watchlist. Disk + dump first, live only on holes."""
+    out = {}
+    need = []
+    for raw in tickers or []:
+        tk = str(raw or "").strip().upper()
+        if not tk:
+            continue
+        ed = None
+        try:
+            ed = _earn_disk_get(tk)
+        except Exception as e:
+            _log_exc(f"wl_earn.disk.{tk}", e)
+        if ed is None:
+            try:
+                ed = _dump_earnings_date(tk)
+            except Exception as e:
+                _log_exc(f"wl_earn.dump.{tk}", e)
+        if ed is None:
+            need.append(tk)
+        else:
+            out[tk] = ed
+    if need:
+        try:
+            live = upcoming_earnings(need)
+            out.update(live or {})
+        except Exception as e:
+            _log_exc("wl_earn.live", e)
+    iso = {}
+    for tk, ed in out.items():
+        if hasattr(ed, "isoformat"):
+            iso[tk] = ed.isoformat()
+        elif ed is not None:
+            iso[tk] = str(ed)
+    return iso
+
+
+def _finite_num(v):
+    if v is None or v == "" or v == "--":
+        return None
+    try:
+        f = float(v)
+        return f if np.isfinite(f) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _health_pick(pack: dict, *keys):
+    for k in keys:
+        f = _finite_num((pack or {}).get(k))
+        if f is not None:
+            return f
+    return None
+
+
+def _health_grade(v, hi, lo, invert=False):
+    """1 / 0.5 / 0 matching az_tag (or az_tag_inv when invert=True)."""
+    if v is None:
+        return None
+    try:
+        fv = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(fv):
+        return None
+    if invert:
+        if fv >= hi:
+            return 0.0
+        if fv >= lo:
+            return 0.5
+        return 1.0
+    if fv >= hi:
+        return 1.0
+    if fv >= lo:
+        return 0.5
+    return 0.0
+
+
+def watchlist_health_rows(tickers: list) -> dict:
+    """Financial Health + Piotroski from the nightly dump, keyed by ticker.
+
+    Thresholds match the Stock Lookup Financial Health chart and Piotroski tag.
+    """
+    fa = None
+    ix = {}
+    try:
+        fa = dump_fundamentals_all()
+        _p, tks, _s, _m, _d = load_dump_panel()
+        ix = {str(t).strip().upper(): i for i, t in enumerate(tks)}
+    except Exception as e:
+        _log_exc("watchlist_health.dump", e)
+        fa, ix = None, {}
+
+    out = {}
+    for raw in tickers or []:
+        tk = str(raw or "").strip().upper()
+        if not tk:
+            continue
+        pack = {}
+        try:
+            pack = dump_analyzer_pack(tk) or {}
+        except Exception:
+            pack = {}
+        gm = _health_pick(pack, "_gross_margin", "grossMargins")
+        opm = _health_pick(pack, "_op_margin", "operatingMargins")
+        cfm = _health_pick(pack, "_cf_margin")
+        fcfm = _health_pick(pack, "_fcf_margin")
+        pm = _health_pick(pack, "profitMargins")
+        roe = _health_pick(pack, "returnOnEquity")
+        roa = _health_pick(pack, "returnOnAssets")
+        de = _health_pick(pack, "debtToEquity")
+        cr = _health_pick(pack, "currentRatio")
+        roce = _health_pick(pack, "_roce")
+        pio = _health_pick(pack, "_scan_piotroski")
+        if pio is None and fa is not None:
+            j = ix.get(tk)
+            if j is not None:
+                arr = (fa or {}).get("Piotroski")
+                if arr is not None and j < len(arr):
+                    pio = _finite_num(arr[j])
+        grades = []
+        for v, hi, lo, inv in (
+            (roce, 0.15, 0.08, False),
+            (gm, 0.50, 0.30, False),
+            (opm, 0.15, 0.05, False),
+            (cfm, 0.15, 0.08, False),
+            (fcfm, 0.10, 0.05, False),
+            (pm, 0.15, 0.05, False),
+            (roe, 0.15, 0.08, False),
+            (roa, 0.08, 0.04, False),
+            (de, 150, 80, True),
+            (cr, 1.5, 1.0, False),
+        ):
+            g = _health_grade(v, hi, lo, invert=inv)
+            if g is not None:
+                grades.append(g)
+        if grades:
+            score = float(sum(grades) / len(grades))
+            if score >= 0.67:
+                label = "Strong"
+            elif score >= 0.40:
+                label = "OK"
+            else:
+                label = "Weak"
+        else:
+            score = None
+            label = "—"
+        out[tk] = {
+            "health": label,
+            "score": score,
+            "pio": pio,
+            "roce": roce,
+            "gm": gm,
+            "opm": opm,
+            "cfm": cfm,
+            "fcfm": fcfm,
+            "pm": pm,
+            "roe": roe,
+            "roa": roa,
+            "de": de,
+            "cr": cr,
+        }
+    return out
+
+
 CRYPTO_MAP = {"BTC-USD": "BTC/USD", "ETH-USD": "ETH/USD", "SOL-USD": "SOL/USD"}
 LAST_HISTORY_SOURCE = "unknown"
 
@@ -4603,35 +4768,68 @@ def _ny_calendar_date():
 
 
 def watchlist_stamp_date() -> str:
-    """YYYY-MM-DD stamped on a new watchlist row.
+    """America/New_York save stamp: 'YYYY-MM-DD HH:MM ET'.
 
-    Weekdays use the New York calendar date (not the server's local/UTC
-    date). Weekends roll back to the last completed session so Saved
-    matches the close the snapshot price actually came from.
+    Uses the wall clock in Eastern time (not the server's UTC date). Date-only
+    legacy rows stay date-only; new saves keep the time so Saturday night is
+    not stored as Sunday UTC.
     """
     try:
-        d = _ny_calendar_date()
-        if d.weekday() >= 5:
-            return str(_last_completed_session().date())
-        return str(d)
+        now = pd.Timestamp.now(tz="America/New_York")
+        return f"{now.strftime('%Y-%m-%d %H:%M')} ET"
     except Exception:
         return str(date.today())
 
 
 def watchlist_normalize_added(raw) -> str:
-    """Coerce stored added values to YYYY-MM-DD. Empty if unreadable."""
+    """Coerce stored added values to an Eastern stamp.
+
+    Date-only strings stay YYYY-MM-DD (already a NY calendar date). Datetimes
+    convert to America/New_York as 'YYYY-MM-DD HH:MM ET'. Empty if unreadable.
+    """
     if raw is None:
         return ""
     s = str(raw).strip()
     if not s or s.lower() in ("nan", "nat", "none", "—"):
         return ""
+    if s.endswith(" ET") and len(s) >= 16:
+        return s
+    if len(s) == 10 and s[4] == "-" and s[7] == "-" and s[:10].replace("-", "").isdigit():
+        return s[:10]
+    has_time = ("T" in s) or (":" in s) or s.endswith("Z") or s.endswith("z")
     try:
         ts = pd.to_datetime(s, errors="coerce")
-        if pd.notna(ts):
+        if pd.isna(ts):
+            return s[:10] if len(s) >= 10 and s[0].isdigit() else ""
+        if getattr(ts, "tzinfo", None) is not None:
+            ts = ts.tz_convert("America/New_York")
+        elif has_time:
+            # Naive clock times were written as Eastern; do not treat as UTC.
+            ts = ts.tz_localize("America/New_York")
+        if not has_time:
             return str(pd.Timestamp(ts).date())
+        return f"{pd.Timestamp(ts).strftime('%Y-%m-%d %H:%M')} ET"
     except Exception:
         pass
     return s[:10] if len(s) >= 10 and s[0].isdigit() else ""
+
+
+def watchlist_format_added(raw) -> str:
+    """Watchlist Saved cell: 'Oct 31, 10:42 PM ET' or 'Oct 15' for date-only."""
+    s = watchlist_normalize_added(raw)
+    if not s:
+        return "—"
+    try:
+        body = s[:-3].strip() if s.endswith(" ET") else s
+        ts = pd.to_datetime(body, errors="coerce")
+        if pd.isna(ts):
+            return s
+        if s.endswith(" ET") or ":" in body:
+            clock = ts.strftime("%I:%M %p").lstrip("0")
+            return f"{ts.strftime('%b')} {int(ts.day)}, {clock} ET"
+        return f"{ts.strftime('%b')} {int(ts.day)}"
+    except Exception:
+        return s
 
 
 def watchlist_scan_snapshot(row) -> dict:

@@ -3356,7 +3356,7 @@ def render_ignition_scanner_tab(render_detail=None):
                 col_cfg[col] = st.column_config.Column(col, help=HELP.get(col, ""))
         _igsel = st.dataframe(
             df,
-            use_container_width=True,
+            width="content",
             hide_index=True,
             column_config=col_cfg,
             on_select="rerun",

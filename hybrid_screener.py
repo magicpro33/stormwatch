@@ -1099,7 +1099,7 @@ def render_hybrid_screener() -> None:
                                    "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
                     .map(lambda v: _hs_css_sign(v) if isinstance(v, float) else "",
                          subset=["Ret", "RS"]),
-                    width="stretch", hide_index=True,
+                    width="content", hide_index=True,
                     column_config={
                         "Ret": st.column_config.Column(help="Dollar-weighted sector return — weighted by where the money actually traded, not an equal average."),
                         "RS": st.column_config.Column(help="Sector return minus the market's. Positive = outperforming."),
@@ -1436,13 +1436,13 @@ def render_hybrid_screener() -> None:
     try:
         styled = display.style.map(_color_score, subset=["Score"]) if "Score" in display.columns else display
         _tsel = st.dataframe(
-            styled, width="stretch", height=560, column_order=order or None,
+            styled, width="content", height=560, column_order=order or None,
             hide_index=True, on_select="rerun", selection_mode="single-row",
             key=_k("chart_table"),
             column_config=_cat_cfg if _cat_cfg else None)
     except Exception:
         _tsel = st.dataframe(
-            display, width="stretch", height=560, column_order=order or None,
+            display, width="content", height=560, column_order=order or None,
             hide_index=True, on_select="rerun", selection_mode="single-row",
             key=_k("chart_table"),
             column_config=_cat_cfg if _cat_cfg else None)
