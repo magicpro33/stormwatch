@@ -1244,9 +1244,50 @@ def _css_owner_flag(v):
     return f"color:{DIM}"
 
 
+def _lk_parse_num(v):
+    if v is None or (isinstance(v, float) and not np.isfinite(v)):
+        return None
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    s = str(v).strip()
+    if not s or s in ("—", "-", "--", "n/a", "na", "none"):
+        return None
+    neg = s.startswith("(") and s.endswith(")")
+    s = s.replace("$", "").replace(",", "").replace("%", "").replace("(", "").replace(")", "").strip()
+    try:
+        x = float(s)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(x):
+        return None
+    return -x if neg else x
+
+
+def _lk_df_col(df, *names):
+    if df is None or not hasattr(df, "columns"):
+        return None
+    cols = {str(c).strip().lower().replace("_", " "): c for c in df.columns}
+    for n in names:
+        hit = cols.get(str(n).strip().lower().replace("_", " "))
+        if hit is not None:
+            return hit
+    return None
+
+
+def _lk_nasdaq(path: str):
+    fn = getattr(ce, "_nasdaq_api", None)
+    if not callable(fn):
+        return None
+    try:
+        return fn(path)
+    except Exception as e:
+        log_exc(f"lookup_nasdaq.{path}", e)
+        return None
+
+
 @st.cache_data(ttl=1800, show_spinner="Loading insider trades…")
-def _lk_insiders(tk: str, ver: str = "v2") -> dict:
-    """SEC Form 4 via Yahoo: ownership %, 6-month summary, trades, top holders."""
+def _lk_insiders(tk: str, ver: str = "v3") -> dict:
+    """Holders + Form 4: dump, Nasdaq, then Yahoo if it is not cooling."""
     blank = dict(insider_pct=None, inst_pct=None, purch_shares=None,
                  sale_shares=None, purch_n=None, sale_n=None, net_shares=None,
                  net_90d=None, buys_90d=0, sells_90d=0, trades=[], roster=[],
@@ -1254,134 +1295,11 @@ def _lk_insiders(tk: str, ver: str = "v2") -> dict:
     tk = str(tk or "").strip().upper()
     if not tk:
         return blank
-    os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
-    try:
-        from mw_yf import yf_call, cooling
-        import yfinance as yf
-        if cooling():
-            return blank
-        stock = yf_call(lambda: yf.Ticker(tk))
-    except Exception:
-        return blank
     out = dict(blank)
-
-    def _yf_attr(name):
-        try:
-            return yf_call(lambda n=name: getattr(stock, n, None))
-        except Exception:
-            return None
-
-    info = {}
-    try:
-        info = yf_call(lambda: stock.info or {}) or {}
-    except Exception:
-        info = {}
-    out["insider_pct"] = _lk_pct_held(info.get("heldPercentInsiders"))
-    out["inst_pct"] = _lk_pct_held(info.get("heldPercentInstitutions"))
-    majors = _yf_attr("major_holders")
-    if out["insider_pct"] is None and majors is not None and hasattr(majors, "index"):
-        try:
-            if "insidersPercentHeld" in getattr(majors, "index", []):
-                out["insider_pct"] = _lk_pct_held(majors.loc["insidersPercentHeld"].iloc[0])
-            if "institutionsPercentHeld" in getattr(majors, "index", []):
-                out["inst_pct"] = _lk_pct_held(majors.loc["institutionsPercentHeld"].iloc[0])
-        except Exception:
-            pass
-
-    purch = _yf_attr("insider_purchases")
-    if purch is not None and hasattr(purch, "iterrows") and not getattr(purch, "empty", True):
-        label_col = purch.columns[0] if len(purch.columns) else None
-        for _, row in purch.iterrows():
-            lab = str(row.get(label_col, "") if label_col else "").strip().lower()
-            sh = row.get("Shares")
-            ntx = row.get("Trans")
-            try:
-                sh = float(sh) if pd.notna(sh) else None
-            except Exception:
-                sh = None
-            try:
-                ntx = int(ntx) if pd.notna(ntx) else None
-            except Exception:
-                ntx = None
-            if lab.startswith("purchase"):
-                out["purch_shares"], out["purch_n"] = sh, ntx
-            elif lab.startswith("sale"):
-                out["sale_shares"], out["sale_n"] = sh, ntx
-            elif "net shares" in lab:
-                out["net_shares"] = sh
-
-    trades = []
-    net_90 = 0.0
-    buys_90 = sells_90 = 0
-    cutoff = pd.Timestamp.now(tz="UTC").tz_localize(None) - pd.Timedelta(days=90)
-    ins = _yf_attr("insider_transactions")
-    if ins is not None and hasattr(ins, "iterrows") and not getattr(ins, "empty", True):
-        df = ins.copy()
-        date_col = next((c for c in ("Start Date", "startDate", "Date") if c in df.columns), None)
-        if date_col:
-            df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-            try:
-                df[date_col] = df[date_col].dt.tz_localize(None)
-            except Exception:
-                pass
-            df = df.sort_values(date_col, ascending=False)
-        for _, row in df.head(80).iterrows():
-            dt = row.get(date_col) if date_col else None
-            try:
-                dts = pd.Timestamp(dt).strftime("%b %d, %Y") if pd.notna(dt) else "—"
-            except Exception:
-                dts = "—"
-            text = str(row.get("Text") or "").strip()
-            trn = str(row.get("Transaction") or "").strip()
-            act = _lk_insider_action(text, trn)
-            try:
-                shares = float(row.get("Shares")) if pd.notna(row.get("Shares")) else None
-            except Exception:
-                shares = None
-            try:
-                val = float(row.get("Value")) if pd.notna(row.get("Value")) else None
-            except Exception:
-                val = None
-            if shares is not None and not np.isfinite(shares):
-                shares = None
-            if val is not None and not np.isfinite(val):
-                val = None
-            in_90 = False
-            try:
-                in_90 = pd.notna(dt) and pd.Timestamp(dt) >= cutoff
-            except Exception:
-                in_90 = False
-            if in_90 and act == "Buy":
-                buys_90 += 1
-                net_90 += abs(val) if val is not None else 0.0
-            elif in_90 and act == "Sell":
-                sells_90 += 1
-                net_90 -= abs(val) if val is not None else 0.0
-            trades.append(dict(
-                Date=dts,
-                Insider=str(row.get("Insider") or "—").strip() or "—",
-                Role=str(row.get("Position") or "—").strip() or "—",
-                Action=act,
-                Shares=shares,
-                Value=val,
-            ))
-    out["trades"] = trades
-    out["net_90d"] = net_90 if (buys_90 or sells_90) else None
-    out["buys_90d"] = buys_90
-    out["sells_90d"] = sells_90
-
-    roster = []
     owners: dict = {}
-
-    def _as_shares(v):
-        try:
-            if v is None or (isinstance(v, float) and not np.isfinite(v)):
-                return None
-            if pd.isna(v):
-                return None
-            return float(v)
-        except Exception:
-            return None
+    trades = []
+    trade_seen: set = set()
+    cutoff = pd.Timestamp.now(tz="UTC").tz_localize(None) - pd.Timedelta(days=90)
 
     def _as_ts(v):
         try:
@@ -1401,10 +1319,19 @@ def _lk_insiders(tk: str, ver: str = "v2") -> dict:
         except Exception:
             return None
 
+    def _fmt_dt(dt):
+        try:
+            if dt is None or pd.isna(dt):
+                return "—"
+            return pd.Timestamp(dt).strftime("%b %d, %Y")
+        except Exception:
+            return "—"
+
     def _put_owner(name, role, shares, date_ts, last="", how="max"):
         name = str(name or "").strip()
         if not name or name == "—":
             return
+        shares = _lk_parse_num(shares)
         flag = _lk_owner_flag(name)
         key = _lk_owner_bucket(name, flag)
         if not key:
@@ -1419,13 +1346,11 @@ def _lk_insiders(tk: str, ver: str = "v2") -> dict:
             return
         if how == "sum" and shares is not None:
             row["Shares"] = (row["Shares"] or 0.0) + shares
-        else:
+        elif shares is not None:
             newer = date_ts is not None and (row["Date"] is None or date_ts > row["Date"])
-            older = row["Date"] is not None and date_ts is not None and date_ts < row["Date"]
-            if newer or (not older and shares is not None
-                         and shares > (row["Shares"] or 0)):
-                if shares is not None:
-                    row["Shares"] = shares
+            same = row["Date"] is None or date_ts is None or date_ts == row["Date"]
+            if newer or (same and shares > (row["Shares"] or 0)):
+                row["Shares"] = shares
         if flag:
             row["Flag"] = flag
         if date_ts is not None and (row["Date"] is None or date_ts > row["Date"]):
@@ -1437,60 +1362,247 @@ def _lk_insiders(tk: str, ver: str = "v2") -> dict:
                 if role:
                     row["Role"] = role
 
-    hold = _yf_attr("insider_roster_holders")
-    if hold is not None and hasattr(hold, "iterrows") and not getattr(hold, "empty", True):
-        hdf = hold.copy()
-        dcol = next((c for c in ("Latest Transaction Date", "Position Direct Date")
-                     if c in hdf.columns), None)
-        if dcol:
-            hdf[dcol] = pd.to_datetime(hdf[dcol], errors="coerce")
-            hdf = hdf.sort_values(dcol, ascending=False)
-        for _, row in hdf.iterrows():
-            dt = row.get(dcol) if dcol else None
-            try:
-                dts = pd.Timestamp(dt).strftime("%b %d, %Y") if pd.notna(dt) else "—"
-            except Exception:
-                dts = "—"
-            direct = _as_shares(row.get("Shares Owned Directly"))
-            indirect = _as_shares(row.get("Shares Owned Indirectly"))
-            sh = None
-            if direct is not None or indirect is not None:
-                sh = (direct or 0.0) + (indirect or 0.0)
-            name = str(row.get("Name") or "—").strip() or "—"
-            role = str(row.get("Position") or "—").strip() or "—"
-            last = str(row.get("Most Recent Transaction") or "—").strip() or "—"
-            roster.append(dict(Insider=name, Role=role, Shares=sh, Last=last, Date=dts))
-            _put_owner(name, role, sh, _as_ts(dt), last)
-    out["roster"] = roster
+    def _add_trade(dt, name, role, action, shares, value):
+        name = str(name or "—").strip() or "—"
+        action = str(action or "Other").strip() or "Other"
+        shares = _lk_parse_num(shares)
+        value = _lk_parse_num(value)
+        if value is None and shares is not None:
+            pass
+        dts = _fmt_dt(dt)
+        key = (dts, name.lower(), action.lower(),
+               round(shares or 0), round(value or 0))
+        if key in trade_seen:
+            return
+        trade_seen.add(key)
+        trades.append(dict(
+            Date=dts, Insider=name, Role=str(role or "—").strip() or "—",
+            Action=action, Shares=shares, Value=value, _dt=dt))
 
-    inst = _yf_attr("institutional_holders")
-    if inst is not None and hasattr(inst, "iterrows") and not getattr(inst, "empty", True):
-        cols = {str(c).strip().lower(): c for c in inst.columns}
-        hcol = cols.get("holder") or cols.get("name")
-        scol = cols.get("shares")
-        dcol = cols.get("date reported") or cols.get("date")
-        for _, row in inst.iterrows():
-            name = str(row.get(hcol) if hcol else "").strip()
-            _put_owner(name, "Institution",
-                       _as_shares(row.get(scol) if scol else None),
-                       _as_ts(row.get(dcol) if dcol else None),
-                       "13F", how="sum")
+    dump = {}
+    try:
+        dump = ce.dump_analyzer_pack(tk) or {}
+    except Exception:
+        dump = {}
+    out["insider_pct"] = _lk_pct_held(dump.get("heldPercentInsiders"))
+    out["inst_pct"] = _lk_pct_held(dump.get("heldPercentInstitutions"))
+
+    n_ins = _lk_nasdaq(
+        f"/api/company/{tk}/insider-trades?limit=100&offset=0"
+        "&type=ALL&sortColumn=lastDate&sortOrder=DESC") or {}
+    for rec in ((n_ins.get("transactionTable") or {}).get("table") or {}).get("rows") or []:
+        if not isinstance(rec, dict):
+            continue
+        dt = _as_ts(rec.get("lastDate"))
+        trn = str(rec.get("transactionType") or "").strip()
+        act = _lk_insider_action(trn, trn)
+        sh = _lk_parse_num(rec.get("sharesTraded"))
+        px = _lk_parse_num(rec.get("lastPrice"))
+        val = (abs(sh) * px) if (sh is not None and px is not None) else None
+        name = str(rec.get("insider") or "").strip()
+        role = str(rec.get("relation") or "").strip()
+        _add_trade(dt, name, role, act, sh, val)
+        held = _lk_parse_num(rec.get("sharesHeld"))
+        _put_owner(name, role, held if held is not None else sh, dt, trn)
+    for rec in (n_ins.get("numberOfSharesTraded") or {}).get("rows") or []:
+        lab = str(rec.get("insiderTrade") or "").strip().lower()
+        n3 = _lk_parse_num(rec.get("months3"))
+        if "bought" in lab or "buy" in lab:
+            out["purch_shares"] = n3
+        elif "sold" in lab:
+            out["sale_shares"] = n3
+        elif "net" in lab:
+            out["net_shares"] = n3
+    for rec in (n_ins.get("numberOfTrades") or {}).get("rows") or []:
+        lab = str(rec.get("insiderTrade") or "").strip().lower()
+        n3 = _lk_parse_num(rec.get("months3"))
+        try:
+            n3 = int(n3) if n3 is not None else None
+        except Exception:
+            n3 = None
+        if "buy" in lab:
+            out["purch_n"] = n3
+        elif "sell" in lab:
+            out["sale_n"] = n3
+
+    n_inst = _lk_nasdaq(
+        f"/api/company/{tk}/institutional-holdings?limit=40&offset=0"
+        "&type=TOTAL&sortColumn=marketValue&sortOrder=DESC") or {}
+    own = n_inst.get("ownershipSummary") or {}
+    inst_pct = (own.get("SharesOutstandingPCT") or {}).get("value")
+    if out["inst_pct"] is None:
+        out["inst_pct"] = _lk_pct_held(_lk_parse_num(inst_pct))
+    inst_keys_before = set(owners)
+    for rec in ((n_inst.get("holdingsTransactions") or {}).get("table") or {}).get("rows") or []:
+        if not isinstance(rec, dict):
+            continue
+        sh = _lk_parse_num(rec.get("sharesHeld"))
+        if sh is None or sh <= 0:
+            continue
+        _put_owner(str(rec.get("ownerName") or "").strip(), "Institution",
+                   sh, _as_ts(rec.get("date")), "13F", how="sum")
+    nasdaq_inst_keys = set(owners) - inst_keys_before
+
+    yahoo_ok = True
+    try:
+        from mw_yf import cooling
+        yahoo_ok = not cooling()
+    except Exception:
+        yahoo_ok = True
+    stock = None
+    if yahoo_ok:
+        os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
+        try:
+            from mw_yf import yf_call
+            import yfinance as yf
+            stock = yf_call(lambda: yf.Ticker(tk))
+        except Exception:
+            stock = None
+
+    def _yf_attr(name):
+        if stock is None:
+            return None
+        try:
+            from mw_yf import yf_call
+            return yf_call(lambda n=name: getattr(stock, n, None))
+        except Exception:
+            return None
+
+    if stock is not None:
+        info = {}
+        try:
+            from mw_yf import yf_call
+            info = yf_call(lambda: stock.info or {}) or {}
+        except Exception:
+            info = {}
+        if out["insider_pct"] is None:
+            out["insider_pct"] = _lk_pct_held(info.get("heldPercentInsiders"))
+        if out["inst_pct"] is None:
+            out["inst_pct"] = _lk_pct_held(info.get("heldPercentInstitutions"))
+        majors = _yf_attr("major_holders")
+        if majors is not None and hasattr(majors, "iterrows"):
+            try:
+                for idx, row in majors.iterrows():
+                    lab = f"{idx} {' '.join(str(x) for x in row.tolist())}".lower()
+                    val = row.iloc[0] if len(row) else None
+                    if out["insider_pct"] is None and "insider" in lab:
+                        out["insider_pct"] = _lk_pct_held(_lk_parse_num(val))
+                    if out["inst_pct"] is None and "institution" in lab:
+                        out["inst_pct"] = _lk_pct_held(_lk_parse_num(val))
+            except Exception:
+                pass
+        purch = _yf_attr("insider_purchases")
+        if purch is not None and hasattr(purch, "iterrows") and not getattr(purch, "empty", True):
+            label_col = purch.columns[0] if len(purch.columns) else None
+            sh_col = _lk_df_col(purch, "Shares")
+            n_col = _lk_df_col(purch, "Trans")
+            for _, row in purch.iterrows():
+                lab = str(row.get(label_col, "") if label_col else "").strip().lower()
+                sh = _lk_parse_num(row.get(sh_col) if sh_col else None)
+                ntx = _lk_parse_num(row.get(n_col) if n_col else None)
+                try:
+                    ntx = int(ntx) if ntx is not None else None
+                except Exception:
+                    ntx = None
+                if lab.startswith("purchase") and out["purch_shares"] is None:
+                    out["purch_shares"], out["purch_n"] = sh, ntx
+                elif lab.startswith("sale") and out["sale_shares"] is None:
+                    out["sale_shares"], out["sale_n"] = sh, ntx
+                elif "net shares" in lab and out["net_shares"] is None:
+                    out["net_shares"] = sh
+        ins = _yf_attr("insider_transactions")
+        if ins is not None and hasattr(ins, "iterrows") and not getattr(ins, "empty", True):
+            df = ins.copy()
+            date_col = _lk_df_col(df, "Start Date", "startDate", "Date")
+            name_col = _lk_df_col(df, "Insider", "Name")
+            role_col = _lk_df_col(df, "Position", "Relation")
+            text_col = _lk_df_col(df, "Text")
+            trn_col = _lk_df_col(df, "Transaction")
+            sh_col = _lk_df_col(df, "Shares")
+            val_col = _lk_df_col(df, "Value")
+            if date_col:
+                df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+                try:
+                    df[date_col] = df[date_col].dt.tz_localize(None)
+                except Exception:
+                    pass
+                df = df.sort_values(date_col, ascending=False)
+            for _, row in df.head(80).iterrows():
+                dt = _as_ts(row.get(date_col) if date_col else None)
+                text = str(row.get(text_col) or "").strip() if text_col else ""
+                trn = str(row.get(trn_col) or "").strip() if trn_col else ""
+                _add_trade(dt,
+                           row.get(name_col) if name_col else None,
+                           row.get(role_col) if role_col else None,
+                           _lk_insider_action(text, trn),
+                           row.get(sh_col) if sh_col else None,
+                           row.get(val_col) if val_col else None)
+        hold = _yf_attr("insider_roster_holders")
+        if hold is not None and hasattr(hold, "iterrows") and not getattr(hold, "empty", True):
+            hdf = hold.copy()
+            dcol = _lk_df_col(hdf, "Latest Transaction Date", "Position Direct Date")
+            ncol = _lk_df_col(hdf, "Name", "Insider")
+            rcol = _lk_df_col(hdf, "Position", "Relation")
+            lcol = _lk_df_col(hdf, "Most Recent Transaction")
+            dsh = _lk_df_col(hdf, "Shares Owned Directly")
+            ish = _lk_df_col(hdf, "Shares Owned Indirectly")
+            for _, row in hdf.iterrows():
+                dt = _as_ts(row.get(dcol) if dcol else None)
+                direct = _lk_parse_num(row.get(dsh) if dsh else None)
+                indirect = _lk_parse_num(row.get(ish) if ish else None)
+                sh = None
+                if direct is not None or indirect is not None:
+                    sh = (direct or 0.0) + (indirect or 0.0)
+                _put_owner(row.get(ncol) if ncol else None,
+                           row.get(rcol) if rcol else None,
+                           sh, dt, str(row.get(lcol) or "").strip() if lcol else "")
+        inst = _yf_attr("institutional_holders")
+        if inst is not None and hasattr(inst, "iterrows") and not getattr(inst, "empty", True):
+            hcol = _lk_df_col(inst, "Holder", "Name")
+            scol = _lk_df_col(inst, "Shares")
+            dcol = _lk_df_col(inst, "Date Reported", "Date")
+            for _, row in inst.iterrows():
+                name = str(row.get(hcol) if hcol else "").strip()
+                key = _lk_owner_bucket(name, _lk_owner_flag(name))
+                if key in nasdaq_inst_keys:
+                    continue
+                _put_owner(name, "Institution",
+                           row.get(scol) if scol else None,
+                           _as_ts(row.get(dcol) if dcol else None),
+                           "13F", how="max")
+
+    net_90 = 0.0
+    buys_90 = sells_90 = 0
+    for rec in trades:
+        dt = rec.get("_dt")
+        act = rec.get("Action")
+        val = rec.get("Value")
+        in_90 = False
+        try:
+            in_90 = dt is not None and pd.notna(dt) and pd.Timestamp(dt) >= cutoff
+        except Exception:
+            in_90 = False
+        if in_90 and act == "Buy":
+            buys_90 += 1
+            net_90 += abs(val) if val is not None else 0.0
+        elif in_90 and act == "Sell":
+            sells_90 += 1
+            net_90 -= abs(val) if val is not None else 0.0
+    trades.sort(key=lambda r: (r.get("_dt") is not None, r.get("_dt") or pd.Timestamp.min),
+                reverse=True)
+    out["trades"] = [{k: v for k, v in rec.items() if k != "_dt"} for rec in trades[:80]]
+    out["net_90d"] = net_90 if (buys_90 or sells_90) else None
+    out["buys_90d"] = buys_90
+    out["sells_90d"] = sells_90
+    out["roster"] = []
 
     ranked = sorted(
         owners.values(),
         key=lambda r: (r.get("Shares") is not None, r.get("Shares") or 0.0),
         reverse=True)[:10]
-    for row in ranked:
-        dt = row.get("Date")
-        try:
-            row["Date"] = pd.Timestamp(dt).strftime("%b %d, %Y") if dt is not None and pd.notna(dt) else "—"
-        except Exception:
-            row["Date"] = "—"
-        if not row.get("Flag"):
-            row["Flag"] = "—"
     out["owners"] = [
         dict(Owner=r["Owner"], Role=r["Role"], Shares=r.get("Shares"),
-             Flag=r.get("Flag") or "—", Date=r["Date"])
+             Flag=r.get("Flag") or "—", Date=_fmt_dt(r.get("Date")))
         for r in ranked]
     return out
 
@@ -2994,15 +3106,11 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
 
     pack = {}
     try:
-        pack = _lk_insiders(str(tk).strip().upper(), "v2") or {}
+        pack = _lk_insiders(str(tk).strip().upper(), "v3") or {}
     except Exception as _ie:
         log_exc("lookup_insiders", _ie)
         pack = {}
     with az_section("Insider Ownership", key_prefix):
-        st.caption("Top holders combine insider Form 4s and 13F institutions, "
-                   "one row per person or fund. Open-market buys and sells "
-                   "are what matter; grants, option exercises, and gifts are listed "
-                   "but do not count in the 90-day net.")
         def _pct_txt(v):
             return "--" if v is None else f"{float(v):.1f}%"
         def _sh_txt(v):
