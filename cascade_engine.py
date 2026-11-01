@@ -4411,6 +4411,18 @@ WATCHLIST_PATH = os.path.join(_mw_data_dir(), "watchlist.json")
 TRUMP_LIST_PATH = os.path.join(_mw_data_dir(), "trump_effect_list.json")
 BULL_LIST_PATH = os.path.join(_mw_data_dir(), "bull_list.json")
 _BULL_LIST_MAX = 200
+_BULL_LIST_ERR = ""
+
+
+def bull_list_last_error() -> str:
+    return str(_BULL_LIST_ERR or "")
+
+
+def _bull_list_path() -> str:
+    try:
+        return os.path.join(_mw_data_dir(), "bull_list.json")
+    except Exception:
+        return BULL_LIST_PATH
 
 
 def _bull_list_blank():
@@ -4521,7 +4533,7 @@ def _bull_list_row(item) -> dict | None:
 
 def bull_list_load() -> dict:
     """Public master bull list. Everyone can read; writes go through save()."""
-    path = BULL_LIST_PATH
+    path = _bull_list_path()
     pack = _bull_list_blank()
     try:
         if not os.path.isfile(path):
@@ -4556,7 +4568,20 @@ def bull_list_load() -> dict:
     return pack
 
 
+def _bull_json_default(o):
+    if isinstance(o, (np.bool_,)):
+        return bool(o)
+    if isinstance(o, (np.integer,)):
+        return int(o)
+    if isinstance(o, (np.floating, float)):
+        x = float(o)
+        return None if not np.isfinite(x) else x
+    raise TypeError(f"not JSON serializable: {type(o).__name__}")
+
+
 def bull_list_save(pack) -> bool:
+    global _BULL_LIST_ERR
+    _BULL_LIST_ERR = ""
     src = pack if isinstance(pack, dict) else {}
     rows, seen = [], set()
     for item in src.get("tickers") or []:
@@ -4572,16 +4597,19 @@ def bull_list_save(pack) -> bool:
         "headline": str(src.get("headline") or "").strip()[:160],
         "tickers": rows,
     }
-    path = BULL_LIST_PATH
-    tmp = path + ".tmp"
+    path = _bull_list_path()
+    import tempfile
+    dest_dir = os.path.dirname(path) or "."
+    os.makedirs(dest_dir, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix="bull_list_", suffix=".json", dir=dest_dir)
     try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(out, f, indent=2, allow_nan=False)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(out, f, indent=2, allow_nan=False, default=_bull_json_default)
             f.write("\n")
         os.replace(tmp, path)
         return True
     except Exception as e:
+        _BULL_LIST_ERR = f"{type(e).__name__}: {e}"
         _log_exc("bull_list_save", e)
         try:
             if os.path.isfile(tmp):
@@ -4592,7 +4620,13 @@ def bull_list_save(pack) -> bool:
 
 
 def bull_list_add(tickers, note: str = "", prices=None) -> list:
-    """Append unique tickers. Snapshots price-then from `prices`, live quotes, or dump."""
+    """Append unique tickers. Snapshots price-then from `prices` or dump close.
+
+    Live quotes are not fetched here — they can stall Streamlit long enough
+    that the write never lands. Price now on the table is still live.
+    """
+    global _BULL_LIST_ERR
+    _BULL_LIST_ERR = ""
     pack = bull_list_load()
     rows = list(pack.get("tickers") or [])
     have = {r["ticker"] for r in rows}
@@ -4617,20 +4651,11 @@ def bull_list_add(tickers, note: str = "", prices=None) -> list:
     missing = [t for t in want if px_map.get(t) is None]
     if missing:
         try:
-            live, _src = live_quotes(missing, use_dump=True)
-            for t, v in (live or {}).items():
-                if px_map.get(t) is None:
-                    px_map[t] = _bull_px(v)
-        except Exception as e:
-            _log_exc("bull_list_add.quotes", e)
-    missing = [t for t in want if px_map.get(t) is None]
-    if missing:
-        try:
             for t, v in (dump_last_closes(missing) or {}).items():
                 if px_map.get(t) is None:
                     px_map[t] = _bull_px(v)
-        except Exception:
-            pass
+        except Exception as e:
+            _log_exc("bull_list_add.dump", e)
     added = []
     for tk in want:
         rows.append({

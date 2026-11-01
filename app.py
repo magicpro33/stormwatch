@@ -7171,20 +7171,34 @@ with st.container(border=True, key="mw_page"):
                     if getattr(ce, "bull_list_set_headline", None):
                         ce.bull_list_set_headline(_hn)
                         st.rerun()
-                _ac1, _ac2, _ac3 = st.columns([2, 2, 1], vertical_alignment="bottom")
-                _add_raw = _ac1.text_input("Add tickers", key="bull_add_raw",
-                                           placeholder="AAPL, MSFT, BRK.B")
-                _add_note = _ac2.text_input("Note for those names", key="bull_add_note",
-                                            placeholder="optional")
-                if _ac3.button("Add", type="primary", width="stretch", key="bull_add_go"):
+                with st.form("bull_add_form", clear_on_submit=True):
+                    _ac1, _ac2, _ac3 = st.columns([2, 2, 1], vertical_alignment="bottom")
+                    _add_raw = _ac1.text_input("Add tickers",
+                                               placeholder="AAPL, MSFT, BRK.B")
+                    _add_note = _ac2.text_input("Note for those names",
+                                                placeholder="optional")
+                    _add_go = _ac3.form_submit_button("Add", type="primary",
+                                                      width="stretch")
+                if _add_go:
                     _bits = [p.strip().upper() for p in re.split(r"[\s,;]+", _add_raw or "")
                              if p.strip()]
-                    _new = ce.bull_list_add(_bits, _add_note) if hasattr(ce, "bull_list_add") else []
-                    if _new:
-                        st.success("Added " + ", ".join(_new))
-                        st.rerun()
+                    if not _bits:
+                        st.warning("Type a ticker, then click Add.")
+                    elif not hasattr(ce, "bull_list_add"):
+                        st.error("Restart the app — the bull list saver did not load.")
                     else:
-                        st.warning("Nothing new to add — check the ticker, or it is already on the list.")
+                        _new = ce.bull_list_add(_bits, _add_note) or []
+                        if _new:
+                            st.success("Added " + ", ".join(_new))
+                            st.rerun()
+                        else:
+                            _berr = ""
+                            if getattr(ce, "bull_list_last_error", None):
+                                _berr = ce.bull_list_last_error() or ""
+                            if _berr:
+                                st.error(f"Could not save the bull list: {_berr}")
+                            else:
+                                st.warning("Nothing new to add — already on the list, or the ticker was blank.")
                 _rc1, _rc2 = st.columns([3, 1], vertical_alignment="center")
                 _rc1.caption("Select rows above, then remove them here.")
                 if _rc2.button(f"🗑 Remove ({len(_bpick)})", width="stretch",

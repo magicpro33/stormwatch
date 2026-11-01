@@ -7,3 +7,7 @@ font = "sans serif"
 
 [server]
 headless = true
+# Saving the shared bull list / earnings cache writes under data/.
+# Don't treat those writes as source changes or Streamlit will rerun
+# mid-save and drop the names that were just added.
+folderWatchBlacklist = ["data"]
