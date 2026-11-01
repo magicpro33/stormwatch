@@ -151,7 +151,7 @@ try:
 except Exception as _che:
     render_charts_tab, _CH_ERR = None, _che
 
-REQUIRED_ENGINE = "2.50"
+REQUIRED_ENGINE = "2.51"
 st.set_page_config(page_title="Money Maker", page_icon="💰", layout="wide")
 _engine_v = getattr(ce, "ENGINE_VERSION", "pre-2.6")
 if _engine_v != REQUIRED_ENGINE:
@@ -6660,41 +6660,79 @@ with st.container(border=True, key="mw_page"):
                     pass
                 return f"{bar} {label}{pio_s}"
             wdf["health"] = wdf.ticker.map(_wl_health_cell)
+            _fav_of = {}
+            for _it in wl:
+                if isinstance(_it, dict):
+                    _fav_of[str(_it.get("ticker", "")).strip().upper()] = bool(_it.get("favorite"))
+            wdf["_fav"] = wdf.ticker.map(lambda t: bool(_fav_of.get(str(t).strip().upper())))
+            wdf["_ord"] = np.arange(len(wdf))
+            wdf = wdf.sort_values(["_fav", "_ord"], ascending=[False, True]).reset_index(drop=True)
             show = wdf[["ticker", "sector", "scanner", "earn", "health",
                         "added", "price_at_add", "price_now", "since_add"]]
-            show.columns = ["Ticker", "Sector", "Scanner", "Earnings", "Health",
+            show.columns = ["Ticker", "Sector", "Scanner", "Earnings", "Health/Piotroski",
                             "Saved", "Price then", "Price now", "Since saved"]
+            show.insert(0, "★", [bool(x) for x in wdf["_fav"].tolist()])
+            show.insert(0, "sel", [False] * len(show))
+            show["★"] = show["★"].astype(bool)
+            show["sel"] = show["sel"].astype(bool)
             _wl_sel_epoch = int(st.session_state.get("_wl_sel_epoch", 0) or 0)
-            _wsel = st.dataframe(
+            _edited = st.data_editor(
                 show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
-                                   "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—")
+                                   "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—",
+                                   subset=["Price then", "Price now", "Since saved", "Scanner"])
                 .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"])
                 .map(_css_earn_cell, subset=["Earnings"])
-                .map(_css_health_lbl, subset=["Health"]),
-                width="stretch", hide_index=True,
-                on_select="rerun", selection_mode="multi-row",
+                .map(_css_health_lbl, subset=["Health/Piotroski"]),
+                width="stretch", hide_index=True, height="content",
+                row_height=35, num_rows="fixed",
+                disabled=[c for c in show.columns if c not in ("sel", "★")],
                 key=f"wl_table_health_{_wl_sel_epoch}",
                 column_config={
+                    "sel": st.column_config.CheckboxColumn(
+                        " ",
+                        help="Select to open or remove. Separate from the star.",
+                        default=False, width="small", pinned=True),
+                    "★": st.column_config.CheckboxColumn(
+                        "★",
+                        help="Favorite. Toggle freely — this does not select the row for open or remove.",
+                        default=False, width="small", pinned=True),
                     "Ticker": st.column_config.Column(help="Saved ticker."),
                     "Sector": st.column_config.Column(help="Nightly dump sector."),
                     "Scanner": st.column_config.Column(
                         help="Which scanners saved this name. A second scanner is kept beside the first."),
                     "Earnings": st.column_config.Column(
                         help="Days until the next earnings print, Eastern US calendar. Green is clear, amber inside 21 days, red inside a week."),
-                    "Health": st.column_config.Column(
-                        help="One bar for Financial Health + Piotroski: margins, ROE/ROA, D/E, current ratio, and the 9-point score. Green Strong, amber OK, red Weak."),
+                    "Health/Piotroski": st.column_config.Column(
+                        help="Financial Health bar (margins, ROE/ROA, D/E, current ratio) plus Piotroski 9-point score. Green Strong, amber OK, red Weak."),
                     "Saved": st.column_config.Column(
                         help="When you saved it, in your local timezone."),
                     "Since saved": st.column_config.Column(
                     help="Your scorecard: return since the day you saved it. Live Alpaca/Yahoo quote when available.")})
-            _wr = (_wsel.selection.rows if _wsel and getattr(_wsel, "selection", None) else [])
-            _sel_tks = []
-            for _i in _wr or []:
+            def _wl_as_bool(v):
+                if isinstance(v, str):
+                    return v.strip().lower() in ("true", "1", "yes", "on")
                 try:
-                    _sel_tks.append(str(show.iloc[int(_i)].Ticker).strip().upper())
+                    if v is None:
+                        return False
+                    if isinstance(v, float) and not np.isfinite(v):
+                        return False
                 except Exception:
-                    continue
-            _sel_tks = [t for t in _sel_tks if t]
+                    pass
+                return bool(v)
+            _old_stars = [_wl_as_bool(x) for x in show["★"].tolist()]
+            _new_stars = ([_wl_as_bool(x) for x in _edited["★"].tolist()]
+                          if _edited is not None and "★" in _edited.columns else _old_stars)
+            _star_tks = [str(t).strip().upper() for t in (_edited["Ticker"] if _edited is not None else show["Ticker"]).tolist()]
+            if len(_new_stars) == len(_old_stars) and _new_stars != _old_stars:
+                for _tk, _on, _was in zip(_star_tks, _new_stars, _old_stars):
+                    if _on != _was and _tk:
+                        ce.watchlist_set_favorite(_tk, _on)
+                st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
+                st.session_state.pop(f"wl_table_health_{_wl_sel_epoch}", None)
+                st.rerun()
+            _sel_flags = ([_wl_as_bool(x) for x in _edited["sel"].tolist()]
+                          if _edited is not None and "sel" in _edited.columns else [])
+            _sel_tks = [t for t, on in zip(_star_tks, _sel_flags) if on and t]
             if len(_sel_tks) == 1:
                 _wtk = _sel_tks[0]
                 if st.session_state.get("_wl_handled") != _wtk:
@@ -6707,14 +6745,16 @@ with st.container(border=True, key="mw_page"):
                         (_ent or {}).get("source"), (_ent or {}).get("note"))
                     st.rerun()
             _cap, _rm = st.columns([4, 1], vertical_alignment="center")
-            _cap.caption("👆 Tap a row to open it. Select one or more rows, then remove them here.")
+            _cap.caption("⭐ Toggle ★ to favorite — it does not select the row. "
+                         "Check a row to open it. Select one or more rows, then remove them here.")
             if _rm.button(f"🗑 Remove ({len(_sel_tks)})", width="stretch",
                           disabled=not _sel_tks, key="wl_remove_selected"):
                 for _t in _sel_tks:
                     ce.watchlist_remove(_t)
                 st.session_state.pop("_wl_handled", None)
                 st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
-                for _k in (f"wl_table_{_wl_sel_epoch}", "wl_table", "wl_mgmt_editor"):
+                for _k in (f"wl_table_{_wl_sel_epoch}", f"wl_table_health_{_wl_sel_epoch}",
+                           f"wl_stars_{_wl_sel_epoch}", "wl_table", "wl_mgmt_editor"):
                     st.session_state.pop(_k, None)
                 st.success("Removed " + ", ".join(_sel_tks))
                 st.rerun()
@@ -6723,9 +6763,10 @@ with st.container(border=True, key="mw_page"):
         # ── Backup / restore — always visible, even with an empty list ──
         with st.expander("Manage watchlist", expanded=False):
             st.caption("Select rows on the list above to open or remove them. "
-                       "The backup file stores every field — ticker, scanner, saved "
-                       "date, price then, note, and each scanner's full row. The same "
-                       "row is already saved on disk and in this page's URL.")
+                       "Star favorites in the ★ column — that mark is stored with the "
+                       "row. The backup file stores every field — ticker, favorite, "
+                       "scanner, saved date, price then, note, and each scanner's full "
+                       "row. The same row is already saved on disk and in this page's URL.")
             bc1, bc2 = st.columns(2)
             try:
                 import json as _json

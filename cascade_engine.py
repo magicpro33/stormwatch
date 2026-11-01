@@ -117,7 +117,7 @@ SECTOR_FLOW_LOOKBACK = 1
 SECTOR_FLOW_WEIGHT = 8.0        # points added to the ~100-point cascade score
 SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
-ENGINE_VERSION = "2.50"   # app.py checks this — push both files together
+ENGINE_VERSION = "2.51"   # app.py checks this — push both files together
 
 SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
              "KRE", "EMB", "UUP", "TLT", "^N225"]
@@ -5362,6 +5362,35 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
 def watchlist_remove(ticker: str):
     t = str(ticker or "").strip().upper()
     watchlist_save([w for w in watchlist_load() if _watchlist_ticker(w) != t])
+
+
+def watchlist_is_favorite(row) -> bool:
+    if not isinstance(row, dict):
+        return False
+    return bool(row.get("favorite"))
+
+
+def watchlist_set_favorite(ticker: str, on: bool) -> bool:
+    """Star / unstar a watchlist row. Does not change scanner, date, or price."""
+    t = str(ticker or "").strip().upper()
+    if not t:
+        return False
+    items = watchlist_load()
+    dirty = False
+    for w in items:
+        if _watchlist_ticker(w) != t:
+            continue
+        cur = bool(w.get("favorite"))
+        if bool(on) and not cur:
+            w["favorite"] = True
+            dirty = True
+        elif not on and cur:
+            w.pop("favorite", None)
+            dirty = True
+        break
+    if dirty:
+        watchlist_save(items)
+    return dirty
 
 
 def trump_list_load() -> dict:
