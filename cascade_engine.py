@@ -4449,12 +4449,63 @@ def bull_list_pin_ok(guess) -> bool:
     return hmac.compare_digest(got.encode("ascii"), want.encode("ascii"))
 
 
+def _bull_px(v):
+    """Finite positive price for JSON. None instead of NaN (allow_nan=False)."""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(x) or x <= 0:
+        return None
+    return round(x, 2)
+
+
+def _dump_closes_asof(tickers, day: str) -> dict:
+    """Last dump close on or before a calendar day."""
+    want = [_bull_norm_ticker(t) for t in (tickers or [])]
+    want = [t for t in want if t]
+    day = str(day or "").strip()[:10]
+    if not want or not day:
+        return {}
+    try:
+        asof = pd.Timestamp(day).normalize()
+    except Exception:
+        return {}
+    try:
+        panel, tks, _secs, _mdv, dts = load_dump_panel()
+    except Exception:
+        return {}
+    if dts is None or len(dts) == 0:
+        return {}
+    try:
+        idx = pd.DatetimeIndex(pd.to_datetime(dts)).tz_localize(None).normalize()
+    except Exception:
+        return {}
+    loc = int(idx.searchsorted(asof, side="right") - 1)
+    if loc < 0:
+        return {}
+    imap = {str(t).strip().upper(): i for i, t in enumerate(tks)}
+    C = panel["c"]
+    out = {}
+    for t in want:
+        j = imap.get(t)
+        if j is None:
+            continue
+        col = C[: loc + 1, j]
+        finite = np.isfinite(col)
+        if finite.any():
+            px = _bull_px(col[np.where(finite)[0][-1]])
+            if px is not None:
+                out[t] = px
+    return out
+
+
 def _bull_list_row(item) -> dict | None:
     if isinstance(item, str):
         tk = _bull_norm_ticker(item)
         if not tk:
             return None
-        return {"ticker": tk, "note": "", "added": ""}
+        return {"ticker": tk, "note": "", "added": "", "price_at_add": None}
     if not isinstance(item, dict):
         return None
     tk = _bull_norm_ticker(item.get("ticker") or item.get("Ticker"))
@@ -4464,6 +4515,7 @@ def _bull_list_row(item) -> dict | None:
         "ticker": tk,
         "note": str(item.get("note") or "").strip()[:240],
         "added": str(item.get("added") or "").strip()[:32],
+        "price_at_add": _bull_px(item.get("price_at_add")),
     }
 
 
@@ -4539,25 +4591,56 @@ def bull_list_save(pack) -> bool:
         return False
 
 
-def bull_list_add(tickers, note: str = "") -> list:
-    """Append unique tickers. Returns the names actually added."""
+def bull_list_add(tickers, note: str = "", prices=None) -> list:
+    """Append unique tickers. Snapshots price-then from `prices`, live quotes, or dump."""
     pack = bull_list_load()
     rows = list(pack.get("tickers") or [])
     have = {r["ticker"] for r in rows}
     today = datetime.now(timezone.utc).date().isoformat()
     note = str(note or "").strip()[:240]
-    added = []
+    want = []
     for raw in tickers or []:
-        if len(rows) >= _BULL_LIST_MAX:
+        if len(rows) + len(want) >= _BULL_LIST_MAX:
             break
         tk = _bull_norm_ticker(raw)
-        if not tk or tk in have:
+        if not tk or tk in have or tk in want:
             continue
-        rows.append({"ticker": tk, "note": note, "added": today})
+        want.append(tk)
+    if not want:
+        return []
+    px_map = {}
+    if isinstance(prices, dict):
+        for k, v in prices.items():
+            tk = _bull_norm_ticker(k)
+            if tk:
+                px_map[tk] = _bull_px(v)
+    missing = [t for t in want if px_map.get(t) is None]
+    if missing:
+        try:
+            live, _src = live_quotes(missing, use_dump=True)
+            for t, v in (live or {}).items():
+                if px_map.get(t) is None:
+                    px_map[t] = _bull_px(v)
+        except Exception as e:
+            _log_exc("bull_list_add.quotes", e)
+    missing = [t for t in want if px_map.get(t) is None]
+    if missing:
+        try:
+            for t, v in (dump_last_closes(missing) or {}).items():
+                if px_map.get(t) is None:
+                    px_map[t] = _bull_px(v)
+        except Exception:
+            pass
+    added = []
+    for tk in want:
+        rows.append({
+            "ticker": tk,
+            "note": note,
+            "added": today,
+            "price_at_add": px_map.get(tk),
+        })
         have.add(tk)
         added.append(tk)
-    if not added:
-        return []
     pack["tickers"] = rows
     pack["updated"] = today
     return added if bull_list_save(pack) else []

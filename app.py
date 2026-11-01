@@ -7019,19 +7019,69 @@ with st.container(border=True, key="mw_page"):
                 _blive, _ = _live_quotes(tuple(_btks), _px_nonce())
             except Exception:
                 _blive = {}
-            _bdf["Price"] = [(_blive.get(t) if t in (_blive or {}) else _bpx.get(t))
-                             for t in _btks]
+            def _bull_now(t):
+                if t in (_blive or {}):
+                    return _blive[t]
+                return (_bpx or {}).get(t, np.nan)
+
+            def _bull_then_ok(v):
+                try:
+                    fv = float(v)
+                    return fv if np.isfinite(fv) and fv > 0 else None
+                except (TypeError, ValueError):
+                    return None
+
+            _raw_then = (_bdf["price_at_add"].tolist()
+                         if "price_at_add" in _bdf.columns
+                         else [None] * len(_btks))
+            _need_asof = {}
+            for i, t in enumerate(_btks):
+                if _bull_then_ok(_raw_then[i] if i < len(_raw_then) else None) is not None:
+                    continue
+                day = ""
+                if "Added" in _bdf.columns:
+                    try:
+                        day = str(_bdf.iloc[i]["Added"] or "").strip()[:10]
+                    except Exception:
+                        day = ""
+                if day:
+                    _need_asof.setdefault(day, []).append(t)
+            _asof_px = {}
+            _asof_fn = getattr(ce, "_dump_closes_asof", None)
+            if callable(_asof_fn) and _need_asof:
+                for _day, _tks_day in _need_asof.items():
+                    try:
+                        _asof_px.update(_asof_fn(_tks_day, _day) or {})
+                    except Exception:
+                        pass
+            _bdf["Price then"] = [
+                _bull_then_ok(_raw_then[i] if i < len(_raw_then) else None)
+                or _asof_px.get(t, np.nan)
+                for i, t in enumerate(_btks)
+            ]
+            _bdf["Price now"] = [_bull_now(t) for t in _btks]
+            _bdf["Since saved"] = _bdf["Price now"] / _bdf["Price then"] - 1
+            if "price_at_add" in _bdf.columns:
+                _bdf = _bdf.drop(columns=["price_at_add"])
             _bdf = _stamp_hs(_bdf)
             if "#" in _bdf.columns:
                 _bdf = _bdf.drop(columns=["#"])
             _bdf.insert(0, "#", list(range(1, len(_bdf) + 1)))
             _border = _order_with_cat(
-                ["#", "Ticker", "Sector", "Price", "Note", "Added"], _bdf)
+                ["#", "Ticker", "Sector", "Added", "Price then", "Price now",
+                 "Since saved", "Note"], _bdf)
             _bunlock = bool(st.session_state.get("_bull_unlocked"))
+            _bfmt = {k: v for k, v in {
+                "Price then": "${:,.2f}",
+                "Price now": "${:,.2f}",
+                "Since saved": "{:+.1%}",
+            }.items() if k in _bdf.columns}
+            _bsty = _style_health_setup(_bdf.style.format(_bfmt, na_rep="—"))
+            if "Since saved" in _bdf.columns:
+                _bsty = _bsty.map(lambda v: _css_sign(v, dead=0.002),
+                                  subset=["Since saved"])
             _bsel = st.dataframe(
-                _style_health_setup(_bdf.style.format(
-                    {k: v for k, v in {"Price": "${:,.2f}"}.items()
-                     if k in _bdf.columns}, na_rep="—")),
+                _bsty,
                 width=_DF_WIDTH, hide_index=True,
                 height=_fit_list_height(len(_bdf)),
                 on_select="rerun",
@@ -7045,8 +7095,12 @@ with st.container(border=True, key="mw_page"):
                         help="Owner note for why this name is on the bull list."),
                     "Added": st.column_config.Column(
                         help="Calendar day the owner added it."),
-                    "Price": st.column_config.Column(
-                        help="Live quote when available, otherwise last dump close."),
+                    "Price then": st.column_config.Column(
+                        help="Price on the day it was added to this list."),
+                    "Price now": st.column_config.Column(
+                        help="Live Alpaca/Yahoo quote when available, otherwise last dump close."),
+                    "Since saved": st.column_config.Column(
+                        help="Return since the day it was added. Live quote vs the saved add-day price."),
                 })
             st.caption("👆 Tap a row for the chart, cards, and company profile below.")
             _brows = (_bsel.selection.rows
