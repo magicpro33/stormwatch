@@ -3046,6 +3046,7 @@ _IB_FLAG_RANK = {
     "Trump": 6, "Senate": 5, "House": 4, "BlackRock": 3,
     "Vanguard": 3, "State Street": 3, "Institution": 2,
 }
+_IB_OFFICIAL_FLAGS = frozenset({"Trump", "Senate", "House"})
 _IB_COLS = [
     "Ticker", "Name", "Sector", "Filed", "Age", "Bought $",
     "Buyers", "Flag", "Who", "Role", "Price", "Source",
@@ -3418,11 +3419,13 @@ def _ib_trades_congress(days: int) -> list:
 
 def insider_buy_scan(lookback_days: int = 30, min_value: float = 100_000,
                      top: int = 50, big_only: bool = False,
+                     officials_only: bool = False,
                      only_sectors=None) -> pd.DataFrame:
     """Most recent large insider / politician / mega-fund purchases.
 
     Form 4 buys (OpenInsider + Finviz) plus House/Senate periodic reports.
     Rank: recency of the filing, then dollars, then a flag/cluster boost.
+    officials_only keeps Senate, House, and Trump filings.
     """
     empty = pd.DataFrame(columns=_IB_COLS)
     try:
@@ -3542,6 +3545,8 @@ def insider_buy_scan(lookback_days: int = 30, min_value: float = 100_000,
         if age < 0:
             age = 0
         flag = rec["flags"] or ""
+        if officials_only and flag not in _IB_OFFICIAL_FLAGS:
+            continue
         if big_only and not flag:
             continue
         dollars = float(rec["value"] or 0.0)

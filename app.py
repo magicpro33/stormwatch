@@ -1706,11 +1706,12 @@ def _keyword_scan(asof: str, query: str, min_price: float, max_price: float,
 
 @st.cache_data(ttl=1200, show_spinner="Reading latest insider and Congress buys…")
 def _insider_buy_scan(asof: str, days: int, min_value: float, top: int,
-                      big_only: bool, sectors_key: str):
+                      big_only: bool, officials_only: bool, sectors_key: str):
     import json as _j
     secs = _j.loads(sectors_key) if sectors_key else None
     return ce.insider_buy_scan(lookback_days=int(days), min_value=float(min_value),
                                top=int(top), big_only=bool(big_only),
+                               officials_only=bool(officials_only),
                                only_sectors=secs)
 
 
@@ -5439,6 +5440,7 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
 # Run / result flags — bools, but not widgets. Keep them in session_state.
 _HUB_KEEP_FLAGS = {
     "top20_go", "t20_live", "sw_go", "apex_run", "poc_run", "kw_run", "ib_run",
+    "ib_officials",
     "te_run", "el_run",
     "macro_advice_on", "hs_gate_thatbiz",
     "top20_advice_on", "apex_advice_on", "sw_advice_on", "poc_advice_on",
@@ -5492,7 +5494,7 @@ _HUB_KEEP_SKIP = {
     "hs_dl_csv",
     "kw_run", "kw_snap", "kw_table", "kw_inline", "kw_inline_tk", "kw_go",
     "ib_run", "ib_snap", "ib_table", "ib_inline", "ib_inline_tk", "ib_go",
-    "ib_hot_btn",
+    "ib_hot_btn", "ib_gov_btn",
     "te_run", "te_snap", "te_words", "te_speeches", "te_inline", "te_inline_tk",
     "te_table", "te_go", "te_search", "te_px_btn", "macro_advise", "macro_apply",
     "el_run", "el_snap", "el_table", "el_sec", "el_inline", "el_inline_tk",
@@ -5514,7 +5516,7 @@ _HUB_BUTTON_KEYS = {
     "apex_go", "apex_hot", "apex_csv",
     "poc_go", "poc_hot_btn",
     "kw_go",
-    "ib_go", "ib_hot_btn",
+    "ib_go", "ib_hot_btn", "ib_gov_btn",
     "te_go", "te_search", "te_px_btn",
     "el_go",
     "cc_reload_board", "cc_reload_vaults",
@@ -8283,39 +8285,57 @@ with st.container(border=True, key="mw_page"):
 
         _hub_sec("3 · Catalysts and Filters", "#A78BFA")
         _ib_cat = _catalysts_section("ib", cat_color="#A78BFA", pill_key="ib_cat_box")
-        _ib_sec_txt = (f", limited to {len(_sec_filter)} sectors"
-                       if _sec_filter else "")
-        _ib_big_txt = ", big names only" if _ib_big else ""
-        _rank_banner(
-            f"Ranking the top <b>{int(_ib_top)}</b> by "
-            f"<b style='color:{ACCENT};'>most recent big insider buys</b> "
-            f"(last {int(_ib_days)} days, Form 4 ≥ ${int(_ib_min):,})"
-            f"{_ib_big_txt}{_ib_sec_txt}"
-            f"{_rank_filters_html('ib')}.",
-            "#67E8F9")
-        if st.button("💼 Scan insider buying", type="primary", key="ib_go",
-                     width="stretch"):
+        _ib1, _ib2 = st.columns(2, gap="medium")
+        if _ib1.button("💼 Scan insider buying", type="primary", key="ib_go",
+                       width="stretch"):
+            st.session_state["ib_officials"] = False
             st.session_state["ib_run"] = True
             st.session_state.pop("ib_snap", None)
             st.session_state.pop("ib_inline_tk", None)
+        if _ib2.button("🏛 Government officials only", key="ib_gov_btn",
+                       width="stretch",
+                       help="Scan Senate, House, and Trump purchases only — "
+                            "no company officers or funds."):
+            st.session_state["ib_officials"] = True
+            st.session_state["ib_run"] = True
+            st.session_state.pop("ib_snap", None)
+            st.session_state.pop("ib_inline_tk", None)
+        _ib_officials = bool(st.session_state.get("ib_officials"))
+        _ib_sec_txt = (f", limited to {len(_sec_filter)} sectors"
+                       if _sec_filter else "")
+        _ib_big_txt = ", big names only" if (_ib_big and not _ib_officials) else ""
+        _ib_gov_txt = ", Senate / House / Trump" if _ib_officials else ""
+        _rank_banner(
+            f"Ranking the top <b>{int(_ib_top)}</b> by "
+            f"<b style='color:{ACCENT};'>"
+            f"{'government-official buys' if _ib_officials else 'most recent big insider buys'}"
+            f"</b> "
+            f"(last {int(_ib_days)} days"
+            f"{'' if _ib_officials else f', Form 4 ≥ ${int(_ib_min):,}'})"
+            f"{_ib_gov_txt}{_ib_big_txt}{_ib_sec_txt}"
+            f"{_rank_filters_html('ib')}.",
+            "#67E8F9")
 
         if st.session_state.get("ib_run"):
             import json as _ib_json
+            _ib_officials = bool(st.session_state.get("ib_officials"))
             _ib_secs_key = _ib_json.dumps(sorted(_sec_filter)) if _sec_filter else ""
             _ib_sig = (int(_ib_days), float(_ib_min), int(_ib_top),
-                       bool(_ib_big), _ib_secs_key)
+                       bool(_ib_big), bool(_ib_officials), _ib_secs_key)
             _isnap = st.session_state.get("ib_snap") or {}
             if "df" in _isnap:
                 _idf = _isnap.get("df")
                 if _idf is None:
                     _idf = pd.DataFrame()
                 if _isnap.get("sig") != _ib_sig:
-                    st.info("Hunt settings changed. Hit **Scan insider buying** to refresh.")
+                    st.info("Hunt settings changed. Hit **Scan insider buying** "
+                            "or **Government officials only** to refresh.")
             else:
                 try:
                     _idf = _insider_buy_scan(
                         _dump_asof_key(), int(_ib_days), float(_ib_min),
-                        int(_ib_top), bool(_ib_big), _ib_secs_key)
+                        int(_ib_top), bool(_ib_big), bool(_ib_officials),
+                        _ib_secs_key)
                 except Exception as _ie:
                     _idf = pd.DataFrame()
                     st.error(f"Insider scan failed: {_ie}")
@@ -8325,8 +8345,12 @@ with st.container(border=True, key="mw_page"):
                     "sig": _ib_sig,
                 }
             if _idf is None or _idf.empty:
-                st.info("No filings cleared that hunt. Widen the lookback, "
-                        "drop the dollar floor, or turn off Big names only.")
+                if _ib_officials:
+                    st.info("No Senate, House, or Trump purchases in that window. "
+                            "Widen the lookback or add sectors.")
+                else:
+                    st.info("No filings cleared that hunt. Widen the lookback, "
+                            "drop the dollar floor, or turn off Big names only.")
             else:
                 _idf = _drop_blank_cols(_idf)
                 _idf = _with_catalysts(_idf, _ib_cat, safe_key="ib")
@@ -8343,10 +8367,12 @@ with st.container(border=True, key="mw_page"):
                         f"border-left:5px solid #67E8F9;border-radius:10px;"
                         f"padding:10px 14px;margin:8px 0;'>"
                         f"<b>{len(_idf)} name{'s' if len(_idf) != 1 else ''}</b> "
-                        f"with recent insider buying"
+                        f"with recent "
+                        f"{'official' if _ib_officials else 'insider'} buying"
                         f"{f' · {_n_flag} flagged' if _n_flag else ''}"
-                        f"<span style='color:{DIM};font-size:12px;'> · Form 4 "
-                        f"+ Congress · ranked by recency × size</span></div>")
+                        f"<span style='color:{DIM};font-size:12px;'> · "
+                        f"{'Senate / House / Trump' if _ib_officials else 'Form 4 + Congress'}"
+                        f" · ranked by recency × size</span></div>")
                     _ib_order = _order_with_cat(
                         [c for c in ["#", "Ticker", "Name", "Sector", "Filed",
                                      "Age", "Bought $", "Buyers", "Flag",
