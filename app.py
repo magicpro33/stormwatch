@@ -6671,9 +6671,10 @@ with st.container(border=True, key="mw_page"):
                         "added", "price_at_add", "price_now", "since_add"]]
             show.columns = ["Ticker", "Sector", "Scanner", "Earnings", "Health/Piotroski",
                             "Saved", "Price then", "Price now", "Since saved"]
-            show.insert(0, "★", [bool(x) for x in wdf["_fav"].tolist()])
+            _WL_FAV_ON, _WL_FAV_OFF = "★", "☆"
+            show.insert(0, "Fav", [_WL_FAV_ON if x else _WL_FAV_OFF
+                                   for x in wdf["_fav"].tolist()])
             show.insert(0, "sel", [False] * len(show))
-            show["★"] = show["★"].astype(bool)
             show["sel"] = show["sel"].astype(bool)
             _wl_sel_epoch = int(st.session_state.get("_wl_sel_epoch", 0) or 0)
             _edited = st.data_editor(
@@ -6685,17 +6686,18 @@ with st.container(border=True, key="mw_page"):
                 .map(_css_health_lbl, subset=["Health/Piotroski"]),
                 width="stretch", hide_index=True, height="content",
                 row_height=35, num_rows="fixed",
-                disabled=[c for c in show.columns if c not in ("sel", "★")],
-                key=f"wl_table_health_{_wl_sel_epoch}",
+                disabled=[c for c in show.columns if c not in ("sel", "Fav")],
+                key=f"wl_table_favsel_{_wl_sel_epoch}",
                 column_config={
                     "sel": st.column_config.CheckboxColumn(
                         " ",
-                        help="Select to open or remove. Separate from the star.",
+                        help="Select to open or remove. Separate from the favorite star.",
                         default=False, width="small", pinned=True),
-                    "★": st.column_config.CheckboxColumn(
-                        "★",
-                        help="Favorite. Toggle freely — this does not select the row for open or remove.",
-                        default=False, width="small", pinned=True),
+                    "Fav": st.column_config.SelectboxColumn(
+                        "Fav",
+                        options=[_WL_FAV_OFF, _WL_FAV_ON],
+                        help="Pick ★ to pin a favorite. ☆ is unstarred. This does not select the row.",
+                        width="small", pinned=True, required=True),
                     "Ticker": st.column_config.Column(help="Saved ticker."),
                     "Sector": st.column_config.Column(help="Nightly dump sector."),
                     "Scanner": st.column_config.Column(
@@ -6719,16 +6721,25 @@ with st.container(border=True, key="mw_page"):
                 except Exception:
                     pass
                 return bool(v)
-            _old_stars = [_wl_as_bool(x) for x in show["★"].tolist()]
-            _new_stars = ([_wl_as_bool(x) for x in _edited["★"].tolist()]
-                          if _edited is not None and "★" in _edited.columns else _old_stars)
+            def _wl_as_fav(v):
+                if isinstance(v, str):
+                    s = v.strip()
+                    if s in ("★", "⭐"):
+                        return True
+                    if s in ("☆", "✩", "") or s.lower() in ("off", "no", "false"):
+                        return False
+                    return s.lower() in ("true", "1", "yes", "on")
+                return _wl_as_bool(v)
+            _old_stars = [_wl_as_fav(x) for x in show["Fav"].tolist()]
+            _new_stars = ([_wl_as_fav(x) for x in _edited["Fav"].tolist()]
+                          if _edited is not None and "Fav" in _edited.columns else _old_stars)
             _star_tks = [str(t).strip().upper() for t in (_edited["Ticker"] if _edited is not None else show["Ticker"]).tolist()]
             if len(_new_stars) == len(_old_stars) and _new_stars != _old_stars:
                 for _tk, _on, _was in zip(_star_tks, _new_stars, _old_stars):
                     if _on != _was and _tk:
                         ce.watchlist_set_favorite(_tk, _on)
                 st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
-                st.session_state.pop(f"wl_table_health_{_wl_sel_epoch}", None)
+                st.session_state.pop(f"wl_table_favsel_{_wl_sel_epoch}", None)
                 st.rerun()
             _sel_flags = ([_wl_as_bool(x) for x in _edited["sel"].tolist()]
                           if _edited is not None and "sel" in _edited.columns else [])
@@ -6745,8 +6756,9 @@ with st.container(border=True, key="mw_page"):
                         (_ent or {}).get("source"), (_ent or {}).get("note"))
                     st.rerun()
             _cap, _rm = st.columns([4, 1], vertical_alignment="center")
-            _cap.caption("⭐ Toggle ★ to favorite — it does not select the row. "
-                         "Check a row to open it. Select one or more rows, then remove them here.")
+            _cap.caption("Fav is ☆ or ★ — pick ★ to pin a favorite. That does not "
+                         "select the row. Check a row to open it. Select one or more "
+                         "rows, then remove them here.")
             if _rm.button(f"🗑 Remove ({len(_sel_tks)})", width="stretch",
                           disabled=not _sel_tks, key="wl_remove_selected"):
                 for _t in _sel_tks:
@@ -6754,7 +6766,8 @@ with st.container(border=True, key="mw_page"):
                 st.session_state.pop("_wl_handled", None)
                 st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
                 for _k in (f"wl_table_{_wl_sel_epoch}", f"wl_table_health_{_wl_sel_epoch}",
-                           f"wl_stars_{_wl_sel_epoch}", "wl_table", "wl_mgmt_editor"):
+                           f"wl_table_favsel_{_wl_sel_epoch}", f"wl_stars_{_wl_sel_epoch}",
+                           "wl_table", "wl_mgmt_editor"):
                     st.session_state.pop(_k, None)
                 st.success("Removed " + ", ".join(_sel_tks))
                 st.rerun()
@@ -6763,8 +6776,8 @@ with st.container(border=True, key="mw_page"):
         # ── Backup / restore — always visible, even with an empty list ──
         with st.expander("Manage watchlist", expanded=False):
             st.caption("Select rows on the list above to open or remove them. "
-                       "Star favorites in the ★ column — that mark is stored with the "
-                       "row. The backup file stores every field — ticker, favorite, "
+                       "Pin favorites in the Fav column (☆ / ★) — that mark is stored "
+                       "with the row. The backup file stores every field — ticker, favorite, "
                        "scanner, saved date, price then, note, and each scanner's full "
                        "row. The same row is already saved on disk and in this page's URL.")
             bc1, bc2 = st.columns(2)
