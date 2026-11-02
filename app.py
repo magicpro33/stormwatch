@@ -7938,7 +7938,8 @@ with st.container(border=True, key="mw_page"):
     # ── 🐂 master bull list (public view, PIN to edit) ────────────────
     if _main == "Bull List":
         _hub_title("🐂 Bull List", "#3fbf7f", tagline="Master list")
-        closes, asof = _try_closes_for_scan()
+        # Dump as-of only — do not pull 3 years of node history on this tab.
+        asof = _dump_asof_key()
         _bunlock = bool(st.session_state.get("_bull_unlocked"))
         _bpick = []
         _show_tk = ""
@@ -7963,8 +7964,8 @@ with st.container(border=True, key="mw_page"):
                                             "added": "Added"})
             _btks = [str(t).strip().upper() for t in _bdf["Ticker"].tolist()]
             _br1, _br2 = st.columns([4, 1], vertical_alignment="bottom")
-            _br1.caption(f"{len(_btks)} ticker(s) — prices refresh automatically, "
-                         "or force a fresh pull now.")
+            _br1.caption(f"{len(_btks)} ticker(s) — dump close until you "
+                         "refresh for a live Alpaca/Yahoo pull.")
             if _br2.button("🔄 Refresh Prices", width="stretch",
                            key="bull_refresh_prices"):
                 st.session_state["_bull_px_nonce"] = int(
@@ -8008,12 +8009,13 @@ with st.container(border=True, key="mw_page"):
                 _bpx = ce.dump_last_closes(_btks) or {}
             except Exception:
                 _bpx = {}
-            try:
-                _blive, _ = _live_quotes(
-                    tuple(_btks),
-                    int(st.session_state.get("_bull_px_nonce", 0) or 0))
-            except Exception:
-                _blive = {}
+            _blive = {}
+            _bull_nonce = int(st.session_state.get("_bull_px_nonce", 0) or 0)
+            if _bull_nonce:
+                try:
+                    _blive, _ = _live_quotes(tuple(_btks), _bull_nonce)
+                except Exception:
+                    _blive = {}
             def _bull_now(t):
                 if t in (_blive or {}):
                     return _blive[t]
@@ -8100,9 +8102,9 @@ with st.container(border=True, key="mw_page"):
                     "Price then": st.column_config.Column(
                         help="Price on the day it was added to this list."),
                     "Price now": st.column_config.Column(
-                        help="Live Alpaca/Yahoo quote when available, otherwise last dump close."),
+                        help="Last dump close until you refresh for a live Alpaca/Yahoo quote."),
                     "Since saved": st.column_config.Column(
-                        help="Return since the day it was added. Live quote vs the saved add-day price."),
+                        help="Return since the day it was added. Dump close vs the saved add-day price, or live after Refresh Prices."),
                 })
             st.caption("👆 Tap a row for the chart, cards, and company profile below.")
             _brows = (_bsel.selection.rows
@@ -8119,8 +8121,9 @@ with st.container(border=True, key="mw_page"):
             if len(_bpick) == 1:
                 st.session_state["bull_inline"] = _bpick[0]
                 st.session_state["lk_tk"] = _bpick[0]
-            _show_tk = _bpick[0] if len(_bpick) == 1 else str(
-                st.session_state.get("bull_inline") or "").strip().upper()
+            # Only open the chart stack on this click — leftover bull_inline
+            # must not re-run the analyzer every time you return to the tab.
+            _show_tk = _bpick[0] if len(_bpick) == 1 else ""
         else:
             st.info("The bull list is empty. The owner can add names after unlocking.")
             _bpick = []
