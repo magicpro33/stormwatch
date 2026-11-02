@@ -1066,12 +1066,11 @@ def _lookup_cats(tk: str, sector: str = ""):
 def _yf_info(tk: str) -> dict:
     """Live Yahoo profile — same pull as IGNITION's Analyze a Stock tab.
 
-    Three tries with 3s/6s backoff. A rate-limited stub is usually 1–2 keys;
-    a real response has quoteType/symbol or at least 5 fields. The nightly
-    dump's `_analyzer` pack does not store longBusinessSummary, so this is
-    the source the Analyze tab actually uses for the write-up.
+    One try. A rate-limited stub is usually 1–2 keys; a real response has
+    quoteType/symbol or at least 5 fields. The nightly dump's `_analyzer`
+    pack does not store longBusinessSummary, so this is the source the
+    Analyze tab actually uses for the write-up.
     """
-    import time
     os.environ.setdefault("YF_DISABLE_CURL_CFFI", "1")
     try:
         from mw_yf import yf_call, cooling
@@ -1079,25 +1078,13 @@ def _yf_info(tk: str) -> dict:
         if cooling():
             return {}
         stock = yf_call(lambda: yf.Ticker(str(tk).strip().upper()))
+        fetched = yf_call(lambda: stock.info or {}) or {}
+        if (fetched.get("quoteType") or fetched.get("symbol")
+                or len(fetched) >= 5):
+            return fetched
+        return fetched
     except Exception:
         return {}
-    info = {}
-    for attempt in range(3):
-        if cooling():
-            return info
-        try:
-            fetched = yf_call(lambda: stock.info or {})
-            if (fetched.get("quoteType") or fetched.get("symbol")
-                    or len(fetched) >= 5):
-                return fetched
-            if attempt < 2:
-                time.sleep(2)
-        except Exception:
-            if cooling():
-                return info
-            if attempt < 2:
-                time.sleep(2)
-    return info
 
 
 def _lk_pct_held(v):
@@ -2483,6 +2470,30 @@ def _ov_row(label, value, tip=None, html_value=False):
         unsafe_allow_html=True)
 
 
+def _lookup_profile_info(tk, info):
+    """Dump/analyzer pack first. Yahoo profile only if the write-up is missing
+    and Yahoo is not in cooldown — avoids a multi-second lookup stall."""
+    biz = dict(info or {})
+    if biz.get("longBusinessSummary") or biz.get("description"):
+        return biz
+    try:
+        from mw_yf import cooling
+        if cooling():
+            return biz
+        live = _yf_info(tk) or {}
+    except Exception:
+        return biz
+    if not live:
+        return biz
+    if live.get("longBusinessSummary") or live.get("description"):
+        biz.update({k: live[k] for k in live if live.get(k) not in (None, "")})
+    else:
+        for k, v in live.items():
+            if v not in (None, "") and not biz.get(k):
+                biz[k] = v
+    return biz
+
+
 def render_business_summary(info: dict, tk: str) -> None:
     """Company Overview + Business Summary — IGNITION Analyze Overview tab."""
     info = info or {}
@@ -2769,14 +2780,22 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
 
 
 def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
-                            key_prefix: str = "az"):
+                            key_prefix: str = "az", pack=None):
     """The IGNITION Stock Analyzer: dump → Alpaca → yfinance chain,
     three-column deep dive.
 
     key_prefix keeps widget keys unique when this block is drawn from more
     than one tab in the same run (Streamlit renders every tab).
+    Pass `pack` from a lookup that already ran `_analyzer` so this does not
+    fetch the same chain a second time.
     """
-    info, hist, eps_history, eps_forward = _analyzer(tk, asof, ver=ce.ENGINE_VERSION)
+    if isinstance(pack, (tuple, list)) and len(pack) >= 4:
+        info, hist, eps_history, eps_forward = pack[0], pack[1], pack[2], pack[3]
+    else:
+        info, hist, eps_history, eps_forward = _analyzer(tk, asof, ver=ce.ENGINE_VERSION)
+    info = info or {}
+    if hist is None or not hasattr(hist, "empty"):
+        hist = pd.DataFrame()
 
     px = float(info.get("currentPrice") or info.get("regularMarketPrice") or
                info.get("previousClose") or
@@ -5144,7 +5163,7 @@ def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
     try:
         _info, df_tk, _eh, _ef = _analyzer(tk, asof)
     except Exception:
-        _info, df_tk = {}, pd.DataFrame()
+        _info, df_tk, _eh, _ef = {}, pd.DataFrame(), None, None
     if (df_tk is None or df_tk.empty) and closes is not None \
             and tk in getattr(closes, "columns", []):
         df_tk = pd.DataFrame({"Close": closes[tk].dropna()})
@@ -5168,23 +5187,13 @@ def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
                  "or the nightly dump.")
         return
     try:
-        render_ignition_analyzer(tk, closes, key_prefix=az_prefix)
+        render_ignition_analyzer(
+            tk, closes, key_prefix=az_prefix,
+            pack=(_info, df_tk, _eh, _ef))
     except Exception as _ae:
         st.caption(f"Analyzer unavailable: {_ae}")
     try:
-        _biz = dict(_info or {})
-        try:
-            _live = _yf_info(tk) or {}
-        except Exception:
-            _live = {}
-        if _live.get("longBusinessSummary") or _live.get("description"):
-            _biz.update({k: _live[k] for k in _live
-                         if _live.get(k) not in (None, "")})
-        else:
-            for k, v in _live.items():
-                if v not in (None, "") and not _biz.get(k):
-                    _biz[k] = v
-        render_business_summary(_biz, tk)
+        render_business_summary(_lookup_profile_info(tk, _info), tk)
     except Exception as _bse:
         st.caption(f"Business summary unavailable: {_bse}")
 
@@ -5212,24 +5221,17 @@ def _render_scan_hub_detail(tk: str, state_key: str, az_prefix: str,
     except Exception as _nse:
         st.caption(f"News unavailable: {_nse}")
     try:
-        render_ignition_analyzer(tk, closes, key_prefix=az_prefix)
+        _hinfo, _hhist, _heh, _hef = _analyzer(tk, asof)
+    except Exception:
+        _hinfo, _hhist, _heh, _hef = {}, None, None, None
+    try:
+        render_ignition_analyzer(
+            tk, closes, key_prefix=az_prefix,
+            pack=(_hinfo, _hhist, _heh, _hef))
     except Exception as _ae:
         st.caption(f"Analyzer unavailable: {_ae}")
     try:
-        _hinfo = _analyzer(tk, asof)[0]
-        _biz = dict(_hinfo or {})
-        try:
-            _live = _yf_info(tk) or {}
-        except Exception:
-            _live = {}
-        if _live.get("longBusinessSummary") or _live.get("description"):
-            _biz.update({k: _live[k] for k in _live
-                         if _live.get(k) not in (None, "")})
-        else:
-            for k, v in _live.items():
-                if v not in (None, "") and not _biz.get(k):
-                    _biz[k] = v
-        render_business_summary(_biz, tk)
+        render_business_summary(_lookup_profile_info(tk, _hinfo), tk)
     except Exception as _bse:
         st.caption(f"Business summary unavailable: {_bse}")
 
@@ -7085,11 +7087,7 @@ def flow_window_picker(prefix: str, compact: bool = False):
 
 
 def _stock_lookup_watchlist(closes, asof):
-    """Watchlist card for Stock Lookup.
-
-    Drawn before the leftover ticker analysis so switching back onto this
-    tab still shows the saved list even if the last lookup is slow or errors.
-    """
+    """Watchlist card for Stock Lookup — drawn under the ticker analysis."""
     # ── watchlist ────────────────────────────────────────────────────
     st.divider()
     st.subheader("⭐ Watchlist")
@@ -7175,8 +7173,8 @@ def _stock_lookup_watchlist(closes, asof):
         pass
     if wl:
         _rfc1, _rfc2 = st.columns([4, 1], vertical_alignment="bottom")
-        _rfc1.caption(f"{len(wl)} ticker(s) saved — prices refresh automatically, "
-                      "or force a fresh pull now.")
+        _rfc1.caption(f"{len(wl)} ticker(s) saved — dump close until you "
+                      "refresh for a live Alpaca/Yahoo pull.")
         if _rfc2.button("🔄 Refresh Prices", width="stretch", key="wl_refresh_prices"):
             st.session_state["_wl_px_nonce"] = _px_nonce() + 1
             st.session_state.pop("_wl_handled", None)
@@ -7193,10 +7191,16 @@ def _stock_lookup_watchlist(closes, asof):
         wdf = pd.DataFrame(wl)
         _tks = tuple(str(t).strip().upper() for t in wdf.ticker)
         try:
-            live, _psrc = _live_quotes(_tks, _px_nonce())
-        except Exception as _lqe:
-            log_exc("watchlist_live_quotes", _lqe)
-            live, _psrc = ce.live_quotes(list(_tks), use_dump=True)
+            live = ce.dump_last_closes(list(_tks)) or {}
+        except Exception:
+            live = {}
+        if _px_nonce():
+            try:
+                got, _psrc = _live_quotes(_tks, _px_nonce())
+                if got:
+                    live = {**live, **got}
+            except Exception as _lqe:
+                log_exc("watchlist_live_quotes", _lqe)
         def _nowpx(t):
             t = str(t).strip().upper()
             if t in live:
@@ -7837,7 +7841,8 @@ with st.container(border=True, key="mw_page"):
     # ── 🔎 stock lookup ──────────────────────────────────────────────────
     if _main == "Stock Lookup":
         _hub_title("🔎 Stock Lookup", "#7FD4FF")
-        closes, asof = _try_closes_for_scan()
+        # Dump as-of only — do not pull 3 years of node history on this tab.
+        asof = _dump_asof_key()
         st.caption("Search any stock in the 5,700-name nightly universe.")
         with st.container(border=True, key="lk_search_box"):
             lc1, lc2 = st.columns([4, 1], vertical_alignment="bottom")
@@ -7858,19 +7863,15 @@ with st.container(border=True, key="mw_page"):
             try:
                 _src = st.session_state.get("wl_source") or "Stock Lookup"
                 _px = float("nan")
-                if closes is not None and tk in getattr(closes, "columns", []):
-                    _s = closes[tk].dropna()
-                    if len(_s):
-                        _px = float(_s.iloc[-1])
+                try:
+                    _d = ce.dump_ohlcv(tk)
+                    if _d is not None and not getattr(_d, "empty", True):
+                        _px = float(_d.Close.dropna().iloc[-1])
+                except Exception:
+                    pass
                 ce.watchlist_add(tk, _px, source=_src)
             except Exception as _we:
                 log_exc("lookup_watchlist_add", _we)
-
-        try:
-            _stock_lookup_watchlist(closes, asof)
-        except Exception as _wle:
-            log_exc("stock_lookup_watchlist", _wle)
-            st.error(f"Watchlist unavailable: {_wle}")
 
         if tk:
             try:
@@ -7881,22 +7882,27 @@ with st.container(border=True, key="mw_page"):
                 log_exc("stock_lookup_analyzer", _lke)
                 st.error(f"Lookup unavailable for **{tk}**: {_lke}")
                 _info, df_tk, _eh, _ef = {}, None, None, None
-            if (df_tk is None or df_tk.empty) and closes is not None and tk in getattr(closes, "columns", []):
-                df_tk = pd.DataFrame({"Close": closes[tk].dropna()})
-                _info = dict(_info or {}, _hist_source="node history")
+            if df_tk is None or (getattr(df_tk, "empty", True)):
+                try:
+                    _d = ce.dump_ohlcv(tk)
+                    if _d is not None and not getattr(_d, "empty", True):
+                        df_tk = _d
+                        _info = dict(_info or {}, _hist_source="dump")
+                except Exception:
+                    pass
             _hs = { "alpaca": "Alpaca history (live)", "yahoo": "Yahoo history",
                     "dump": "nightly dump" }.get((_info or {}).get("_hist_source"),
                                                  (_info or {}).get("_hist_source"))
 
             try:
-                render_ticker_analysis(tk, closes, state_key="lk_tk",
+                render_ticker_analysis(tk, None, state_key="lk_tk",
                                        df=df_tk, src_label=_hs, info=_info,
                                        show_forecast=False)
             except Exception as _rae:
                 log_exc("stock_lookup_analysis", _rae)
                 st.error(f"Chart unavailable for **{tk}**: {_rae}")
 
-            if df_tk is None or df_tk.empty:
+            if df_tk is None or getattr(df_tk, "empty", True):
                 st.error(f"No price history found for **{tk}** from the nightly dump, "
                          "Alpaca, or Yahoo — double-check the symbol "
                          "(e.g. BRK-B not BRK.B, BTC-USD for crypto).")
@@ -7913,25 +7919,21 @@ with st.container(border=True, key="mw_page"):
             # ── IGNITION Stock Analyzer (ported) — full fundamental deep dive ──
             st.divider()
             try:
-                render_ignition_analyzer(tk, closes)
+                render_ignition_analyzer(
+                    tk, None, pack=(_info, df_tk, _eh, _ef))
             except Exception as _ae:
                 st.caption(f"Analyzer unavailable: {_ae}")
 
             try:
-                _biz = dict(_info or {})
-                try:
-                    _live = _yf_info(tk) or {}
-                except Exception:
-                    _live = {}
-                if _live.get("longBusinessSummary") or _live.get("description"):
-                    _biz.update({k: _live[k] for k in _live if _live.get(k) not in (None, "")})
-                else:
-                    for k, v in _live.items():
-                        if v not in (None, "") and not _biz.get(k):
-                            _biz[k] = v
-                render_business_summary(_biz, tk)
+                render_business_summary(_lookup_profile_info(tk, _info), tk)
             except Exception as _bse:
                 st.caption(f"Business summary unavailable: {_bse}")
+
+        try:
+            _stock_lookup_watchlist(None, asof)
+        except Exception as _wle:
+            log_exc("stock_lookup_watchlist", _wle)
+            st.error(f"Watchlist unavailable: {_wle}")
 
     # ── 🐂 master bull list (public view, PIN to edit) ────────────────
     if _main == "Bull List":
