@@ -5135,10 +5135,6 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     else:
         st.session_state.pop(_mbox_key, None)
         st.plotly_chart(fig, width="stretch", key=_chart_key)
-    n_bars = len(d)
-    tf_bit = f"{chart_tf} · {n_bars} bars · {chart_src}" if chart_src else chart_tf
-    st.caption(f"{tf_bit}" + (f" · {note}" if note else "")
-               + " · Research view, not investment advice.")
 
 
 def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
@@ -6266,12 +6262,6 @@ def _render_signed_catalysts(tk: str, sector: str = "", *, notes: bool = True) -
     up, down, other = pack.get("up") or "", pack.get("down") or "", pack.get("other") or ""
     score = int(pack.get("score") or 0)
     st.markdown("##### Catalysts")
-    _note_line = ("A short note sits under each tag that is firing."
-                  if notes else
-                  "Hover a tag for what it means.")
-    st.caption("Deep search: dump tape and fundamentals, Yahoo news, earnings "
-               "calendar, analyst actions, and insiders. ▲ Up historically helped "
-               "the next move. ▼ Down historically hurt it. " + _note_line)
     if not (up or down or other):
         st.caption("No catalysts firing after the deep search.")
         return
@@ -6416,8 +6406,6 @@ def _render_lookup_news(tk: str, name: str = "") -> None:
     if not tk:
         return
     st.markdown("##### News")
-    st.caption("Web search across Yahoo News, Yahoo RSS, and Google News. "
-               "Every headline is marked positive, negative, mixed, or unmarked.")
     try:
         items = _lookup_news(tk, name or "") or []
     except Exception as e:
@@ -6555,11 +6543,13 @@ def _render_scan_hub_help():
             color="#FF8FA3")
         _help_card(
             "💼 Insider Buying",
-            "Latest large Form 4 buys plus Senate and House purchases.",
-            "Ranks names by how recently the filing hit, then by dollars, "
-            "with a boost when the buyer is a mega-fund, Trump, a senator, "
-            "or another 10% institution. Health/Piotroski and Clean Setup "
-            "stamp onto the list the same way the other scanners do.",
+            "Latest large Form 4 purchases (officers, 10% holders, mega-funds) "
+            "plus Senate and House buys.",
+            "Ranked by how recently the filing hit, then by dollars, with a "
+            "boost when the buyer is Trump, a senator, or a name-brand "
+            "institution. Tap a row for the chart and company profile. "
+            "Health/Piotroski and Clean Setup stamp onto the list the same "
+            "way the other scanners do.",
             "You want to see where the big names just bought, not a technical setup.",
             color="#67E8F9")
         _help_card(
@@ -7918,9 +7908,6 @@ with st.container(border=True, key="mw_page"):
     if _main == "Bull List":
         _hub_title("🐂 Bull List", "#3fbf7f", tagline="Master list")
         closes, asof = _try_closes_for_scan()
-        st.caption("Shared names the owner is watching on the long side. "
-                   "Anyone using the app can read this list. Adding or removing "
-                   "names needs the owner's 4-digit PIN.")
         _bunlock = bool(st.session_state.get("_bull_unlocked"))
         _bpick = []
         _show_tk = ""
@@ -8218,12 +8205,6 @@ with st.container(border=True, key="mw_page"):
         _hub_title("💼 Insider Buying", "#67E8F9")
         _hub_keep_restore("ib", ("ib_",))
         closes, asof = _try_closes_for_scan()
-        st.caption(
-            "Latest large Form 4 purchases (officers, 10% holders, mega-funds) "
-            "plus Senate and House buys. Ranked by how recently the filing "
-            "hit, then by dollars, with a boost when the buyer is Trump, a "
-            "senator, or a name-brand institution. Tap a row for the chart "
-            "and company profile.")
 
         _hub_sec("1 · Hunt", "#67E8F9", "how recent, how large")
         with _hub_pill("ib_hunt_box"):
