@@ -7079,6 +7079,406 @@ def flow_window_picker(prefix: str, compact: bool = False):
     return int(n), 0, f"last {int(n)} sessions"
 
 
+def _stock_lookup_watchlist(closes, asof):
+    """Watchlist card for Stock Lookup.
+
+    Drawn before the leftover ticker analysis so switching back onto this
+    tab still shows the saved list even if the last lookup is slow or errors.
+    """
+    # ── watchlist ────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("⭐ Watchlist")
+
+    # Persistence has three layers:
+    #   1. watchlist.json — full rows (ticker, scanner, saved date, price then,
+    #      note, scan snapshot), written to the app data dir, the user profile,
+    #      and temp so a restart still finds one copy.
+    #   2. the page URL — ?wl= is the ticker list, ?wld= is the full rows
+    #      gzipped. Bookmarking survives a Streamlit Cloud rebuild.
+    #   3. the JSON backup file — a manual copy of every stored field.
+    # On load, the full URL copy is merged into the file. A name-only link
+    # adds tickers that are missing; it does not replace a saved row.
+    def _wl_qp(name):
+        try:
+            val = st.query_params.get(name, "")
+        except Exception:
+            return ""
+        if isinstance(val, (list, tuple)):
+            val = val[0] if val else ""
+        return str(val or "")
+
+    _wl_param = _wl_qp("wl")
+    if not st.session_state.get("_wl_restored"):
+        st.session_state["_wl_restored"] = True
+        _full_n = 0
+        _packed = _wl_qp("wld")
+        if _packed and hasattr(ce, "watchlist_unpack") and hasattr(ce, "watchlist_merge_rows"):
+            try:
+                _rows = ce.watchlist_unpack(_packed)
+                if _rows:
+                    _full_n = int(ce.watchlist_merge_rows(_rows, overwrite=False) or 0)
+            except Exception as _pe:
+                log_exc("watchlist_url_restore", _pe)
+        _have = {str(w.get("ticker", "")).strip().upper() for w in ce.watchlist_load()}
+        _restored = []
+        for _t in [x.strip().upper() for x in _wl_param.split(",") if x.strip()]:
+            if _t and _t not in _have:
+                try:
+                    _d = ce.dump_ohlcv(_t)
+                    ce.watchlist_add(_t, float(_d.Close.iloc[-1]) if not _d.empty else float("nan"),
+                                     source="Stock Lookup")
+                    _restored.append(_t)
+                    _have.add(_t)
+                except Exception:
+                    continue
+        if _full_n:
+            st.success(f"↩️ Restored {_full_n} watchlist row(s) from your link, "
+                       "including scanner, saved date, price, note, and scan data.")
+        elif _restored:
+            st.success(f"↩️ Restored {len(_restored)} saved ticker(s) from your link: "
+                       + ", ".join(_restored))
+
+    wl = ce.watchlist_load()
+    if wl:
+        st.session_state["_wl_last_good"] = list(wl)
+    elif not (ce.watchlist_load_ok() if hasattr(ce, "watchlist_load_ok") else True):
+        wl = list(st.session_state.get("_wl_last_good") or [])
+    # Keep the URL in step so a bookmark stores the full rows, not just names.
+    try:
+        _load_ok = ce.watchlist_load_ok() if hasattr(ce, "watchlist_load_ok") else True
+        _cur = ",".join(sorted(
+            str(w.get("ticker") or "").strip().upper()
+            for w in wl if isinstance(w, dict) and w.get("ticker")))
+        _pack = ce.watchlist_pack(wl) if wl and hasattr(ce, "watchlist_pack") else ""
+        _old_wl, _old_pack = _wl_qp("wl"), _wl_qp("wld")
+        _sig = _cur + "\n" + _pack
+        if st.session_state.get("_wl_url_sig") == _sig:
+            pass
+        elif not wl and not _load_ok and (_old_wl or _old_pack):
+            pass
+        elif _cur != _old_wl or (_pack and _pack != _old_pack) or (not _cur and (_old_wl or _old_pack)):
+            if _cur:
+                st.query_params["wl"] = _cur
+                if _pack:
+                    st.query_params["wld"] = _pack
+            else:
+                for _k in ("wl", "wld"):
+                    if _k in st.query_params:
+                        del st.query_params[_k]
+            st.session_state["_wl_url_sig"] = _sig
+    except Exception:
+        pass
+    if wl:
+        _rfc1, _rfc2 = st.columns([4, 1], vertical_alignment="bottom")
+        _rfc1.caption(f"{len(wl)} ticker(s) saved — prices refresh automatically, "
+                      "or force a fresh pull now.")
+        if _rfc2.button("🔄 Refresh Prices", width="stretch", key="wl_refresh_prices"):
+            st.session_state["_wl_px_nonce"] = _px_nonce() + 1
+            st.session_state.pop("_wl_handled", None)
+            st.toast(f"🔄 Pulling live prices for {len(wl)} ticker(s)…")
+            st.rerun()
+    if not wl:
+        st.caption("Nothing saved yet — every stock you look up is saved here "
+                   "automatically, with its price, scanner, date, note, and scan "
+                   "snapshot. That whole row is stored on disk and in this page's "
+                   "URL, so a restart or a bookmark keeps it. Have a backup JSON? "
+                   "Open **Manage watchlist** below to load it.")
+        wdf = None
+    else:
+        wdf = pd.DataFrame(wl)
+        _tks = tuple(str(t).strip().upper() for t in wdf.ticker)
+        try:
+            live, _psrc = _live_quotes(_tks, _px_nonce())
+        except Exception as _lqe:
+            log_exc("watchlist_live_quotes", _lqe)
+            live, _psrc = ce.live_quotes(list(_tks), use_dump=True)
+        def _nowpx(t):
+            t = str(t).strip().upper()
+            if t in live:
+                return live[t]
+            return np.nan
+        wdf["price_now"] = wdf.ticker.map(_nowpx)
+        wdf["since_add"] = wdf.price_now / wdf.price_at_add - 1
+        try:
+            _p, _dump_tks, _secs, _mdv, _dts = ce.load_dump_panel()
+            _sec_map = {str(t): str(s) for t, s in zip(_dump_tks, _secs)}
+        except Exception:
+            _sec_map = {}
+        def _wl_sector(t):
+            if t in _sec_map and _sec_map[t] and _sec_map[t] != "nan":
+                return _sec_map[t]
+            meta = ce.NODES.get(t)
+            return meta[0] if meta else "—"
+        wdf["sector"] = wdf.ticker.map(_wl_sector)
+        if "source" not in wdf.columns:
+            wdf["source"] = ""
+        if "note" not in wdf.columns:
+            wdf["note"] = ""
+        _norm_added = (ce.watchlist_normalize_added
+                       if hasattr(ce, "watchlist_normalize_added") else (lambda v: str(v or "")))
+        wdf["added"] = wdf["added"].map(_norm_added) if "added" in wdf.columns else ""
+        _src_lbl = (ce.watchlist_source_label
+                    if hasattr(ce, "watchlist_source_label") else (lambda s, n="": str(s or n or "Stock Lookup")))
+        _saved_scans = (ce.watchlist_saved_scans
+                        if hasattr(ce, "watchlist_saved_scans") else (lambda r: {}))
+        _headline = (ce.watchlist_scan_headline
+                     if hasattr(ce, "watchlist_scan_headline") else (lambda s: ""))
+        _scan_names = []
+        _glances = []
+        for _item in wl:
+            _scans = _saved_scans(_item) if isinstance(_item, dict) else {}
+            _names = list(_scans)
+            _latest = str(_src_lbl(_item.get("source"), _item.get("note"))) if isinstance(_item, dict) else "Stock Lookup"
+            if _latest in _names:
+                _names = [_latest] + [n for n in _names if n != _latest]
+            elif not _names:
+                _names = [_latest]
+            _scan_names.append(" · ".join(_names))
+            _head = _headline(_scans.get(_names[0]) or {}) if _scans else ""
+            if len(_scans) > 1 and _head:
+                _head = f"{len(_scans)} scanners · {_head}"
+            elif len(_scans) > 1:
+                _head = f"{len(_scans)} scanners"
+            _glances.append(_head)
+        wdf["scanner"] = _scan_names
+        wdf["scan_data"] = _glances
+        _fmt_added = (ce.watchlist_format_added
+                      if hasattr(ce, "watchlist_format_added") else (lambda v, **k: str(v or "—")))
+        _tz = _user_tz()
+        wdf["added"] = wdf["added"].map(lambda v: _fmt_added(v, tz_name=_tz))
+        _earn_iso = {}
+        try:
+            _earn_iso = _wl_earn_map(_tks, "v1") or {}
+        except Exception as _ee:
+            log_exc("watchlist_earnings", _ee)
+            _earn_iso = {}
+        _today_ny = ce._ny_calendar_date()
+        def _wl_earn_lbl(t):
+            ed = None
+            try:
+                ed = ce._coerce_earn_date(_earn_iso.get(str(t).strip().upper()))
+            except Exception:
+                ed = None
+            if ed is None:
+                return "—"
+            try:
+                days = (ed - _today_ny).days
+            except Exception:
+                return f"{ed:%b} {ed.day}"
+            sub = f"{ed:%b} {ed.day}"
+            if days < 0:
+                return "Done"
+            if days == 0:
+                return f"Today · {sub}"
+            return f"{days}d · {sub}"
+        wdf["earn"] = wdf.ticker.map(_wl_earn_lbl)
+        _hmap = {}
+        try:
+            _hmap = _wl_health_map(_tks, "v4") or {}
+        except Exception as _he:
+            log_exc("watchlist_health", _he)
+            _hmap = {}
+        _hcell = getattr(ce, "health_cell_text", None)
+        def _wl_health_cell(t):
+            h = _hmap.get(str(t).strip().upper()) or {}
+            if callable(_hcell):
+                return _hcell(h)
+            score = h.get("score")
+            label = h.get("health") or "—"
+            if score is None:
+                return "—"
+            try:
+                n = int(round(max(0.0, min(1.0, float(score))) * 10))
+            except (TypeError, ValueError):
+                return label
+            bar = "█" * n + "░" * (10 - n)
+            pio_s = ""
+            try:
+                pf = float(h.get("pio"))
+                if np.isfinite(pf):
+                    pio_s = f" · {pf:.0f}/9"
+            except (TypeError, ValueError):
+                pass
+            return f"{bar} {label}{pio_s}"
+        wdf["health"] = wdf.ticker.map(_wl_health_cell)
+        _csmap = {}
+        try:
+            _csmap = _wl_cs_trend_map(_tks, "v1") or {}
+        except Exception as _cse:
+            log_exc("watchlist_clean_setup", _cse)
+            _csmap = {}
+        wdf["setup"] = wdf.ticker.map(
+            lambda t: _csmap.get(str(t).strip().upper()) or "—")
+        _fav_of = {}
+        for _it in wl:
+            if isinstance(_it, dict):
+                _fav_of[str(_it.get("ticker", "")).strip().upper()] = bool(_it.get("favorite"))
+        wdf["_fav"] = wdf.ticker.map(lambda t: bool(_fav_of.get(str(t).strip().upper())))
+        wdf["_ord"] = np.arange(len(wdf))
+        wdf = wdf.sort_values(["_fav", "_ord"], ascending=[False, True]).reset_index(drop=True)
+        show = wdf[["ticker", "sector", "scanner", "earn", "health", "setup",
+                    "added", "price_at_add", "price_now", "since_add"]].copy()
+        show.columns = ["Ticker", "Sector", "Scanner", "Earnings", "Health/Piotroski",
+                        "Clean Setup", "Saved", "Price then", "Price now", "Since saved"]
+        show.insert(0, "sel", [False] * len(show))
+        show["sel"] = show["sel"].astype(bool)
+        show.insert(1, "Fav", ["★" if on else "☆" for on in wdf["_fav"].tolist()])
+        _wl_sel_epoch = int(st.session_state.get("_wl_sel_epoch", 0) or 0)
+        _edited = None
+        try:
+            _edited = st.data_editor(
+                show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
+                                   "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—",
+                                   subset=["Price then", "Price now", "Since saved", "Scanner"])
+                .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"])
+                .map(_css_earn_cell, subset=["Earnings"])
+                .map(_css_health_lbl, subset=["Health/Piotroski"])
+                .map(_css_cs_trend, subset=["Clean Setup"])
+                .map(_css_fav, subset=["Fav"]),
+                width="stretch", hide_index=True, height="content",
+                row_height=35, num_rows="fixed",
+                disabled=[c for c in show.columns if c not in ("sel", "Fav")],
+                key=f"wl_table_favbtn_{_wl_sel_epoch}",
+                column_config={
+                    "sel": st.column_config.CheckboxColumn(
+                        " ",
+                        help="Select to open or remove. Separate from the favorite star.",
+                        default=False, width="small", pinned=True),
+                    "Fav": st.column_config.SelectboxColumn(
+                        "★",
+                        options=["☆", "★"],
+                        width="small",
+                        pinned=True,
+                        help="Favorite — pick the filled star to turn on, the outline to turn off. Stays with the ticker when you sort. Does not select the row."),
+                    "Ticker": st.column_config.Column(help="Saved ticker."),
+                    "Sector": st.column_config.Column(help="Nightly dump sector."),
+                    "Scanner": st.column_config.Column(
+                        help="Which scanners saved this name. A second scanner is kept beside the first."),
+                    "Earnings": st.column_config.Column(
+                        help="Days until the next earnings print, Eastern US calendar. Green is clear, amber inside 21 days, red inside a week."),
+                    "Health/Piotroski": st.column_config.Column(
+                        help="Financial Health bar (gross margin, ROIC, ROE/ROA, D/E, current ratio) plus Piotroski 9-point score. Green Strong, amber OK, red Weak."),
+                    "Clean Setup": st.column_config.Column(
+                        help="Clean Setup trend from the nightly dump — same bull / bear / mixed as the overlay (EMA stack, MACD, ADX, Donchian, Supertrend, Aroon, structure)."),
+                    "Saved": st.column_config.Column(
+                        help="Calendar day you saved it, in your timezone. No clock."),
+                    "Since saved": st.column_config.Column(
+                    help="Your scorecard: return since the day you saved it. Live Alpaca/Yahoo quote when available.")})
+        except Exception as _dee:
+            log_exc("watchlist_editor", _dee)
+            st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
+            st.dataframe(show, width="stretch", hide_index=True)
+        def _wl_as_bool(v):
+            if isinstance(v, str):
+                return v.strip().lower() in ("true", "1", "yes", "on")
+            try:
+                if v is None:
+                    return False
+                if isinstance(v, float) and not np.isfinite(v):
+                    return False
+            except Exception:
+                pass
+            return bool(v)
+        _star_tks = [str(t).strip().upper() for t in (_edited["Ticker"] if _edited is not None else show["Ticker"]).tolist()]
+        if _edited is not None and "Fav" in getattr(_edited, "columns", []):
+            _fav_dirty = False
+            for _tk, _fv in zip(_star_tks, _edited["Fav"].tolist()):
+                if not _tk:
+                    continue
+                _want = "★" in str(_fv or "")
+                if bool(_fav_of.get(_tk)) != _want:
+                    ce.watchlist_set_favorite(_tk, _want)
+                    _fav_dirty = True
+            if _fav_dirty:
+                st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
+                st.session_state.pop(f"wl_table_favbtn_{_wl_sel_epoch}", None)
+                st.rerun()
+        _sel_flags = ([_wl_as_bool(x) for x in _edited["sel"].tolist()]
+                      if _edited is not None and "sel" in _edited.columns else [])
+        _sel_tks = [t for t, on in zip(_star_tks, _sel_flags) if on and t]
+        if len(_sel_tks) == 1:
+            _wtk = _sel_tks[0]
+            if st.session_state.get("_wl_handled") != _wtk:
+                st.session_state["_wl_handled"] = _wtk
+                st.session_state["lk_tk"] = _wtk
+                _ent = ce.watchlist_entry(_wtk) if hasattr(ce, "watchlist_entry") else None
+                _src_lbl = (ce.watchlist_source_label
+                            if hasattr(ce, "watchlist_source_label") else (lambda s, n="": str(s or n or "Stock Lookup")))
+                st.session_state["wl_source"] = _src_lbl(
+                    (_ent or {}).get("source"), (_ent or {}).get("note"))
+                st.rerun()
+        _cap, _rm = st.columns([4, 1], vertical_alignment="center")
+        _cap.caption("The ★ column is the favorite — pick filled or outline. "
+                     "It stays with the ticker when you sort. That does not "
+                     "select the row. Check a row to open it. Select one or more "
+                     "rows, then remove them here.")
+        if _rm.button(f"🗑 Remove ({len(_sel_tks)})", width="stretch",
+                      disabled=not _sel_tks, key="wl_remove_selected"):
+            for _t in _sel_tks:
+                ce.watchlist_remove(_t)
+            st.session_state.pop("_wl_handled", None)
+            st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
+            for _k in (f"wl_table_{_wl_sel_epoch}", f"wl_table_health_{_wl_sel_epoch}",
+                       f"wl_table_favsel_{_wl_sel_epoch}", f"wl_table_favbtn_{_wl_sel_epoch}",
+                       f"wl_stars_{_wl_sel_epoch}", "wl_table", "wl_mgmt_editor"):
+                st.session_state.pop(_k, None)
+            st.success("Removed " + ", ".join(_sel_tks))
+            st.rerun()
+        _render_saved_scans(wl)
+
+    # ── Backup / restore — always visible, even with an empty list ──
+    with st.expander("Manage watchlist", expanded=False):
+        st.caption("Select rows on the list above to open or remove them. "
+                   "The ★ column is the favorite — it stays with the ticker "
+                   "when you sort. The backup file stores every field — ticker, favorite, "
+                   "scanner, saved date, price then, note, and each scanner's full "
+                   "row. The same row is already saved on disk and in this page's URL.")
+        bc1, bc2 = st.columns(2)
+        try:
+            import json as _json
+            _wl_bytes = (ce.watchlist_to_json(wl).encode("utf-8")
+                         if hasattr(ce, "watchlist_to_json")
+                         else _json.dumps(wl, indent=2).encode("utf-8"))
+            bc1.download_button("⬇️ Backup watchlist (JSON)",
+                                _wl_bytes,
+                                file_name=f"watchlist_{asof}.json",
+                                mime="application/json", width="stretch",
+                                key="wl_backup", disabled=not wl)
+        except Exception:
+            pass
+        _up = bc2.file_uploader("⬆️ Restore from backup", type=["json"],
+                                key="wl_restore", label_visibility="collapsed")
+        if _up is not None and not st.session_state.get("_wl_uploaded"):
+            try:
+                import json as _json
+                _items = _json.loads(_up.read().decode("utf-8"))
+                if not isinstance(_items, list):
+                    raise ValueError("backup must be a list of watchlist rows")
+                if hasattr(ce, "watchlist_merge_rows"):
+                    _n = int(ce.watchlist_merge_rows(_items, overwrite=True) or 0)
+                else:
+                    _have = {str(w.get("ticker", "")).strip().upper() for w in ce.watchlist_load()}
+                    _n = 0
+                    for _it in _items:
+                        _t = str(_it.get("ticker", "")).strip().upper()
+                        if _t and _t not in _have:
+                            _note = str(_it.get("note", "") or "")
+                            _src = (ce.watchlist_source_label(_it.get("source"), _note)
+                                    if hasattr(ce, "watchlist_source_label")
+                                    else (str(_it.get("source") or "") or (
+                                        "ShakeOut" if _note == "shakeout coil" else "Stock Lookup")))
+                            ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
+                                             note=_note, source=_src,
+                                             added=_it.get("added") or "",
+                                             scan=_it.get("scan") or None)
+                            _n += 1
+                st.session_state["_wl_uploaded"] = True
+                st.success(f"Restored {_n} ticker(s) from backup.")
+                st.rerun()
+            except Exception as _ue:
+                st.error(f"Could not read that backup: {_ue}")
+
+
 with st.container(border=True, key="mw_page"):
     # ── 🌊 cascade map ───────────────────────────────────────────────────
     if _main == "Cascade Map" and _map == "Market Weather":
@@ -7450,36 +7850,51 @@ with st.container(border=True, key="mw_page"):
 
         tk = st.session_state.get("lk_tk")
         if tk:
-            # full data chain FIRST: nightly dump -> Alpaca -> yfinance.
-            # Any symbol either of them knows gets the complete analysis.
-            _info, df_tk, _eh, _ef = _analyzer(tk, asof)
-            if (df_tk is None or df_tk.empty) and tk in closes.columns:
+            try:
+                _src = st.session_state.get("wl_source") or "Stock Lookup"
+                _px = float("nan")
+                if closes is not None and tk in getattr(closes, "columns", []):
+                    _s = closes[tk].dropna()
+                    if len(_s):
+                        _px = float(_s.iloc[-1])
+                ce.watchlist_add(tk, _px, source=_src)
+            except Exception as _we:
+                log_exc("lookup_watchlist_add", _we)
+
+        try:
+            _stock_lookup_watchlist(closes, asof)
+        except Exception as _wle:
+            log_exc("stock_lookup_watchlist", _wle)
+            st.error(f"Watchlist unavailable: {_wle}")
+
+        if tk:
+            try:
+                # full data chain FIRST: nightly dump -> Alpaca -> yfinance.
+                # Any symbol either of them knows gets the complete analysis.
+                _info, df_tk, _eh, _ef = _analyzer(tk, asof)
+            except Exception as _lke:
+                log_exc("stock_lookup_analyzer", _lke)
+                st.error(f"Lookup unavailable for **{tk}**: {_lke}")
+                _info, df_tk, _eh, _ef = {}, None, None, None
+            if (df_tk is None or df_tk.empty) and closes is not None and tk in getattr(closes, "columns", []):
                 df_tk = pd.DataFrame({"Close": closes[tk].dropna()})
                 _info = dict(_info or {}, _hist_source="node history")
             _hs = { "alpaca": "Alpaca history (live)", "yahoo": "Yahoo history",
                     "dump": "nightly dump" }.get((_info or {}).get("_hist_source"),
                                                  (_info or {}).get("_hist_source"))
 
-            render_ticker_analysis(tk, closes, state_key="lk_tk",
-                                   df=df_tk, src_label=_hs, info=_info,
-                                   show_forecast=False)
+            try:
+                render_ticker_analysis(tk, closes, state_key="lk_tk",
+                                       df=df_tk, src_label=_hs, info=_info,
+                                       show_forecast=False)
+            except Exception as _rae:
+                log_exc("stock_lookup_analysis", _rae)
+                st.error(f"Chart unavailable for **{tk}**: {_rae}")
 
             if df_tk is None or df_tk.empty:
                 st.error(f"No price history found for **{tk}** from the nightly dump, "
                          "Alpaca, or Yahoo — double-check the symbol "
                          "(e.g. BRK-B not BRK.B, BTC-USD for crypto).")
-            else:
-                try:
-                    _qpx, _ = _live_one(tk, _px_nonce())
-                    px_now = float(_qpx.get(tk) or df_tk.Close.dropna().iloc[-1])
-                except Exception:
-                    px_now = float(df_tk.Close.dropna().iloc[-1])
-                _src = st.session_state.get("wl_source") or "Stock Lookup"
-                try:
-                    ce.watchlist_add(tk, px_now, source=_src)
-                except Exception as _we:
-                    log_exc("lookup_watchlist_add", _we)
-
             try:
                 _render_signed_catalysts(tk, str((_info or {}).get("sector") or ""))
             except Exception as _cse:
@@ -7512,390 +7927,6 @@ with st.container(border=True, key="mw_page"):
                 render_business_summary(_biz, tk)
             except Exception as _bse:
                 st.caption(f"Business summary unavailable: {_bse}")
-
-        # ── watchlist ────────────────────────────────────────────────────
-        st.divider()
-        st.subheader("⭐ Watchlist")
-
-        # Persistence has three layers:
-        #   1. watchlist.json — full rows (ticker, scanner, saved date, price then,
-        #      note, scan snapshot), written to the app data dir, the user profile,
-        #      and temp so a restart still finds one copy.
-        #   2. the page URL — ?wl= is the ticker list, ?wld= is the full rows
-        #      gzipped. Bookmarking survives a Streamlit Cloud rebuild.
-        #   3. the JSON backup file — a manual copy of every stored field.
-        # On load, the full URL copy is merged into the file. A name-only link
-        # adds tickers that are missing; it does not replace a saved row.
-        def _wl_qp(name):
-            try:
-                val = st.query_params.get(name, "")
-            except Exception:
-                return ""
-            if isinstance(val, (list, tuple)):
-                val = val[0] if val else ""
-            return str(val or "")
-
-        _wl_param = _wl_qp("wl")
-        if not st.session_state.get("_wl_restored"):
-            st.session_state["_wl_restored"] = True
-            _full_n = 0
-            _packed = _wl_qp("wld")
-            if _packed and hasattr(ce, "watchlist_unpack") and hasattr(ce, "watchlist_merge_rows"):
-                try:
-                    _rows = ce.watchlist_unpack(_packed)
-                    if _rows:
-                        _full_n = int(ce.watchlist_merge_rows(_rows, overwrite=False) or 0)
-                except Exception as _pe:
-                    log_exc("watchlist_url_restore", _pe)
-            _have = {str(w.get("ticker", "")).strip().upper() for w in ce.watchlist_load()}
-            _restored = []
-            for _t in [x.strip().upper() for x in _wl_param.split(",") if x.strip()]:
-                if _t and _t not in _have:
-                    try:
-                        _d = ce.dump_ohlcv(_t)
-                        ce.watchlist_add(_t, float(_d.Close.iloc[-1]) if not _d.empty else float("nan"),
-                                         source="Stock Lookup")
-                        _restored.append(_t)
-                        _have.add(_t)
-                    except Exception:
-                        continue
-            if _full_n:
-                st.success(f"↩️ Restored {_full_n} watchlist row(s) from your link, "
-                           "including scanner, saved date, price, note, and scan data.")
-            elif _restored:
-                st.success(f"↩️ Restored {len(_restored)} saved ticker(s) from your link: "
-                           + ", ".join(_restored))
-
-        wl = ce.watchlist_load()
-        # Keep the URL in step so a bookmark stores the full rows, not just names.
-        try:
-            _load_ok = ce.watchlist_load_ok() if hasattr(ce, "watchlist_load_ok") else True
-            _cur = ",".join(sorted(
-                str(w.get("ticker") or "").strip().upper()
-                for w in wl if isinstance(w, dict) and w.get("ticker")))
-            _pack = ce.watchlist_pack(wl) if wl and hasattr(ce, "watchlist_pack") else ""
-            _old_wl, _old_pack = _wl_qp("wl"), _wl_qp("wld")
-            _sig = _cur + "\n" + _pack
-            if st.session_state.get("_wl_url_sig") == _sig:
-                pass
-            elif not wl and not _load_ok and (_old_wl or _old_pack):
-                pass
-            elif _cur != _old_wl or (_pack and _pack != _old_pack) or (not _cur and (_old_wl or _old_pack)):
-                if _cur:
-                    st.query_params["wl"] = _cur
-                    if _pack:
-                        st.query_params["wld"] = _pack
-                else:
-                    for _k in ("wl", "wld"):
-                        if _k in st.query_params:
-                            del st.query_params[_k]
-                st.session_state["_wl_url_sig"] = _sig
-        except Exception:
-            pass
-        if wl:
-            _rfc1, _rfc2 = st.columns([4, 1], vertical_alignment="bottom")
-            _rfc1.caption(f"{len(wl)} ticker(s) saved — prices refresh automatically, "
-                          "or force a fresh pull now.")
-            if _rfc2.button("🔄 Refresh Prices", width="stretch", key="wl_refresh_prices"):
-                st.session_state["_wl_px_nonce"] = _px_nonce() + 1
-                st.session_state.pop("_wl_handled", None)
-                st.toast(f"🔄 Pulling live prices for {len(wl)} ticker(s)…")
-                st.rerun()
-        if not wl:
-            st.caption("Nothing saved yet — every stock you look up is saved here "
-                       "automatically, with its price, scanner, date, note, and scan "
-                       "snapshot. That whole row is stored on disk and in this page's "
-                       "URL, so a restart or a bookmark keeps it. Have a backup JSON? "
-                       "Open **Manage watchlist** below to load it.")
-            wdf = None
-        else:
-            wdf = pd.DataFrame(wl)
-            _tks = tuple(str(t).strip().upper() for t in wdf.ticker)
-            try:
-                live, _psrc = _live_quotes(_tks, _px_nonce())
-            except Exception as _lqe:
-                log_exc("watchlist_live_quotes", _lqe)
-                live, _psrc = ce.live_quotes(list(_tks), use_dump=True)
-            def _nowpx(t):
-                t = str(t).strip().upper()
-                if t in live:
-                    return live[t]
-                return np.nan
-            wdf["price_now"] = wdf.ticker.map(_nowpx)
-            wdf["since_add"] = wdf.price_now / wdf.price_at_add - 1
-            try:
-                _p, _dump_tks, _secs, _mdv, _dts = ce.load_dump_panel()
-                _sec_map = {str(t): str(s) for t, s in zip(_dump_tks, _secs)}
-            except Exception:
-                _sec_map = {}
-            def _wl_sector(t):
-                if t in _sec_map and _sec_map[t] and _sec_map[t] != "nan":
-                    return _sec_map[t]
-                meta = ce.NODES.get(t)
-                return meta[0] if meta else "—"
-            wdf["sector"] = wdf.ticker.map(_wl_sector)
-            if "source" not in wdf.columns:
-                wdf["source"] = ""
-            if "note" not in wdf.columns:
-                wdf["note"] = ""
-            _norm_added = (ce.watchlist_normalize_added
-                           if hasattr(ce, "watchlist_normalize_added") else (lambda v: str(v or "")))
-            wdf["added"] = wdf["added"].map(_norm_added) if "added" in wdf.columns else ""
-            _src_lbl = (ce.watchlist_source_label
-                        if hasattr(ce, "watchlist_source_label") else (lambda s, n="": str(s or n or "Stock Lookup")))
-            _saved_scans = (ce.watchlist_saved_scans
-                            if hasattr(ce, "watchlist_saved_scans") else (lambda r: {}))
-            _headline = (ce.watchlist_scan_headline
-                         if hasattr(ce, "watchlist_scan_headline") else (lambda s: ""))
-            _scan_names = []
-            _glances = []
-            for _item in wl:
-                _scans = _saved_scans(_item) if isinstance(_item, dict) else {}
-                _names = list(_scans)
-                _latest = str(_src_lbl(_item.get("source"), _item.get("note"))) if isinstance(_item, dict) else "Stock Lookup"
-                if _latest in _names:
-                    _names = [_latest] + [n for n in _names if n != _latest]
-                elif not _names:
-                    _names = [_latest]
-                _scan_names.append(" · ".join(_names))
-                _head = _headline(_scans.get(_names[0]) or {}) if _scans else ""
-                if len(_scans) > 1 and _head:
-                    _head = f"{len(_scans)} scanners · {_head}"
-                elif len(_scans) > 1:
-                    _head = f"{len(_scans)} scanners"
-                _glances.append(_head)
-            wdf["scanner"] = _scan_names
-            wdf["scan_data"] = _glances
-            _fmt_added = (ce.watchlist_format_added
-                          if hasattr(ce, "watchlist_format_added") else (lambda v, **k: str(v or "—")))
-            _tz = _user_tz()
-            wdf["added"] = wdf["added"].map(lambda v: _fmt_added(v, tz_name=_tz))
-            _earn_iso = {}
-            try:
-                _earn_iso = _wl_earn_map(_tks, "v1") or {}
-            except Exception as _ee:
-                log_exc("watchlist_earnings", _ee)
-                _earn_iso = {}
-            _today_ny = ce._ny_calendar_date()
-            def _wl_earn_lbl(t):
-                ed = None
-                try:
-                    ed = ce._coerce_earn_date(_earn_iso.get(str(t).strip().upper()))
-                except Exception:
-                    ed = None
-                if ed is None:
-                    return "—"
-                try:
-                    days = (ed - _today_ny).days
-                except Exception:
-                    return f"{ed:%b} {ed.day}"
-                sub = f"{ed:%b} {ed.day}"
-                if days < 0:
-                    return "Done"
-                if days == 0:
-                    return f"Today · {sub}"
-                return f"{days}d · {sub}"
-            wdf["earn"] = wdf.ticker.map(_wl_earn_lbl)
-            _hmap = {}
-            try:
-                _hmap = _wl_health_map(_tks, "v4") or {}
-            except Exception as _he:
-                log_exc("watchlist_health", _he)
-                _hmap = {}
-            _hcell = getattr(ce, "health_cell_text", None)
-            def _wl_health_cell(t):
-                h = _hmap.get(str(t).strip().upper()) or {}
-                if callable(_hcell):
-                    return _hcell(h)
-                score = h.get("score")
-                label = h.get("health") or "—"
-                if score is None:
-                    return "—"
-                try:
-                    n = int(round(max(0.0, min(1.0, float(score))) * 10))
-                except (TypeError, ValueError):
-                    return label
-                bar = "█" * n + "░" * (10 - n)
-                pio_s = ""
-                try:
-                    pf = float(h.get("pio"))
-                    if np.isfinite(pf):
-                        pio_s = f" · {pf:.0f}/9"
-                except (TypeError, ValueError):
-                    pass
-                return f"{bar} {label}{pio_s}"
-            wdf["health"] = wdf.ticker.map(_wl_health_cell)
-            _csmap = {}
-            try:
-                _csmap = _wl_cs_trend_map(_tks, "v1") or {}
-            except Exception as _cse:
-                log_exc("watchlist_clean_setup", _cse)
-                _csmap = {}
-            wdf["setup"] = wdf.ticker.map(
-                lambda t: _csmap.get(str(t).strip().upper()) or "—")
-            _fav_of = {}
-            for _it in wl:
-                if isinstance(_it, dict):
-                    _fav_of[str(_it.get("ticker", "")).strip().upper()] = bool(_it.get("favorite"))
-            wdf["_fav"] = wdf.ticker.map(lambda t: bool(_fav_of.get(str(t).strip().upper())))
-            wdf["_ord"] = np.arange(len(wdf))
-            wdf = wdf.sort_values(["_fav", "_ord"], ascending=[False, True]).reset_index(drop=True)
-            show = wdf[["ticker", "sector", "scanner", "earn", "health", "setup",
-                        "added", "price_at_add", "price_now", "since_add"]].copy()
-            show.columns = ["Ticker", "Sector", "Scanner", "Earnings", "Health/Piotroski",
-                            "Clean Setup", "Saved", "Price then", "Price now", "Since saved"]
-            show.insert(0, "sel", [False] * len(show))
-            show["sel"] = show["sel"].astype(bool)
-            show.insert(1, "Fav", ["★" if on else "☆" for on in wdf["_fav"].tolist()])
-            _wl_sel_epoch = int(st.session_state.get("_wl_sel_epoch", 0) or 0)
-            _edited = st.data_editor(
-                show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
-                                   "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—",
-                                   subset=["Price then", "Price now", "Since saved", "Scanner"])
-                .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"])
-                .map(_css_earn_cell, subset=["Earnings"])
-                .map(_css_health_lbl, subset=["Health/Piotroski"])
-                .map(_css_cs_trend, subset=["Clean Setup"])
-                .map(_css_fav, subset=["Fav"]),
-                width="stretch", hide_index=True, height="content",
-                row_height=35, num_rows="fixed",
-                disabled=[c for c in show.columns if c not in ("sel", "Fav")],
-                key=f"wl_table_favbtn_{_wl_sel_epoch}",
-                column_config={
-                    "sel": st.column_config.CheckboxColumn(
-                        " ",
-                        help="Select to open or remove. Separate from the favorite star.",
-                        default=False, width="small", pinned=True),
-                    "Fav": st.column_config.SelectboxColumn(
-                        "★",
-                        options=["☆", "★"],
-                        width="small",
-                        pinned=True,
-                        help="Favorite — pick the filled star to turn on, the outline to turn off. Stays with the ticker when you sort. Does not select the row."),
-                    "Ticker": st.column_config.Column(help="Saved ticker."),
-                    "Sector": st.column_config.Column(help="Nightly dump sector."),
-                    "Scanner": st.column_config.Column(
-                        help="Which scanners saved this name. A second scanner is kept beside the first."),
-                    "Earnings": st.column_config.Column(
-                        help="Days until the next earnings print, Eastern US calendar. Green is clear, amber inside 21 days, red inside a week."),
-                    "Health/Piotroski": st.column_config.Column(
-                        help="Financial Health bar (gross margin, ROIC, ROE/ROA, D/E, current ratio) plus Piotroski 9-point score. Green Strong, amber OK, red Weak."),
-                    "Clean Setup": st.column_config.Column(
-                        help="Clean Setup trend from the nightly dump — same bull / bear / mixed as the overlay (EMA stack, MACD, ADX, Donchian, Supertrend, Aroon, structure)."),
-                    "Saved": st.column_config.Column(
-                        help="Calendar day you saved it, in your timezone. No clock."),
-                    "Since saved": st.column_config.Column(
-                    help="Your scorecard: return since the day you saved it. Live Alpaca/Yahoo quote when available.")})
-            def _wl_as_bool(v):
-                if isinstance(v, str):
-                    return v.strip().lower() in ("true", "1", "yes", "on")
-                try:
-                    if v is None:
-                        return False
-                    if isinstance(v, float) and not np.isfinite(v):
-                        return False
-                except Exception:
-                    pass
-                return bool(v)
-            _star_tks = [str(t).strip().upper() for t in (_edited["Ticker"] if _edited is not None else show["Ticker"]).tolist()]
-            if _edited is not None and "Fav" in getattr(_edited, "columns", []):
-                _fav_dirty = False
-                for _tk, _fv in zip(_star_tks, _edited["Fav"].tolist()):
-                    if not _tk:
-                        continue
-                    _want = "★" in str(_fv or "")
-                    if bool(_fav_of.get(_tk)) != _want:
-                        ce.watchlist_set_favorite(_tk, _want)
-                        _fav_dirty = True
-                if _fav_dirty:
-                    st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
-                    st.session_state.pop(f"wl_table_favbtn_{_wl_sel_epoch}", None)
-                    st.rerun()
-            _sel_flags = ([_wl_as_bool(x) for x in _edited["sel"].tolist()]
-                          if _edited is not None and "sel" in _edited.columns else [])
-            _sel_tks = [t for t, on in zip(_star_tks, _sel_flags) if on and t]
-            if len(_sel_tks) == 1:
-                _wtk = _sel_tks[0]
-                if st.session_state.get("_wl_handled") != _wtk:
-                    st.session_state["_wl_handled"] = _wtk
-                    st.session_state["lk_tk"] = _wtk
-                    _ent = ce.watchlist_entry(_wtk) if hasattr(ce, "watchlist_entry") else None
-                    _src_lbl = (ce.watchlist_source_label
-                                if hasattr(ce, "watchlist_source_label") else (lambda s, n="": str(s or n or "Stock Lookup")))
-                    st.session_state["wl_source"] = _src_lbl(
-                        (_ent or {}).get("source"), (_ent or {}).get("note"))
-                    st.rerun()
-            _cap, _rm = st.columns([4, 1], vertical_alignment="center")
-            _cap.caption("The ★ column is the favorite — pick filled or outline. "
-                         "It stays with the ticker when you sort. That does not "
-                         "select the row. Check a row to open it. Select one or more "
-                         "rows, then remove them here.")
-            if _rm.button(f"🗑 Remove ({len(_sel_tks)})", width="stretch",
-                          disabled=not _sel_tks, key="wl_remove_selected"):
-                for _t in _sel_tks:
-                    ce.watchlist_remove(_t)
-                st.session_state.pop("_wl_handled", None)
-                st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
-                for _k in (f"wl_table_{_wl_sel_epoch}", f"wl_table_health_{_wl_sel_epoch}",
-                           f"wl_table_favsel_{_wl_sel_epoch}", f"wl_table_favbtn_{_wl_sel_epoch}",
-                           f"wl_stars_{_wl_sel_epoch}", "wl_table", "wl_mgmt_editor"):
-                    st.session_state.pop(_k, None)
-                st.success("Removed " + ", ".join(_sel_tks))
-                st.rerun()
-            _render_saved_scans(wl)
-
-        # ── Backup / restore — always visible, even with an empty list ──
-        with st.expander("Manage watchlist", expanded=False):
-            st.caption("Select rows on the list above to open or remove them. "
-                       "The ★ column is the favorite — it stays with the ticker "
-                       "when you sort. The backup file stores every field — ticker, favorite, "
-                       "scanner, saved date, price then, note, and each scanner's full "
-                       "row. The same row is already saved on disk and in this page's URL.")
-            bc1, bc2 = st.columns(2)
-            try:
-                import json as _json
-                _wl_bytes = (ce.watchlist_to_json(wl).encode("utf-8")
-                             if hasattr(ce, "watchlist_to_json")
-                             else _json.dumps(wl, indent=2).encode("utf-8"))
-                bc1.download_button("⬇️ Backup watchlist (JSON)",
-                                    _wl_bytes,
-                                    file_name=f"watchlist_{asof}.json",
-                                    mime="application/json", width="stretch",
-                                    key="wl_backup", disabled=not wl)
-            except Exception:
-                pass
-            _up = bc2.file_uploader("⬆️ Restore from backup", type=["json"],
-                                    key="wl_restore", label_visibility="collapsed")
-            if _up is not None and not st.session_state.get("_wl_uploaded"):
-                try:
-                    import json as _json
-                    _items = _json.loads(_up.read().decode("utf-8"))
-                    if not isinstance(_items, list):
-                        raise ValueError("backup must be a list of watchlist rows")
-                    if hasattr(ce, "watchlist_merge_rows"):
-                        _n = int(ce.watchlist_merge_rows(_items, overwrite=True) or 0)
-                    else:
-                        _have = {str(w.get("ticker", "")).strip().upper() for w in ce.watchlist_load()}
-                        _n = 0
-                        for _it in _items:
-                            _t = str(_it.get("ticker", "")).strip().upper()
-                            if _t and _t not in _have:
-                                _note = str(_it.get("note", "") or "")
-                                _src = (ce.watchlist_source_label(_it.get("source"), _note)
-                                        if hasattr(ce, "watchlist_source_label")
-                                        else (str(_it.get("source") or "") or (
-                                            "ShakeOut" if _note == "shakeout coil" else "Stock Lookup")))
-                                ce.watchlist_add(_t, float(_it.get("price_at_add") or float("nan")),
-                                                 note=_note, source=_src,
-                                                 added=_it.get("added") or "",
-                                                 scan=_it.get("scan") or None)
-                                _n += 1
-                    st.session_state["_wl_uploaded"] = True
-                    st.success(f"Restored {_n} ticker(s) from backup.")
-                    st.rerun()
-                except Exception as _ue:
-                    st.error(f"Could not read that backup: {_ue}")
-
 
     # ── 🐂 master bull list (public view, PIN to edit) ────────────────
     if _main == "Bull List":

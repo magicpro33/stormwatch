@@ -5939,6 +5939,7 @@ def _watchlist_ticker(item) -> str:
 
 _WATCHLIST_LOAD_OK = True
 _WATCHLIST_MIRRORED = False
+_WATCHLIST_LAST_GOOD = None
 
 
 def watchlist_load_ok() -> bool:
@@ -6067,10 +6068,12 @@ def watchlist_load() -> list:
     Older copies only fill scanner, date, price, note, and scan when the
     newest row is missing them.
     """
-    global _WATCHLIST_LOAD_OK, _WATCHLIST_MIRRORED
+    global _WATCHLIST_LOAD_OK, _WATCHLIST_MIRRORED, _WATCHLIST_LAST_GOOD
     found, saw_file = _watchlist_read_copies()
     if not found:
         _WATCHLIST_LOAD_OK = not saw_file
+        if (not _WATCHLIST_LOAD_OK) and _WATCHLIST_LAST_GOOD:
+            return json.loads(_watchlist_rows_text(_WATCHLIST_LAST_GOOD))
         return []
     _WATCHLIST_LOAD_OK = True
 
@@ -6129,6 +6132,10 @@ def watchlist_load() -> list:
                 _WATCHLIST_MIRRORED = True
         except Exception as e:
             _log_exc("watchlist_load.backfill", e)
+    if items:
+        _WATCHLIST_LAST_GOOD = json.loads(_watchlist_rows_text(items))
+    else:
+        _WATCHLIST_LAST_GOOD = []
     for row in items:
         if "price_at_add" in row and row.get("price_at_add") is None:
             row["price_at_add"] = float("nan")
@@ -6139,6 +6146,9 @@ def watchlist_save(items: list) -> bool:
     """Write the full row list to every watchlist copy that will take it."""
     safe = _watchlist_json_safe(items if isinstance(items, list) else [])
     if not isinstance(safe, list):
+        return False
+    # A failed load must not write [] over the copies that still have names.
+    if not safe and not _WATCHLIST_LOAD_OK:
         return False
     # Keep missing prices as null on disk. Callers still see NaN after load.
     ok = False
@@ -6199,6 +6209,8 @@ def watchlist_merge_rows(rows, overwrite: bool = False) -> int:
     if not isinstance(rows, list):
         return 0
     items = watchlist_load()
+    if not items and not watchlist_load_ok():
+        return 0
     by = {}
     for row in items:
         if isinstance(row, dict):
@@ -6802,6 +6814,8 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
     src = watchlist_clean_source(source, note)
     note = str(note or "").strip()
     items = watchlist_load()
+    if not items and not watchlist_load_ok():
+        return False
     existing = next((w for w in items if _watchlist_ticker(w) == ticker), None)
     if existing:
         changed = False
@@ -6849,7 +6863,10 @@ def watchlist_add(ticker: str, price: float, note: str = "", source: str = "",
 
 def watchlist_remove(ticker: str):
     t = str(ticker or "").strip().upper()
-    watchlist_save([w for w in watchlist_load() if _watchlist_ticker(w) != t])
+    items = watchlist_load()
+    if not items and not watchlist_load_ok():
+        return
+    watchlist_save([w for w in items if _watchlist_ticker(w) != t])
 
 
 def watchlist_is_favorite(row) -> bool:
