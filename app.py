@@ -8407,31 +8407,31 @@ with st.container(border=True, key="mw_page"):
                         f"{'Senate / House / Trump · one row per filing' if _ib_officials else 'Form 4 + Congress'}"
                         f"{'' if _ib_officials else ' · ranked by recency × size'}</span></div>")
                     _ib_official_view = "Official" in _idf.columns
+                    _ib_hide = ("Party", "State", "Chamber", "Flag", "Source",
+                                "Filing", "Range")
+                    _idf_show = _idf.drop(
+                        columns=[c for c in _ib_hide if c in _idf.columns])
                     _ib_order = _order_with_cat(
                         [c for c in (
-                            ["#", "Official", "Chamber", "Party", "State",
-                             "Ticker", "Asset", "Trade date", "Filed", "Age",
-                             "Delay", "Late", "Bought $", "Range", "Flag",
-                             "Source", "Filing", "Price"]
+                            ["#", "Official", "Ticker", "Asset", "Trade date",
+                             "Filed", "Age", "Delay", "Late", "Bought $", "Price"]
                             if _ib_official_view else
                             ["#", "Ticker", "Name", "Sector", "Filed",
-                             "Age", "Bought $", "Buyers", "Flag",
-                             "Who", "Role", "Price", "Source"])
-                         if c in _idf.columns],
-                        _idf)
-                    _ibsty = _idf.style.format(
+                             "Age", "Bought $", "Buyers",
+                             "Who", "Role", "Price"])
+                         if c in _idf_show.columns],
+                        _idf_show)
+                    _ibsty = _idf_show.style.format(
                         {k: v for k, v in {
                             "Price": "${:,.2f}",
                             "Bought $": "${:,.0f}",
                             "Age": "{:.0f}d",
                             "Delay": "{:.0f}d",
-                        }.items() if k in _idf.columns}, na_rep="—")
-                    if "Flag" in _idf.columns:
-                        _ibsty = _ibsty.map(_css_owner_flag, subset=["Flag"])
+                        }.items() if k in _idf_show.columns}, na_rep="—")
                     _ibsel = st.dataframe(
                         _style_health_setup(_ibsty),
                         width=_DF_WIDTH, hide_index=True,
-                        height=_fit_list_height(len(_idf)),
+                        height=_fit_list_height(len(_idf_show)),
                         on_select="rerun", selection_mode="single-row",
                         key="ib_table",
                         column_order=_ib_order or None,
