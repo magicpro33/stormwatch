@@ -7955,6 +7955,15 @@ with st.container(border=True, key="mw_page"):
                 _bdf = _bdf.rename(columns={"ticker": "Ticker", "note": "Note",
                                             "added": "Added"})
             _btks = [str(t).strip().upper() for t in _bdf["Ticker"].tolist()]
+            _br1, _br2 = st.columns([4, 1], vertical_alignment="bottom")
+            _br1.caption(f"{len(_btks)} ticker(s) — prices refresh automatically, "
+                         "or force a fresh pull now.")
+            if _br2.button("🔄 Refresh Prices", width="stretch",
+                           key="bull_refresh_prices"):
+                st.session_state["_bull_px_nonce"] = int(
+                    st.session_state.get("_bull_px_nonce", 0) or 0) + 1
+                st.toast(f"🔄 Pulling live prices for {len(_btks)} ticker(s)…")
+                st.rerun()
             try:
                 _p, _dump_tks, _secs, _mdv, _dts = ce.load_dump_panel()
                 _sec_map = {str(t): str(s) for t, s in zip(_dump_tks, _secs)}
@@ -7993,7 +8002,9 @@ with st.container(border=True, key="mw_page"):
             except Exception:
                 _bpx = {}
             try:
-                _blive, _ = _live_quotes(tuple(_btks), _px_nonce())
+                _blive, _ = _live_quotes(
+                    tuple(_btks),
+                    int(st.session_state.get("_bull_px_nonce", 0) or 0))
             except Exception:
                 _blive = {}
             def _bull_now(t):
