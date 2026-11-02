@@ -3051,6 +3051,11 @@ _IB_COLS = [
     "Ticker", "Name", "Sector", "Filed", "Age", "Bought $",
     "Buyers", "Flag", "Who", "Role", "Price", "Source",
 ]
+_IB_OFFICIAL_COLS = [
+    "Official", "Chamber", "Party", "State", "Ticker", "Asset",
+    "Trade date", "Filed", "Age", "Delay", "Late", "Bought $", "Range",
+    "Flag", "Source", "Filing", "Price",
+]
 _IB_HTTP_CACHE = {}
 _IB_HOST_DOWN = {}
 _IB_HEADERS = {
@@ -3117,6 +3122,13 @@ def _ib_better_flag(a: str, b: str) -> str:
     if rb > ra:
         return b or ""
     return a or ""
+
+
+def _ib_clean_asset(name: str) -> str:
+    s = str(name or "").replace("\xa0", " ")
+    s = re.sub(r"[\r\n]+", " · ", s)
+    s = re.sub(r"\s+", " ", s).strip(" ·")
+    return s[:180]
 
 
 def _ib_norm_ticker(raw) -> str:
@@ -3380,19 +3392,21 @@ def _ib_trades_congress(days: int) -> list:
     rows = []
     for d in df.to_dict("records"):
         kind = str(d.get("transaction_type") or d.get("type") or "").lower()
-        if "purchase" not in kind and kind != "buy":
+        if "purchase" not in kind and kind not in ("buy", "p"):
             continue
         sec = str(d.get("security_type") or "").lower()
-        if sec and sec not in ("stock", "stk", "equity", "common stock", ""):
-            if any(w in sec for w in ("option", "bond", "note", "crypto", "etf")):
-                continue
+        if any(w in sec for w in ("put_option", "call_option", "put option",
+                                  "call option")):
+            continue
         tk = _ib_norm_ticker(d.get("ticker"))
-        if not tk:
+        asset = _ib_clean_asset(d.get("asset_name") or "")
+        if not tk and not asset:
             continue
         filed = _ib_parse_date(d.get("filing_date")) or _ib_parse_date(
             d.get("transaction_date"))
         if filed and filed < cutoff:
             continue
+        trade_dt = _ib_parse_date(d.get("transaction_date"))
         try:
             lo = float(d.get("amount_min_usd"))
         except (TypeError, ValueError):
@@ -3406,18 +3420,35 @@ def _ib_trades_congress(days: int) -> list:
         else:
             val = lo if np.isfinite(lo) else hi
         chamber = str(d.get("chamber") or "").strip().lower()
-        title = "Senator" if chamber == "senate" else (
-            "Representative" if chamber == "house" else "Congress")
-        flag = "Senate" if chamber == "senate" else (
-            "House" if chamber == "house" else "Senate")
-        buyer = str(d.get("filer_name") or "").strip()
+        if chamber == "senate":
+            title, flag = "Senator", "Senate"
+        elif chamber == "house":
+            title, flag = "Representative", "House"
+        else:
+            title, flag = "Congress", ""
+        try:
+            delay = int(float(d.get("disclosure_delay_days")))
+        except (TypeError, ValueError):
+            delay = None
+        late_raw = str(d.get("is_late_filing") or "").strip().lower()
         rows.append(dict(
             ticker=tk,
-            name=str(d.get("asset_name") or "").strip(),
-            buyer=buyer, title=title,
+            name=asset,
+            asset=asset,
+            buyer=str(d.get("filer_name") or "").strip(),
+            title=title,
             value=abs(val) if np.isfinite(val) else float("nan"),
-            filed=filed, source="Congress",
+            filed=filed,
+            trade_date=trade_dt,
+            source="Congress",
             flag=flag,
+            party=str(d.get("party") or "").strip().upper(),
+            state=str(d.get("state") or "").strip().upper(),
+            amount_range=str(d.get("amount_range") or "").strip(),
+            delay=delay,
+            late=late_raw in ("yes", "true", "1"),
+            filing_url=str(d.get("filing_url") or "").strip(),
+            chamber=chamber,
         ))
     return rows
 
@@ -3430,9 +3461,11 @@ def insider_buy_scan(lookback_days: int = 30, min_value: float = 100_000,
 
     Form 4 buys (OpenInsider + Finviz) plus House/Senate periodic reports.
     Rank: recency of the filing, then dollars, then a flag/cluster boost.
-    officials_only keeps Senate, House, and Trump filings.
+    officials_only lists each Senate, House, and Trump purchase with the
+    STOCK Act fields (official, chamber, party, amount range, trade date,
+    filing link) instead of collapsing to one row per ticker.
     """
-    empty = pd.DataFrame(columns=_IB_COLS)
+    empty = pd.DataFrame(columns=(_IB_OFFICIAL_COLS if officials_only else _IB_COLS))
     try:
         days = max(1, int(lookback_days or 30))
     except (TypeError, ValueError):
@@ -3476,6 +3509,106 @@ def insider_buy_scan(lookback_days: int = 30, min_value: float = 100_000,
             _log_exc("insider_buy.dump", e)
 
     cutoff = date.today() - timedelta(days=days)
+    today = date.today()
+    want = None
+    if only_sectors:
+        want = {str(s).strip() for s in only_sectors if str(s).strip()}
+
+    def _tr_flag(tr) -> str:
+        buyer = str(tr.get("buyer") or "").strip()
+        title = str(tr.get("title") or "").strip()
+        return str(tr.get("flag") or "") or insider_buyer_flag(buyer, title)
+
+    def _tr_val(tr) -> float:
+        try:
+            val = float(tr.get("value"))
+        except (TypeError, ValueError):
+            return float("nan")
+        return val
+
+    def _is_official(tr, flag: str) -> bool:
+        if flag in _IB_OFFICIAL_FLAGS:
+            return True
+        return str(tr.get("source") or "") == "Congress"
+
+    if officials_only:
+        seen = set()
+        rows = []
+        px_need = []
+        for tr in trades:
+            flag = _tr_flag(tr)
+            if not _is_official(tr, flag):
+                continue
+            tk = _ib_repair_ticker(tr.get("ticker"), dump_tks)
+            filed = tr.get("filed")
+            if filed and filed < cutoff:
+                continue
+            val = _tr_val(tr)
+            buyer = str(tr.get("buyer") or "").strip()
+            asset = _ib_clean_asset(tr.get("asset") or tr.get("name") or "")
+            if not tk and not asset and not buyer:
+                continue
+            sec = sectors.get(tk) or ""
+            if want and tk and sec and sec not in want and sec != "Unknown":
+                continue
+            dup = (buyer, tk, asset, filed, tr.get("trade_date"),
+                   int(val) if np.isfinite(val) else 0)
+            if dup in seen:
+                continue
+            seen.add(dup)
+            if tk:
+                px_need.append(tk)
+            age = (today - filed).days if filed else 999
+            if age < 0:
+                age = 0
+            chamber = str(tr.get("chamber") or "").strip().title() or (
+                "Senate" if flag == "Senate" else
+                "House" if flag == "House" else
+                "Executive" if flag == "Trump" else "Congress")
+            delay = tr.get("delay")
+            try:
+                delay_n = int(delay) if delay is not None else np.nan
+            except (TypeError, ValueError):
+                delay_n = np.nan
+            rows.append(dict(
+                Official=buyer or "—",
+                Chamber=chamber,
+                Party=str(tr.get("party") or "").strip().upper() or "—",
+                State=str(tr.get("state") or "").strip().upper() or "—",
+                Ticker=tk or "—",
+                Asset=asset or names.get(tk) or tk or "—",
+                **{"Trade date": (tr.get("trade_date").isoformat()
+                                  if tr.get("trade_date") else "—")},
+                Filed=filed.isoformat() if filed else "—",
+                Age=int(age),
+                Delay=delay_n,
+                Late="Yes" if tr.get("late") else "—",
+                **{"Bought $": round(abs(val), 0) if np.isfinite(val) else np.nan},
+                Range=str(tr.get("amount_range") or "").strip() or "—",
+                Flag=flag or "—",
+                Source=str(tr.get("source") or "Congress"),
+                Filing=str(tr.get("filing_url") or "").strip() or None,
+                Price=np.nan,
+            ))
+        if not rows:
+            return empty
+        pxmap = {}
+        try:
+            pxmap = dump_last_closes(list(dict.fromkeys(px_need))) or {}
+        except Exception:
+            pxmap = {}
+        for rec in rows:
+            tk = rec.get("Ticker")
+            if tk and tk != "—":
+                rec["Price"] = pxmap.get(tk, np.nan)
+        rows.sort(key=lambda r: (
+            r["Age"],
+            str(r.get("Filed") or ""),
+            -float(r.get("Bought $") or 0),
+            str(r.get("Official") or ""),
+        ))
+        return stamp_rank(pd.DataFrame(rows[:1000]))
+
     seen = set()
     by = {}
     for tr in trades:
@@ -3485,18 +3618,14 @@ def insider_buy_scan(lookback_days: int = 30, min_value: float = 100_000,
         filed = tr.get("filed")
         if filed and filed < cutoff:
             continue
-        val = tr.get("value")
-        try:
-            val = float(val)
-        except (TypeError, ValueError):
-            val = float("nan")
+        val = _tr_val(tr)
         if tr.get("source") != "Congress":
             if np.isfinite(floor) and floor > 0 and (
                     not np.isfinite(val) or val < floor):
                 continue
         buyer = str(tr.get("buyer") or "").strip()
         title = str(tr.get("title") or "").strip()
-        flag = str(tr.get("flag") or "") or insider_buyer_flag(buyer, title)
+        flag = _tr_flag(tr)
         dup = (tk, buyer, filed, int(val) if np.isfinite(val) else 0)
         if dup in seen:
             continue
@@ -3529,17 +3658,18 @@ def insider_buy_scan(lookback_days: int = 30, min_value: float = 100_000,
         pxmap = dump_last_closes(list(by)) or {}
     except Exception:
         pxmap = {}
-    dump_tks = set(sectors) | set(pxmap)
-    if dump_tks:
-        by = {k: v for k, v in by.items() if k in dump_tks}
+    listed = set(sectors) | set(pxmap) | set(dump_tks)
+    if listed:
+        keep = {}
+        for k, v in by.items():
+            if k in listed:
+                keep[k] = v
+            elif v.get("flags") in _IB_OFFICIAL_FLAGS or "Congress" in (v.get("sources") or ()):
+                keep[k] = v
+        by = keep
         if not by:
             return empty
 
-    want = None
-    if only_sectors:
-        want = {str(s).strip() for s in only_sectors if str(s).strip()}
-
-    today = date.today()
     rows = []
     for tk, rec in by.items():
         sec = sectors.get(tk) or "Unknown"
@@ -3550,8 +3680,6 @@ def insider_buy_scan(lookback_days: int = 30, min_value: float = 100_000,
         if age < 0:
             age = 0
         flag = rec["flags"] or ""
-        if officials_only and flag not in _IB_OFFICIAL_FLAGS:
-            continue
         if big_only and not flag:
             continue
         dollars = float(rec["value"] or 0.0)
@@ -3562,7 +3690,8 @@ def insider_buy_scan(lookback_days: int = 30, min_value: float = 100_000,
         cluster = 1.0 + 0.15 * min(max(len(rec["buyers"]) - 1, 0), 6)
         score = recency * size * boost * cluster
         flagged = [b for b in rec["buyers"] if insider_buyer_flag(b) or flag]
-        who = " · ".join((flagged or rec["buyers"])[:3]) or "—"
+        who_list = flagged or rec["buyers"]
+        who = " · ".join(who_list[:8]) or "—"
         src = " · ".join(sorted(rec["sources"])) if rec["sources"] else "Form 4"
         rows.append(dict(
             Ticker=tk,

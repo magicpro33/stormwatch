@@ -5362,7 +5362,7 @@ def _tickers_from_scan(df, ticker_col: str = "Ticker"):
     out, seen = [], set()
     for raw in df[col].astype(str):
         tk = str(raw).strip().upper()
-        if tk and tk not in seen and tk.lower() not in ("nan", "none", ""):
+        if tk and tk not in seen and tk.lower() not in ("nan", "none", "", "—", "-"):
             seen.add(tk)
             out.append(tk)
     return out
@@ -5415,7 +5415,7 @@ def _scan_hub_pick_and_show(sel, df, state_key: str, az_prefix: str,
                     tk = saved
             except Exception:
                 tk = None
-    if not tk or tk.lower() in ("nan", "none", ""):
+    if not tk or tk.lower() in ("nan", "none", "", "—", "-"):
         return
     st.session_state[persist] = tk
     st.session_state["lk_tk"] = tk
@@ -6542,13 +6542,18 @@ def _render_scan_hub_help():
         _help_card(
             "💼 Insider Buying",
             "Latest large Form 4 purchases (officers, 10% holders, mega-funds) "
-            "plus Senate and House buys.",
-            "Ranked by how recently the filing hit, then by dollars, with a "
-            "boost when the buyer is Trump, a senator, or a name-brand "
-            "institution. Tap a row for the chart and company profile. "
-            "Health/Piotroski and Clean Setup stamp onto the list the same "
-            "way the other scanners do.",
-            "You want to see where the big names just bought, not a technical setup.",
+            "plus Senate and House STOCK Act buys.",
+            "The mixed list ranks tickers by how recently the filing hit, then "
+            "by dollars, with a boost for Trump, a senator, or a name-brand "
+            "institution. Turn on Government officials only to list every "
+            "Senate, House, and Trump purchase in the window — official, "
+            "chamber, party, state, amount range, trade date, delay, and the "
+            "periodic-report PDF. Names that are not in the nightly dump stay "
+            "on that list. Tap a row with a ticker for the chart and company "
+            "profile. Health/Piotroski and Clean Setup stamp onto listed names "
+            "the same way the other scanners do.",
+            "You want to see where officials and other big names just bought, "
+            "not a technical setup.",
             color="#67E8F9")
         _help_card(
             "📊 Hybrid Screener",
@@ -8244,9 +8249,12 @@ with st.container(border=True, key="mw_page"):
         _hub_sec("1 · Hunt", "#67E8F9", "how recent, how large")
         with _hub_pill("ib_hunt_box"):
             _h1, _h2, _h3 = st.columns(3)
-            _ib_top = _h1.selectbox("How many stocks", [25, 50, 75, 100],
-                                    index=1, key="ib_top")
-            _ib_days = _h2.selectbox("Filed in the last", [7, 14, 30, 60, 90],
+            _ib_top = _h1.selectbox("How many stocks", [25, 50, 75, 100, 250, 500],
+                                    index=1, key="ib_top",
+                                    help="Ticker cap for the mixed Form 4 list. "
+                                         "Government officials only lists each "
+                                         "purchase instead, up to 1,000 rows.")
+            _ib_days = _h2.selectbox("Filed in the last", [7, 14, 30, 60, 90, 180, 365],
                                      index=2, key="ib_days",
                                      format_func=lambda n: f"{n} days",
                                      help="Uses the filing date — when the buy became public.")
@@ -8309,11 +8317,13 @@ with st.container(border=True, key="mw_page"):
             st.toggle(
                 "Government officials only",
                 key="ib_officials",
-                help="Keep Senate, House, and Trump purchases only — "
-                     "no company officers or funds.",
+                help="One row per Senate, House, and Trump purchase — official, "
+                     "chamber, party, state, amount range, trade date, and the "
+                     "STOCK Act filing. Names not in the dump stay on the list.",
             )
             if st.session_state.get("ib_officials"):
-                st.caption("On — Senate, House, and Trump only.")
+                st.caption("On — every Senate, House, and Trump purchase in the "
+                           "window, with the full periodic-report fields.")
 
         _ib_cat = _catalysts_section(
             "ib", cat_color="#A78BFA", pill_key="ib_cat_box",
@@ -8325,7 +8335,7 @@ with st.container(border=True, key="mw_page"):
         _rank_banner(
             f"Ranking the top <b>{int(_ib_top)}</b> by "
             f"<b style='color:{ACCENT};'>"
-            f"{'government-official buys' if _ib_officials else 'most recent big insider buys'}"
+            f"{'each government-official purchase' if _ib_officials else 'most recent big insider buys'}"
             f"</b> "
             f"(last {int(_ib_days)} days"
             f"{'' if _ib_officials else f', Form 4 ≥ ${int(_ib_min):,}'})"
@@ -8368,7 +8378,8 @@ with st.container(border=True, key="mw_page"):
             if _idf is None or _idf.empty:
                 if _ib_officials:
                     st.info("No Senate, House, or Trump purchases in that window. "
-                            "Widen the lookback or add sectors.")
+                            "Widen the lookback (180 or 365 days) or clear the "
+                            "sector filter.")
                 else:
                     st.info("No filings cleared that hunt. Widen the lookback, "
                             "drop the dollar floor, or turn off Big names only.")
@@ -8389,15 +8400,23 @@ with st.container(border=True, key="mw_page"):
                         f"padding:10px 14px;margin:8px 0;'>"
                         f"<b>{len(_idf)} name{'s' if len(_idf) != 1 else ''}</b> "
                         f"with recent "
-                        f"{'official' if _ib_officials else 'insider'} buying"
+                        f"{'official' if _ib_officials else 'insider'} "
+                        f"{'purchases' if _ib_officials else 'buying'}"
                         f"{f' · {_n_flag} flagged' if _n_flag else ''}"
                         f"<span style='color:{DIM};font-size:12px;'> · "
-                        f"{'Senate / House / Trump' if _ib_officials else 'Form 4 + Congress'}"
-                        f" · ranked by recency × size</span></div>")
+                        f"{'Senate / House / Trump · one row per filing' if _ib_officials else 'Form 4 + Congress'}"
+                        f"{'' if _ib_officials else ' · ranked by recency × size'}</span></div>")
+                    _ib_official_view = "Official" in _idf.columns
                     _ib_order = _order_with_cat(
-                        [c for c in ["#", "Ticker", "Name", "Sector", "Filed",
-                                     "Age", "Bought $", "Buyers", "Flag",
-                                     "Who", "Role", "Price", "Source"]
+                        [c for c in (
+                            ["#", "Official", "Chamber", "Party", "State",
+                             "Ticker", "Asset", "Trade date", "Filed", "Age",
+                             "Delay", "Late", "Bought $", "Range", "Flag",
+                             "Source", "Filing", "Price"]
+                            if _ib_official_view else
+                            ["#", "Ticker", "Name", "Sector", "Filed",
+                             "Age", "Bought $", "Buyers", "Flag",
+                             "Who", "Role", "Price", "Source"])
                          if c in _idf.columns],
                         _idf)
                     _ibsty = _idf.style.format(
@@ -8405,6 +8424,7 @@ with st.container(border=True, key="mw_page"):
                             "Price": "${:,.2f}",
                             "Bought $": "${:,.0f}",
                             "Age": "{:.0f}d",
+                            "Delay": "{:.0f}d",
                         }.items() if k in _idf.columns}, na_rep="—")
                     if "Flag" in _idf.columns:
                         _ibsty = _ibsty.map(_css_owner_flag, subset=["Flag"])
@@ -8419,12 +8439,30 @@ with st.container(border=True, key="mw_page"):
                             "#": _rank_col_cfg(),
                             **_health_setup_col_cfgs(),
                             **_cat_col_cfgs(),
+                            "Official": st.column_config.Column(
+                                help="Name on the STOCK Act periodic transaction report."),
+                            "Chamber": st.column_config.Column(
+                                help="Senate, House, or Executive (Trump)."),
+                            "Party": st.column_config.Column(help="Party on the filing."),
+                            "State": st.column_config.Column(help="State the official represents."),
+                            "Asset": st.column_config.Column(
+                                width="medium",
+                                help="Security name from the filing — stocks without a "
+                                     "ticker, notes, and funds stay listed."),
+                            "Trade date": st.column_config.Column(
+                                help="When they bought, from the periodic report."),
                             "Filed": st.column_config.Column(
                                 help="Filing date — when the buy became public."),
                             "Age": st.column_config.Column(
                                 help="Days since that filing. Rank leads with the newest."),
+                            "Delay": st.column_config.Column(
+                                help="Days from trade date to filing. STOCK Act window is 45 days."),
+                            "Late": st.column_config.Column(
+                                help="Yes when the filing landed after the 45-day deadline."),
                             "Bought $": st.column_config.Column(
-                                help="Sum of purchase value in the lookback window."),
+                                help="Midpoint of the STOCK Act amount band, or the Form 4 dollar value."),
+                            "Range": st.column_config.Column(
+                                help="Reported amount band on the periodic report."),
                             "Buyers": st.column_config.Column(
                                 help="Distinct buyers clustered on this ticker."),
                             "Flag": st.column_config.Column(
@@ -8436,10 +8474,14 @@ with st.container(border=True, key="mw_page"):
                                 help="Title on the newest filing (CEO, 10% Owner, Senator…)."),
                             "Source": st.column_config.Column(
                                 help="Form 4 (OpenInsider / Finviz) and/or Congress periodic reports."),
+                            "Filing": st.column_config.LinkColumn(
+                                "Filing", display_text="Open PTR",
+                                help="House Clerk or Senate eFD periodic transaction report."),
                             "Price": st.column_config.Column(
                                 help="Last close in the nightly dump."),
                         })
-                    st.caption("👆 Tap a row for the chart, cards, and company profile below.")
+                    st.caption("👆 Tap a row with a ticker for the chart, cards, "
+                               "and company profile below.")
                     _scan_hub_pick_and_show(_ibsel, _idf, "ib_inline", "ibaz",
                                            source="Insider Buying")
         else:
