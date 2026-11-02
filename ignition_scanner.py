@@ -2800,8 +2800,6 @@ def render_ignition_scanner_tab(render_detail=None):
                 "</tr></thead><tbody>" + "".join(frows) + "</tbody></table>",
                 unsafe_allow_html=True,
             )
-            if source:
-                st.caption(f"EPS source · {source}")
 
 
     def render_dividend_info(info):

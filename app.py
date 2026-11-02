@@ -2301,8 +2301,6 @@ def render_eps_trend(eps_history, eps_forward=None, why="", source=""):
             "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Analysts</th>"
             "</tr></thead><tbody>" + "".join(frows) + "</tbody></table>"
         )
-    if source:
-        st.caption(f"EPS source · {source}")
 
 
 def render_dividend_info(info: dict | None) -> None:
@@ -7481,11 +7479,6 @@ with st.container(border=True, key="mw_page"):
                     ce.watchlist_add(tk, px_now, source=_src)
                 except Exception as _we:
                     log_exc("lookup_watchlist_add", _we)
-                _ent = ce.watchlist_entry(tk) if hasattr(ce, "watchlist_entry") else None
-                _tag = (ce.watchlist_source_label((_ent or {}).get("source"), (_ent or {}).get("note"))
-                        if hasattr(ce, "watchlist_source_label")
-                        else (str((_ent or {}).get("source") or _src or "").strip() or "Stock Lookup"))
-                st.caption(f"⭐ {tk} is on your watchlist · {_tag}")
 
             try:
                 _render_signed_catalysts(tk, str((_info or {}).get("sector") or ""))
