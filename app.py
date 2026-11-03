@@ -8058,6 +8058,31 @@ with st.container(border=True, key="mw_page"):
             ]
             _bdf["Price now"] = [_bull_now(t) for t in _btks]
             _bdf["Since saved"] = _bdf["Price now"] / _bdf["Price then"] - 1
+            _ret = pd.to_numeric(_bdf["Since saved"], errors="coerce")
+            try:
+                _ret = _ret[np.isfinite(_ret)]
+            except Exception:
+                _ret = pd.Series(dtype=float)
+            _win = _ret[_ret > 0]
+            _lose = _ret[_ret < 0]
+            _net = float(_ret.mean()) if len(_ret) else float("nan")
+            _gain = float(_win.mean()) if len(_win) else float("nan")
+            _loss = float(_lose.mean()) if len(_lose) else float("nan")
+
+            def _bull_pct(v):
+                try:
+                    fv = float(v)
+                except (TypeError, ValueError):
+                    return "—"
+                return f"{fv:+.1%}" if np.isfinite(fv) else "—"
+
+            _gn1, _gn2, _gn3 = st.columns(3)
+            _gn1.metric("Net", _bull_pct(_net),
+                        help="Equal-weight average of Since saved across the list.")
+            _gn2.metric(f"Gain ({len(_win)})", _bull_pct(_gain),
+                        help="Average Since saved of names that are up.")
+            _gn3.metric(f"Loss ({len(_lose)})", _bull_pct(_loss),
+                        help="Average Since saved of names that are down.")
             if "price_at_add" in _bdf.columns:
                 _bdf = _bdf.drop(columns=["price_at_add"])
             _bdf = _stamp_hs(_bdf)
