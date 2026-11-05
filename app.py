@@ -6485,17 +6485,499 @@ def _help_key_row(icon, name, score, meaning, side="up"):
     )
 
 
+def _cs_help_candles_svg(bars, label="", bull=True, w=240, h=92):
+    """Tiny schematic candlesticks for Help — HTML, not live market data.
+
+    Streamlit's st.html sanitizer strips <svg>, so this is divs + CSS.
+    """
+    if not bars:
+        return ""
+    hs = [b[1] for b in bars]
+    ls = [b[2] for b in bars]
+    lo, hi = min(ls), max(hs)
+    span = hi - lo if hi > lo else 1.0
+    pad_t, pad_b, pad_l, pad_r = 20, 10, 10, 10
+    inner_h = h - pad_t - pad_b
+    inner_w = w - pad_l - pad_r
+    slot = inner_w / len(bars)
+    cw = max(5.0, slot * 0.42)
+    col = _CS_BULL if bull else _CS_BEAR
+
+    def y(p):
+        return pad_t + (hi - p) / span * inner_h
+
+    parts = [
+        f"<div role='img' aria-label='{_esc(label or 'pattern')}' "
+        f"style='position:relative;width:100%;height:{h}px;"
+        f"background:#0c1829;border:1px solid #1d2b40;border-radius:8px;"
+        f"overflow:hidden'>"
+    ]
+    if label:
+        parts.append(
+            f"<div style='position:absolute;left:{pad_l}px;top:4px;"
+            f"color:{col};font-size:11px;font-weight:700;"
+            f"font-family:JetBrains Mono,monospace'>{_esc(label)}</div>")
+    for i, (o, hi_p, lo_p, c) in enumerate(bars):
+        x = pad_l + slot * i + slot / 2.0
+        up = c >= o
+        body = col if up else _CS_BEAR
+        y_hi, y_lo = y(hi_p), y(lo_p)
+        y_o, y_c = y(o), y(c)
+        y_top, y_bot = min(y_o, y_c), max(y_o, y_c)
+        if y_bot - y_top < 3:
+            y_bot = y_top + 3
+        wick_h = max(1.0, y_lo - y_hi)
+        parts.append(
+            f"<div style='position:absolute;left:{x - 0.5:.1f}px;"
+            f"top:{y_hi:.1f}px;width:1px;height:{wick_h:.1f}px;"
+            f"background:#9aa8bd'></div>"
+            f"<div style='position:absolute;left:{x - cw / 2:.1f}px;"
+            f"top:{y_top:.1f}px;width:{cw:.1f}px;height:{y_bot - y_top:.1f}px;"
+            f"background:{body};border-radius:1px'></div>")
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def _cs_help_overlay_fig(kind: str):
+    """Illustrative Clean Setup overlay for Help. Synthetic path, not a ticker."""
+    import plotly.graph_objects as go
+    n = 56
+    x = np.arange(n, dtype=float)
+    bull = kind == "bull"
+    drift = 0.16 if bull else -0.16
+    close = 50.0 + drift * x + 1.35 * np.sin(x / 5.5)
+    open_ = np.r_[close[0], close[:-1]]
+    open_ = open_ + (-0.28 if bull else 0.28)
+    high = np.maximum(open_, close) + 0.42 + 0.12 * np.abs(np.sin(x / 3.0))
+    low = np.minimum(open_, close) - 0.42 - 0.12 * np.abs(np.cos(x / 4.0))
+    s = pd.Series(close)
+    e50 = s.ewm(span=12, adjust=False).mean()
+    e200 = s.ewm(span=28, adjust=False).mean()
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(
+        x=x, open=open_, high=high, low=low, close=close, name="Price",
+        increasing=dict(line=dict(color=_CS_BULL), fillcolor=_CS_BULL),
+        decreasing=dict(line=dict(color=_CS_BEAR), fillcolor=_CS_BEAR),
+        showlegend=False))
+    col50 = _CS_BULL if bull else _CS_BEAR
+    fig.add_trace(go.Scatter(
+        x=x, y=e50, mode="lines", name="EMA 50",
+        line=dict(color=col50, width=3)))
+    fig.add_trace(go.Scatter(
+        x=x, y=e200, mode="lines", name="EMA 200",
+        line=dict(color=_lk_hex_rgba(col50, 0.55), width=1.5)))
+    # Pivot channel — last two swing highs / lows, extended.
+    hi_i, lo_i = int(n * 0.42), int(n * 0.70)
+    if bull:
+        ch_hi = (hi_i, float(high[hi_i]) + 0.4, n - 1, float(high[-1]) + 0.9)
+        ch_lo = (lo_i, float(low[lo_i]) - 0.2, n - 1, float(low[-1]) - 0.4)
+        sig_i, sig_y, sig_txt = n - 14, float(low[-14]) - 0.35, "Bull Flag"
+        tgt = (n - 14, float(close[-14]), n - 1, float(close[-1]) + 3.4)
+    else:
+        ch_hi = (hi_i, float(high[hi_i]) + 0.4, n - 1, float(high[-1]) + 0.3)
+        ch_lo = (lo_i, float(low[lo_i]) - 0.3, n - 1, float(low[-1]) - 0.8)
+        sig_i, sig_y, sig_txt = n - 14, float(high[-14]) + 0.35, "Bear Flag"
+        tgt = (n - 14, float(close[-14]), n - 1, float(close[-1]) - 3.4)
+    fig.add_trace(go.Scatter(
+        x=[ch_hi[0], ch_hi[2]], y=[ch_hi[1], ch_hi[3]],
+        mode="lines", name="Channel",
+        line=dict(color=_CS_CH, width=1)))
+    fig.add_trace(go.Scatter(
+        x=[ch_lo[0], ch_lo[2]], y=[ch_lo[1], ch_lo[3]],
+        mode="lines", name="Channel", showlegend=False,
+        line=dict(color=_CS_CH, width=1)))
+    fig.add_trace(go.Scatter(
+        x=[tgt[0], tgt[2]], y=[tgt[1], tgt[3]],
+        mode="lines", name="Target",
+        line=dict(color=_lk_hex_rgba(col50, 0.75), width=1, dash="dash")))
+    fig.add_annotation(
+        x=tgt[2], y=tgt[3], text=f"{tgt[3]:.2f}", showarrow=False,
+        xanchor="left", xshift=4,
+        font=dict(size=10, color=col50, family="JetBrains Mono,monospace"),
+        bgcolor=_lk_hex_rgba(col50, 0.3), borderpad=2)
+    fig.add_annotation(
+        x=sig_i, y=sig_y, text=sig_txt, showarrow=False,
+        xanchor="center",
+        yanchor="top" if bull else "bottom",
+        yshift=-8 if bull else 8,
+        font=dict(size=10, color="#ffffff", family="JetBrains Mono,monospace"),
+        bgcolor=_lk_hex_rgba(col50, 0.9), bordercolor=col50, borderpad=3)
+    title = ("Bull overlay — teal EMA stack, grey channel, dashed target, named pill"
+             if bull else
+             "Bear overlay — red EMA stack, grey channel, dashed target, named pill")
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=13, color="#EAF2FF")),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#0c1829",
+        font_color="#EAF2FF", height=280, margin=dict(l=28, r=48, t=40, b=28),
+        legend=dict(orientation="h", y=1.14, font=dict(size=11)),
+        xaxis=dict(showgrid=False, title="Bars", color="#9aa8bd",
+                   rangeslider=dict(visible=False)),
+        yaxis=dict(showgrid=True, gridcolor="#1d2b40", title="Price",
+                   color="#9aa8bd"),
+    )
+    return fig
+
+
+def _cs_help_pattern_card(title, body, bars, bull=True):
+    svg = _cs_help_candles_svg(bars, title, bull=bull)
+    col = _CS_BULL if bull else _CS_BEAR
+    _md_html(
+        f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+        f"border-left:4px solid {col};border-radius:12px;"
+        f"padding:10px 12px;margin:0 0 10px'>"
+        f"<div style='margin:0 0 8px'>{svg}</div>"
+        f"<div style='color:{DIM};font-size:13px;line-height:1.5'>{body}</div>"
+        f"</div>")
+
+
+def _render_clean_setup_help():
+    _hub_sec("📐 Clean Setup", _CS_BULL,
+             "bull / bear overlay — every line and marker on the chart")
+    st.caption("Turn Overlay to Clean Setup on Stock Lookup (or any scanner "
+               "chart). Schematics below are teaching drawings, not live "
+               "tickers. Colors match the overlay: teal bull, red bear.")
+
+    st.markdown("#### What you are looking at")
+    st.markdown(
+        "Clean Setup is two layers on the same chart.\n\n"
+        "1. **Trend strip** (above the candles) — a multi-factor vote that "
+        "labels the last bar ▲ Bull, ▼ Bear, or — Mixed. That same label "
+        "stamps the Clean Setup column on watchlist, bull list, and scanner "
+        "tables.\n"
+        "2. **Painted overlay** — EMA 50, EMA 200, a pivot channel, dashed "
+        "target rays, and pattern tags when a setup confirms.\n\n"
+        "The vote does **not** wait for a pattern tag. A name can read ▲ Bull "
+        "with no flag on the screen. Pattern tags are extras that passed a "
+        "gate on the last 90 bars."
+    )
+
+    cell = ("flex:1;min-width:92px;padding:8px 12px;"
+            "background:rgba(8,19,37,0.72);"
+            "border:1px solid rgba(255,255,255,0.08);border-radius:10px")
+    lab = ("font-size:11px;letter-spacing:1px;text-transform:uppercase;"
+           "color:#9aa8bd;margin-bottom:4px")
+    val = "font-size:18px;font-weight:700;font-family:JetBrains Mono,monospace"
+    st.markdown("#### The three readout chips")
+    st.markdown(
+        f"<div style='display:flex;gap:10px;margin:4px 0 10px;flex-wrap:wrap'>"
+        f"<div style='{cell}'><div style='{lab}'>Trend</div>"
+        f"<div style='{val};color:{_CS_BULL}'>▲  Bull · 8–3</div></div>"
+        f"<div style='{cell}'><div style='{lab}'>Active</div>"
+        f"<div style='{val};color:#EAF2FF'>2 targets</div></div>"
+        f"<div style='{cell}'><div style='{lab}'>RSI</div>"
+        f"<div style='{val};color:#EAF2FF'>52.4</div></div>"
+        f"</div>",
+        unsafe_allow_html=True)
+    st.markdown(
+        "- **Trend** — last-bar vote. The `8–3` tally is how many factors "
+        "voted bull vs bear.\n"
+        "- **Active** — live dashed target rays still on the chart. A target "
+        "dies when price hits it or when it is older than 150 bars. New "
+        "targets extend 40 bars from the signal.\n"
+        "- **RSI** — 14-period Wilder RSI of close. Teal under 35 (oversold, "
+        "bull reversal gate), red over 65 (overbought, bear reversal gate), "
+        "white in between."
+    )
+
+    st.markdown("#### Lines on the candles")
+    b1, b2 = st.columns(2)
+    with b1:
+        st.plotly_chart(_cs_help_overlay_fig("bull"), width="stretch",
+                        config={"displayModeBar": False},
+                        key="cs_help_bull_fig")
+    with b2:
+        st.plotly_chart(_cs_help_overlay_fig("bear"), width="stretch",
+                        config={"displayModeBar": False},
+                        key="cs_help_bear_fig")
+    st.caption("Schematic candles vs a short EMA (labeled EMA 50) and a longer "
+               "EMA (labeled EMA 200). Live charts use 50- and 200-bar spans. "
+               "Grey lines are the pivot channel; the dashed ray is a measured "
+               "target with a price tag.")
+    st.markdown(
+        "| Marker | What it is | How to read it |\n"
+        "|---|---|---|\n"
+        "| **EMA 50** (thick) | 50-bar exponential average of close | "
+        "Teal while close is above it, red while close is below. |\n"
+        "| **EMA 200** (thin) | 200-bar exponential average of close | "
+        "Teal while EMA 50 is above it (golden stack), red while EMA 50 "
+        "is below (death stack). |\n"
+        "| **Channel** (grey) | Line through the last two confirmed pivot "
+        "highs, and through the last two pivot lows | Pivots use a 12-bar "
+        "left/right window — a high must be the highest of 12 bars on each "
+        "side before it confirms. |\n"
+        "| **Dashed ray + price tag** | Measured target from a pattern | "
+        "Teal up, red down. Tag is the target price. |\n"
+        "| **Named pill** | Pattern that passed its gate | Teal pill under "
+        "the bar for bull, red pill above the bar for bear. |"
+    )
+
+    st.markdown("#### How ▲ Bull / ▼ Bear / — Mixed is decided")
+    st.markdown(
+        "Each factor votes **+1 bull**, **−1 bear**, or **0**. The score is "
+        "the sum. A trend needs a minimum absolute score that shrinks when "
+        "ADX is strong: **4** in a quiet tape (3 if there is no high/low), "
+        "**3** when ADX ≥ 25, **2** when ADX ≥ 35. Score at or above that "
+        "floor is Bull; at or below the negative floor is Bear; otherwise "
+        "Mixed — unless a pullback override fires (core factors still agree) "
+        "or linreg + structure + Aroon all point the same way."
+    )
+    _vote_ex = [
+        ("EMA slow", 1), ("EMA fast", 1), ("MACD", 1), ("ROC", 1),
+        ("Linreg", 1), ("Donchian", 1), ("Structure", 1), ("Aroon", 1),
+        ("DI", -1), ("Supertrend", 1), ("PSAR", 0), ("Ichimoku", -1),
+        ("OBV", -1),
+    ]
+    bits = []
+    for name, v in _vote_ex:
+        if v > 0:
+            bg, fg, mark = _lk_hex_rgba(_CS_BULL, 0.9), "#fff", "+1"
+        elif v < 0:
+            bg, fg, mark = _lk_hex_rgba(_CS_BEAR, 0.9), "#fff", "−1"
+        else:
+            bg, fg, mark = "#1d2b40", "#9aa8bd", "0"
+        bits.append(
+            f"<div style='display:inline-flex;align-items:center;gap:6px;"
+            f"background:{bg};color:{fg};border-radius:8px;padding:4px 8px;"
+            f"margin:0 6px 6px 0;font-size:12px;font-family:JetBrains Mono,"
+            f"monospace'><span>{name}</span>"
+            f"<strong>{mark}</strong></div>")
+    st.markdown(
+        "<div style='margin:4px 0 10px'>"
+        "<div style='font-size:11px;letter-spacing:1px;text-transform:uppercase;"
+        "color:#9aa8bd;margin-bottom:6px'>Example vote board · 9–3 · ▲ Bull"
+        "</div>" + "".join(bits) + "</div>",
+        unsafe_allow_html=True)
+    st.caption("Teal +1, red −1, grey 0 (no vote). This board is a teaching "
+               "example — live names recompute on the last bar.")
+    st.markdown(
+        "| Vote | Bull when | Bear when |\n"
+        "|---|---|---|\n"
+        "| **EMA slow** | EMA 50 > EMA 200 and close > EMA 50 | "
+        "EMA 50 < EMA 200 and close < EMA 50 |\n"
+        "| **EMA fast** | EMA 20 > EMA 50 and close > EMA 20 | "
+        "EMA 20 < EMA 50 and close < EMA 20 |\n"
+        "| **MACD** | MACD (12/26) above its 9-bar signal | MACD below signal |\n"
+        "| **ROC** | Close is more than 3% above the close 21 bars ago | "
+        "More than 3% below |\n"
+        "| **Linreg** | 40-bar log-price slope up, R² ≥ 0.22 | Slope down, "
+        "same R² floor |\n"
+        "| **Donchian** | Close in the top 30% of the 20-bar high-low range | "
+        "Bottom 30% |\n"
+        "| **Structure** | 20-bar high and low both above the prior 20 bars "
+        "(higher high + higher low) | Lower high + lower low |\n"
+        "| **Aroon** | 25-bar Aroon Up ≥ 70 and greater than Aroon Down | "
+        "Aroon Down ≥ 70 and greater than Up |\n"
+        "| **DI** (needs OHLC) | ADX ≥ 12 and +DI > −DI | ADX ≥ 12 and −DI > +DI |\n"
+        "| **Supertrend** (needs OHLC) | Close above Supertrend (10, 3×ATR) | "
+        "Close below it |\n"
+        "| **PSAR** (needs OHLC) | Midpoint of the bar above Parabolic SAR | "
+        "Below SAR |\n"
+        "| **Ichimoku** (needs OHLC) | Close above the cloud and Tenkan > Kijun | "
+        "Close below the cloud and Tenkan < Kijun |\n"
+        "| **OBV** (needs volume) | 40-bar OBV slope up, same R² gate as linreg | "
+        "Slope down |"
+    )
+
+    st.markdown("#### When a pattern tag is allowed to print")
+    _md_html(
+        "<p style='color:#EAF2FF;font-size:15px;line-height:1.55'>"
+        "Continuation tags need all of: last close ≥ &#36;5, 20-bar "
+        "average volume ≥ 250,000, <strong>this bar's volume above that "
+        "average</strong>, RSI between <strong>40 and 60</strong>, and the "
+        "early EMA stack agreeing (EMA 50 vs 200, or EMA 20 vs 50, with close "
+        "on the trend side of EMA 50). Reversal tags drop the "
+        "volume-vs-average and RSI-midband tests and instead want RSI "
+        "<strong>under 35</strong> (bull) or <strong>over 65</strong> (bear). "
+        "Golden/Death Cross only need the &#36;5 / volume floor. Pattern hunt "
+        "runs on the <strong>last 90 bars</strong>; pivot patterns fire when "
+        "a new 12-bar pivot confirms.</p>"
+    )
+
+    st.markdown("#### Bull markers")
+    st.caption("Teal pills sit under the signal bar. Target is the dashed teal ray.")
+    _bull = [
+        ("Hammer",
+         "Reversal. Long lower wick at least 2× the body, tiny upper wick, "
+         "closes up, RSI under 35. Target = close + 1.5× the bar's range.",
+         [(8, 8.4, 6.2, 6.6), (7.2, 7.5, 5.4, 6.0), (6.1, 7.0, 3.2, 6.8)]),
+        ("Bull Engulf",
+         "This up bar opens at or below the prior close and closes at or "
+         "above the prior open, body larger than the prior body. Continuation "
+         "or reversal gate. Target = close + 2× this body.",
+         [(7.4, 7.8, 5.8, 6.1), (6.0, 8.4, 5.7, 8.1)]),
+        ("3 Soldiers",
+         "Three up closes in a row, each close higher, continuation gate. "
+         "Target = close + (this close − close two bars ago).",
+         [(5.0, 6.2, 4.8, 6.0), (6.0, 7.2, 5.8, 7.0), (7.0, 8.3, 6.8, 8.1)]),
+        ("Morning Star",
+         "Down bar, tiny middle body (≤ 40% of the first body), then an up "
+         "bar that closes above the first bar's midpoint. Reversal gate. "
+         "Target = close + first bar's body.",
+         [(8.4, 8.6, 6.2, 6.4), (6.3, 6.6, 5.9, 6.2), (6.4, 8.3, 6.2, 8.0)]),
+        ("20d Breakout",
+         "Close above the prior 20-bar high, continuation gate. Target = "
+         "close + that 20-bar range.",
+         [(5.2, 6.4, 5.0, 6.1), (6.0, 6.6, 5.7, 6.4), (6.5, 8.2, 6.4, 8.0)]),
+        ("Golden Cross",
+         "EMA 50 crosses up through EMA 200. Only the liquidity floor. No "
+         "target ray — it marks the stack flip.",
+         [(5.4, 6.0, 5.2, 5.8), (5.9, 6.8, 5.7, 6.6), (6.6, 7.8, 6.4, 7.6)]),
+        ("Spring",
+         "Low undercuts the last pivot low, then the bar closes back above "
+         "that pivot. Reversal gate. Target = close + 2× (close − low).",
+         [(5.8, 6.6, 5.5, 6.3), (6.2, 6.8, 4.2, 6.4)]),
+        ("Bull Flag",
+         "Pole 6–20% up into a pivot high, then a pullback under 5% that "
+         "confirms after the high. Continuation gate. Target ≈ 90% of the "
+         "pole projected from the flag high.",
+         [(4.8, 5.2, 4.6, 5.0), (5.2, 7.4, 5.1, 7.2), (7.0, 7.3, 6.6, 6.8)]),
+        ("Cup & Handle",
+         "Left and right rims within 2%, cup 12–33% deep, handle shallower "
+         "than 8% and above the cup. Continuation gate. Target = rim + cup depth.",
+         [(7.6, 7.8, 7.4, 7.7), (6.2, 7.5, 5.4, 6.0), (7.5, 7.8, 7.0, 7.6)]),
+        ("Asc Triangle",
+         "Three pivot highs within 1% (flat cap) and rising pivot lows. "
+         "Continuation gate. Target = cap + (cap − oldest low).",
+         [(5.0, 7.4, 4.8, 6.8), (5.6, 7.5, 5.4, 7.0), (6.2, 7.5, 6.0, 7.4)]),
+        ("Inv H&S",
+         "Three pivot lows: head at least 2% under both shoulders, shoulders "
+         "within 3%. Continuation gate. Target = neckline + (neckline − head).",
+         [(6.4, 7.2, 6.2, 7.0), (5.2, 7.0, 4.6, 6.4), (6.5, 7.4, 6.3, 7.2)]),
+        ("Falling Wedge",
+         "Pivot highs and lows both drop, but lows drop faster (compressing "
+         "down). Continuation gate. Target projects up from the last low.",
+         [(8.2, 8.4, 6.8, 7.2), (7.6, 7.8, 6.0, 6.4), (7.0, 7.2, 5.6, 6.6)]),
+        ("Rounding Bottom",
+         "Three pivot lows, middle the deepest (at least 4% under the wings), "
+         "right wing back within 3% of the left. Continuation gate. Target = "
+         "neckline + (neckline − trough).",
+         [(7.0, 7.4, 6.6, 7.1), (5.4, 6.8, 5.0, 5.8), (6.9, 7.5, 6.6, 7.3)]),
+        ("Higher Lows",
+         "Three pivot lows, each at least 2% above the one before. "
+         "Continuation gate. Target = last pivot high + (last low − first low).",
+         [(5.0, 6.4, 4.8, 6.0), (5.6, 7.0, 5.4, 6.8), (6.4, 7.6, 6.2, 7.4)]),
+        ("Double Bottom",
+         "Two pivot lows within 1.5%, second not under the first by much. "
+         "Continuation gate. Target = neckline + (neckline − the lower low).",
+         [(5.2, 7.0, 5.0, 6.6), (6.8, 7.4, 5.1, 6.8)]),
+        ("Pennant",
+         "A 6–25% pole, then highs dropping and lows rising (both sides "
+         "compress). Continuation gate. Target ≈ 70% of the pole.",
+         [(5.0, 5.4, 4.8, 5.2), (5.4, 7.8, 5.3, 7.6), (7.2, 7.5, 6.8, 7.1)]),
+        ("Asc Channel",
+         "Three rising pivot highs and three rising pivot lows. Continuation "
+         "gate. Target = last high + channel width.",
+         [(5.0, 6.2, 4.8, 6.0), (5.8, 7.0, 5.6, 6.8), (6.6, 7.8, 6.4, 7.6)]),
+        ("Rectangle",
+         "Last three pivot highs within 1.2%, last three lows within 1.2%, "
+         "and at least 3% of room between the bands. Prints bull if the "
+         "continuation gate is on. Target = top of the box + box height.",
+         [(6.8, 7.6, 5.4, 7.4), (7.2, 7.5, 5.5, 5.7), (5.6, 7.6, 5.4, 7.3)]),
+    ]
+    cols = st.columns(2)
+    for i, (title, body, bars) in enumerate(_bull):
+        with cols[i % 2]:
+            _cs_help_pattern_card(title, body, bars, bull=True)
+
+    st.markdown("#### Bear markers")
+    st.caption("Red pills sit above the signal bar. Target is the dashed red ray.")
+    _bear = [
+        ("Shooting Star",
+         "Reversal. Long upper wick at least 2× the body, tiny lower wick, "
+         "closes down, RSI over 65. Target = close − 1.5× the bar's range.",
+         [(6.2, 7.8, 6.0, 7.4), (7.2, 9.6, 7.0, 7.4)]),
+        ("Bear Engulf",
+         "This down bar opens at or above the prior close and closes at or "
+         "below the prior open, body larger than the prior body. Target = "
+         "close − 2× this body.",
+         [(6.0, 8.2, 5.8, 8.0), (8.1, 8.3, 5.6, 5.8)]),
+        ("3 Crows",
+         "Three down closes in a row, each close lower, continuation gate. "
+         "Target = close − (close two bars ago − this close).",
+         [(8.2, 8.4, 7.0, 7.2), (7.2, 7.4, 6.0, 6.2), (6.2, 6.4, 5.0, 5.2)]),
+        ("Evening Star",
+         "Up bar, tiny middle body, then a down bar that closes below the "
+         "first bar's midpoint. Reversal gate. Target = close − first body.",
+         [(5.4, 7.6, 5.2, 7.4), (7.3, 7.6, 7.0, 7.2), (7.2, 7.4, 5.4, 5.6)]),
+        ("20d Breakdown",
+         "Close under the prior 20-bar low, continuation gate. Target = "
+         "close − that 20-bar range.",
+         [(7.4, 7.8, 6.6, 6.8), (6.8, 7.0, 6.2, 6.4), (6.3, 6.4, 5.0, 5.2)]),
+        ("Death Cross",
+         "EMA 50 crosses down through EMA 200. Liquidity floor only. No "
+         "target ray.",
+         [(7.6, 7.8, 6.8, 7.0), (7.0, 7.2, 6.2, 6.4), (6.4, 6.6, 5.4, 5.6)]),
+        ("Upthrust",
+         "High pokes above the last pivot high, then the bar closes back "
+         "under that pivot. Reversal gate. Target = close − 2× (high − close).",
+         [(6.4, 7.2, 6.2, 6.8), (6.6, 8.6, 6.4, 6.5)]),
+        ("Bear Flag",
+         "Pole 6–20% down into a pivot low, then a rally under 5%. "
+         "Continuation gate. Target ≈ 90% of the pole projected down.",
+         [(8.4, 8.6, 8.0, 8.2), (8.2, 8.3, 6.0, 6.2), (6.3, 6.8, 6.1, 6.6)]),
+        ("Desc Triangle",
+         "Three pivot lows within 1% (flat floor) and falling pivot highs. "
+         "Continuation gate. Target = floor − (oldest high − floor).",
+         [(7.6, 8.4, 5.6, 6.0), (7.0, 7.8, 5.6, 5.8), (6.4, 7.2, 5.6, 5.7)]),
+        ("H&S Top",
+         "Three pivot highs: head at least 2% over both shoulders, shoulders "
+         "within 3%. Continuation gate. Target = neckline − (head − neckline).",
+         [(7.0, 7.8, 6.6, 7.4), (7.2, 9.0, 7.0, 8.4), (6.8, 7.7, 6.5, 7.2)]),
+        ("Rising Wedge",
+         "Pivot highs and lows both rise, but lows rise faster (compressing "
+         "up). Continuation gate. Target projects down from the last high.",
+         [(5.4, 6.6, 5.2, 6.2), (6.0, 7.2, 5.8, 6.8), (6.6, 7.6, 6.4, 6.6)]),
+        ("Sym Triangle",
+         "Falling pivot highs and rising pivot lows. Pine only prints this "
+         "on the bear gate. Target = last low − the first triangle's height.",
+         [(8.2, 8.4, 5.4, 5.8), (7.6, 7.8, 5.8, 6.2), (7.0, 7.2, 6.2, 6.4)]),
+        ("Lower Highs",
+         "Three pivot highs, each at least 2% under the one before. "
+         "Continuation gate. Target = last pivot low − (first high − last high).",
+         [(8.4, 8.6, 7.2, 7.4), (7.6, 7.8, 6.4, 6.6), (6.8, 7.0, 5.6, 5.8)]),
+        ("Double Top",
+         "Two pivot highs within 1.5%, second not over the first by much. "
+         "Continuation gate. Target = neckline − (the higher high − neckline).",
+         [(6.4, 8.2, 6.2, 8.0), (6.6, 8.15, 6.4, 6.8)]),
+        ("Rounding Top",
+         "Three pivot highs, middle the tallest (at least 4% over the wings), "
+         "right wing back within 3% of the left. Continuation gate. Target = "
+         "neckline − (peak − neckline).",
+         [(6.6, 7.4, 6.4, 7.2), (7.0, 8.8, 6.8, 8.4), (6.6, 7.5, 6.4, 7.0)]),
+        ("Desc Channel",
+         "Three falling pivot highs and three falling pivot lows. "
+         "Continuation gate. Target = last low − channel width.",
+         [(8.0, 8.2, 7.0, 7.2), (7.2, 7.4, 6.2, 6.4), (6.4, 6.6, 5.4, 5.6)]),
+        ("Rectangle",
+         "Same box as the bull rectangle; prints bear if the bear "
+         "continuation gate is on. Target = bottom of the box − box height.",
+         [(6.8, 7.6, 5.4, 5.6), (5.6, 7.5, 5.5, 7.3), (7.2, 7.6, 5.4, 5.6)]),
+    ]
+    cols = st.columns(2)
+    for i, (title, body, bars) in enumerate(_bear):
+        with cols[i % 2]:
+            _cs_help_pattern_card(title, body, bars, bull=False)
+
+    st.caption("Research overlay, not a signal to buy or sell. Pattern tags "
+               "can cluster; the trend vote is the one that stamps lists.")
+
+
 def _render_scan_hub_help():
     _hub_title("❓ Help", "#F4F8FF")
     st.caption("A short map of Scan Hub: what each scanner is for, what a "
-               "macro lens does, and what the catalyst icons mean.")
+               "macro lens does, what Clean Setup paints on a chart, and "
+               "what the catalyst icons mean.")
     if st.session_state.get("hub_help_sec") == "Catalysts":
         st.session_state["hub_help_sec"] = "Catalysts and Filters"
     sec = st.radio(
         "Jump to",
-        ["Scanners", "Apex Flow", "POC Future", "Lenses",
+        ["Scanners", "Clean Setup", "Apex Flow", "POC Future", "Lenses",
          "Catalysts and Filters", "ShakeOut"],
         horizontal=True, key="hub_help_sec")
+
+    if sec == "Clean Setup":
+        _render_clean_setup_help()
+        return
 
     if sec == "Scanners":
         _hub_sec("Scanners", "#7FD4FF", "what each tab hunts")
