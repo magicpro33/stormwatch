@@ -3080,9 +3080,11 @@ async function yhBatch(ySyms){
   const rest = uniq.filter(s => special.indexOf(s) < 0);
   const chartUrl = (s) => `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s)}?interval=1d&range=5d&_=${bust}`;
   const out = {};
-  // v7 quote is unauthorized. Spark is one call for the whole stock chunk.
-  if (rest.length){
-    Object.assign(out, await yhTry(`https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(rest.join(','))}&range=1d&interval=1d&_=${bust}`));
+  // v7 quote is unauthorized. Spark in small chunks so CORS proxies do not 414.
+  const YH_CHUNK = 20;
+  for (let i = 0; i < rest.length; i += YH_CHUNK){
+    const slice = rest.slice(i, i + YH_CHUNK);
+    Object.assign(out, await yhTry(`https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(slice.join(','))}&range=1d&interval=1d&_=${bust}`));
   }
   const holes = rest.filter(s => yhPick(out, s) == null);
   // A missed spark chunk is Stooq's job. Charting every name here is what made refresh slow.
@@ -3219,14 +3221,25 @@ function clearAlpaca(){
 // Uses latest trade, falling back to minute bar then daily bar close.
 async function alpacaBatch(tickers){
   if (!alpacaReady()) return {};
+  const uniq = [...new Set((tickers || []).filter(Boolean))];
+  if (!uniq.length) return {};
+  const CHUNK = 80;
+  if (uniq.length > CHUNK){
+    const out = {};
+    for (let i = 0; i < uniq.length; i += CHUNK){
+      Object.assign(out, await alpacaBatch(uniq.slice(i, i + CHUNK)));
+    }
+    return out;
+  }
   const out = {};
   try {
-    const url = `https://data.alpaca.markets/v2/stocks/snapshots?symbols=${encodeURIComponent(tickers.join(','))}&feed=iex`;
+    const url = `https://data.alpaca.markets/v2/stocks/snapshots?symbols=${encodeURIComponent(uniq.join(','))}&feed=iex`;
     const r = await fetchWithTimeout(url, 9000, {headers:{'APCA-API-KEY-ID':ALPACA.key,'APCA-API-SECRET-KEY':ALPACA.secret}});
     if (r.status === 401 || r.status === 403){ NET_ERRS.push('Alpaca: auth failed'); return {}; }
+    if (r.status === 414){ NET_ERRS.push('Alpaca: URI too long'); return {}; }
     if (!r.ok){ NET_ERRS.push('Alpaca: HTTP '+r.status); return {}; }
     const j = await r.json();
-    tickers.forEach(tk => {
+    uniq.forEach(tk => {
       const s = j[tk];
       if (!s) return;
       const p = (s.latestTrade && s.latestTrade.p) || (s.minuteBar && s.minuteBar.c) || (s.dailyBar && s.dailyBar.c) || (s.prevDailyBar && s.prevDailyBar.c);

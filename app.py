@@ -97,20 +97,27 @@ def _md_html(html: str) -> None:
 
 
 def _embed_html(html: str, height: int = 0, scrolling: bool = False) -> None:
-    """HTML iframe. Streamlit 1.5x removed components.v1.html — use st.iframe."""
+    """Embed HTML without putting it in the iframe URL.
+
+    Passing a document as st.iframe(src=...) turns it into a data: URI and
+    nginx/Streamlit Cloud answer 414 Request-URI Too Large. srcdoc /
+    components.v1.html keep the markup in the iframe body.
+    """
     h = max(int(height or 0), 1)
+    try:
+        import streamlit.components.v1 as _stc
+        _stc.html(html, height=h, scrolling=bool(scrolling))
+        return
+    except Exception:
+        pass
     iframe = getattr(st, "iframe", None)
     if callable(iframe):
         try:
-            iframe(html, height=h)
+            iframe(srcdoc=html, height=h, scrolling=bool(scrolling))
             return
         except TypeError:
-            try:
-                iframe(srcdoc=html, height=h, scrolling=bool(scrolling))
-                return
-            except TypeError:
-                pass
-    st.warning("This Streamlit build cannot embed HTML via st.iframe.")
+            pass
+    st.warning("This Streamlit build cannot embed HTML.")
 
 try:
     af = _load_local_mod("apex_flow")
