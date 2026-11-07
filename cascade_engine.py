@@ -5502,22 +5502,7 @@ def _bull_list_path() -> str:
         return BULL_LIST_PATH
 
 
-def _bull_list_store_paths() -> list:
-    """Repo data/, user data, and temp — same idea as the watchlist.
-
-    Streamlit Cloud reclones the repo on reboot. A git-tracked empty
-    bull_list.json used to wipe names that had been saved in data/.
-    Extra copies keep the list when one path is reset or not writable.
-    """
-    import tempfile
-    paths = []
-    try:
-        from mw_paths import user_data_dir
-        paths.append(os.path.join(user_data_dir(), "data", "bull_list.json"))
-    except Exception:
-        pass
-    paths.append(_bull_list_path())
-    paths.append(os.path.join(tempfile.gettempdir(), "mw_bull_list.json"))
+def _bull_list_dedupe_paths(paths) -> list:
     out, seen = [], set()
     for path in paths:
         try:
@@ -5530,8 +5515,51 @@ def _bull_list_store_paths() -> list:
     return out
 
 
+def _bull_list_store_paths() -> list:
+    """User data first, then temp, then repo data/ last.
+
+    Repo data/ is git-tracked as an empty stub and Streamlit may rerun when
+    it changes. Writes go to %LOCALAPPDATA%\\MoneyWeather (or ~/.moneyweather)
+    first so a crash or reboot still has names after the repo copy is reset.
+    """
+    import tempfile
+    paths = []
+    try:
+        from mw_paths import user_data_dir
+        paths.append(os.path.join(user_data_dir(), "data", "bull_list.json"))
+    except Exception:
+        pass
+    paths.append(os.path.join(tempfile.gettempdir(), "mw_bull_list.json"))
+    paths.append(_bull_list_path())
+    return _bull_list_dedupe_paths(paths)
+
+
+def _bull_list_last_good_paths() -> list:
+    """Sidecar copies that are never overwritten with an empty list."""
+    import tempfile
+    paths = []
+    try:
+        from mw_paths import user_data_dir
+        paths.append(os.path.join(user_data_dir(), "data", "bull_list.last_good.json"))
+    except Exception:
+        pass
+    paths.append(os.path.join(tempfile.gettempdir(), "mw_bull_list.last_good.json"))
+    return _bull_list_dedupe_paths(paths)
+
+
 def _bull_list_blank():
     return {"updated": "", "headline": "", "tickers": []}
+
+
+_BULL_LIST_LOAD_OK = True
+_BULL_LIST_MIRRORED = False
+_BULL_LIST_LAST_GOOD = None
+_BULL_LIST_ALLOW_EMPTY = False
+
+
+def bull_list_load_ok() -> bool:
+    """False when a bull-list file exists but none of the copies could be read."""
+    return bool(_BULL_LIST_LOAD_OK)
 
 
 def _bull_norm_ticker(raw) -> str:
@@ -5674,26 +5702,30 @@ def _bull_list_read_file(path: str) -> dict | None:
     return _bull_list_parse(raw)
 
 
-def bull_list_load() -> dict:
-    """Public master bull list. Everyone can read; writes go through save().
+def _bull_list_n(pack) -> int:
+    return len((pack or {}).get("tickers") or [])
 
-    Prefer the copy with the most names so an empty git checkout cannot
-    hide a list that was saved to temp or the user data dir.
-    """
+
+def _bull_list_read_copies():
+    """(n_tickers, mtime, pack, path) for every readable copy, including leftovers."""
     found = []
-    for path in _bull_list_store_paths():
+    saw_file = False
+    paths = list(_bull_list_store_paths()) + list(_bull_list_last_good_paths())
+    paths.extend(p + ".tmp" for p in _bull_list_store_paths())
+    for path in _bull_list_dedupe_paths(paths):
+        try:
+            if not os.path.isfile(path):
+                continue
+            saw_file = True
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
         pack = _bull_list_read_file(path)
         if pack is None:
             continue
-        try:
-            mt = os.path.getmtime(path)
-        except OSError:
-            mt = 0.0
-        found.append((len(pack.get("tickers") or []), mt, pack))
-    if not found:
-        return _bull_list_blank()
-    found.sort(key=lambda x: (x[0], x[1]))
-    return found[-1][2]
+        found.append((_bull_list_n(pack), float(mtime or 0.0), pack, path))
+    found.sort(key=lambda row: (row[0], row[1]))
+    return found, saw_file
 
 
 def _bull_json_default(o):
@@ -5707,10 +5739,8 @@ def _bull_json_default(o):
     raise TypeError(f"not JSON serializable: {type(o).__name__}")
 
 
-def bull_list_save(pack) -> bool:
-    global _BULL_LIST_ERR
-    _BULL_LIST_ERR = ""
-    src = pack if isinstance(pack, dict) else {}
+def _bull_list_pack(src) -> dict:
+    src = src if isinstance(src, dict) else {}
     rows, seen = [], set()
     for item in src.get("tickers") or []:
         row = _bull_list_row(item)
@@ -5720,43 +5750,123 @@ def bull_list_save(pack) -> bool:
         rows.append(row)
         if len(rows) >= _BULL_LIST_MAX:
             break
-    out = {
+    return {
         "updated": str(src.get("updated") or datetime.now(timezone.utc).date().isoformat()),
         "headline": str(src.get("headline") or "").strip()[:160],
         "tickers": rows,
     }
+
+
+def _bull_atomic_write(path: str, payload: str) -> bool:
     import shutil
-    payload = json.dumps(out, indent=2, allow_nan=False, default=_bull_json_default) + "\n"
+    dest_dir = os.path.dirname(path) or "."
+    tmp = path + ".tmp"
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.replace(tmp, path)
+        except OSError:
+            shutil.copyfile(tmp, path)
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        return True
+    except Exception as e:
+        _log_exc("bull_list_save", e)
+        try:
+            if os.path.isfile(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        return False
+
+
+def _bull_list_write_paths(paths, pack) -> bool:
+    payload = json.dumps(pack, indent=2, allow_nan=False, default=_bull_json_default) + "\n"
     ok = False
     last_err = ""
-    for path in _bull_list_store_paths():
-        dest_dir = os.path.dirname(path) or "."
-        tmp = path + ".tmp"
-        try:
-            os.makedirs(dest_dir, exist_ok=True)
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(payload)
-                f.flush()
-                os.fsync(f.fileno())
-            try:
-                os.replace(tmp, path)
-            except OSError:
-                shutil.copyfile(tmp, path)
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
+    for path in paths:
+        if _bull_atomic_write(path, payload):
             ok = True
-        except Exception as e:
-            last_err = f"{type(e).__name__}: {e}"
-            _log_exc("bull_list_save", e)
-            try:
-                if os.path.isfile(tmp):
-                    os.remove(tmp)
-            except Exception:
-                pass
+        else:
+            last_err = last_err or f"could not write {path}"
+    global _BULL_LIST_ERR
     if not ok:
         _BULL_LIST_ERR = last_err or "could not write bull list"
+    return ok
+
+
+def bull_list_load() -> dict:
+    """Public master bull list. Everyone can read; writes go through save().
+
+    Prefer the copy with the most names so an empty git checkout cannot
+    hide a list that was saved to temp or the user data dir. A last-good
+    sidecar outside the repo is restored after a crash/reboot that left
+    only the empty stub.
+    """
+    global _BULL_LIST_LOAD_OK, _BULL_LIST_MIRRORED, _BULL_LIST_LAST_GOOD
+    found, saw_file = _bull_list_read_copies()
+    if not found:
+        _BULL_LIST_LOAD_OK = not saw_file
+        if _BULL_LIST_LAST_GOOD and _bull_list_n(_BULL_LIST_LAST_GOOD):
+            return json.loads(json.dumps(_BULL_LIST_LAST_GOOD))
+        return _bull_list_blank()
+    _BULL_LIST_LOAD_OK = True
+    best = found[-1]
+    pack = best[2]
+    if _bull_list_n(pack) == 0:
+        named = [row for row in found if row[0] > 0]
+        if named:
+            pack = named[-1][2]
+        elif _BULL_LIST_LAST_GOOD and _bull_list_n(_BULL_LIST_LAST_GOOD):
+            pack = json.loads(json.dumps(_BULL_LIST_LAST_GOOD))
+    if _bull_list_n(pack):
+        _BULL_LIST_LAST_GOOD = json.loads(json.dumps(_bull_list_pack(pack)))
+        if not _BULL_LIST_MIRRORED:
+            try:
+                payload = _bull_list_pack(pack)
+                lg_ok = _bull_list_write_paths(_bull_list_last_good_paths(), payload)
+                st_ok = _bull_list_write_paths(_bull_list_store_paths(), payload)
+                _BULL_LIST_MIRRORED = bool(lg_ok and st_ok)
+            except Exception as e:
+                _log_exc("bull_list_load.backfill", e)
+    return pack
+
+
+def bull_list_save(pack) -> bool:
+    global _BULL_LIST_ERR, _BULL_LIST_LAST_GOOD, _BULL_LIST_ALLOW_EMPTY, _BULL_LIST_MIRRORED
+    _BULL_LIST_ERR = ""
+    out = _bull_list_pack(pack)
+    rows = out.get("tickers") or []
+    # A failed load, or an empty git stub, must not wipe the last-good copies.
+    if not rows and not _BULL_LIST_ALLOW_EMPTY:
+        if (not _BULL_LIST_LOAD_OK) or _bull_list_n(_BULL_LIST_LAST_GOOD):
+            _BULL_LIST_ERR = "refused empty bull list save"
+            return False
+    _BULL_LIST_ALLOW_EMPTY = False
+    ok = False
+    if rows:
+        ok = _bull_list_write_paths(_bull_list_last_good_paths(), out)
+        ok = _bull_list_write_paths(_bull_list_store_paths(), out) or ok
+        if ok:
+            _BULL_LIST_LAST_GOOD = json.loads(json.dumps(out))
+            _BULL_LIST_MIRRORED = True
+    else:
+        ok = _bull_list_write_paths(_bull_list_store_paths(), out)
+        if ok:
+            _BULL_LIST_LAST_GOOD = json.loads(json.dumps(out))
+            _BULL_LIST_MIRRORED = False
+            for path in _bull_list_last_good_paths():
+                try:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                except Exception as e:
+                    _log_exc("bull_list_save.clear_last_good", e)
     return ok
 
 
@@ -5820,6 +5930,7 @@ def bull_list_add(tickers, note: str = "", prices=None) -> list:
 
 
 def bull_list_remove(tickers) -> int:
+    global _BULL_LIST_ALLOW_EMPTY
     drop = {_bull_norm_ticker(t) for t in (tickers or [])}
     drop.discard("")
     if not drop:
@@ -5831,6 +5942,8 @@ def bull_list_remove(tickers) -> int:
         return 0
     pack["tickers"] = rows
     pack["updated"] = datetime.now(timezone.utc).date().isoformat()
+    if not rows:
+        _BULL_LIST_ALLOW_EMPTY = True
     return n if bull_list_save(pack) else 0
 
 
