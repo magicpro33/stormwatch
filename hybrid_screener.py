@@ -255,24 +255,24 @@ def _hs_dump_key() -> str:
         return ""
 
 
-@st.cache_data(ttl=900, show_spinner="🔥 Measuring where money went in the last session…")
+@st.cache_data(ttl=900, max_entries=4, show_spinner="🔥 Measuring where money went in the last session…")
 def _hs_sector_flow(day_key: str, lookback: int = 1, offset: int = 0,
                     dump_asof: str = ""):
     return ce.sector_flow(lookback=lookback, offset=offset)
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=8, show_spinner=False)
 def _hs_hot_sectors(day_key: str, k: int = 5, lookback: int = 1, offset: int = 0,
                     dump_asof: str = ""):
     return ce.hot_sectors(int(k), lookback=int(lookback), offset=int(offset))
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=2, show_spinner=False)
 def _hs_flow_sessions(day_key: str, dump_asof: str = ""):
     return ce.flow_sessions()
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
 def _hs_sector_list(day_key: str):
     import apex_flow as _af
     return _af.available_sectors()

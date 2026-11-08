@@ -498,24 +498,24 @@ def fetch_books(addresses: tuple, dex_map: dict, lookback_min: int) -> dict:
     return books
 
 
-@st.cache_data(ttl=3600, show_spinner="Loading the Hyperliquid leaderboard…")
+@st.cache_data(ttl=3600, max_entries=1, show_spinner="Loading the Hyperliquid leaderboard…")
 def _leaderboard(nonce: int) -> dict:
     _ = nonce
     return load_leaderboard()
 
 
-@st.cache_data(ttl=1800, show_spinner="Loading Hyperliquid vaults…")
+@st.cache_data(ttl=1800, max_entries=1, show_spinner="Loading Hyperliquid vaults…")
 def _vaults(nonce: int) -> dict:
     _ = nonce
     return load_vaults()
 
 
-@st.cache_data(ttl=600, show_spinner="Checking other Hyperliquid markets…")
+@st.cache_data(ttl=600, max_entries=2, show_spinner="Checking other Hyperliquid markets…")
 def _dex_map(addresses: tuple) -> dict:
     return scan_extra_dexes(addresses)
 
 
-@st.cache_data(ttl=20, show_spinner=False)
+@st.cache_data(ttl=20, max_entries=4, show_spinner=False)
 def _books(addresses: tuple, dex_sig: str, lookback_min: int) -> dict:
     dex_map = json.loads(dex_sig) if dex_sig else {}
     return fetch_books(addresses, dex_map, lookback_min)

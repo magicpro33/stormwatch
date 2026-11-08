@@ -76,7 +76,7 @@ def _sec(title: str, color: str) -> None:
     _html(f'<div class="hub-sec lg" style="--sc:{color}">{_esc(title)}</div>')
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner="Loading FRED series…")
+@st.cache_data(ttl=6 * 3600, max_entries=24, show_spinner="Loading FRED series…")
 def _load_series(sid: str) -> pd.Series:
     import cascade_engine as ce
     return ce._fred(sid)
@@ -161,7 +161,7 @@ def _stamp_last(s: pd.Series, last) -> pd.Series:
     return pd.concat([out, extra]).sort_index()
 
 
-@st.cache_data(ttl=1800, show_spinner="Loading gold, silver, and coins…")
+@st.cache_data(ttl=1800, max_entries=1, show_spinner="Loading gold, silver, and coins…")
 def _yf_history(tickers: tuple[str, ...]) -> pd.DataFrame:
     """Daily adjusted close for metals and coins. Cached half an hour."""
     tickers = tuple(tickers)
@@ -183,7 +183,7 @@ def _yf_history(tickers: tuple[str, ...]) -> pd.DataFrame:
     return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
 
 
-@st.cache_data(ttl=20, show_spinner=False)
+@st.cache_data(ttl=20, max_entries=2, show_spinner=False)
 def _yf_last(tickers: tuple[str, ...]) -> dict:
     """Latest print only — 1-minute bar, ~20s cache. Empty dict on failure."""
     tickers = tuple(tickers)
@@ -230,7 +230,7 @@ def _pull_last(tickers: tuple[str, ...]) -> dict:
         return {}
 
 
-@st.cache_data(ttl=45, show_spinner=False)
+@st.cache_data(ttl=45, max_entries=2, show_spinner=False)
 def _yf_minutes(tickers: tuple[str, ...], period: str = "2d") -> pd.DataFrame:
     """1-minute closes for live last + 1h / 24h crypto moves."""
     tickers = tuple(tickers)
@@ -354,7 +354,7 @@ def _spark_svg(s: pd.Series, color: str, w: int = 220, h: int = 44) -> str:
     return f"<div class='ch-spark' aria-hidden='true'>{''.join(bars)}</div>"
 
 
-@st.cache_data(ttl=3600, show_spinner="Loading Treasury debt…")
+@st.cache_data(ttl=3600, max_entries=1, show_spinner="Loading Treasury debt…")
 def _treasury_debt_daily() -> pd.Series:
     """Daily total public debt outstanding. Dollars, not millions."""
     import requests
@@ -378,7 +378,7 @@ def _tic_name(raw: str) -> str:
     return name
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner="Loading foreign holders…")
+@st.cache_data(ttl=6 * 3600, max_entries=1, show_spinner="Loading foreign holders…")
 def _tic_foreign_holders() -> dict:
     """Treasury TIC SLT Table 5 — major foreign holders, billions of dollars."""
     import requests
@@ -483,7 +483,7 @@ def _tic_december(text: str) -> dict:
     return out
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner="Loading foreign-holder history…")
+@st.cache_data(ttl=6 * 3600, max_entries=1, show_spinner="Loading foreign-holder history…")
 def _tic_year_ends() -> dict:
     """December TIC snapshots: {year: {total, japan, china, asof}} in $ billions."""
     import requests

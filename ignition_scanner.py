@@ -994,7 +994,7 @@ def _finite_num(v):
         return None
 
 
-@st.cache_data(ttl=55, show_spinner=False)
+@st.cache_data(ttl=55, max_entries=8, show_spinner=False)
 def fetch_intraday(ticker: str):
     """1-minute bars for today plus 5-minute bars for ~5 days.
     Dump is daily-only, so live bars are Alpaca (when keys are set) then Yahoo.
@@ -1037,7 +1037,7 @@ def fetch_intraday(ticker: str):
     return (m1_a, m5_a) if a_n >= y_n else (m1_y, m5_y)
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=900, max_entries=16, show_spinner=False)
 def fetch_daily(ticker: str):
     """~3 months of daily bars for the RVOL baseline and previous close.
 
@@ -1104,6 +1104,9 @@ def _dump_df_from_engine() -> pd.DataFrame | None:
             for pk, pv in pack.items():
                 if pv is None or isinstance(pv, (dict, list)):
                     continue
+                if isinstance(pv, str) and (pk in ("longBusinessSummary", "description")
+                                            or len(pv) > 400):
+                    continue
                 row.setdefault(pk, pv)
             if pack.get("targetMeanPrice") not in (None, ""):
                 row.setdefault("target_mean", pack["targetMeanPrice"])
@@ -1142,7 +1145,7 @@ def _strip_heavy(d: dict) -> dict:
     return out
 
 
-@st.cache_data(ttl=21600, show_spinner="Loading nightly screener dump...")
+@st.cache_data(ttl=21600, max_entries=1, show_spinner="Loading nightly screener dump...")
 def load_screener_dump(url: str) -> pd.DataFrame:
     """Slim scalar DataFrame indexed by ticker.
 
@@ -1344,7 +1347,7 @@ def _dump_seed(ticker: str) -> dict:
     return seed
 
 
-@st.cache_data(ttl=86400, show_spinner="Building today's watchlist from nightly dump...")
+@st.cache_data(ttl=86400, max_entries=1, show_spinner="Building today's watchlist from nightly dump...")
 def screener_watchlist(url: str, pool_size: int, min_price: float, day_key: str):
     """Pin the candidate watchlist ONCE per calendar day from the nightly dump.
     day_key (today's date) is part of the cache key, so this recomputes only
@@ -1440,7 +1443,7 @@ def sector_allows(catalyst: str, sector: str) -> bool:
     return any(w in s for w in whitelist)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=16, show_spinner=False)
 def fetch_fuel(ticker: str) -> dict:
     """Slow-moving 'primed to move' data: short interest, float,
     insider transactions, news, 52-week levels, earnings date,
@@ -2939,7 +2942,7 @@ def render_ignition_scanner_tab(render_detail=None):
             st.caption("Dividend data unavailable for this ticker.")
 
 
-    @st.cache_data(ttl=900, show_spinner="Loading analysis…")
+    @st.cache_data(ttl=900, max_entries=16, show_spinner="Loading analysis…")
     def fetch_analyzer(ticker):
         """Same Stock Analyzer chain as Stock Lookup: dump pack → Alpaca → Yahoo."""
         import cascade_engine as ce

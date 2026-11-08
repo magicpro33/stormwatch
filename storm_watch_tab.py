@@ -146,7 +146,7 @@ def _dump_mtime() -> float:
         return 0.0
 
 
-@st.cache_data(ttl=3600, show_spinner="Scanning for shakeout coils…")
+@st.cache_data(ttl=3600, max_entries=1, show_spinner="Scanning for shakeout coils…")
 def _live(n: int = SCAN_UNIVERSE, dump_mtime: float = 0.0):
     if _in_mw():
         import cascade_engine as ce

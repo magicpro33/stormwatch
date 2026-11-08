@@ -794,7 +794,7 @@ except ImportError:
 LOGO_PATH = os.path.join(_bundle_dir(), "assets", "aiupscale_logo.png")
 
 
-@st.cache_data
+@st.cache_data(max_entries=1)
 def _logo_b64() -> str:
     if not os.path.isfile(LOGO_PATH):
         return ""
@@ -958,37 +958,37 @@ with _ht:
 
 
 # ── data ─────────────────────────────────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner="Loading 3 years of global node history…")
+@st.cache_data(ttl=3600, max_entries=1, show_spinner="Loading 3 years of global node history…")
 def _history():
     return ce.fetch_history()
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=2, show_spinner=False)
 def _edges(key: str):
     return ce.estimate_edges(_history())
 
 
-@st.cache_data(ttl=1800, show_spinner="Reading the pressure system…")
+@st.cache_data(ttl=1800, max_entries=1, show_spinner="Reading the pressure system…")
 def _pressure():
     return ce.pressure_system()
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
 def _earnings():
     return ce.upcoming_earnings(ce.BUYBACK_TITANS)
 
 
-@st.cache_data(ttl=10800, show_spinner="Loading the 5,700-stock nightly dump for follower analysis…")
+@st.cache_data(ttl=10800, max_entries=6, show_spinner="Loading the 5,700-stock nightly dump for follower analysis…")
 def _followers(node: str, asof: str):
     return ce.fastest_followers(node, _history())
 
 
-@st.cache_data(ttl=10800, show_spinner="Building the analog library (every look-alike day in the dump)…")
 def _analog_library(asof: str):
+    """Use the in-process dump cache — a second Streamlit pickle doubles RAM."""
     return ce._feature_panels()
 
 
-@st.cache_data(ttl=10800, show_spinner=False)
+@st.cache_data(ttl=10800, max_entries=8, show_spinner=False)
 def _drivers(tk: str, asof: str):
     _hist = _analyzer(tk, asof)[1]
     _nodes = _history()
@@ -1000,7 +1000,7 @@ def _drivers(tk: str, asof: str):
     return dr
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=32, show_spinner=False)
 def _tk_earnings(tk: str, ver: str = "v4"):
     tk = str(tk or "").strip().upper()
     fn = getattr(ce, "watchlist_earnings_dates", None)
@@ -1011,7 +1011,7 @@ def _tk_earnings(tk: str, ver: str = "v4"):
     return {str(k).strip().upper(): v for k, v in (got or {}).items()}
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=4, show_spinner=False)
 def _wl_earn_map(tks: tuple, ver: str = "v1"):
     fn = getattr(ce, "watchlist_earnings_dates", None)
     if fn is None:
@@ -1022,7 +1022,7 @@ def _wl_earn_map(tks: tuple, ver: str = "v1"):
     return fn(list(tks)) or {}
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=6, show_spinner=False)
 def _scan_earn_map(tks: tuple, ver: str = "v2"):
     """Dump/disk earnings only — scans must not wait on Yahoo per ticker."""
     fn = getattr(ce, "scan_earnings_dates", None)
@@ -1037,7 +1037,7 @@ def _scan_earn_map(tks: tuple, ver: str = "v2"):
         return fn(list(tks)) or {}
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=4, show_spinner=False)
 def _wl_health_map(tks: tuple, ver: str = "v1"):
     fn = getattr(ce, "watchlist_health_rows", None)
     if fn is None:
@@ -1045,7 +1045,7 @@ def _wl_health_map(tks: tuple, ver: str = "v1"):
     return fn(list(tks)) or {}
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=4, show_spinner=False)
 def _wl_cs_trend_map(tks: tuple, ver: str = "v1"):
     """Clean Setup bull/bear/mixed for each watchlist ticker, from dump closes."""
     fn = getattr(ce, "clean_setup_trends", None)
@@ -1066,25 +1066,25 @@ def _wl_cs_trend_map(tks: tuple, ver: str = "v1"):
     return out
 
 
-@st.cache_data(ttl=1800,
+@st.cache_data(ttl=1800, max_entries=24,
                show_spinner="Running the full analyzer chain (Alpaca → Yahoo → dump)…")
 def _analyzer(tk: str, asof: str, ver: str = ce.ENGINE_VERSION, eps_ver: str = "v7"):
     return ce.fetch_analyzer(tk)
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=16, show_spinner=False)
 def _lookup_news(tk: str, name: str = ""):
     """Yahoo + Google News RSS headlines, tagged up/down."""
     return ce.fetch_lookup_news(tk, name)
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=16, show_spinner=False)
 def _lookup_cats(tk: str, sector: str = ""):
     fn = getattr(ce, "lookup_catalysts", None) or ce.ticker_catalysts
     return fn(tk, sector)
 
 
-@st.cache_data(ttl=1800, show_spinner="Fetching company profile…")
+@st.cache_data(ttl=1800, max_entries=16, show_spinner="Fetching company profile…")
 def _yf_info(tk: str) -> dict:
     """Live Yahoo profile — same pull as IGNITION's Analyze a Stock tab.
 
@@ -1304,7 +1304,7 @@ def _lk_nasdaq(path: str):
         return None
 
 
-@st.cache_data(ttl=1800, show_spinner="Loading insider trades…")
+@st.cache_data(ttl=1800, max_entries=16, show_spinner="Loading insider trades…")
 def _lk_insiders(tk: str, ver: str = "v3") -> dict:
     """Holders + Form 4: dump, Nasdaq, then Yahoo if it is not cooling."""
     blank = dict(insider_pct=None, inst_pct=None, purch_shares=None,
@@ -1627,14 +1627,14 @@ def _lk_insiders(tk: str, ver: str = "v3") -> dict:
     return out
 
 
-@st.cache_data(ttl=25, show_spinner="📡 Fetching live quotes…")
+@st.cache_data(ttl=25, max_entries=4, show_spinner="📡 Fetching live quotes…")
 def _live_quotes(tickers: tuple, nonce: int = 0):
     """Short-lived batch quotes for the watchlist table. Refresh bumps nonce."""
     px, src = ce.live_quotes(list(tickers), use_dump=True)
     return px, src
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=24, show_spinner=False)
 def _live_one(tk: str, nonce: int = 0):
     """Single-ticker live quote for lookup. Refresh Prices bumps nonce."""
     return ce.live_quotes([str(tk).strip().upper()], use_dump=True)
@@ -1644,7 +1644,7 @@ def _px_nonce() -> int:
     return int(st.session_state.get("_wl_px_nonce", 0))
 
 
-@st.cache_data(ttl=1800, show_spinner="Scanning all 5,700 stocks across every pillar…")
+@st.cache_data(ttl=1800, max_entries=2, show_spinner="Scanning all 5,700 stocks across every pillar…")
 def _mega_scan(asof: str, gauge, override=None, top: int = 20,
                apply_macro: bool = True, hot_only: int = 0,
                use_flow: bool = True, flow_lookback: int = 1,
@@ -1656,7 +1656,7 @@ def _mega_scan(asof: str, gauge, override=None, top: int = 20,
                         only_sectors=list(only_sectors) if only_sectors else None)
 
 
-@st.cache_data(ttl=900, show_spinner="🧭 Reading the market, the tape, and the headlines…")
+@st.cache_data(ttl=900, max_entries=1, show_spinner="🧭 Reading the market, the tape, and the headlines…")
 def _macro_advice(asof: str, gauge, nonce: int = 0):
     try:
         _p = _pressure()
@@ -1665,56 +1665,56 @@ def _macro_advice(asof: str, gauge, nonce: int = 0):
     return ce.macro_advisor(_history(), pressure=_p)
 
 
-@st.cache_data(ttl=1800, show_spinner="🎯 Ranking on scenario fit and quality…")
+@st.cache_data(ttl=1800, max_entries=2, show_spinner="🎯 Ranking on scenario fit and quality…")
 def _macro_only_scan(asof: str, regime: str, top: int = 20,
                      only_sectors: tuple = ()):
     return ce.macro_only_scan(regime, top=top,
                                only_sectors=list(only_sectors) if only_sectors else None)
 
 
-@st.cache_data(ttl=1800, show_spinner="🎯 Scoring the dump Top 20 and your watchlist for every simulator scenario…")
+@st.cache_data(ttl=1800, max_entries=1, show_spinner="🎯 Scoring the dump Top 20 and your watchlist for every simulator scenario…")
 def _macro_sim_bundle(asof: str, wl_key: str, live_regime: str):
     import json as _json
     wl = _json.loads(wl_key) if wl_key else []
     return ce.macro_sim_bundle(watchlist=wl, live_regime=live_regime, top=20)
 
 
-@st.cache_data(ttl=300, show_spinner="📡 Reading live WTI, Fed funds, 10Y and DXY…")
+@st.cache_data(ttl=300, max_entries=1, show_spinner="📡 Reading live WTI, Fed funds, 10Y and DXY…")
 def _macro_live_prints():
     return ce.macro_live_prints()
 
 
-@st.cache_data(ttl=900, show_spinner="🔥 Measuring where money went in the last session…")
+@st.cache_data(ttl=900, max_entries=4, show_spinner="🔥 Measuring where money went in the last session…")
 def _sector_flow(asof: str, lookback: int = 1, offset: int = 0,
                  live: bool = False, dump_asof: str = ""):
     return ce.sector_flow(lookback=lookback, offset=offset, use_live=live)
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=8, show_spinner=False)
 def _hot_sectors(asof: str, k: int = 5, lookback: int = 1, offset: int = 0,
                  dump_asof: str = ""):
     return ce.hot_sectors(int(k), lookback=int(lookback), offset=int(offset))
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=2, show_spinner=False)
 def _flow_sessions(asof: str, dump_asof: str = ""):
     return ce.flow_sessions()
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
 def _apex_sector_list(asof: str):
     import apex_flow as _af
     return _af.available_sectors()
 
 
-@st.cache_data(ttl=1800, show_spinner="🔎 Searching names and business summaries…")
+@st.cache_data(ttl=1800, max_entries=3, show_spinner="🔎 Searching names and business summaries…")
 def _keyword_scan(asof: str, query: str, min_price: float, max_price: float,
                   top: int):
     return ce.keyword_scan(query, min_price=min_price, max_price=max_price,
                            top=int(top))
 
 
-@st.cache_data(ttl=1200, show_spinner="Reading latest insider and Congress buys…")
+@st.cache_data(ttl=1200, max_entries=2, show_spinner="Reading latest insider and Congress buys…")
 def _insider_buy_scan(asof: str, days: int, min_value: float, top: int,
                       big_only: bool, officials_only: bool, sectors_key: str):
     import json as _j
@@ -1725,7 +1725,7 @@ def _insider_buy_scan(asof: str, days: int, min_value: float, top: int,
                                only_sectors=secs)
 
 
-@st.cache_data(ttl=300, show_spinner="Reading latest White House remarks…")
+@st.cache_data(ttl=300, max_entries=2, show_spinner="Reading latest White House remarks…")
 def _trump_effect_scan(freshness: str, start: str, end: str,
                        max_speeches: int = 12, query: str = ""):
     return ce.trump_effect_scan(start=start, end=end,
@@ -1733,7 +1733,7 @@ def _trump_effect_scan(freshness: str, start: str, end: str,
                                query=query or "")
 
 
-@st.cache_data(ttl=1800, show_spinner="🎯 Hunting coils, sweeps and POC reclaims…")
+@st.cache_data(ttl=1800, max_entries=2, show_spinner="🎯 Hunting coils, sweeps and POC reclaims…")
 def _poc_scan(asof: str, stages: tuple, top: int, accum_len: int,
               max_range_atr: float, max_bars_ago: int, sectors_key: str):
     import json as _j
@@ -1783,7 +1783,7 @@ def _poc_apply_macro(df, pack):
     return out.reset_index(drop=True)
 
 
-@st.cache_data(ttl=1800, show_spinner="🎩 Running the five-test quality checklist on all 5,700 stocks…")
+@st.cache_data(ttl=1800, max_entries=2, show_spinner="🎩 Running the five-test quality checklist on all 5,700 stocks…")
 def _felix_scan(asof: str, top: int = 20, apply_macro: bool = False,
                 override=None, gauge=None):
     closes = _history() if apply_macro else None
@@ -1792,7 +1792,7 @@ def _felix_scan(asof: str, top: int = 20, apply_macro: bool = False,
                          pressure_gauge=gauge)
 
 
-@st.cache_data(ttl=1800, show_spinner="🔮 Forecasting the shortlist and ranking by odds of gain…")
+@st.cache_data(ttl=1800, max_entries=2, show_spinner="🔮 Forecasting the shortlist and ranking by odds of gain…")
 def _forecast_scan(asof: str, gauge, override=None, top: int = 20,
                    apply_macro: bool = True, hot_only: int = 0,
                    use_flow: bool = True, flow_lookback: int = 1,
@@ -1805,7 +1805,7 @@ def _forecast_scan(asof: str, gauge, override=None, top: int = 20,
                             only_sectors=list(only_sectors) if only_sectors else None)
 
 
-@st.cache_data(ttl=1800, show_spinner="🔮 Forecasting EVERY tradeable stock and ranking by odds of gain…")
+@st.cache_data(ttl=1800, max_entries=1, show_spinner="🔮 Forecasting EVERY tradeable stock and ranking by odds of gain…")
 def _forecast_all(asof: str, regime=None, hot_only: int = 0,
                   flow_lookback: int = 1, flow_offset: int = 0,
                   only_sectors: tuple = ()):
@@ -1814,7 +1814,7 @@ def _forecast_all(asof: str, regime=None, hot_only: int = 0,
                            only_sectors=list(only_sectors) if only_sectors else None)
 
 
-@st.cache_data(ttl=3600, show_spinner="Reading the news for catalyst tags on the finalists…")
+@st.cache_data(ttl=3600, max_entries=4, show_spinner="Reading the news for catalyst tags on the finalists…")
 def _news_tags(tickers: tuple, sectors_json: str):
     import json as _json
     return ce.news_catalysts(list(tickers), _json.loads(sectors_json))
@@ -3846,7 +3846,7 @@ def _lk_yahoo_bars(tk: str, interval: str, period: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=12, show_spinner=False)
 def _lookup_chart_bars(tk: str, tf: str, nonce: int = 0):
     """OHLCV for the Stock Lookup chart. Daily prefers the dump."""
     _ = _LK_BARS_VER
@@ -6281,6 +6281,28 @@ def _order_with_cat(order, df):
         order = [c for c in order if c != "#"]
         order = ["#"] + order
     return order
+
+
+def _price_earn_after_setup(order, df):
+    """Put Price and Earnings immediately after Clean Setup."""
+    setup = getattr(ce, "SETUP_COL", "Clean Setup")
+    earn = getattr(ce, "EARN_COL", "Earnings")
+    cols = getattr(df, "columns", [])
+    extras = [c for c in ("Price", earn) if c in cols]
+    order = [c for c in list(order or []) if c not in extras]
+    if not extras:
+        return order
+    if setup in order:
+        i = order.index(setup) + 1
+    elif getattr(ce, "HEALTH_COL", "Health/Piotroski") in order:
+        i = order.index(getattr(ce, "HEALTH_COL", "Health/Piotroski")) + 1
+    elif "Sector" in order:
+        i = order.index("Sector") + 1
+    elif "Ticker" in order:
+        i = order.index("Ticker") + 1
+    else:
+        i = 0
+    return order[:i] + extras + order[i:]
 
 
 def _render_signed_catalysts(tk: str, sector: str = "", *, notes: bool = True) -> None:
@@ -8933,15 +8955,17 @@ with st.container(border=True, key="mw_page"):
                                 "Filing", "Range")
                     _idf_show = _idf.drop(
                         columns=[c for c in _ib_hide if c in _idf.columns])
-                    _ib_order = _order_with_cat(
-                        [c for c in (
-                            ["#", "Official", "Ticker", "Asset", "Trade date",
-                             "Filed", "Age", "Delay", "Late", "Bought $", "Price"]
-                            if _ib_official_view else
-                            ["#", "Ticker", "Name", "Sector", "Filed",
-                             "Age", "Bought $", "Buyers",
-                             "Who", "Role", "Price"])
-                         if c in _idf_show.columns],
+                    _ib_order = _price_earn_after_setup(
+                        _order_with_cat(
+                            [c for c in (
+                                ["#", "Official", "Ticker", "Asset", "Trade date",
+                                 "Filed", "Age", "Delay", "Late", "Bought $", "Price"]
+                                if _ib_official_view else
+                                ["#", "Ticker", "Name", "Sector", "Filed",
+                                 "Age", "Bought $", "Buyers",
+                                 "Who", "Role", "Price"])
+                             if c in _idf_show.columns],
+                            _idf_show),
                         _idf_show)
                     _ibsty = _idf_show.style.format(
                         {k: v for k, v in {

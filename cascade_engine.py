@@ -1007,6 +1007,29 @@ def _np_load_arrays(path: str):
         return z
 
 
+def _owned_panel_from_npz(z):
+    """Copy npz arrays into owned RAM so the zip handle can close."""
+    panel = {f: np.ascontiguousarray(z[f], dtype=np.float32)
+             for f in ("o", "h", "l", "c", "v")}
+    tickers = np.array(z["tickers"], copy=True)
+    sectors = np.array(z["sectors"], copy=True)
+    mdv = np.ascontiguousarray(z["mdv"], dtype=np.float32)
+    dts = pd.to_datetime(np.array(z["dates"], copy=True))
+    extra = {}
+    files = getattr(z, "files", z)
+    if "recent_ok" in files:
+        extra["recent_ok"] = np.asarray(z["recent_ok"], dtype=bool)
+    if "last_ok" in files:
+        extra["last_ok"] = np.asarray(z["last_ok"], dtype=bool)
+    if "industries" in files:
+        extra["industries"] = np.array(z["industries"], copy=True)
+    try:
+        z.close()
+    except Exception:
+        pass
+    return panel, tickers, sectors, mdv, dts, extra
+
+
 def dump_is_loaded() -> bool:
     """True if this process already has the nightly panel in RAM."""
     return bool(_PANEL_CACHE.get("panel"))
@@ -1256,21 +1279,24 @@ def load_dump_panel():
         else:
             try:
                 z = _np_load_arrays(LOCAL_DUMP_R)
-                dts = pd.to_datetime(z["dates"])
-                last = pd.Timestamp(dts[-1]).normalize()
+                last = pd.Timestamp(pd.to_datetime(z["dates"])[-1]).normalize()
                 if last >= target or not _dump_fetch_due(target):
-                    panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
-                    out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
+                    panel, tickers, sectors, mdv, dts, extra = _owned_panel_from_npz(z)
+                    out = (panel, tickers, sectors, mdv, dts)
                     _PANEL_CACHE["panel"] = (mt, out)
-                    _PANEL_CACHE["tick_ix"] = (mt, _tick_ix_map(z["tickers"]))
+                    _PANEL_CACHE["tick_ix"] = (mt, _tick_ix_map(tickers))
                     _PANEL_CACHE["last_date"] = last
-                    if "recent_ok" in z.files:
-                        _PANEL_CACHE["recent_ok"] = (mt, z["recent_ok"].astype(bool))
-                    if "last_ok" in z.files:
-                        _PANEL_CACHE["last_ok"] = (mt, z["last_ok"].astype(bool))
-                    if "industries" in z.files:
-                        _PANEL_CACHE["industries"] = (mt, z["industries"])
+                    if "recent_ok" in extra:
+                        _PANEL_CACHE["recent_ok"] = (mt, extra["recent_ok"])
+                    if "last_ok" in extra:
+                        _PANEL_CACHE["last_ok"] = (mt, extra["last_ok"])
+                    if "industries" in extra:
+                        _PANEL_CACHE["industries"] = (mt, extra["industries"])
                     return out
+                try:
+                    z.close()
+                except Exception:
+                    pass
             except Exception as _le:
                 _log_exc("load_dump_panel.npz", _le)
                 # Corrupted/truncated local npz — a bad download, an interrupted
@@ -1328,7 +1354,7 @@ def load_dump_panel():
              for f in ("o", "h", "l", "c", "v")}
     key = dict(o="open", h="high", l="low", c="close", v="volume")
     tickers, sectors, industries = [], [], []
-    funds = {f: np.full(N, np.nan, dtype=np.float64) for f in FUND_FIELDS}
+    funds = {f: np.full(N, np.nan, dtype=np.float32) for f in FUND_FIELDS}
     for j, x in enumerate(rows):
         ix = [dix[d] for d in x["_hist"]["dates"]]
         for f, kk in key.items():
@@ -1386,6 +1412,9 @@ def load_dump_panel():
     except Exception as _se:
         _log_exc("load_dump_panel.savez", _se)
         mt = 0.0
+    del data, rows, content
+    import gc as _gc
+    _gc.collect()
     out = (panel, tickers, sectors, mdv, pd.to_datetime(all_d))
     _PANEL_CACHE.clear()
     _PANEL_CACHE["panel"] = (mt, out)
@@ -1407,18 +1436,17 @@ def _np_load_dump():
     try:
         _p = _data_read_path(LOCAL_DUMP)
         z = _np_load_arrays(_p)
-        dts = pd.to_datetime(z["dates"])
-        panel = {f: z[f] for f in ("o", "h", "l", "c", "v")}
-        out = (panel, z["tickers"], z["sectors"], z["mdv"], dts)
+        panel, tickers, sectors, mdv, dts, extra = _owned_panel_from_npz(z)
+        out = (panel, tickers, sectors, mdv, dts)
         mt = os.path.getmtime(_p)
         _PANEL_CACHE["panel"] = (mt, out)
-        _PANEL_CACHE["tick_ix"] = (mt, _tick_ix_map(z["tickers"]))
-        if "recent_ok" in z.files:
-            _PANEL_CACHE["recent_ok"] = (mt, z["recent_ok"].astype(bool))
-        if "last_ok" in z.files:
-            _PANEL_CACHE["last_ok"] = (mt, z["last_ok"].astype(bool))
-        if "industries" in z.files:
-            _PANEL_CACHE["industries"] = (mt, z["industries"])
+        _PANEL_CACHE["tick_ix"] = (mt, _tick_ix_map(tickers))
+        if "recent_ok" in extra:
+            _PANEL_CACHE["recent_ok"] = (mt, extra["recent_ok"])
+        if "last_ok" in extra:
+            _PANEL_CACHE["last_ok"] = (mt, extra["last_ok"])
+        if "industries" in extra:
+            _PANEL_CACHE["industries"] = (mt, extra["industries"])
         _PANEL_CACHE["last_date"] = pd.Timestamp(dts[-1]).normalize()
         return out
     except Exception as e:
@@ -1529,7 +1557,19 @@ def dump_fundamentals_all():
     _p = _data_read_path(LOCAL_DUMP)
     if os.path.exists(_p):
         z = _np_load_arrays(_p)
-        out = {f: z[f"fund_{i}"] for i, f in enumerate(FUND_FIELDS)}
+        files = getattr(z, "files", ())
+        out = {}
+        for i, f in enumerate(FUND_FIELDS):
+            k = f"fund_{i}"
+            if k in files:
+                out[f] = np.ascontiguousarray(z[k], dtype=np.float32)
+            else:
+                n = int(len(z["tickers"])) if "tickers" in files else 0
+                out[f] = np.full(n, np.nan, dtype=np.float32)
+        try:
+            z.close()
+        except Exception:
+            pass
         _PANEL_CACHE["funds"] = (mt, out)
         return out
     return hit[1] if hit else {f: np.array([]) for f in FUND_FIELDS}
@@ -1547,9 +1587,17 @@ def dump_industries():
         try:
             z = _np_load_arrays(_p)
             if "industries" in z.files:
-                out = np.asarray(z["industries"])
+                out = np.array(z["industries"], copy=True)
+                try:
+                    z.close()
+                except Exception:
+                    pass
                 _PANEL_CACHE["industries"] = (mt, out)
                 return out
+            try:
+                z.close()
+            except Exception:
+                pass
         except Exception as _ie:
             _log_exc("dump_industries.npz", _ie)
     _, tickers, *_rest = load_dump_panel()
@@ -2898,11 +2946,10 @@ def _keyword_corpus() -> list:
         except (TypeError, ValueError):
             px = np.nan
         hay_name = " ".join(x.lower() for x in (tk, name, short) if x)
-        hay_sum = " ".join(summary.lower().split())
         rows.append(dict(
             ticker=str(tk).upper(), name=name or str(tk).upper(),
             sector=sector, industry=industry, price=px, summary=summary,
-            hay_name=hay_name, hay_sum=hay_sum))
+            hay_name=hay_name))
     _KW_CORPUS.clear()
     _KW_CORPUS["mt"] = mt
     _KW_CORPUS["rows"] = rows
@@ -2970,7 +3017,8 @@ def keyword_scan(query: str, min_price: float = 0.0, max_price=None,
         if hi is not None and np.isfinite(hi) and (not np.isfinite(px) or px > hi):
             continue
         in_name = q in r["hay_name"]
-        in_sum = bool(r["hay_sum"]) and q in r["hay_sum"]
+        _sum = r.get("summary") or ""
+        in_sum = bool(_sum) and q in _sum.lower()
         if not (in_name or in_sum):
             continue
         if in_name and in_sum:
@@ -7627,6 +7675,14 @@ def _dump_records_cache() -> dict:
         if not tk:
             continue
         rec = {k: v for k, v in r.items() if k != "_hist"}
+        an = rec.get("_analyzer")
+        if isinstance(an, dict):
+            rec["_analyzer"] = {
+                k: (v[:4000] if isinstance(v, str) and len(v) > 4000 else v)
+                for k, v in an.items()
+                if not isinstance(v, dict)
+                and (k == "eps_history" or not isinstance(v, list))
+            }
         by[tk] = rec
         # BRK.B in the dump must also resolve as BRK-B (and the reverse).
         if "." in tk and "=" not in tk:
@@ -7637,6 +7693,9 @@ def _dump_records_cache() -> dict:
             left, _, right = tk.partition("-")
             if len(right) == 1 and right.isalpha():
                 by.setdefault(f"{left}.{right}", rec)
+    del rows
+    import gc as _gc
+    _gc.collect()
     _RECORDS_CACHE.clear()
     _RECORDS_CACHE["mt"] = mt
     _RECORDS_CACHE["by_ticker"] = by

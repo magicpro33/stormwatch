@@ -500,7 +500,7 @@ def _rows_from_gz(path: str) -> list:
     return rows
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=4, show_spinner=False)
 def _load_dividend_df(stamp: str) -> pd.DataFrame:
     path, mt = _fresh_gz()
     if not path:
