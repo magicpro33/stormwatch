@@ -649,10 +649,92 @@ def _hoverlabel(color: str) -> dict:
     )
 
 
+def _naive_ts(ts) -> pd.Timestamp:
+    t = pd.Timestamp(ts)
+    if getattr(t, "tzinfo", None) is not None:
+        try:
+            t = t.tz_convert("UTC").tz_localize(None)
+        except Exception:
+            t = t.tz_localize(None)
+    return t
+
+
+def _date_span(start, end, kind: str = "month") -> str:
+    if start is None or end is None:
+        return ""
+    if kind == "quarter":
+        return f"{_quarter_label(start)}  →  {_quarter_label(end)}"
+    return f"{_month_label(start)}  →  {_month_label(end)}"
+
+
+def _upto(s: pd.Series, end) -> pd.Series:
+    if s is None or s.empty or end is None:
+        return s if s is not None else pd.Series(dtype=float)
+    return s[s.index <= pd.Timestamp(end)]
+
+
+def _window_state(s: pd.Series, key: str):
+    """Read the Streamlit date window for a series (full range if unset)."""
+    if s is None or s.empty:
+        return s, None, None, None, None
+    idx = pd.DatetimeIndex(pd.to_datetime(s.index))
+    tmin, tmax = _naive_ts(idx.min()), _naive_ts(idx.max())
+    lo, hi = tmin.date(), tmax.date()
+    cur = st.session_state.get(key)
+    if not (isinstance(cur, (tuple, list)) and len(cur) == 2):
+        st.session_state[key] = (lo, hi)
+        start, end = tmin, tmax
+    else:
+        start = max(tmin, _naive_ts(cur[0]))
+        end = min(tmax, _naive_ts(cur[1]))
+        if start > end:
+            start, end = tmin, tmax
+        clipped = (start.date(), end.date())
+        if (getattr(cur[0], "year", None) != clipped[0].year
+                or getattr(cur[0], "month", None) != clipped[0].month
+                or getattr(cur[0], "day", None) != clipped[0].day
+                or getattr(cur[1], "year", None) != clipped[1].year
+                or getattr(cur[1], "month", None) != clipped[1].month
+                or getattr(cur[1], "day", None) != clipped[1].day):
+            st.session_state[key] = clipped
+    win = s[(s.index >= start) & (s.index <= end)]
+    if win is None or win.empty:
+        win = s
+        start, end = tmin, tmax
+    return win, start, end, tmin, tmax
+
+
+def _window_slider(key: str, tmin, tmax, presets: list | None = None) -> None:
+    """Date-range slider under a chart. Presets snap the window and rerun."""
+    if tmin is None or tmax is None:
+        return
+    lo, hi = tmin.date(), tmax.date()
+    if presets:
+        cols = st.columns(len(presets))
+        for i, (label, years) in enumerate(presets):
+            if cols[i].button(label, key=f"{key}_{label}", width="stretch"):
+                if years is None:
+                    st.session_state[key] = (lo, hi)
+                else:
+                    cut = _naive_ts(tmax) - pd.DateOffset(years=int(years))
+                    if cut < tmin:
+                        cut = tmin
+                    st.session_state[key] = (cut.date(), hi)
+                st.rerun()
+    st.slider(
+        "Window",
+        min_value=lo, max_value=hi,
+        format="MMM YYYY",
+        key=key,
+        label_visibility="collapsed",
+        help="Chips and the date range on the chart follow this window.",
+    )
+
+
 def _line_fig(s: pd.Series, *, color: str, y_title: str, hover: str,
               y_prefix: str = "", y_suffix: str = "", y_mult: float = 1.0,
               height: int = 420, buttons=None, slider: bool = True,
-              fill: bool = True):
+              fill: bool = True, range_label: str = ""):
     import plotly.graph_objects as go
 
     y = s.astype(float) * y_mult
@@ -673,6 +755,27 @@ def _line_fig(s: pd.Series, *, color: str, y_title: str, hover: str,
             dict(count=20, label="20Y", step="year", stepmode="backward"),
             dict(step="all", label="All"),
         ]
+    top = 48 if range_label else (28 if buttons else 12)
+    xaxis = dict(
+        gridcolor="#1e3a5f",
+        zeroline=False,
+        showspikes=True,
+        spikemode="across",
+        spikesnap="cursor",
+        spikecolor=DIM,
+        spikethickness=1,
+        spikedash="dot",
+        rangeslider=dict(visible=slider, thickness=0.08,
+                         bgcolor="#0a1624", bordercolor=LINE),
+    )
+    if buttons:
+        xaxis["rangeselector"] = dict(
+            buttons=buttons,
+            bgcolor="#122a42",
+            activecolor=color,
+            font=dict(color=INK, size=11),
+            x=0, y=1.08, xanchor="left",
+        )
     fig.update_layout(
         height=height,
         template="plotly_dark",
@@ -680,28 +783,10 @@ def _line_fig(s: pd.Series, *, color: str, y_title: str, hover: str,
         plot_bgcolor=NAVY,
         font=dict(color=INK, family="JetBrains Mono, monospace", size=12),
         showlegend=False,
-        margin=dict(l=12, r=12, t=28, b=8),
+        margin=dict(l=12, r=12, t=top, b=8),
         hovermode="x unified",
         hoverlabel=_hoverlabel(color),
-        xaxis=dict(
-            gridcolor="#1e3a5f",
-            zeroline=False,
-            showspikes=True,
-            spikemode="across",
-            spikesnap="cursor",
-            spikecolor=DIM,
-            spikethickness=1,
-            spikedash="dot",
-            rangeselector=dict(
-                buttons=buttons,
-                bgcolor="#122a42",
-                activecolor=color,
-                font=dict(color=INK, size=11),
-                x=0, y=1.08, xanchor="left",
-            ),
-            rangeslider=dict(visible=slider, thickness=0.08,
-                             bgcolor="#0a1624", bordercolor=LINE),
-        ),
+        xaxis=xaxis,
         yaxis=dict(
             title=y_title,
             gridcolor="#1e3a5f",
@@ -711,6 +796,15 @@ def _line_fig(s: pd.Series, *, color: str, y_title: str, hover: str,
             separatethousands=True,
         ),
     )
+    if range_label:
+        fig.add_annotation(
+            text=range_label,
+            xref="paper", yref="paper",
+            x=0.5, y=1.08, showarrow=False,
+            font=dict(size=13, color=DIM,
+                      family="JetBrains Mono, monospace"),
+            xanchor="center", yanchor="bottom",
+        )
     return fig
 
 
@@ -932,47 +1026,47 @@ def _dollar_century() -> None:
     if cpi.empty:
         st.error("Could not load a century of prices.")
         return
-    base = float(cpi.iloc[0])
-    last = float(cpi.iloc[-1])
+    win, w0, w1, tmin, tmax = _window_state(cpi, "ch_dollar100_win")
+    base = float(win.iloc[0])
+    last = float(win.iloc[-1])
     if not np.isfinite(base) or not np.isfinite(last) or last <= 0 or base <= 0:
         st.error("Could not load a century of prices.")
         return
-    power = base / cpi
+    power = base / win
     cents = 100.0 * float(power.iloc[-1])
     takes = last / base
     infl = (last / base - 1.0) * 100.0
-    asof = _month_label(cpi.index[-1])
-    began = _month_label(cpi.index[0])
+    asof = _month_label(win.index[-1])
+    began = _month_label(win.index[0])
+    span = _date_span(w0, w1)
     _pills([
-        {"label": f"$1 from {cpi.index[0].year} buys",
+        {"label": f"$1 from {win.index[0].year} buys",
          "value": f"{cents:.0f}¢",
          "sub": f"of the same goods in {asof}. The rest was inflation.",
          "color": RED, "feature": True, "icon": "¢"},
-        {"label": "It takes today",
+        {"label": f"It takes in {win.index[-1].year}",
          "value": f"${takes:,.0f}",
-         "sub": f"to match one {cpi.index[0].year} dollar",
+         "sub": f"to match one {win.index[0].year} dollar",
          "color": ACCENT},
-        {"label": "Prices since then",
+        {"label": "Prices over this window",
          "value": _fmt_pct(infl, signed=True, digits=0),
-         "sub": f"{began} → {asof}",
+         "sub": span,
          "color": GOLD},
     ], grid="ch-hero")
     fig = _line_fig(
         power, color=RED, y_title="Purchasing power of $1",
         y_prefix="$",
         hover="%{x|%b %Y}<br>$%{y:.3f} of that first dollar<extra></extra>",
-        height=420, slider=True,
-        buttons=[
-            dict(count=25, label="25Y", step="year", stepmode="backward"),
-            dict(count=50, label="50Y", step="year", stepmode="backward"),
-            dict(step="all", label="100Y"),
-        ],
+        height=420, slider=False, buttons=[],
+        range_label=span,
     )
     _plotly(fig, "ch_dollar100_fig")
+    _window_slider("ch_dollar100_win", tmin, tmax,
+                   presets=[("25Y", 25), ("50Y", 50), ("100Y", None)])
     _html(
         f"<div class='ch-trend-note'>"
-        f"A dollar parked in {cpi.index[0].year} still spends like "
-        f"{cents:.0f} cents today. The line is that dollar's buying power, "
+        f"A dollar parked in {win.index[0].year} still spends like "
+        f"{cents:.0f} cents in {asof}. The line is that dollar's buying power, "
         f"not the size of a paycheck."
         f"</div>"
     )
@@ -1449,25 +1543,31 @@ def _render_nerd_body() -> None:
         if m2 is None or m2.empty:
             st.error("Could not load M2.")
         else:
-            last = float(m2.iloc[-1])
+            win, w0, w1, tmin, tmax = _window_state(m2, "ch_m2_win")
+            last = float(win.iloc[-1])
             tn = last / 1000.0
-            yoy = _yoy(m2, 12)
-            d1 = _delta(m2, 1)
+            head = _upto(m2, w1)
+            yoy = _yoy(head, 12)
+            d1 = _delta(head, 1)
+            span = _date_span(w0, w1)
             _metrics([
-                ("Latest", f"${tn:,.2f}T", _month_label(m2.index[-1]), ACCENT),
+                ("Latest", f"${tn:,.2f}T", _month_label(win.index[-1]), ACCENT),
                 ("YoY", _fmt_pct(yoy, signed=True), "12-month change", ACCENT),
                 ("Month Δ",
                  f"${(d1 or 0) / 1000.0:+,.2f}T" if d1 is not None else "—",
                  "vs prior month", ACCENT),
-                ("History", f"{len(m2)} months",
-                 f"{_month_label(m2.index[0])} → {_month_label(m2.index[-1])}", DIM),
+                ("This window", f"{len(win)} months", span, DIM),
             ])
             fig = _line_fig(
-                m2, color=ACCENT, y_title="Trillions of dollars",
+                win, color=ACCENT, y_title="Trillions of dollars",
                 y_prefix="$", y_suffix="T", y_mult=0.001,
                 hover="%{x|%b %Y}<br>$%{y:.2f}T<extra></extra>",
+                slider=False, buttons=[], range_label=span,
             )
             _plotly(fig, "ch_m2_fig")
+            _window_slider("ch_m2_win", tmin, tmax,
+                           presets=[("5Y", 5), ("10Y", 10),
+                                    ("20Y", 20), ("All", None)])
 
     snap = _debt_snapshot()
     with st.container(border=True, key="ch_d2g"):
@@ -1476,26 +1576,35 @@ def _render_nerd_body() -> None:
         if debt is None or debt.empty:
             st.error("Could not load debt / GDP.")
         else:
-            last = float(debt.iloc[-1])
-            yoy_pp = _delta(debt, 4)
-            d1 = _delta(debt, 1)
+            win, w0, w1, tmin, tmax = _window_state(debt, "ch_d2g_win")
+            last = float(win.iloc[-1])
+            head = _upto(debt, w1)
+            yoy_pp = _delta(head, 4)
+            d1 = _delta(head, 1)
             yoy_col = RED if (yoy_pp or 0) >= 0 else GREEN
             d1_col = RED if (d1 or 0) >= 0 else GREEN
-            peak = float(debt.max())
+            peak = float(win.max())
+            span = _date_span(w0, w1, kind="quarter")
             _metrics([
-                ("Quarterly print", f"{last:.1f}%", _quarter_label(debt.index[-1]), BLUE),
+                ("Quarterly print", f"{last:.1f}%",
+                 _quarter_label(win.index[-1]), BLUE),
                 ("YoY", f"{yoy_pp:+.1f} pp" if yoy_pp is not None else "—",
                  "vs same quarter last year", yoy_col),
                 ("Quarter Δ", f"{d1:+.1f} pp" if d1 is not None else "—",
                  "vs prior quarter", d1_col),
-                ("Peak", f"{peak:.1f}%", _quarter_label(debt.idxmax()), GOLD),
+                ("Peak in window", f"{peak:.1f}%",
+                 _quarter_label(win.idxmax()) if len(win) else span, GOLD),
             ])
             fig = _line_fig(
-                debt, color=BLUE, y_title="Percent of GDP",
+                win, color=BLUE, y_title="Percent of GDP",
                 y_suffix="%", y_mult=1.0,
                 hover="%{x|%b %Y}<br>%{y:.1f}% of GDP<extra></extra>",
+                slider=False, buttons=[], range_label=span,
             )
             _plotly(fig, "ch_debt_fig")
+            _window_slider("ch_d2g_win", tmin, tmax,
+                           presets=[("5Y", 5), ("10Y", 10),
+                                    ("20Y", 20), ("All", None)])
 
     with st.container(border=True, key="ch_foreign"):
         _foreign_holders(snap)
