@@ -1624,12 +1624,14 @@ def render_hybrid_screener() -> None:
         else:
             styled = display.style
         styled = ce.style_health_setup(styled)
+        getattr(ce, "render_scan_col_help_strip", lambda *_: None)(st, order or list(display.columns))
         _tsel = st.dataframe(
             styled, width="content", height=560, column_order=order or None,
             hide_index=True, on_select="rerun", selection_mode="single-row",
             key=_k("chart_table"),
             column_config=_cat_cfg if _cat_cfg else None)
     except Exception:
+        getattr(ce, "render_scan_col_help_strip", lambda *_: None)(st, order or list(display.columns))
         _tsel = st.dataframe(
             display, width="content", height=560, column_order=order or None,
             hide_index=True, on_select="rerun", selection_mode="single-row",

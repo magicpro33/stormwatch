@@ -3413,6 +3413,11 @@ def render_ignition_scanner_tab(render_detail=None):
                 _ig_view = _ig_ce_hs.style_health_setup(df)
         except Exception:
             _ig_view = df
+        try:
+            import cascade_engine as _ig_tip
+            _ig_tip.render_scan_col_help_strip(st, list(df.columns))
+        except Exception:
+            pass
         _igsel = st.dataframe(
             _ig_view,
             width="content",

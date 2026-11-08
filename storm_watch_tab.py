@@ -888,6 +888,11 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
              "green is in the zone this setup wants")
     st.caption("Green = in the zone this setup wants · red = against it · dim = noise. "
                "Tap a row for the chart, cards, and company profile.")
+    try:
+        import cascade_engine as _sw_ce
+        _sw_ce.render_scan_col_help_strip(st, list(show.columns))
+    except Exception:
+        pass
     sel = st.dataframe(
         styler, width="content", hide_index=True, height=min(740, 80 + 34 * len(show)),
         on_select="rerun", selection_mode="single-row", key="sw_table",

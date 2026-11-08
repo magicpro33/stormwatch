@@ -1912,6 +1912,64 @@ def scan_col_help(name: str) -> str:
     return HEALTH_SETUP_HELP.get(n) or SCAN_COL_HELP.get(n) or ""
 
 
+_COLTIP_CSS = (
+    "<style>"
+    ".mw-coltip-row{display:flex;flex-wrap:wrap;gap:6px 8px;"
+    "margin:2px 0 10px;align-items:center;position:relative;z-index:20}"
+    ".mw-coltip{position:relative;display:inline-block;cursor:help;z-index:21}"
+    ".mw-coltip-lab{display:inline-block;padding:4px 9px;border-radius:8px;"
+    "border:1px solid rgba(103,232,249,.4);color:#C5D4FF;font-size:11px;"
+    "font-weight:700;letter-spacing:.04em;background:rgba(8,19,37,.72);"
+    "text-decoration:underline dotted rgba(103,232,249,.7);"
+    "text-underline-offset:3px}"
+    ".mw-coltip:hover .mw-coltip-lab,.mw-coltip:focus .mw-coltip-lab{"
+    "color:#67E8F9;border-color:#67E8F9}"
+    ".mw-coltip-pop{display:none;position:absolute;left:0;top:calc(100% + 7px);"
+    "z-index:99999;min-width:220px;max-width:300px;padding:9px 11px;"
+    "background:#0c1829;border:1px solid #67E8F9;border-radius:10px;"
+    "color:#EAF2FF;font-size:12px;font-weight:500;line-height:1.4;"
+    "box-shadow:0 10px 28px rgba(0,0,0,.5);white-space:normal}"
+    ".mw-coltip:hover .mw-coltip-pop,.mw-coltip:focus .mw-coltip-pop{"
+    "display:block}"
+    "</style>"
+)
+
+
+def scan_col_help_strip_html(cols) -> str:
+    """Real HTML hover popups. Streamlit's canvas table headers cannot show help."""
+    import html as _html
+    bits = []
+    seen = set()
+    for c in cols or []:
+        name = str(c or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        tip = scan_col_help(name)
+        if not tip:
+            continue
+        bits.append(
+            "<span class='mw-coltip' tabindex='0'>"
+            f"<span class='mw-coltip-lab'>{_html.escape(name)}</span>"
+            f"<span class='mw-coltip-pop'>{_html.escape(tip)}</span>"
+            "</span>"
+        )
+    if not bits:
+        return ""
+    return _COLTIP_CSS + "<div class='mw-coltip-row'>" + "".join(bits) + "</div>"
+
+
+def render_scan_col_help_strip(st_mod, cols) -> None:
+    """Draw hover-help chips for a scan list's columns."""
+    markup = scan_col_help_strip_html(cols)
+    if not markup or st_mod is None:
+        return
+    if hasattr(st_mod, "html"):
+        st_mod.html(markup)
+    else:
+        st_mod.markdown(markup.replace("$", "&#36;"), unsafe_allow_html=True)
+
+
 def _cat_tag(key: str) -> str:
     m = CATALYST_METRICS[key]
     return f"{m['icon']} {m['label']}"

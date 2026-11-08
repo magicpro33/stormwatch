@@ -4016,21 +4016,38 @@ _VM_PULL = "#42A5F5"   # pullback: down bar inside an uptrend, still above VWAP
 _VM_BEAR = "#EF5350"   # bear: down bar in a downtrend
 
 
+def _vm_bar_meaning(color) -> str:
+    if color == _VM_BULL:
+        return ("Conviction — up bar, price above VWAP, volume above its "
+                "20-bar average")
+    if color == _VM_PULL:
+        return "Pullback — down bar in an uptrend, still above VWAP"
+    if color == _VM_BEAR:
+        return "Bear — down bar in a downtrend"
+    if color == GREEN:
+        return "Up bar — close at or above open"
+    if color == RED:
+        return "Down bar — close below open"
+    return "Price bar"
+
+
 def _lk_bar_legend() -> None:
     """Tiny color key for the Volume Magic candles, shown on every overlay."""
     chips = (
-        (_VM_BULL, "Conviction"),
-        (_VM_PULL, "Pullback"),
-        (_VM_BEAR, "Bear"),
-        (GREEN, "Up"),
+        (_VM_BULL, "Conviction", _vm_bar_meaning(_VM_BULL)),
+        (_VM_PULL, "Pullback", _vm_bar_meaning(_VM_PULL)),
+        (_VM_BEAR, "Bear", _vm_bar_meaning(_VM_BEAR)),
+        (GREEN, "Up", _vm_bar_meaning(GREEN)),
     )
     bits = []
-    for col, name in chips:
+    for col, name, tip in chips:
         bits.append(
-            f"<span style='display:inline-flex;align-items:center;gap:6px'>"
+            f"<span title='{_esc(tip)}' style='display:inline-flex;"
+            f"align-items:center;gap:6px;cursor:help'>"
             f"<span style='width:8px;height:16px;border-radius:2px;"
             f"background:{col};display:inline-block'></span>"
-            f"<span style='font-size:12px;color:{DIM}'>{_esc(name)}</span>"
+            f"<span style='font-size:12px;color:{DIM};"
+            f"border-bottom:1px dotted {DIM}'>{_esc(name)}</span>"
             f"</span>")
     st.markdown(
         "<div style='display:flex;flex-wrap:wrap;gap:12px 16px;"
@@ -4130,12 +4147,14 @@ def _lk_add_candles(fig, xx, d: pd.DataFrame, colors, name: str, pack: bool):
     body_h = np.abs(c - o)
     rng = np.maximum(h - l, 1e-9)
     body_h = np.where(body_h < rng * 0.015, rng * 0.015, body_h)
+    meaning = [_vm_bar_meaning(col) for col in colors]
     fig.add_trace(go.Bar(
         x=xx, y=body_h, base=body_lo, width=width, name=name,
         marker=dict(color=list(colors), line=dict(color=list(colors), width=1)),
-        customdata=np.column_stack([o, h, l, c]),
+        customdata=list(zip(o, h, l, c, meaning)),
         hovertemplate=("O %{customdata[0]:.2f}<br>H %{customdata[1]:.2f}"
                        "<br>L %{customdata[2]:.2f}<br>C %{customdata[3]:.2f}"
+                       "<br>%{customdata[4]}"
                        "<extra></extra>")), row=1, col=1)
 
 
@@ -4690,10 +4709,15 @@ def _lk_add_seg(fig, i0, y0, i1, y1, vis0, vis1, xx, pack, d,
     xa, xb = _lk_bar_x(a, vis0, xx, pack, d), _lk_bar_x(b, vis0, xx, pack, d)
     if xa is None or xb is None:
         return
+    tip = {
+        "Channel": "Clean Setup pivot channel — structure from swing highs/lows",
+        "Target": "Pattern target projected from the named setup",
+    }.get(name or "", name or "Level")
     fig.add_trace(go.Scatter(
         x=[xa, xb], y=[ya, yb], mode="lines", name=name or None,
         line=dict(color=color, width=width, dash=dash),
-        hoverinfo="skip", showlegend=bool(legend)), row=1, col=1)
+        hovertemplate=f"{tip}<br>%{{y:.2f}}<extra></extra>",
+        showlegend=bool(legend)), row=1, col=1)
 
 
 def _lk_bicolor_line(fig, xx, y, use_a, col_a, col_b, name, width, dash=None):
@@ -4711,12 +4735,18 @@ def _lk_bicolor_line(fig, xx, y, use_a, col_a, col_b, name, width, dash=None):
     if dash:
         la["dash"] = dash
         lb["dash"] = dash
+    tip = {
+        "EMA 50": "EMA 50 — Clean Setup fast average. Teal = price above, red = below.",
+        "EMA 200": "EMA 200 — Clean Setup slow average. Teal = EMA50 above it (bull stack).",
+    }.get(name, name)
     fig.add_trace(go.Scatter(
-        x=xx, y=y_a, mode="lines", name=name, line=la, connectgaps=False),
+        x=xx, y=y_a, mode="lines", name=name, line=la, connectgaps=False,
+        hovertemplate=f"{tip}<br>%{{y:.2f}}<extra></extra>"),
         row=1, col=1)
     fig.add_trace(go.Scatter(
         x=xx, y=y_b, mode="lines", name=name, line=lb, connectgaps=False,
-        showlegend=False), row=1, col=1)
+        showlegend=False,
+        hovertemplate=f"{tip}<br>%{{y:.2f}}<extra></extra>"), row=1, col=1)
 
 
 def _lk_cs_readout(cs: dict) -> None:
@@ -4791,7 +4821,7 @@ def _lk_draw_clean_setup(fig, xx, d, chart_df, pack):
     for t in cs["targets"]:
         col = _lk_hex_rgba(_CS_BULL if t["is_up"] else _CS_BEAR, 0.7)
         _lk_add_seg(fig, t["from_b"], t["from_p"], t["end_b"], t["tgt"],
-                    vis0, vis1, xx, pack, d, col, 1, "dash")
+                    vis0, vis1, xx, pack, d, col, 1, "dash", "Target")
         end_i = min(float(t["end_b"]), float(vis1))
         if end_i >= vis0:
             x_end = _lk_bar_x(end_i, vis0, xx, pack, d)
@@ -5077,11 +5107,15 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         fig.add_trace(go.Scatter(
             x=xx, y=_lk_sma(c_full, 150, d.index),
             name="SMA150", line=dict(color="#7fb2ff", width=1),
-            connectgaps=True), row=1, col=1)
+            connectgaps=True,
+            hovertemplate="SMA150 — 150-bar average close<br>%{y:.2f}<extra></extra>"),
+            row=1, col=1)
         fig.add_trace(go.Scatter(
             x=xx, y=_lk_sma(c_full, 50, d.index),
             name="SMA50", line=dict(color=ACCENT, width=1),
-            connectgaps=True), row=1, col=1)
+            connectgaps=True,
+            hovertemplate="SMA50 — 50-bar average close<br>%{y:.2f}<extra></extra>"),
+            row=1, col=1)
         note = "SMA50 / SMA150 in bars of this timeframe."
     elif chart_ov == "Point Of Control":
         SMA50_ORANGE = "#FF7A00"
@@ -5089,12 +5123,14 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         fig.add_trace(go.Scatter(
             x=xx, y=_lk_sma(c_full, 50, d.index),
             name="SMA50", line=dict(color=SMA50_ORANGE, width=2.2),
-            connectgaps=True),
+            connectgaps=True,
+            hovertemplate="SMA50 — 50-bar average close<br>%{y:.2f}<extra></extra>"),
             row=1, col=1)
         fig.add_trace(go.Scatter(
             x=xx, y=_lk_sma(c_full, _LK_SMA_SLOW, d.index),
             name="SMA200", line=dict(color="#9aa8bd", width=1.2, dash="dot"),
-            connectgaps=True),
+            connectgaps=True,
+            hovertemplate="SMA200 — 200-bar average close<br>%{y:.2f}<extra></extra>"),
             row=1, col=1)
         path = _lk_poc_path(chart_df)
         vis = _lk_vis_path(path, d.index)
@@ -5105,7 +5141,8 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                 x=xx, y=vis["poc"], mode="lines", name="POC",
                 line=dict(color=POC_COL, width=2.0, shape="hv"),
                 connectgaps=True,
-                hovertemplate="POC %{y:.2f}<extra></extra>"), row=1, col=1)
+                hovertemplate=("POC — heaviest-volume price in the coil<br>"
+                               "%{y:.2f}<extra></extra>")), row=1, col=1)
             last_poc = vis["poc"].dropna()
             if len(last_poc):
                 x_last = xx[-1] if pack else d.index[-1]
@@ -5123,7 +5160,8 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     if show_vol:
         vcol = np.where(d.Close.diff().fillna(0) >= 0, GREEN, RED)
         fig.add_trace(go.Bar(x=xx, y=d.Volume, marker_color=vcol,
-                             name="Volume", opacity=0.6, showlegend=False),
+                             name="Volume", opacity=0.6, showlegend=False,
+                             hovertemplate="Volume — shares traded this bar<br>%{y:,.0f}<extra></extra>"),
                       row=2, col=1)
     fig.update_layout(height=500, template="plotly_dark",
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0.03)",
@@ -6164,6 +6202,23 @@ def _scan_col_cfgs(extra=None):
 
 def _health_setup_col_cfgs():
     return _scan_col_cfgs()
+
+
+def _hub_df(data, **kwargs):
+    """Scan list: HTML column-name chips with hover popups, then the table.
+
+    Streamlit draws dataframe headers on a canvas, so column_config `help`
+    never appears when you hover a header. These chips are real HTML.
+    """
+    order = kwargs.get("column_order")
+    raw = getattr(data, "data", data)
+    cols = list(order) if order else list(getattr(raw, "columns", []))
+    fn = getattr(ce, "render_scan_col_help_strip", None)
+    if callable(fn):
+        fn(st, cols)
+    extra = kwargs.get("column_config")
+    kwargs["column_config"] = _scan_col_cfgs(extra)
+    return st.dataframe(data, **kwargs)
 
 
 def _stamp_hs(df):
@@ -7811,6 +7866,7 @@ def _stock_lookup_watchlist(closes, asof):
         _wl_sel_epoch = int(st.session_state.get("_wl_sel_epoch", 0) or 0)
         _edited = None
         try:
+            getattr(ce, "render_scan_col_help_strip", lambda *_: None)(st, list(show.columns))
             _edited = st.data_editor(
                 show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
                                    "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—",
@@ -8179,7 +8235,7 @@ with st.container(border=True, key="mw_page"):
                                         "sessions"
                                         + (", live Alpaca prices" if live else "") + ":")
                             fl = _stamp_hs(fl)
-                            _sel = st.dataframe(
+                            _sel = _hub_df(
                                 _style_health_setup(fl.style.format({"Price": "${:,.2f}",
                                                  "FollowCorr": "{:+.2f}",
                                                  "Beta": "{:+.2f}"})
@@ -8607,7 +8663,7 @@ with st.container(border=True, key="mw_page"):
                                   subset=["Since saved"])
             if "Earnings" in _bdf.columns:
                 _bsty = _bsty.map(_css_earn_cell, subset=["Earnings"])
-            _bsel = st.dataframe(
+            _bsel = _hub_df(
                 _bsty,
                 width=_DF_WIDTH, hide_index=True,
                 height=_fit_list_height(len(_bdf)),
@@ -8979,7 +9035,7 @@ with st.container(border=True, key="mw_page"):
                             "Age": "{:.0f}d",
                             "Delay": "{:.0f}d",
                         }.items() if k in _idf_show.columns}, na_rep="—")
-                    _ibsel = st.dataframe(
+                    _ibsel = _hub_df(
                         _style_health_setup(_ibsty),
                         width=_DF_WIDTH, hide_index=True,
                         height=_fit_list_height(len(_idf_show)),
@@ -9302,7 +9358,7 @@ with st.container(border=True, key="mw_page"):
                 _live_banner(_lmeta)
                 _fc = _stamp_hs(_with_catalysts(_fc, _t20_cat, safe_key="top20"))
                 with st.container(key="t20_tbl_fc"):
-                    _fcsel = st.dataframe(
+                    _fcsel = _hub_df(
                         _style_health_setup(_fc.style.format(_live_fmt(_fc, {
                             "Price": "${:,.2f}", "OddsUp": "{:.0f}%",
                             "Typical": "{:+.1f}%", "PopOdds": "{:.0f}%",
@@ -9374,7 +9430,7 @@ with st.container(border=True, key="mw_page"):
                           + (["Live", "Chg%", "Src"] if "Live" in _m20.columns else [])
                           + ["ROIC", "OE Yield", "P/E", "RevGrowth"])
                 with st.container(key="t20_tbl_mc"):
-                    _msel = st.dataframe(
+                    _msel = _hub_df(
                         _style_health_setup(_m20.style.format(_live_fmt(_m20, {
                             "Price": "${:,.2f}", "Fit": "{:.1f}", "MacroFit": "{:.2f}",
                             "Quality": "{:.0f}", "ROIC": "{:.1%}", "OE Yield": "{:.1%}",
@@ -9500,7 +9556,7 @@ with st.container(border=True, key="mw_page"):
                     "ROIC Trend": st.column_config.Column(help="Direction of return on capital — a real moat keeps returns from eroding."),
                 }
                 with st.container(key="t20_tbl_fx"):
-                    _fsel = st.dataframe(
+                    _fsel = _hub_df(
                         _fsty,
                         width=_DF_WIDTH, hide_index=True, height=740,
                         on_select="rerun", selection_mode="single-row", key="felix_table",
@@ -9546,7 +9602,7 @@ with st.container(border=True, key="mw_page"):
                         _t = _t.drop(columns=[_cc])
                 _t = _stamp_hs(_with_catalysts(_t, _t20_cat, safe_key="top20"))
                 with st.container(key="t20_tbl_cs"):
-                    _sel20 = st.dataframe(
+                    _sel20 = _hub_df(
                         _style_health_setup(_t.style.format(_live_fmt(_t, {
                             "Price": "${:,.2f}", "Score": "{:.1f}", "Tech": "{:.0f}",
                             "Quality": "{:.0f}", "Tailwind": "{:.0f}", "MacroFit": "{:.2f}",
@@ -9904,7 +9960,7 @@ with st.container(border=True, key="mw_page"):
                         _ax_hide = {"Data", "Score", "Risk"}
                         _ax_view = _stamp_hs(
                             _show.drop(columns=[c for c in _ax_hide if c in _show.columns]))
-                        _sel_ax = st.dataframe(
+                        _sel_ax = _hub_df(
                             _style_health_setup(_ax_view.style.format({
                                 k: v for k, v in {
                                     "Adj": "{:.1f}", "Macro": "{:.2f}",
@@ -10343,7 +10399,7 @@ with st.container(border=True, key="mw_page"):
                             triggers — most bases never get swept, and most sweeps never
                             reclaim. The coiling list is the early-warning queue.</span></div>""",
                             unsafe_allow_html=True)
-                        _psel = st.dataframe(
+                        _psel = _hub_df(
                             _style_health_setup(_pdf.style.format({
                                 "Price": "${:,.2f}", "POC": "${:,.2f}", "ToPOC%": "{:+.1f}%",
                                 "Entry": "${:,.2f}", "Stop": "${:,.2f}", "Target": "${:,.2f}",
@@ -10499,7 +10555,7 @@ with st.container(border=True, key="mw_page"):
                         [c for c in ["Ticker", "Name", "Sector", "Price",
                                      "Where", "Snippet"] if c in _kdf.columns],
                         _kdf)
-                    _ksel = st.dataframe(
+                    _ksel = _hub_df(
                         _style_health_setup(_kdf.style.format(
                             {k: v for k, v in {"Price": "${:,.2f}"}.items()
                              if k in _kdf.columns}, na_rep="—")),
@@ -10658,7 +10714,7 @@ with st.container(border=True, key="mw_page"):
                     f"{_te_when}{_te_rng} · market signals first, then "
                     f"repeated topics · tap a row to hunt the dump</span></div>")
                 _wshow = _wdf.copy()
-                _te_sel = st.dataframe(
+                _te_sel = _hub_df(
                     _wshow, width=_DF_WIDTH, hide_index=True,
                     height=_fit_list_height(len(_wshow)),
                     on_select="rerun", selection_mode="single-row",
@@ -10783,7 +10839,7 @@ with st.container(border=True, key="mw_page"):
                                 _te_styled = _te_styled.map(
                                     lambda v: _css_sign(v, dead=0.002),
                                     subset=["Change"])
-                            _tsel = st.dataframe(
+                            _tsel = _hub_df(
                                 _te_styled,
                                 width=_DF_WIDTH, hide_index=True,
                                 height=_fit_list_height(len(_tdf)),
@@ -11026,7 +11082,7 @@ with st.container(border=True, key="mw_page"):
                                 _el_styled = _el_styled.map(
                                     lambda v: _css_sign(v, dead=0.005),
                                     subset=[_col])
-                        _sel_el = st.dataframe(
+                        _sel_el = _hub_df(
                             _el_styled, width=_DF_WIDTH, hide_index=True,
                             height=_fit_list_height(len(_show)),
                             on_select="rerun", selection_mode="single-row",
