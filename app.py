@@ -940,7 +940,7 @@ with _ht:
             with st.spinner("Loading latest nightly dump…"):
                 _new_dump = None
                 try:
-                    _new_dump = ce.refresh_dump()
+                    _new_dump = ce.refresh_dump(force=True)
                 except Exception as _de:
                     log_exc("hdr_load_dump", _de)
                 st.cache_data.clear()

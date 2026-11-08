@@ -1259,7 +1259,7 @@ def load_dump_panel():
         # process alive for days, so the app could sit a session behind with no
         # way to recover. st.cache_data.clear() cannot help: _PANEL_CACHE is a
         # plain module dict and the Refresh button never reached it.
-        if hit and hit[0] == mt:
+        if hit and hit[0] == mt and not _FORCE_DUMP_FETCH:
             cached_last = _PANEL_CACHE.get("last_date")
             if cached_last is not None and cached_last >= target:
                 return hit[1]
@@ -1280,7 +1280,10 @@ def load_dump_panel():
             try:
                 z = _np_load_arrays(LOCAL_DUMP_R)
                 last = pd.Timestamp(pd.to_datetime(z["dates"])[-1]).normalize()
-                if last >= target or not _dump_fetch_due(target):
+                # Load stock info sets _FORCE_DUMP_FETCH so a same-asof dump
+                # that newly includes fields (earnings dates) still downloads.
+                if not _FORCE_DUMP_FETCH and (
+                        last >= target or not _dump_fetch_due(target)):
                     panel, tickers, sectors, mdv, dts, extra = _owned_panel_from_npz(z)
                     out = (panel, tickers, sectors, mdv, dts)
                     _PANEL_CACHE["panel"] = (mt, out)
@@ -4696,8 +4699,26 @@ def _earn_disk_put(tk: str, d: date) -> None:
         _log_exc("earn_disk_put", e)
 
 
-_DUMP_EARN_KEYS = ("earningsTimestampStart", "earningsTimestamp",
-                   "earningsTimestampEnd", "earningsDate")
+# Nightly dump: PascalCase on the record, camelCase inside _analyzer.
+# Yahoo leftovers (timestamps / earningsDate lists) still appear on older rows.
+_DUMP_EARN_CONFIRMED = (
+    "EarningsDate", "earningsDate",
+    "earningsTimestampStart", "earningsTimestamp",
+    "EarningsDateEnd", "earningsDateEnd", "earningsTimestampEnd",
+)
+_DUMP_EARN_ESTIMATE = ("EarningsDateEstimate", "earningsDateEstimate")
+_DUMP_EARN_KEYS = _DUMP_EARN_CONFIRMED + _DUMP_EARN_ESTIMATE
+
+
+def _earn_vals(val):
+    """Flatten dump/Yahoo earnings fields (scalar, list, or nested list)."""
+    if val is None:
+        return
+    if isinstance(val, (list, tuple, pd.Series, np.ndarray)):
+        for v in val:
+            yield from _earn_vals(v)
+        return
+    yield val
 
 
 def _earn_from_dump_rec(rec: dict, today: date | None = None) -> date | None:
@@ -4705,14 +4726,24 @@ def _earn_from_dump_rec(rec: dict, today: date | None = None) -> date | None:
         return None
     if today is None:
         today = _ny_calendar_date()
-    found = []
     pack = rec.get("_analyzer") if isinstance(rec.get("_analyzer"), dict) else {}
+    confirmed, estimates = [], []
     for src in (pack, rec):
-        for k in _DUMP_EARN_KEYS:
-            d = _coerce_earn_date(src.get(k))
-            if d is not None and d >= today:
-                found.append(d)
-    return min(found) if found else None
+        for k in _DUMP_EARN_CONFIRMED:
+            for v in _earn_vals(src.get(k)):
+                d = _coerce_earn_date(v)
+                if d is not None and d >= today:
+                    confirmed.append(d)
+        for k in _DUMP_EARN_ESTIMATE:
+            for v in _earn_vals(src.get(k)):
+                d = _coerce_earn_date(v)
+                if d is not None and d >= today:
+                    estimates.append(d)
+    if confirmed:
+        return min(confirmed)
+    if estimates:
+        return min(estimates)
+    return None
 
 
 def _dump_earnings_date(tk: str) -> date | None:
@@ -4904,7 +4935,7 @@ def _earn_calendar_map() -> dict:
 
 
 def _earnings_dates_local(tickers: list) -> tuple:
-    """Disk + dump + Nasdaq calendar. No per-ticker Yahoo. Returns (dates, missing)."""
+    """Dump + disk + Nasdaq calendar. No per-ticker Yahoo. Returns (dates, missing)."""
     want = []
     seen = set()
     for raw in tickers or []:
@@ -4916,21 +4947,18 @@ def _earnings_dates_local(tickers: list) -> tuple:
         return {}, []
     disk = _earn_disk_load()
     today = _ny_calendar_date()
-    dump = None
+    dump = _dump_earn_dates_for(want)
     cal = None
     out = {}
     need = []
     for tk in want:
-        ed = None
-        rec = disk.get(tk)
-        if rec:
-            ed = _coerce_earn_date(rec.get("date") if isinstance(rec, dict) else rec)
-            if ed is not None and ed < today:
-                ed = None
+        ed = dump.get(tk)
         if ed is None:
-            if dump is None:
-                dump = _dump_earn_dates_for(want)
-            ed = dump.get(tk)
+            rec = disk.get(tk)
+            if rec:
+                ed = _coerce_earn_date(rec.get("date") if isinstance(rec, dict) else rec)
+                if ed is not None and ed < today:
+                    ed = None
         if ed is None:
             if cal is None:
                 try:
@@ -5007,21 +5035,21 @@ def _yahoo_next_earnings(tk: str, tobj=None) -> date | None:
 
 
 def resolve_earnings_date(ticker: str, tobj=None) -> date | None:
-    """Next earnings date: Yahoo calendar, Nasdaq, dump, then last-known file."""
+    """Next earnings date: nightly dump, disk, Nasdaq, then Yahoo."""
     tk = str(ticker or "").strip().upper()
     if not tk:
         return None
     today = _ny_calendar_date()
     ed = None
     try:
-        ed = _earn_disk_get(tk)
+        ed = _dump_earnings_date(tk)
     except Exception as e:
-        _log_exc(f"resolve_earnings.disk.{tk}", e)
+        _log_exc(f"resolve_earnings.dump.{tk}", e)
     if ed is None:
         try:
-            ed = _dump_earnings_date(tk)
+            ed = _earn_disk_get(tk)
         except Exception as e:
-            _log_exc(f"resolve_earnings.dump.{tk}", e)
+            _log_exc(f"resolve_earnings.disk.{tk}", e)
     if ed is None:
         try:
             ed = _nasdaq_earnings_date(tk)
@@ -7627,8 +7655,16 @@ def dump_analyzer_pack(ticker: str) -> dict:
     dict read. Returns {} for dumps written before this existed, in which case
     fetch_analyzer just falls back to the live path as it always did.
     """
-    rec = _dump_record(ticker)
-    return (rec or {}).get("_analyzer") or {}
+    rec = _dump_record(ticker) or {}
+    pack = rec.get("_analyzer")
+    pack = dict(pack) if isinstance(pack, dict) else {}
+    for k in _DUMP_EARN_KEYS:
+        if pack.get(k) not in (None, "", []):
+            continue
+        v = rec.get(k)
+        if v not in (None, "", []):
+            pack[k] = v
+    return pack
 
 
 def _dump_record(ticker: str) -> dict:
@@ -7681,7 +7717,10 @@ def _dump_records_cache() -> dict:
                 k: (v[:4000] if isinstance(v, str) and len(v) > 4000 else v)
                 for k, v in an.items()
                 if not isinstance(v, dict)
-                and (k == "eps_history" or not isinstance(v, list))
+                and (not isinstance(v, list)
+                     or k == "eps_history"
+                     or k in _DUMP_EARN_KEYS
+                     or "earningsdate" in str(k).lower().replace("_", ""))
             }
         by[tk] = rec
         # BRK.B in the dump must also resolve as BRK-B (and the reverse).
@@ -7723,6 +7762,12 @@ ANALYZER_INFO_MAP = {
     "numberOfAnalystOpinions": "numberOfAnalystOpinions",
     "shortPercentOfFloat": "shortPercentOfFloat", "shortRatio": "shortRatio",
     "revenueGrowth": "revenueGrowth", "earningsGrowth": "earningsGrowth",
+    "earningsDate": "earningsDate", "EarningsDate": "earningsDate",
+    "earningsDateEnd": "earningsDateEnd", "EarningsDateEnd": "earningsDateEnd",
+    "earningsDateEstimate": "earningsDateEstimate",
+    "EarningsDateEstimate": "earningsDateEstimate",
+    "lastEarningsDate": "lastEarningsDate",
+    "LastEarningsDate": "lastEarningsDate",
     "marketCap": "marketCap", "dividendRate": "dividendRate",
     "dividendYield": "dividendYield", "floatShares": "floatShares",
     "sharesOutstanding": "sharesOutstanding",

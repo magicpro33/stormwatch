@@ -1303,6 +1303,12 @@ def _dump_seed(ticker: str) -> dict:
             seed["days_to_cover"] = round(dtc_p, 1)
         if pack.get("sector") and not seed.get("sector"):
             seed["sector"] = str(pack["sector"])
+        try:
+            ed = ce._dump_earnings_date(ticker)
+            if ed is not None:
+                seed["earnings_date"] = ed
+        except Exception:
+            pass
         inst_p = _finite_num(pack.get("heldPercentInstitutions"))
         if inst_p is not None:
             seed.setdefault("inst_pct",
@@ -1449,8 +1455,8 @@ def fetch_fuel(ticker: str) -> dict:
     insider transactions, news, 52-week levels, earnings date,
     sector, institutional ownership, and full catalyst detection.
 
-    Fundamentals: nightly dump first, then yfinance for remaining holes.
-    News, insiders, and the earnings calendar stay on yfinance (dump has none).
+    Fundamentals and next earnings date: nightly dump first, then yfinance
+    for remaining holes. News and insiders stay on yfinance.
     """
     out = {
         # existing
@@ -1477,6 +1483,17 @@ def fetch_fuel(ticker: str) -> dict:
         v = seed.get(k)
         if v not in (None, "") and out.get(k) in (None, ""):
             out[k] = v
+    _dump_ed = seed.get("earnings_date")
+    if _dump_ed is not None:
+        try:
+            import cascade_engine as ce
+            _today = ce._ny_calendar_date()
+        except Exception:
+            _today = datetime.now().date()
+        try:
+            out["earnings_days"] = (_dump_ed - _today).days
+        except Exception:
+            pass
     # Skip the live Yahoo profile only when the dump already has a price
     # target. Sector/short% alone is not enough — the slim panel does not
     # store analyst targets, and skipping .info left every scan card at "--".
@@ -1528,27 +1545,28 @@ def fetch_fuel(ticker: str) -> dict:
         if inst is not None:
             out["inst_pct"] = round(float(inst) * 100, 1)
 
-        # Next earnings date
-        try:
-            cal = _yf(lambda: tk.calendar)
-            if isinstance(cal, dict):
-                ed = cal.get("Earnings Date") or cal.get("earningsDate")
-                if ed is not None:
-                    if isinstance(ed, (list, tuple)):
-                        ed = ed[0]
-                    ed_dt = pd.to_datetime(ed, errors="coerce")
-                    if pd.notna(ed_dt):
-                        out["earnings_days"] = (ed_dt.date() - datetime.now().date()).days
-            elif isinstance(cal, pd.DataFrame) and not cal.empty:
-                for lbl in ["Earnings Date", "earningsDate"]:
-                    if lbl in cal.index:
-                        val = cal.loc[lbl].iloc[0]
-                        ed_dt = pd.to_datetime(val, errors="coerce")
+        # Next earnings date — dump first; Yahoo calendar only fills holes.
+        if out["earnings_days"] is None:
+            try:
+                cal = _yf(lambda: tk.calendar)
+                if isinstance(cal, dict):
+                    ed = cal.get("Earnings Date") or cal.get("earningsDate")
+                    if ed is not None:
+                        if isinstance(ed, (list, tuple)):
+                            ed = ed[0]
+                        ed_dt = pd.to_datetime(ed, errors="coerce")
                         if pd.notna(ed_dt):
                             out["earnings_days"] = (ed_dt.date() - datetime.now().date()).days
-                        break
-        except Exception:
-            pass
+                elif isinstance(cal, pd.DataFrame) and not cal.empty:
+                    for lbl in ["Earnings Date", "earningsDate"]:
+                        if lbl in cal.index:
+                            val = cal.loc[lbl].iloc[0]
+                            ed_dt = pd.to_datetime(val, errors="coerce")
+                            if pd.notna(ed_dt):
+                                out["earnings_days"] = (ed_dt.date() - datetime.now().date()).days
+                            break
+            except Exception:
+                pass
 
         # Insider transactions (last ~90 days)
         try:
