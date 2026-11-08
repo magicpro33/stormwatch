@@ -1,7 +1,9 @@
 """Charts — official FRED / Treasury macro series.
 
 M2: Federal Reserve H.6 via FRED M2SL (seasonally adjusted, monthly).
-Debt / GDP: Treasury total public debt ÷ BEA GDP via FRED GFDEGDQ188S.
+Debt / GDP: FRED GFDEGDQ188S (quarterly from 1966); before that,
+Treasury Historical Debt Outstanding ÷ BEA GDPA (1929–1965) and
+NBER GNP A08165USA144NNBR (1919–1928). GFDGDPA188S is the fallback.
 Dollar since 2020: CPI-U purchasing power via FRED CPIAUCSL.
 Dollar over 100 years: CPI-U NSA (CPIAUCNS) from 1913.
 Debt-clock pills: Treasury Debt to the Penny + FRED population, spending,
@@ -33,6 +35,8 @@ LINE = "#3d6a94"
 
 M2_SID = "M2SL"
 DEBT_SID = "GFDEGDQ188S"
+DEBT_GDP_ANNUAL_SID = "GFDGDPA188S"
+NBER_GNP_SID = "A08165USA144NNBR"
 CPI_SID = "CPIAUCSL"
 CPI_LONG_SID = "CPIAUCNS"
 METAL_TICKERS = ("GC=F", "SI=F")
@@ -367,6 +371,107 @@ def _treasury_debt_daily() -> pd.Series:
     s = pd.Series({pd.Timestamp(x["record_date"]):
                    float(x["tot_pub_debt_out_amt"]) for x in rows})
     return s.sort_index().dropna()
+
+
+@st.cache_data(ttl=6 * 3600, max_entries=1, show_spinner="Loading historical public debt…")
+def _treasury_debt_annual() -> pd.Series:
+    """Fiscal-year-end total public debt, 1790–present. Dollars, indexed Jan 1."""
+    import requests
+    url = ("https://api.fiscaldata.treasury.gov/services/api/"
+           "fiscal_service/v2/accounting/od/debt_outstanding")
+    r = requests.get(
+        url,
+        params={"fields": "record_date,record_fiscal_year,debt_outstanding_amt",
+                "sort": "record_date", "page[size]": "500", "format": "json"},
+        timeout=30,
+        headers={"User-Agent": "MoneyWeather/nerd-hut"},
+    )
+    r.raise_for_status()
+    rows = r.json().get("data") or []
+    out = {}
+    for x in rows:
+        try:
+            y = int(x.get("record_fiscal_year") or pd.Timestamp(x["record_date"]).year)
+            v = float(x["debt_outstanding_amt"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if y and np.isfinite(v) and v > 0:
+            out[pd.Timestamp(year=y, month=1, day=1)] = v
+    return pd.Series(out, dtype=float).sort_index()
+
+
+def _year_val(s: pd.Series, year: int) -> float | None:
+    if s is None or s.empty:
+        return None
+    hit = s[pd.DatetimeIndex(s.index).year == int(year)]
+    if hit.empty:
+        return None
+    v = float(hit.iloc[-1])
+    return v if np.isfinite(v) else None
+
+
+@st.cache_data(ttl=6 * 3600, max_entries=1, show_spinner="Building debt / GDP history…")
+def _debt_gdp_history() -> pd.Series:
+    """Total public debt / GDP from 1919 (closest official path to 1900).
+
+    1919–1928: Treasury Historical Debt Outstanding ÷ NBER GNP.
+    1929–1965: same debt series ÷ BEA annual GDP (same total-public-debt
+    idea as the quarterly FRED ratio). 1966–now: FRED GFDEGDQ188S.
+    GFDGDPA188S fills any hole before 1966 if Treasury or GDP is missing.
+    """
+    q = _try_series(DEBT_SID)
+    annual = _try_series(DEBT_GDP_ANNUAL_SID)
+    gdpa = _try_series("GDPA")
+    gnp = _try_series(NBER_GNP_SID)
+    try:
+        hist = _treasury_debt_annual()
+    except Exception:
+        hist = pd.Series(dtype=float)
+
+    q_start = (pd.Timestamp(q.index.min()) if q is not None and len(q)
+               else pd.Timestamp("1966-01-01"))
+    rows = {}
+
+    def _put(year: int, ratio: float) -> None:
+        if not np.isfinite(ratio) or ratio <= 0:
+            return
+        ts = pd.Timestamp(year=int(year), month=1, day=1)
+        if ts >= q_start:
+            return
+        rows[ts] = float(ratio)
+
+    if hist is not None and len(hist) and gnp is not None and len(gnp):
+        for ts, g in gnp.items():
+            y = int(pd.Timestamp(ts).year)
+            if y < 1919 or y >= 1929:
+                continue
+            d = _year_val(hist, y)
+            if d is None or not np.isfinite(g) or g <= 0:
+                continue
+            _put(y, d / (float(g) * 1e6) * 100.0)
+    if hist is not None and len(hist) and gdpa is not None and len(gdpa):
+        for ts, g in gdpa.items():
+            y = int(pd.Timestamp(ts).year)
+            if y < 1929:
+                continue
+            d = _year_val(hist, y)
+            if d is None or not np.isfinite(g) or g <= 0:
+                continue
+            _put(y, d / (float(g) * 1e9) * 100.0)
+    if annual is not None and len(annual):
+        for ts, v in annual.items():
+            key = pd.Timestamp(ts).replace(month=1, day=1)
+            if key >= q_start or key in rows:
+                continue
+            if np.isfinite(v) and v > 0:
+                rows[key] = float(v)
+    early = pd.Series(rows, dtype=float).sort_index()
+    parts = [p for p in (early, q) if p is not None and len(p)]
+    if not parts:
+        return pd.Series(dtype=float)
+    out = pd.concat(parts).sort_index()
+    out = out[~out.index.duplicated(keep="last")]
+    return out.dropna()
 
 
 def _tic_name(raw: str) -> str:
@@ -1216,7 +1321,10 @@ def _debt_snapshot() -> dict:
     deficit_m = _try_series("MTSDS133FMS")
     fy_def = _try_series("FYFSD")
     fy_out = _try_series("FYONET")
-    d2g = _try_series(DEBT_SID)
+    try:
+        d2g = _debt_gdp_history()
+    except Exception:
+        d2g = _try_series(DEBT_SID)
 
     debt = _last(daily)
     debt_asof = daily.index[-1] if len(daily) else None
@@ -1584,16 +1692,24 @@ def _render_nerd_body() -> None:
             yoy_col = RED if (yoy_pp or 0) >= 0 else GREEN
             d1_col = RED if (d1 or 0) >= 0 else GREEN
             peak = float(win.max())
-            span = _date_span(w0, w1, kind="quarter")
+            qtr = (w0 is not None and pd.Timestamp(w0).year >= 1966)
+            span = _date_span(w0, w1, kind="quarter" if qtr else "month")
+
+            def _when(ts) -> str:
+                t = pd.Timestamp(ts)
+                if t.year >= 1966:
+                    return _quarter_label(t)
+                return str(t.year)
+
             _metrics([
-                ("Quarterly print", f"{last:.1f}%",
-                 _quarter_label(win.index[-1]), BLUE),
+                ("Latest print", f"{last:.1f}%",
+                 _when(win.index[-1]), BLUE),
                 ("YoY", f"{yoy_pp:+.1f} pp" if yoy_pp is not None else "—",
-                 "vs same quarter last year", yoy_col),
-                ("Quarter Δ", f"{d1:+.1f} pp" if d1 is not None else "—",
-                 "vs prior quarter", d1_col),
+                 "vs a year earlier", yoy_col),
+                ("Step Δ", f"{d1:+.1f} pp" if d1 is not None else "—",
+                 "vs prior print", d1_col),
                 ("Peak in window", f"{peak:.1f}%",
-                 _quarter_label(win.idxmax()) if len(win) else span, GOLD),
+                 _when(win.idxmax()) if len(win) else span, GOLD),
             ])
             fig = _line_fig(
                 win, color=BLUE, y_title="Percent of GDP",
@@ -1603,8 +1719,16 @@ def _render_nerd_body() -> None:
             )
             _plotly(fig, "ch_debt_fig")
             _window_slider("ch_d2g_win", tmin, tmax,
-                           presets=[("5Y", 5), ("10Y", 10),
-                                    ("20Y", 20), ("All", None)])
+                           presets=[("5Y", 5), ("10Y", 10), ("20Y", 20),
+                                    ("50Y", 50), ("All", None)])
+            _html(
+                "<div class='ch-trend-note'>"
+                "FRED's own ratio is quarterly from 1966. Annual prints "
+                "before that are Treasury year-end debt over BEA GDP "
+                "(1929–1965) and NBER GNP (1919–1928) — as close to 1900 "
+                "as those public series go."
+                "</div>"
+            )
 
     with st.container(border=True, key="ch_foreign"):
         _foreign_holders(snap)
