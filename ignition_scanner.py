@@ -3391,7 +3391,14 @@ def render_ignition_scanner_tab(render_detail=None):
         }
         for col in df.columns:
             if col not in col_cfg:
-                col_cfg[col] = st.column_config.Column(col, help=HELP.get(col, ""))
+                tip = HELP.get(col, "")
+                if not tip:
+                    try:
+                        import cascade_engine as _ig_help
+                        tip = getattr(_ig_help, "scan_col_help", lambda *_: "")(col) or ""
+                    except Exception:
+                        tip = ""
+                col_cfg[col] = st.column_config.Column(col, help=tip)
         if _ig_ce_hs is not None:
             _hs_help = getattr(_ig_ce_hs, "HEALTH_SETUP_HELP", {}) or {}
             for _hc in (getattr(_ig_ce_hs, "HEALTH_COL", "Health/Piotroski"),

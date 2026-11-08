@@ -718,12 +718,17 @@ def _pills(items: list[dict], grid: str = "ch-pills") -> None:
         feat = " feature" if it.get("feature") else ""
         ico_html = f"<div class='ch-ico'>{_esc(ico)}</div>" if ico else ""
         extra = it.get("extra") or ""
+        label = it.get("label", "")
+        sub = it.get("sub", "")
+        tip = it.get("help") or (
+            f"{label}. {sub}".strip(". ") if (label or sub) else "")
+        title = f" title='{_esc(tip)}'" if tip else ""
         cells.append(
-            f"<div class='ch-pill{feat}' style='--mc:{color}'>"
+            f"<div class='ch-pill{feat}' style='--mc:{color};cursor:help'{title}>"
             f"{ico_html}"
-            f"<div class='ch-mlbl'>{_esc(it.get('label', ''))}</div>"
+            f"<div class='ch-mlbl'>{_esc(label)}</div>"
             f"<div class='ch-mval'>{it.get('value', '—')}</div>"
-            f"<div class='ch-msub'>{_esc(it.get('sub', ''))}</div>"
+            f"<div class='ch-msub'>{_esc(sub)}</div>"
             f"{extra}</div>"
         )
     _html(f"<div class='{grid}'>{''.join(cells)}</div>")
@@ -971,6 +976,8 @@ def _css() -> None:
   gap:8px;align-items:center;padding:12px 16px}}
 .ch-coin-head{{color:{DIM};font-size:11px;font-weight:700;letter-spacing:.08em;
   text-transform:uppercase;border-bottom:1px solid #1d2b40}}
+.ch-coin-head > div{{cursor:help;border-bottom:1px dotted transparent}}
+.ch-coin-head > div:hover{{color:{INK}}}
 .ch-coin-head > :nth-child(n+3),.ch-coin-px,.ch-coin-chg{{text-align:right}}
 .ch-coin-row{{border-bottom:1px solid #1d2b40}}
 .ch-coin-row:last-child{{border-bottom:0}}
@@ -1226,8 +1233,12 @@ def _crypto_pills(rows: list, minutes: pd.DataFrame | None = None) -> None:
     _html(
         "<div class='ch-coin-wrap'><div class='ch-coin-tbl'>"
         "<div class='ch-coin-head'>"
-        "<div>#</div><div>Name</div><div>Price</div>"
-        "<div>1h %</div><div>24h %</div><div>7d %</div>"
+        "<div title='Rank on this tape. Bitcoin is 1.'>#</div>"
+        "<div title='Coin name and USD ticker.'>Name</div>"
+        "<div title='Last USD trade. Crypto prints 24/7.'>Price</div>"
+        "<div title='Percent change over the last hour.'>1h %</div>"
+        "<div title='Percent change over the last 24 hours.'>24h %</div>"
+        "<div title='Percent change over the last 7 daily closes.'>7d %</div>"
         "</div>"
         f"{''.join(body)}</div></div>"
     )

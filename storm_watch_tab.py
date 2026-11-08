@@ -36,6 +36,23 @@ BASIC_MIN_SHAKEOUT = 3
 BASIC_N_SHOW = 12
 SCAN_UNIVERSE = 250
 
+def _sw_col_cfg(extra=None):
+    """Hover help on every ShakeOut column; extras keep scanner-specific text."""
+    cfg = {}
+    try:
+        import cascade_engine as ce
+        helpmap = dict(getattr(ce, "SCAN_COL_HELP", {}) or {})
+        helpmap.update(getattr(ce, "HEALTH_SETUP_HELP", {}) or {})
+        for name, tip in helpmap.items():
+            if tip:
+                cfg[name] = st.column_config.Column(help=tip)
+    except Exception:
+        pass
+    if extra:
+        cfg.update(extra)
+    return cfg
+
+
 HELP = {
     "mode": "Basic uses the backtest defaults and hides the rest. "
             "Advanced shows hot sectors, the shakeout gate, and list length. "
@@ -874,7 +891,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
     sel = st.dataframe(
         styler, width="content", hide_index=True, height=min(740, 80 + 34 * len(show)),
         on_select="rerun", selection_mode="single-row", key="sw_table",
-        column_config={
+        column_config=_sw_col_cfg({
             "#": st.column_config.NumberColumn(
                 "#", width="small", format="%d",
                 help="Scan rank. 1 is first on this list. Click the header to sort."),
@@ -896,7 +913,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             "VolRatio": st.column_config.Column(help=HELP["volratio"]),
             "MacroFit": st.column_config.Column(help=HELP["macrofit"]),
             "SuggestedStop": st.column_config.Column(help=f"Entry {STOP_PCT:.0%} — the stop that improved expectancy in the dump backtest."),
-        })
+        }))
     st.download_button(
         "⬇️ Download Shakeout CSV",
         view.to_csv(index=False).encode(),

@@ -1208,6 +1208,9 @@ def render_hybrid_screener() -> None:
                          subset=["Ret", "RS"]),
                     width="content", hide_index=True,
                     column_config={
+                        "Rank": st.column_config.Column(help="Order on this money-flow table. 1 received the most."),
+                        "Hot": st.column_config.Column(help="🔥 = this sector is in the current money-flow shortlist."),
+                        "Sector": st.column_config.Column(help="Sector that received (or lost) money in the window."),
                         "Ret": st.column_config.Column(help="Dollar-weighted sector return — weighted by where the money actually traded, not an equal average."),
                         "RS": st.column_config.Column(help="Sector return minus the market's. Positive = outperforming."),
                         "Breadth": st.column_config.Column(help="Share of names in the sector that rose. Low breadth with a positive return = one stock carrying it."),
@@ -1548,6 +1551,12 @@ def render_hybrid_screener() -> None:
             "#", width="small", format="%d",
             help="Scan rank. 1 is first on this list. Click the header to sort."),
     }
+    _help_fn = getattr(ce, "scan_col_help", None)
+    if callable(_help_fn):
+        for _col in display.columns:
+            tip = _help_fn(_col)
+            if tip and _col not in _cat_cfg:
+                _cat_cfg[_col] = st.column_config.Column(help=tip)
     _up = getattr(ce, "CAT_UP_COL", "▲ Up")
     _earn = getattr(ce, "EARN_COL", "Earnings")
     if "Pricing power" in display.columns:

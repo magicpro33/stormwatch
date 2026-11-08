@@ -1984,7 +1984,8 @@ def render_lens_playbook(cd: dict, regkey: str | None = None, *, full: bool = Tr
                         "(themes — this is where Reset actually paid)")
             _tm = pd.DataFrame(ce.RESET_THEMES,
                                columns=["Ticker", "Theme", "Excess % / 21d"])
-            st.dataframe(_tm, width=_DF_WIDTH, hide_index=True)
+            st.dataframe(_tm, width=_DF_WIDTH, hide_index=True,
+                         column_config=_scan_col_cfgs())
         tilts = (ce.SECTOR_TILTS.get(regkey) or {}) if regkey else {}
         if tilts:
             _rows = sorted(tilts.items(), key=lambda kv: -kv[1])
@@ -3232,14 +3233,14 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                 st.dataframe(
                     _ost, width="stretch", hide_index=True,
                     height=_fit_list_height(min(len(odf), 10)),
-                    column_config={
+                    column_config=_scan_col_cfgs({
                         "Owner": st.column_config.Column(help="Insider or 13F institution. Repeat filings are summed."),
                         "Role": st.column_config.Column(help="Title on the Form 4, or Institution for 13F holders."),
                         "Shares": st.column_config.Column(help="Total reported shares for this owner."),
                         "Flag": st.column_config.Column(
                             help="BlackRock, Vanguard, State Street, Trump, or a sitting U.S. senator."),
                         "Date": st.column_config.Column(help="Latest filing date in the combined rows."),
-                    })
+                    }))
             else:
                 st.caption("No holder list on file for this name.")
         trades = list(pack.get("trades") or [])
@@ -3255,7 +3256,7 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                 st.dataframe(
                     _tst, width="stretch", hide_index=True,
                     height=_fit_list_height(min(len(tdf), 12)),
-                    column_config={
+                    column_config=_scan_col_cfgs({
                         "Date": st.column_config.Column(help="Form 4 start date."),
                         "Insider": st.column_config.Column(help="Officer, director, or 10% holder."),
                         "Role": st.column_config.Column(help="Title on the filing."),
@@ -3263,7 +3264,7 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                             help="Buy/Sell are open-market. Grant, Exercise, and Gift are not cash conviction."),
                         "Shares": st.column_config.Column(help="Share count on the filing."),
                         "Value": st.column_config.Column(help="Dollar value when Yahoo reports a price."),
-                    })
+                    }))
             else:
                 st.caption("No Form 4 trades on file for this name.")
 
@@ -5924,7 +5925,8 @@ def _render_macro_lens_block(prefix: str, asof, closes, gauge, *,
                     st.dataframe(
                         ev[["Signal", "Reading", "Argues for", "Weight"]]
                         .style.format({"Weight": "{:.1f}"}),
-                        width=_DF_WIDTH, hide_index=True)
+                        width=_DF_WIDTH, hide_index=True,
+                        column_config=_scan_col_cfgs())
                 st.caption(
                     "Headlines are capped at 2 points — news confirms "
                     "the tape, it never outvotes it.")
@@ -6141,26 +6143,27 @@ def _cat_col_cfgs():
     }
 
 
+def _scan_col_cfgs(extra=None):
+    """Hover help for every known scanner / chart column.
+
+    Extra configs win, so a table can keep a tighter description for Score
+    (or any other column) without losing Ticker / Price / Sector coverage.
+    """
+    cfg = {"#": _rank_col_cfg()}
+    cfg.update(_cat_col_cfgs())
+    helpmap = dict(getattr(ce, "SCAN_COL_HELP", {}) or {})
+    helpmap.update(getattr(ce, "HEALTH_SETUP_HELP", {}) or {})
+    for name, tip in helpmap.items():
+        if name in cfg or not tip:
+            continue
+        cfg[name] = st.column_config.Column(help=tip)
+    if extra:
+        cfg.update(extra)
+    return cfg
+
+
 def _health_setup_col_cfgs():
-    helpmap = getattr(ce, "HEALTH_SETUP_HELP", {}) or {}
-    hcol = getattr(ce, "HEALTH_COL", "Health/Piotroski")
-    scol = getattr(ce, "SETUP_COL", "Clean Setup")
-    ecol = getattr(ce, "EARN_COL", "Earnings")
-    return {
-        hcol: st.column_config.Column(
-            help=helpmap.get(hcol) or (
-                "Financial Health bar (gross margin, ROIC, ROE/ROA, D/E, "
-                "current ratio) plus Piotroski 9-point score. Green Strong, "
-                "amber OK, red Weak.")),
-        scol: st.column_config.Column(
-            help=helpmap.get(scol) or (
-                "Clean Setup trend from the nightly dump — same bull / bear / "
-                "mixed as the overlay (multi-factor trend vote).")),
-        ecol: st.column_config.Column(
-            help=helpmap.get(ecol) or (
-                "Days until the next earnings print, Eastern US calendar. "
-                "Green is clear, amber inside 21 days, red inside a week.")),
-    }
+    return _scan_col_cfgs()
 
 
 def _stamp_hs(df):
@@ -7525,13 +7528,13 @@ def _where_money_went(asof, lookback, offset, label, hot_now=None):
             .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
                  subset=["Ret", "RS"]),
             width=_DF_WIDTH, hide_index=True,
-            column_config={
+            column_config=_scan_col_cfgs({
                 "Ret": st.column_config.Column(help="Dollar-weighted sector return."),
                 "RS": st.column_config.Column(help="Sector return minus the market's."),
                 "Breadth": st.column_config.Column(help="Share of names in the sector that rose."),
                 "VolSurge": st.column_config.Column(help="Median dollar-volume vs its 63-day average."),
                 "Names": st.column_config.Column(help="Liquid names in the sector."),
-            })
+            }))
 
 
 def flow_window_picker(prefix: str, compact: bool = False):
@@ -7822,6 +7825,7 @@ def _stock_lookup_watchlist(closes, asof):
                 disabled=[c for c in show.columns if c not in ("sel", "Fav")],
                 key=f"wl_table_favbtn_{_wl_sel_epoch}",
                 column_config={
+                    **_scan_col_cfgs(),
                     "sel": st.column_config.CheckboxColumn(
                         " ",
                         help="Select to open or remove. Separate from the favorite star.",
@@ -7849,7 +7853,8 @@ def _stock_lookup_watchlist(closes, asof):
         except Exception as _dee:
             log_exc("watchlist_editor", _dee)
             st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
-            st.dataframe(show, width="stretch", hide_index=True)
+            st.dataframe(show, width="stretch", hide_index=True,
+                         column_config=_scan_col_cfgs())
         def _wl_as_bool(v):
             if isinstance(v, str):
                 return v.strip().lower() in ("true", "1", "yes", "on")
@@ -8260,12 +8265,12 @@ with st.container(border=True, key="mw_page"):
                          if isinstance(v, float) else "", subset=["IC"])
                     .map(_css_hit, subset=["Hit %"]),
                     width=_DF_WIDTH, hide_index=True,
-                    column_config={
+                    column_config=_scan_col_cfgs({
                         "Leads": st.column_config.Column(help="Upstream node — its moves come first."),
                         "Follows": st.column_config.Column(help="Downstream node — historically reacts within the horizon."),
                         "IC": st.column_config.Column(help=HELP["edge_ic"]),
                         "Hit %": st.column_config.Column(help=HELP["hit_rate"]),
-                    })
+                    }))
 
             with st.expander("📊 Full sector breakdown"):
                 st.caption("A sector counts as 'receiving money' when its return, how "
@@ -8278,12 +8283,12 @@ with st.container(border=True, key="mw_page"):
                     .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
                          subset=["Ret", "RS"]),
                     width=_DF_WIDTH, hide_index=True,
-                    column_config={
+                    column_config=_scan_col_cfgs({
                         "Ret": st.column_config.Column(help="Sector return, weighted by where the money actually traded."),
                         "RS": st.column_config.Column(help="How much better or worse than the whole market."),
                         "Breadth": st.column_config.Column(help="Share of the sector's stocks that went up."),
                         "VolSurge": st.column_config.Column(help="Trading activity vs its own 63-day normal. Above 1 = busier than usual."),
-                    })
+                    }))
                 st.caption("Used by the Top 20 tab's 🔥 hot-sector filter and its "
                            "sector-flow tilt.")
 
@@ -10092,7 +10097,8 @@ with st.container(border=True, key="mw_page"):
                 "Wins": _gcd.get("leads", ""),
                 "Loses": _gcd.get("lags", ""),
             })
-        st.dataframe(pd.DataFrame(_glance_rows), width=_DF_WIDTH, hide_index=True)
+        st.dataframe(pd.DataFrame(_glance_rows), width=_DF_WIDTH, hide_index=True,
+                     column_config=_scan_col_cfgs())
 
         st.divider()
         st.markdown("#### Open a playbook")
@@ -10137,7 +10143,14 @@ with st.container(border=True, key="mw_page"):
             _fmt = _grid.style.format("{:.2f}")
             _styled = (_fmt.map(_tilt_css) if hasattr(_fmt, "map")
                        else _fmt.applymap(_tilt_css))
-            st.dataframe(_styled, width=_DF_WIDTH)
+            st.dataframe(
+                _styled, width=_DF_WIDTH,
+                column_config={
+                    col: st.column_config.Column(
+                        help="How this lens re-weights the sector. 1.00 = no "
+                             "change. Above 1 = promoted, below 1 = demoted.")
+                    for col in _grid.columns
+                })
 
 
     # ── 🎯 POC Future — AMD accumulation / manipulation / distribution ────
@@ -10654,7 +10667,7 @@ with st.container(border=True, key="mw_page"):
                                               "Flag", "Why", "Speech", "Date",
                                               "Snippet", "Source"]
                                   if c in _wshow.columns],
-                    column_config={
+                    column_config=_scan_col_cfgs({
                         "Word": st.column_config.Column(help="The flagged term."),
                         "Times said": st.column_config.Column(
                             help="How many times this term appears across the "
@@ -10673,7 +10686,7 @@ with st.container(border=True, key="mw_page"):
                         "Source": st.column_config.LinkColumn(
                             "Source", display_text="Open source",
                             help="The speech or article this count came from."),
-                    })
+                    }))
                 st.caption("👆 Tap a word to search company names and business "
                            "summaries in the nightly dump.")
                 _trows = (_te_sel.selection.rows
@@ -10803,7 +10816,7 @@ with st.container(border=True, key="mw_page"):
                 with st.expander("Sources scanned", expanded=bool(_te_qhit)):
                     st.dataframe(
                         _sdf, width=_DF_WIDTH, hide_index=True,
-                        column_config={
+                        column_config=_scan_col_cfgs({
                             "Hits": st.column_config.Column(
                                 help="How many times the searched phrase "
                                      "appears in this source."),
@@ -10812,7 +10825,7 @@ with st.container(border=True, key="mw_page"):
                                 help="The stretch of the speech around the search."),
                             "Source": st.column_config.LinkColumn(
                                 "Source", display_text="Open"),
-                        })
+                        }))
 
         _hub_keep_save("te", ("te_",))
 
@@ -10961,7 +10974,7 @@ with st.container(border=True, key="mw_page"):
                             _el_sec_st, width=_DF_WIDTH, hide_index=True,
                             height=_fit_list_height(len(_eshow), max_h=280),
                             key="el_sec",
-                            column_config={
+                            column_config=_scan_col_cfgs({
                                 "#": _rank_col_cfg(),
                                 "Names": st.column_config.Column(
                                     help="Liquid names in this sector that "
@@ -10977,7 +10990,7 @@ with st.container(border=True, key="mw_page"):
                                 "Beat%": st.column_config.Column(
                                     help="Share of names in the sector that beat "
                                          "the market in the pre-vote window."),
-                            })
+                            }))
 
                 if _edf is None or (isinstance(_edf, pd.DataFrame) and _edf.empty):
                     st.warning("No names passed. Loosen min price or dollar volume.")
@@ -11139,14 +11152,14 @@ with st.container(border=True, key="mw_page"):
                 .map(lambda v: _css_sign(v, dead=0.75), subset=["ImpulseZ"])
                 .map(lambda v: _css_sign(v, dead=0.5), subset=["5d %", "21d %"]),
                 width=_DF_WIDTH, hide_index=True,
-                column_config={
+                column_config=_scan_col_cfgs({
                     "Sentinel": st.column_config.Column(help=HELP["sentinel_why"]),
                     "Last": st.column_config.Column(help="Latest close (or last trade for 24/7 assets)."),
                     "5d %": st.column_config.Column(help="Return over the last 5 sessions — the raw move behind the impulse."),
                     "21d %": st.column_config.Column(help="Return over the last month of sessions — the slower trend context."),
                     "ImpulseZ": st.column_config.Column(help=HELP["impulse"]),
                     "Signal": st.column_config.Column(help=HELP["sig_col"]),
-                })
+                }))
             with st.expander("❓ Why these assets are the sentinels"):
                 st.markdown(HELP["sentinel_why"])
             hot = sb[sb.ImpulseZ.abs() >= ce.WAVE_Z]
@@ -11190,10 +11203,10 @@ with st.container(border=True, key="mw_page"):
                 .map(lambda v: _css_sign(v) if isinstance(v, (int, float)) else "",
                      subset=["z-score"]),
                 width=_DF_WIDTH, hide_index=True,
-                column_config={
+                column_config=_scan_col_cfgs({
                     "z-score": st.column_config.Column(help="How unusual this 21-day move is versus its own past year. Negative on a spread proxy = spreads WIDENING."),
                     "Role": st.column_config.Column(help="Only the junk-credit leg tested predictive, so only it votes in the macro advisor."),
-                })
+                }))
             st.caption("Why price ratios: HYG/IEF and LQD/IEF compare corporate bonds "
                        "against duration-matched treasuries, so the ratio falling means "
                        "credit is demanding more yield — spreads widening — without "
@@ -11347,11 +11360,11 @@ with st.container(border=True, key="mw_page"):
                     .map(lambda v: _css_sign(v), subset=["strat", "excess"])
                     .map(lambda v: f"color:{DIM}", subset=["bench"]),
                     width=_DF_WIDTH, hide_index=True,
-                    column_config={
+                    column_config=_scan_col_cfgs({
                         "strat": st.column_config.Column(help="Direction-adjusted mean return of the top-5 forecasts that week."),
                         "bench": st.column_config.Column(help="Equal-weight universe over the same horizon — the bar to beat."),
                         "excess": st.column_config.Column(help="strat minus bench: green = the forecasts earned their keep that week."),
-                    })
+                    }))
         st.caption("One year is one regime. Cascade edges break when regimes "
                    "flip — that is why they are re-estimated every week and why "
                    "this tab exists. Not investment advice.")
