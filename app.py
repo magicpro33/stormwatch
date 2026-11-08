@@ -785,7 +785,7 @@ HELP = {
 }
 
 CREATOR_NAME = "AIupscale"
-CREATOR_URL = "https://aiupscalellc.netlify.app/"
+CREATOR_URL = "https://aiupscalellc.netlify.app/donate"
 try:
     from mw_paths import bundle_dir as _bundle_dir
 except ImportError:
@@ -804,7 +804,7 @@ def _logo_b64() -> str:
 
 
 def _clickable_logo(width: int = 150) -> None:
-    """AI Upscale logo linking to the site — same as the hybrid screener."""
+    """AI Upscale logo linking to the donate page."""
     encoded = _logo_b64()
     if not encoded:
         return
