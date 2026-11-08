@@ -961,6 +961,36 @@ LOCAL_DUMP = os.path.join(_mw_data_dir(), "dump_panel_v5.npz")
 LOCAL_DUMP_GZ = os.path.join(_mw_data_dir(), "stock_data.json.gz")
 
 
+def _sibling_stock_dump() -> str:
+    """Local `stock/data/stock_data.json.gz` next to this repo (manual nightly scan)."""
+    p = os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "stock", "data", "stock_data.json.gz"))
+    try:
+        return p if os.path.isfile(p) else ""
+    except OSError:
+        return ""
+
+
+def _sibling_dump_is_newer() -> bool:
+    sib = _sibling_stock_dump()
+    if not sib:
+        return False
+    local = _data_read_path(LOCAL_DUMP_GZ)
+    try:
+        sib_mt = os.path.getmtime(sib)
+        loc_mt = os.path.getmtime(local) if os.path.isfile(local) else 0.0
+        return sib_mt > loc_mt + 1.0
+    except OSError:
+        return False
+
+
+def _prefer_sibling_dump() -> bool:
+    """Rebuild from the local stock scan: Load stock info, or a newer file."""
+    return bool(_sibling_stock_dump()) and (
+        _FORCE_DUMP_FETCH or _sibling_dump_is_newer())
+
+
 def _file_sha256(path: str) -> str:
     import hashlib
     h = hashlib.sha256()
@@ -1093,6 +1123,15 @@ def _github_get_dump() -> bytes:
     )
     r.raise_for_status()
     return r.content
+
+
+def _dump_gz_bytes() -> bytes:
+    """Local stock-folder scan if present, else GitHub."""
+    sib = _sibling_stock_dump()
+    if sib:
+        with open(sib, "rb") as f:
+            return f.read()
+    return _github_get_dump()
 
 
 def dump_last_session():
@@ -1259,7 +1298,8 @@ def load_dump_panel():
         # process alive for days, so the app could sit a session behind with no
         # way to recover. st.cache_data.clear() cannot help: _PANEL_CACHE is a
         # plain module dict and the Refresh button never reached it.
-        if hit and hit[0] == mt and not _FORCE_DUMP_FETCH:
+        if (hit and hit[0] == mt and not _FORCE_DUMP_FETCH
+                and not _prefer_sibling_dump()):
             cached_last = _PANEL_CACHE.get("last_date")
             if cached_last is not None and cached_last >= target:
                 return hit[1]
@@ -1282,8 +1322,9 @@ def load_dump_panel():
                 last = pd.Timestamp(pd.to_datetime(z["dates"])[-1]).normalize()
                 # Load stock info sets _FORCE_DUMP_FETCH so a same-asof dump
                 # that newly includes fields (earnings dates) still downloads.
-                if not _FORCE_DUMP_FETCH and (
-                        last >= target or not _dump_fetch_due(target)):
+                # A newer sibling stock/ scan also beats a same-asof npz.
+                if (not _FORCE_DUMP_FETCH and not _prefer_sibling_dump()
+                        and (last >= target or not _dump_fetch_due(target))):
                     panel, tickers, sectors, mdv, dts, extra = _owned_panel_from_npz(z)
                     out = (panel, tickers, sectors, mdv, dts)
                     _PANEL_CACHE["panel"] = (mt, out)
@@ -1331,18 +1372,28 @@ def load_dump_panel():
         if z is not None:
             return z
     try:
-        content = _github_get_dump()
+        content = _dump_gz_bytes()
     except Exception as _de:
         # GitHub unreachable and the cache is >4 days old (or was just
         # dropped above as corrupt). A stale dump beats a dead Top 20 /
         # Lookup / APEX — fetch_history already works this way.
-        if os.path.exists(_data_read_path(LOCAL_DUMP)):
-            z = _np_load_dump()
-            if z is not None:
-                _PANEL_CACHE["fetched_for"] = target
-                _PANEL_CACHE["fetched_at"] = _time.monotonic()
-                return z
-        raise RuntimeError(f"nightly dump unavailable and no local copy: {_de}")
+        sib = _sibling_stock_dump()
+        if sib:
+            try:
+                with open(sib, "rb") as f:
+                    content = f.read()
+            except Exception:
+                content = None
+        else:
+            content = None
+        if content is None:
+            if os.path.exists(_data_read_path(LOCAL_DUMP)):
+                z = _np_load_dump()
+                if z is not None:
+                    _PANEL_CACHE["fetched_for"] = target
+                    _PANEL_CACHE["fetched_at"] = _time.monotonic()
+                    return z
+            raise RuntimeError(f"nightly dump unavailable and no local copy: {_de}")
     try:
         with open(_data_write_path(LOCAL_DUMP_GZ), "wb") as _gf:
             _gf.write(content)
