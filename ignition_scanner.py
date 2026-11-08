@@ -3354,6 +3354,9 @@ def render_ignition_scanner_tab(render_detail=None):
         try:
             import cascade_engine as _ig_ce_hs
             df = _ig_ce_hs.stamp_health_setup(df)
+            _dn = getattr(_ig_ce_hs, "CAT_DOWN_COL", "▼ Down")
+            if _dn in getattr(df, "columns", []):
+                df = df.drop(columns=[_dn])
         except Exception:
             _ig_ce_hs = None
         col_cfg = {
@@ -3371,7 +3374,8 @@ def render_ignition_scanner_tab(render_detail=None):
         if _ig_ce_hs is not None:
             _hs_help = getattr(_ig_ce_hs, "HEALTH_SETUP_HELP", {}) or {}
             for _hc in (getattr(_ig_ce_hs, "HEALTH_COL", "Health/Piotroski"),
-                        getattr(_ig_ce_hs, "SETUP_COL", "Clean Setup")):
+                        getattr(_ig_ce_hs, "SETUP_COL", "Clean Setup"),
+                        getattr(_ig_ce_hs, "EARN_COL", "Earnings")):
                 if _hc in df.columns:
                     col_cfg[_hc] = st.column_config.Column(
                         help=_hs_help.get(_hc, HELP.get(_hc, "")))

@@ -838,6 +838,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         show = ce.stamp_health_setup(show)
         if "Piotroski" in getattr(show, "columns", []):
             show = show.drop(columns=["Piotroski"])
+        _dn = getattr(ce, "CAT_DOWN_COL", "▼ Down")
+        if _dn in getattr(show, "columns", []):
+            show = show.drop(columns=[_dn])
     except Exception:
         pass
 
@@ -882,9 +885,8 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
             "▲ Up": st.column_config.Column(
                 "▲ Up", width="medium",
                 help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means."),
-            "▼ Down": st.column_config.Column(
-                "▼ Down", width="medium",
-                help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means."),
+            "Earnings": st.column_config.Column(
+                help="Days until the next earnings print, Eastern US calendar. Green is clear, amber inside 21 days, red inside a week."),
             "StormScore": st.column_config.Column(help=HELP["score"]),
             "Shakeout": st.column_config.Column(help=HELP["min_shakeout"]),
             "Ret5": st.column_config.Column(help=HELP["ret5"]),

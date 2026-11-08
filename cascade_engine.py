@@ -1602,6 +1602,7 @@ CAT_UP_COL = "▲ Up"
 CAT_DOWN_COL = "▼ Down"
 HEALTH_COL = "Health/Piotroski"
 SETUP_COL = "Clean Setup"
+EARN_COL = "Earnings"
 HEALTH_SETUP_HELP = {
     HEALTH_COL: (
         "Financial Health bar (gross margin, ROIC, ROE/ROA, D/E, current "
@@ -1611,6 +1612,10 @@ HEALTH_SETUP_HELP = {
         "Clean Setup trend — multi-factor vote (EMA stack, MACD, ADX, "
         "Donchian, Supertrend, Aroon, structure, ROC, PSAR, Ichimoku). "
         "▲ Bull / ▼ Bear / — Mixed, same as the overlay."
+    ),
+    EARN_COL: (
+        "Days until the next earnings print, Eastern US calendar. "
+        "Green is clear, amber inside 21 days, red inside a week."
     ),
 }
 
@@ -3722,7 +3727,7 @@ def drop_blank_columns(df: pd.DataFrame) -> pd.DataFrame:
         return df
     keep = []
     blank = {"", "nan", "none", "nat", "—", "-", "n/a", "na"}
-    always = {CAT_UP_COL, CAT_DOWN_COL, "#", HEALTH_COL, SETUP_COL}
+    always = {CAT_UP_COL, CAT_DOWN_COL, "#", HEALTH_COL, SETUP_COL, EARN_COL}
     for c in df.columns:
         if c in always:
             keep.append(c)
@@ -5361,8 +5366,44 @@ def css_cs_trend(v) -> str:
     return "color:#9aa8bd"
 
 
+def earn_countdown_text(val, today=None) -> str:
+    """Watchlist-style earnings countdown: `12d · Nov 20`, `Today`, `Done`, or —."""
+    ed = _coerce_earn_date(val)
+    if ed is None:
+        return "—"
+    if today is None:
+        today = _ny_calendar_date()
+    try:
+        days = (ed - today).days
+    except Exception:
+        return f"{ed:%b} {ed.day}"
+    sub = f"{ed:%b} {ed.day}"
+    if days < 0:
+        return "Done"
+    if days == 0:
+        return f"Today · {sub}"
+    return f"{days}d · {sub}"
+
+
+def css_earn_cell(v) -> str:
+    s = str(v or "").strip()
+    if not s or s in ("—", "Done"):
+        return "color:#9aa8bd"
+    if s.startswith("Today"):
+        return "color:#e05252;font-weight:600"
+    try:
+        n = int(s.split("d", 1)[0])
+    except (TypeError, ValueError):
+        return ""
+    if n <= 7:
+        return "color:#e05252;font-weight:600"
+    if n <= 21:
+        return "color:#E87722;font-weight:600"
+    return "color:#3fbf7f;font-weight:600"
+
+
 def style_health_setup(obj):
-    """Color Health/Piotroski and Clean Setup the same way the watchlist does."""
+    """Color Health/Piotroski, Clean Setup, and earnings the same way the watchlist does."""
     styler = obj if hasattr(obj, "data") else obj.style
     data = getattr(styler, "data", None)
     cols = list(getattr(data, "columns", [])) if data is not None else []
@@ -5370,13 +5411,59 @@ def style_health_setup(obj):
         styler = styler.map(css_health_lbl, subset=[HEALTH_COL])
     if SETUP_COL in cols:
         styler = styler.map(css_cs_trend, subset=[SETUP_COL])
+    if EARN_COL in cols:
+        styler = styler.map(css_earn_cell, subset=[EARN_COL])
     return styler
 
 
-def stamp_health_setup(df, ticker_col=None, health_map=None, setup_map=None):
+def stamp_earn_countdown(df, ticker_col=None, earn_map=None):
+    """Add a days-to-earnings countdown. Replaces ▼ Down in generated lists."""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    out = df.copy()
+    tcol = ticker_col
+    if not tcol:
+        for c in ("Ticker", "ticker"):
+            if c in out.columns:
+                tcol = c
+                break
+    if not tcol:
+        return out
+    tks = [str(t).strip().upper() for t in out[tcol].tolist()]
+    uniq = [t for t in dict.fromkeys(tks) if t]
+    if earn_map is None:
+        try:
+            earn_map = watchlist_earnings_dates(uniq) or {}
+        except Exception as e:
+            _log_exc("stamp_earn_countdown", e)
+            earn_map = {}
+    today = _ny_calendar_date()
+    labels = [earn_countdown_text((earn_map or {}).get(t), today) for t in tks]
+    if EARN_COL in out.columns:
+        out = out.drop(columns=[EARN_COL])
+    if CAT_DOWN_COL in out.columns:
+        i = list(out.columns).index(CAT_DOWN_COL)
+        out = out.drop(columns=[CAT_DOWN_COL])
+        out.insert(i, EARN_COL, labels)
+        return out
+    if SETUP_COL in out.columns:
+        i = list(out.columns).index(SETUP_COL) + 1
+    elif HEALTH_COL in out.columns:
+        i = list(out.columns).index(HEALTH_COL) + 1
+    elif "Sector" in out.columns:
+        i = list(out.columns).index("Sector") + 1
+    else:
+        i = list(out.columns).index(tcol) + 1
+    out.insert(i, EARN_COL, labels)
+    return out
+
+
+def stamp_health_setup(df, ticker_col=None, health_map=None, setup_map=None,
+                       earn_map=None):
     """Add Health/Piotroski and Clean Setup immediately after Sector.
 
     Same cell format as the watchlist. Missing Sector falls back to after Ticker.
+    Generated lists also get a days-to-earnings countdown in place of ▼ Down.
     """
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return df
@@ -5416,7 +5503,7 @@ def stamp_health_setup(df, ticker_col=None, health_map=None, setup_map=None):
     out.insert(i + 1, SETUP_COL, setup)
     if "Piotroski" in out.columns:
         out = out.drop(columns=["Piotroski"])
-    return out
+    return stamp_earn_countdown(out, ticker_col=tcol, earn_map=earn_map)
 
 
 CRYPTO_MAP = {"BTC-USD": "BTC/USD", "ETH-USD": "ETH/USD", "SOL-USD": "SOL/USD"}

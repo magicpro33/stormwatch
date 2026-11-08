@@ -6112,14 +6112,17 @@ def _with_catalysts(df, on, ticker_col="Ticker", safe_key=None):
 
 def _cat_col_cfgs():
     up = getattr(ce, "CAT_UP_COL", "▲ Up")
-    down = getattr(ce, "CAT_DOWN_COL", "▼ Down")
+    earn = getattr(ce, "EARN_COL", "Earnings")
+    helpmap = getattr(ce, "HEALTH_SETUP_HELP", {}) or {}
     return {
         up: st.column_config.Column(
             up, width="medium",
             help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means."),
-        down: st.column_config.Column(
-            down, width="medium",
-            help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means."),
+        earn: st.column_config.Column(
+            earn,
+            help=helpmap.get(earn) or (
+                "Days until the next earnings print, Eastern US calendar. "
+                "Green is clear, amber inside 21 days, red inside a week.")),
     }
 
 
@@ -6127,6 +6130,7 @@ def _health_setup_col_cfgs():
     helpmap = getattr(ce, "HEALTH_SETUP_HELP", {}) or {}
     hcol = getattr(ce, "HEALTH_COL", "Health/Piotroski")
     scol = getattr(ce, "SETUP_COL", "Clean Setup")
+    ecol = getattr(ce, "EARN_COL", "Earnings")
     return {
         hcol: st.column_config.Column(
             help=helpmap.get(hcol) or (
@@ -6137,17 +6141,21 @@ def _health_setup_col_cfgs():
             help=helpmap.get(scol) or (
                 "Clean Setup trend from the nightly dump — same bull / bear / "
                 "mixed as the overlay (multi-factor trend vote).")),
+        ecol: st.column_config.Column(
+            help=helpmap.get(ecol) or (
+                "Days until the next earnings print, Eastern US calendar. "
+                "Green is clear, amber inside 21 days, red inside a week.")),
     }
 
 
 def _stamp_hs(df):
-    """Stamp Health/Piotroski + Clean Setup onto a generated ticker list."""
+    """Stamp Health/Piotroski + Clean Setup + earnings onto a generated list."""
     fn = getattr(ce, "stamp_health_setup", None)
     if not callable(fn) or df is None or getattr(df, "empty", True):
         return df
     tcol = "Ticker" if "Ticker" in getattr(df, "columns", []) else (
         "ticker" if "ticker" in getattr(df, "columns", []) else None)
-    hmap = smap = None
+    hmap = smap = emap = None
     if tcol:
         tks = tuple(sorted({
             str(t).strip().upper() for t in df[tcol].tolist() if str(t).strip()}))
@@ -6160,7 +6168,11 @@ def _stamp_hs(df):
                 smap = _wl_cs_trend_map(tks, "v1") or {}
             except Exception:
                 smap = None
-    return fn(df, health_map=hmap, setup_map=smap)
+            try:
+                emap = _wl_earn_map(tks, "v1") or {}
+            except Exception:
+                emap = None
+    return fn(df, health_map=hmap, setup_map=smap, earn_map=emap)
 
 
 def _style_health_setup(obj):
@@ -6169,10 +6181,13 @@ def _style_health_setup(obj):
     cols = list(getattr(data, "columns", [])) if data is not None else []
     hcol = getattr(ce, "HEALTH_COL", "Health/Piotroski")
     scol = getattr(ce, "SETUP_COL", "Clean Setup")
+    ecol = getattr(ce, "EARN_COL", "Earnings")
     if hcol in cols:
         styler = styler.map(_css_health_lbl, subset=[hcol])
     if scol in cols:
         styler = styler.map(_css_cs_trend, subset=[scol])
+    if ecol in cols:
+        styler = styler.map(_css_earn_cell, subset=[ecol])
     return styler
 
 
@@ -6209,7 +6224,7 @@ def _cat_cols(df):
     cols = getattr(df, "columns", [])
     names = []
     for c in (getattr(ce, "CAT_UP_COL", "▲ Up"),
-              getattr(ce, "CAT_DOWN_COL", "▼ Down"),
+              getattr(ce, "EARN_COL", "Earnings"),
               "Catalysts"):
         if c in cols and c not in names:
             names.append(c)
@@ -6217,7 +6232,8 @@ def _cat_cols(df):
 
 
 def _order_with_cat(order, df):
-    order = [c for c in list(order or []) if c != "Piotroski"]
+    down = getattr(ce, "CAT_DOWN_COL", "▼ Down")
+    order = [c for c in list(order or []) if c not in ("Piotroski", down)]
     hs = [c for c in (
         getattr(ce, "HEALTH_COL", "Health/Piotroski"),
         getattr(ce, "SETUP_COL", "Clean Setup"),

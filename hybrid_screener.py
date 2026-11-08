@@ -1536,7 +1536,7 @@ def render_hybrid_screener() -> None:
         "Pricing power", "Gross Margin", "ROIC",
         "D/E", "Current ratio", "OE Yield", "ROIC Trend",
         "RevenueGrowth", "EarningsGrowth",
-        getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "CAT_DOWN_COL", "▼ Down"),
+        getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "EARN_COL", "Earnings"),
         "First print", "Days listed",
         "MarketCap", "P/E",
         "OwnerEarnings", "MA50", "RangeHigh", "RangeLow", "RangePos",
@@ -1548,7 +1548,8 @@ def render_hybrid_screener() -> None:
             "#", width="small", format="%d",
             help="Scan rank. 1 is first on this list. Click the header to sort."),
     }
-    _up, _dn = getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "CAT_DOWN_COL", "▼ Down")
+    _up = getattr(ce, "CAT_UP_COL", "▲ Up")
+    _earn = getattr(ce, "EARN_COL", "Earnings")
     if "Pricing power" in display.columns:
         _cat_cfg["Pricing power"] = st.column_config.Column(
             "Pricing power", width="small",
@@ -1603,10 +1604,11 @@ def render_hybrid_screener() -> None:
         _cat_cfg[_up] = st.column_config.Column(
             _up, width="medium",
             help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means.")
-    if _dn in display.columns:
-        _cat_cfg[_dn] = st.column_config.Column(
-            _dn, width="medium",
-            help="Catalyst names on this name. Hover the icons in the Catalysts box for what each one means.")
+    if _earn in display.columns:
+        _cat_cfg[_earn] = st.column_config.Column(
+            help=_hs_help.get(_earn) or (
+                "Days until the next earnings print, Eastern US calendar. "
+                "Green is clear, amber inside 21 days, red inside a week."))
     try:
         if "Score" in display.columns:
             styled = display.style.map(_color_score, subset=["Score"])
