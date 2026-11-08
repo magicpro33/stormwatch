@@ -9,6 +9,7 @@ venv/
 data/watchlist.json
 data/trump_effect_list.json
 data/bull_list.json
+data/earnings_calendar.json
 data/history.parquet
 data/*.npz
 data/*.npz.sha256

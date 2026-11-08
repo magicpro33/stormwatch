@@ -4596,16 +4596,28 @@ def _earn_disk_path() -> str:
     return os.path.join(_mw_data_dir(), "earnings_dates.json")
 
 
+_EARN_DISK_MEM = {"path": None, "mt": None, "bag": {}}
+
+
 def _earn_disk_load() -> dict:
     path = _earn_disk_path()
     if not os.path.isfile(path):
+        _EARN_DISK_MEM.update(path=path, mt=None, bag={})
         return {}
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return {}
+    if _EARN_DISK_MEM.get("path") == path and _EARN_DISK_MEM.get("mt") == mt:
+        return _EARN_DISK_MEM["bag"]
     try:
         with open(path, encoding="utf-8") as f:
             raw = json.load(f)
-        return raw if isinstance(raw, dict) else {}
+        bag = raw if isinstance(raw, dict) else {}
     except Exception:
-        return {}
+        bag = {}
+    _EARN_DISK_MEM.update(path=path, mt=mt, bag=bag)
+    return bag
 
 
 def _earn_disk_get(tk: str) -> date | None:
@@ -4618,7 +4630,7 @@ def _earn_disk_put(tk: str, d: date) -> None:
     if not tk or d is None:
         return
     try:
-        bag = _earn_disk_load()
+        bag = dict(_earn_disk_load())
         bag[tk] = {"date": d.isoformat(),
                    "saved": _ny_calendar_date().isoformat()}
         path = _earn_disk_path()
@@ -4627,20 +4639,263 @@ def _earn_disk_put(tk: str, d: date) -> None:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(bag, f, indent=0)
         os.replace(tmp, path)
+        try:
+            mt = os.path.getmtime(path)
+        except OSError:
+            mt = None
+        _EARN_DISK_MEM.update(path=path, mt=mt, bag=bag)
     except Exception as e:
         _log_exc("earn_disk_put", e)
 
 
-def _dump_earnings_date(tk: str) -> date | None:
-    pack = dump_analyzer_pack(tk) or {}
-    today = _ny_calendar_date()
+_DUMP_EARN_KEYS = ("earningsTimestampStart", "earningsTimestamp",
+                   "earningsTimestampEnd", "earningsDate")
+
+
+def _earn_from_dump_rec(rec: dict, today: date | None = None) -> date | None:
+    if not isinstance(rec, dict):
+        return None
+    if today is None:
+        today = _ny_calendar_date()
     found = []
-    for k in ("earningsTimestampStart", "earningsTimestamp",
-              "earningsTimestampEnd", "earningsDate"):
-        d = _coerce_earn_date(pack.get(k))
-        if d is not None and d >= today:
-            found.append(d)
+    pack = rec.get("_analyzer") if isinstance(rec.get("_analyzer"), dict) else {}
+    for src in (pack, rec):
+        for k in _DUMP_EARN_KEYS:
+            d = _coerce_earn_date(src.get(k))
+            if d is not None and d >= today:
+                found.append(d)
     return min(found) if found else None
+
+
+def _dump_earnings_date(tk: str) -> date | None:
+    return _earn_from_dump_rec(_dump_record(tk) or {})
+
+
+def _dump_earn_dates_for(tickers) -> dict:
+    """Next dump earnings date for each ticker. No Yahoo."""
+    want = []
+    seen = set()
+    for raw in tickers or []:
+        tk = str(raw or "").strip().upper()
+        if tk and tk not in seen:
+            seen.add(tk)
+            want.append(tk)
+    if not want:
+        return {}
+    try:
+        raw = _dump_records_cache() or {}
+    except Exception as e:
+        _log_exc("dump_earn_dates_for", e)
+        raw = {}
+    today = _ny_calendar_date()
+    out = {}
+    for tk in want:
+        ed = _earn_from_dump_rec(raw.get(tk) or {}, today)
+        if ed is not None:
+            out[tk] = ed
+    return out
+
+
+def _earn_iso_map(dates: dict) -> dict:
+    iso = {}
+    for tk, ed in (dates or {}).items():
+        if hasattr(ed, "isoformat"):
+            iso[str(tk).strip().upper()] = ed.isoformat()
+        elif ed is not None:
+            iso[str(tk).strip().upper()] = str(ed)
+    return iso
+
+
+_EARN_CAL_DAYS = 60
+_EARN_CAL_MEM = {"path": None, "mt": None, "map": {}, "saved": None, "through": None}
+
+
+def _earn_cal_path() -> str:
+    return os.path.join(_mw_data_dir(), "earnings_calendar.json")
+
+
+def _earn_cal_load_file() -> dict:
+    path = _earn_cal_path()
+    if not os.path.isfile(path):
+        return {}
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return {}
+    if (_EARN_CAL_MEM.get("path") == path and _EARN_CAL_MEM.get("mt") == mt
+            and _EARN_CAL_MEM.get("map") is not None):
+        return _EARN_CAL_MEM["map"]
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception:
+        raw = {}
+    dates = (raw or {}).get("dates") if isinstance(raw, dict) else {}
+    out = {}
+    if isinstance(dates, dict):
+        for tk, val in dates.items():
+            d = _coerce_earn_date(val)
+            if d is not None:
+                out[str(tk).strip().upper()] = d
+    _EARN_CAL_MEM.update(
+        path=path, mt=mt, map=out,
+        saved=_coerce_earn_date((raw or {}).get("saved")),
+        through=_coerce_earn_date((raw or {}).get("through")))
+    return out
+
+
+def _earn_cal_save(dates: dict, saved: date, through: date) -> None:
+    path = _earn_cal_path()
+    payload = {
+        "saved": saved.isoformat(),
+        "through": through.isoformat(),
+        "dates": {tk: d.isoformat() for tk, d in sorted(dates.items())},
+    }
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=0)
+        os.replace(tmp, path)
+        try:
+            mt = os.path.getmtime(path)
+        except OSError:
+            mt = None
+        _EARN_CAL_MEM.update(path=path, mt=mt, map=dict(dates),
+                             saved=saved, through=through)
+    except Exception as e:
+        _log_exc("earn_cal_save", e)
+
+
+def _nasdaq_calendar_day(day: date) -> list:
+    data = _nasdaq_api(f"/api/calendar/earnings?date={day.isoformat()}", timeout=8)
+    rows = (data or {}).get("rows") if isinstance(data, dict) else None
+    return rows if isinstance(rows, list) else []
+
+
+def _refresh_nasdaq_earn_calendar(days: int = _EARN_CAL_DAYS) -> dict:
+    """One Nasdaq calendar pull for the next `days` weekdays. Cached on disk."""
+    today = _ny_calendar_date()
+    through = today + timedelta(days=int(days))
+    fetch = []
+    d = today
+    while d <= through:
+        if d.weekday() < 5:
+            fetch.append(d)
+        d += timedelta(days=1)
+    out = {}
+    if not fetch:
+        return out
+
+    def _one(day):
+        hits = []
+        try:
+            for row in _nasdaq_calendar_day(day):
+                tk = str((row or {}).get("symbol") or "").strip().upper()
+                if tk:
+                    hits.append(tk)
+        except Exception as e:
+            _log_exc(f"nasdaq_cal.{day}", e)
+        return day, hits
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        # Nasdaq drops parallel bursts; two workers stay under the radar.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futs = [pool.submit(_one, day) for day in fetch]
+            for fut in as_completed(futs):
+                try:
+                    day, hits = fut.result()
+                except Exception:
+                    continue
+                for tk in hits:
+                    prev = out.get(tk)
+                    if prev is None or day < prev:
+                        out[tk] = day
+    except Exception as e:
+        _log_exc("nasdaq_cal.refresh", e)
+    if out:
+        _earn_cal_save(out, today, through)
+    return out
+
+
+def _kick_earn_cal_refresh() -> None:
+    """Fill the calendar on a daemon thread — scans must not wait on Nasdaq."""
+    import threading
+    lock = _EARN_CAL_MEM.get("lock")
+    if lock is None:
+        lock = threading.Lock()
+        _EARN_CAL_MEM["lock"] = lock
+    with lock:
+        if _EARN_CAL_MEM.get("running"):
+            return
+        _EARN_CAL_MEM["running"] = True
+
+    def _run():
+        try:
+            _refresh_nasdaq_earn_calendar()
+        except Exception as e:
+            _log_exc("earn_cal.thread", e)
+        finally:
+            _EARN_CAL_MEM["running"] = False
+
+    threading.Thread(target=_run, daemon=True, name="mw-earn-cal").start()
+
+
+def _earn_calendar_map() -> dict:
+    """Cached Nasdaq calendar. Never blocks a scan on a network round-trip."""
+    today = _ny_calendar_date()
+    have = _earn_cal_load_file() or {}
+    saved = _EARN_CAL_MEM.get("saved")
+    through = _EARN_CAL_MEM.get("through")
+    fresh = (saved == today and through is not None
+             and through >= today + timedelta(days=14) and have)
+    if not fresh:
+        _kick_earn_cal_refresh()
+    return have
+
+
+def _earnings_dates_local(tickers: list) -> tuple:
+    """Disk + dump + Nasdaq calendar. No per-ticker Yahoo. Returns (dates, missing)."""
+    want = []
+    seen = set()
+    for raw in tickers or []:
+        tk = str(raw or "").strip().upper()
+        if tk and tk not in seen:
+            seen.add(tk)
+            want.append(tk)
+    if not want:
+        return {}, []
+    disk = _earn_disk_load()
+    today = _ny_calendar_date()
+    dump = None
+    cal = None
+    out = {}
+    need = []
+    for tk in want:
+        ed = None
+        rec = disk.get(tk)
+        if rec:
+            ed = _coerce_earn_date(rec.get("date") if isinstance(rec, dict) else rec)
+            if ed is not None and ed < today:
+                ed = None
+        if ed is None:
+            if dump is None:
+                dump = _dump_earn_dates_for(want)
+            ed = dump.get(tk)
+        if ed is None:
+            if cal is None:
+                try:
+                    cal = _earn_calendar_map() or {}
+                except Exception as e:
+                    _log_exc("earn_calendar_map", e)
+                    cal = {}
+            ed = cal.get(tk)
+        if ed is not None:
+            out[tk] = ed
+        else:
+            need.append(tk)
+    return out, need
 
 
 def _yahoo_next_earnings(tk: str, tobj=None) -> date | None:
@@ -4750,41 +5005,22 @@ def upcoming_earnings(tickers: list) -> dict:
     return out
 
 
-def watchlist_earnings_dates(tickers: list) -> dict:
-    """ISO earnings dates for a watchlist. Disk + dump first, live only on holes."""
-    out = {}
-    need = []
-    for raw in tickers or []:
-        tk = str(raw or "").strip().upper()
-        if not tk:
-            continue
-        ed = None
+def watchlist_earnings_dates(tickers: list, live: bool = True) -> dict:
+    """ISO earnings dates. Disk + dump first; live Yahoo only for holes when live=True."""
+    out, need = _earnings_dates_local(tickers)
+    if live and need:
         try:
-            ed = _earn_disk_get(tk)
-        except Exception as e:
-            _log_exc(f"wl_earn.disk.{tk}", e)
-        if ed is None:
-            try:
-                ed = _dump_earnings_date(tk)
-            except Exception as e:
-                _log_exc(f"wl_earn.dump.{tk}", e)
-        if ed is None:
-            need.append(tk)
-        else:
-            out[tk] = ed
-    if need:
-        try:
-            live = upcoming_earnings(need)
-            out.update(live or {})
+            got = upcoming_earnings(need)
+            out.update(got or {})
         except Exception as e:
             _log_exc("wl_earn.live", e)
-    iso = {}
-    for tk, ed in out.items():
-        if hasattr(ed, "isoformat"):
-            iso[tk] = ed.isoformat()
-        elif ed is not None:
-            iso[tk] = str(ed)
-    return iso
+    return _earn_iso_map(out)
+
+
+def scan_earnings_dates(tickers: list) -> dict:
+    """ISO earnings dates for a generated scan list. Dump + disk only — no Yahoo."""
+    out, _need = _earnings_dates_local(tickers)
+    return _earn_iso_map(out)
 
 
 def _finite_num(v):
@@ -5433,7 +5669,7 @@ def stamp_earn_countdown(df, ticker_col=None, earn_map=None):
     uniq = [t for t in dict.fromkeys(tks) if t]
     if earn_map is None:
         try:
-            earn_map = watchlist_earnings_dates(uniq) or {}
+            earn_map = scan_earnings_dates(uniq) or {}
         except Exception as e:
             _log_exc("stamp_earn_countdown", e)
             earn_map = {}
@@ -5476,6 +5712,10 @@ def stamp_health_setup(df, ticker_col=None, health_map=None, setup_map=None,
                 break
     if not tcol:
         return out
+    try:
+        _kick_earn_cal_refresh()
+    except Exception:
+        pass
     tks = [str(t).strip().upper() for t in out[tcol].tolist()]
     uniq = [t for t in dict.fromkeys(tks) if t]
     if health_map is None:

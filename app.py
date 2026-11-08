@@ -1023,6 +1023,21 @@ def _wl_earn_map(tks: tuple, ver: str = "v1"):
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
+def _scan_earn_map(tks: tuple, ver: str = "v2"):
+    """Dump/disk earnings only — scans must not wait on Yahoo per ticker."""
+    fn = getattr(ce, "scan_earnings_dates", None)
+    if callable(fn):
+        return fn(list(tks)) or {}
+    fn = getattr(ce, "watchlist_earnings_dates", None)
+    if not callable(fn):
+        return {}
+    try:
+        return fn(list(tks), live=False) or {}
+    except TypeError:
+        return fn(list(tks)) or {}
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
 def _wl_health_map(tks: tuple, ver: str = "v1"):
     fn = getattr(ce, "watchlist_health_rows", None)
     if fn is None:
@@ -6169,7 +6184,7 @@ def _stamp_hs(df):
             except Exception:
                 smap = None
             try:
-                emap = _wl_earn_map(tks, "v1") or {}
+                emap = _scan_earn_map(tks, "v2") or {}
             except Exception:
                 emap = None
     return fn(df, health_map=hmap, setup_map=smap, earn_map=emap)
