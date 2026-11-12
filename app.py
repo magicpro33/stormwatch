@@ -7164,7 +7164,8 @@ def _render_scan_hub_help():
             "yield, Piotroski, volume, range position, and more. Presets jump "
             "you to 3 Magic Rules (pricing power, hard-to-copy moat, not a "
             "mountain of debt), Clean Setup, Felix quality, short-squeeze, "
-            "range-low, volume, breakout, insider, or recent IPO. Toggle "
+            "range-low, volume, breakout, insider, recent IPO, or Best EPS "
+            "(highest dump forward EPS, with POC and ToPOC%). Toggle "
             "factors and weights in menu 3, including the 50-day MA filter. "
             "Tap a row to open the same chart, cards, and company profile "
             "the other scanners use.",

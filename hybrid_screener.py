@@ -217,6 +217,111 @@ def _k(name: str) -> str:
     return f"hs_{name}"
 
 
+def _hs_num(v) -> float:
+    try:
+        if v is None or v == "" or v == "N/A":
+            return float("nan")
+        x = float(v)
+        return x if np.isfinite(x) else float("nan")
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def _pick_fwd_eps(rec, an) -> float:
+    """Next-year EPS from the dump (Yahoo forwardEps / analyzer pack). No live fetch."""
+    for src in (an or {}, rec or {}):
+        if not isinstance(src, dict):
+            continue
+        for k in ("epsForward", "forwardEps", "epsNextYear", "epsCurrentYear"):
+            x = _hs_num(src.get(k))
+            if np.isfinite(x):
+                return float(x)
+    hist = None
+    for src in (an or {}, rec or {}):
+        if isinstance(src, dict) and isinstance(src.get("eps_history"), list):
+            hist = src["eps_history"]
+            break
+    if not hist:
+        return float("nan")
+    yearly, quarterly = [], []
+    for row in hist:
+        if not isinstance(row, dict) or not row.get("is_forward"):
+            continue
+        x = _hs_num(row.get("estimate"))
+        if not np.isfinite(x):
+            continue
+        kind = str(row.get("kind") or "")
+        slot = str(row.get("slot") or row.get("period") or "").lower()
+        if kind == "y" or "year" in slot or slot in ("+1y", "0y", "next year"):
+            prefer = 0 if slot in ("+1y", "next year") or "next" in slot else 1
+            yearly.append((prefer, x))
+        else:
+            quarterly.append(x)
+    if yearly:
+        yearly.sort(key=lambda t: t[0])
+        return float(yearly[0][1])
+    if quarterly:
+        return float(max(quarterly))
+    return float("nan")
+
+
+def _stamp_poc_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """Last-coil volume-profile POC and % distance, same window the chart uses."""
+    out = df.copy()
+    n = len(out)
+    pocs = np.full(n, np.nan)
+    dists = np.full(n, np.nan)
+    if out.empty or "Ticker" not in out.columns:
+        out["POC"] = pocs
+        out["ToPOC%"] = dists
+        return out
+    try:
+        import poc_future as pf
+        panel, tickers, *_ = ce.load_dump_panel()
+    except Exception:
+        out["POC"] = pocs
+        out["ToPOC%"] = dists
+        return out
+    tix = {str(t).upper(): i for i, t in enumerate(tickers)}
+    h, l, c, v = panel["h"], panel["l"], panel["c"], panel["v"]
+    win = int(getattr(pf, "ACCUM_LEN", 15))
+    bins = int(getattr(pf, "VP_BINS", 24))
+    va = float(getattr(pf, "VA_PCT", 70.0))
+    T = int(c.shape[0])
+    sl0 = max(0, T - win)
+    prices = pd.to_numeric(out.get("Price"), errors="coerce")
+    for i, tk in enumerate(out["Ticker"].astype(str).str.upper()):
+        j = tix.get(tk)
+        if j is None:
+            continue
+        hh = np.asarray(h[sl0:, j], dtype=float)
+        ll = np.asarray(l[sl0:, j], dtype=float)
+        cc = np.asarray(c[sl0:, j], dtype=float)
+        vv = np.nan_to_num(np.asarray(v[sl0:, j], dtype=float))
+        good = np.isfinite(cc)
+        if int(good.sum()) < 5:
+            continue
+        hh, ll, cc, vv = hh[good], ll[good], cc[good], vv[good]
+        hh = np.where(np.isfinite(hh), hh, cc)
+        ll = np.where(np.isfinite(ll), ll, cc)
+        hi, lo = float(np.nanmax(hh)), float(np.nanmin(ll))
+        try:
+            poc, _, _ = pf._profile(hh, ll, cc, vv, lo, hi, bins=bins, va_pct=va)
+        except Exception:
+            poc = np.nan
+        if not np.isfinite(poc):
+            continue
+        pocs[i] = float(poc)
+        px = float(prices.iloc[i]) if i < len(prices) else float("nan")
+        if not np.isfinite(px) or px <= 0:
+            px = float(cc[-1])
+        if np.isfinite(px) and px > 0:
+            dists[i] = (px - float(poc)) / px * 100.0
+    out["POC"] = pocs
+    out["ToPOC%"] = dists
+    return out
+
+
 def _register_for_ignition(df) -> None:
     """Expose the current Hybrid list as an Ignition watchlist source."""
     tickers, seen = [], set()
@@ -384,6 +489,7 @@ def _apply_preset(name: str) -> None:
     st.session_state[_k("ipo_days")] = 90
     st.session_state[_k("gate_thatbiz")] = False
     st.session_state[_k("thatbiz")] = False
+    st.session_state[_k("best_eps")] = False
     _clear_metric_weights()
 
     if name == "clean":
@@ -560,6 +666,17 @@ def _apply_preset(name: str) -> None:
         st.session_state[_k("wt_Fortress")] = 5.0
         st.session_state[_k("tog_Piotroski")] = True
         st.session_state[_k("wt_Piotroski")] = 1.0
+    elif name == "best_eps":
+        st.session_state[_k("best_eps")] = True
+        st.session_state[_k("max_price")] = 1000
+        st.session_state[_k("min_score")] = 0.0
+        st.session_state[_k("top_n")] = 40
+        st.session_state[_k("ma50")] = "off"
+        st.session_state[_k("autorun")] = True
+    st.session_state.pop(_k("inline"), None)
+    st.session_state.pop("_hs_display", None)
+    st.session_state.pop("_hs_raw", None)
+    st.session_state.pop("_hs_diag", None)
     st.rerun()
 
 
@@ -607,6 +724,7 @@ def _load_universe() -> tuple[pd.DataFrame, str]:
         row["PricingPower"] = pp
         row["MoatScore"] = moat
         row["Fortress"] = fort
+        row["ForwardEPS"] = _pick_fwd_eps(row, an)
         n = 0
         first = row.get("FirstTradeDate") or ""
         tk = str(row.get("Ticker") or "").upper()
@@ -657,10 +775,10 @@ def _load_universe() -> tuple[pd.DataFrame, str]:
     for col in zero_cols:
         if col not in df.columns:
             df[col] = 0.0
-    for col in ["Price", "MarketCap", "P/E", "OwnerEarnings"]:
+    for col in ["Price", "MarketCap", "P/E", "OwnerEarnings", "ForwardEPS"]:
         if col not in df.columns:
             df[col] = np.nan
-    numeric = zero_cols + ["Price", "MarketCap", "P/E", "OwnerEarnings"]
+    numeric = zero_cols + ["Price", "MarketCap", "P/E", "OwnerEarnings", "ForwardEPS"]
     for col in numeric:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -801,7 +919,7 @@ def _hs_short_pct(x):
 
 
 def _format_display(screened: pd.DataFrame, enabled: dict,
-                    show_listing: bool = False) -> pd.DataFrame:
+                    show_listing: bool = False, best_eps: bool = False) -> pd.DataFrame:
     display = screened.copy()
     if "OE_Yield" in display.columns:
         display["OE Yield"] = display["OE_Yield"]
@@ -894,6 +1012,14 @@ def _format_display(screened: pd.DataFrame, enabled: dict,
     if "Fortress" in display.columns:
         display["Fortress"] = display["Fortress"].apply(
             lambda x: _hs_cell_pct(x, digits=0))
+    if "POC" in display.columns:
+        display["POC"] = display["POC"].apply(_hs_cell_money)
+    if "ToPOC%" in display.columns:
+        display["ToPOC%"] = display["ToPOC%"].apply(
+            lambda x: f"{float(x):+.1f}%" if pd.notnull(x) and np.isfinite(float(x)) else "—")
+    if "ForwardEPS" in display.columns:
+        display["Forward EPS"] = display["ForwardEPS"].apply(
+            lambda x: f"${float(x):.2f}" if pd.notnull(x) and np.isfinite(float(x)) else "—")
 
     skip = {"Ticker", "Sector", "MarketCap", "OwnerEarnings", "Price", "MA50",
             "RangeHigh", "RangeLow", "ROIC", "OE Yield", "ROIC Trend",
@@ -901,7 +1027,8 @@ def _format_display(screened: pd.DataFrame, enabled: dict,
             "RangePos", "MFI_Signal", "_exchanges", "FirstTrade", "Piotroski",
             "P/E", "D/E", "Current ratio", "Pricing power", "Moat", "Fortress",
             "Short % Float", "Days to Cover", "Div Yield", "Div Rate",
-            "Days listed", "First print"}
+            "Days listed", "First print", "POC", "ToPOC%", "ForwardEPS",
+            "Forward EPS"}
     for col in display.columns:
         if col not in skip and pd.api.types.is_numeric_dtype(display[col]):
             display[col] = display[col].apply(lambda x: round(x, 2) if pd.notnull(x) else x)
@@ -967,6 +1094,20 @@ def _format_display(screened: pd.DataFrame, enabled: dict,
         hidden.remove("ROIC Trend")
     if enabled.get("GrossMargin") and "Gross Margin" in hidden:
         hidden.remove("Gross Margin")
+    hidden.append("ForwardEPS")
+    if best_eps:
+        keep = {
+            "Ticker", "Sector", "POC", "ToPOC%", "Forward EPS", "Price", "#",
+            getattr(ce, "HEALTH_COL", "Health/Piotroski"),
+            getattr(ce, "SETUP_COL", "Clean Setup"),
+        }
+        hidden += [c for c in display.columns if c not in keep]
+        for c in ("POC", "ToPOC%", "Forward EPS", "Price"):
+            if c in hidden:
+                hidden.remove(c)
+    else:
+        hidden += [c for c in ("POC", "ToPOC%", "Forward EPS")
+                   if c in display.columns and c not in hidden]
     seen = set()
     hidden = [c for c in hidden if not (c in seen or seen.add(c))]
     return display.drop(columns=hidden, errors="ignore")
@@ -1003,7 +1144,10 @@ def _run_screen(settings: dict) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     df["Score"] = score.round(2)
 
     under_price = df["Price"].isna() | (df["Price"] <= settings["max_price"])
-    above_score = df["Score"] >= settings["min_score"] if active else pd.Series(True, index=df.index)
+    if settings.get("best_eps") or not active:
+        above_score = pd.Series(True, index=df.index)
+    else:
+        above_score = df["Score"] >= settings["min_score"]
     ma50 = pd.to_numeric(df.get("MA50", pd.Series(np.nan, index=df.index)), errors="coerce")
     mode = settings["ma50"]
     if mode == "below":
@@ -1054,7 +1198,19 @@ def _run_screen(settings: dict) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
         in_thatbiz = pd.Series(True, index=df.index)
 
     mask = under_price & ma_ok & above_score & in_range & in_pe & in_rev & in_ipo & in_thatbiz
-    if settings.get("use_ipo") and "DaysListed" in df.columns:
+    if settings.get("best_eps"):
+        fwd = pd.to_numeric(df.get("ForwardEPS"), errors="coerce")
+        px = pd.to_numeric(df.get("Price"), errors="coerce")
+        pe = px / fwd.replace(0, np.nan)
+        # Drop local-currency / stale prints (EPS bigger than price → P/E < 1).
+        has_eps = fwd.notna() & (fwd > 0) & (fwd <= 1000) & pe.notna() & (pe >= 1.0)
+        mask = mask & has_eps
+        sort_cols = ["ForwardEPS"]
+        if "EarningsGrowth" in df.columns:
+            sort_cols.append("EarningsGrowth")
+        screened = df[mask].sort_values(
+            sort_cols, ascending=[False] * len(sort_cols), na_position="last")
+    elif settings.get("use_ipo") and "DaysListed" in df.columns:
         screened = df[mask].sort_values(
             ["DaysListed", "Score"], ascending=[True, False], na_position="last")
     elif active:
@@ -1062,6 +1218,8 @@ def _run_screen(settings: dict) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     else:
         screened = df[mask].sort_values("RangePct", ascending=True, na_position="last")
     screened = screened.head(int(settings["top_n"])).reset_index(drop=True)
+    if settings.get("best_eps"):
+        screened = _stamp_poc_cols(screened)
     diag = {
         "scanned": int(len(df)),
         "passed": int(len(screened)),
@@ -1120,6 +1278,10 @@ def render_hybrid_screener() -> None:
              "Names whose first print in the nightly dump is within 90 days. "
              "Proxy for a recent IPO — the scan keeps ~1 year of prices, so a "
              "short tape usually means the name just started trading. Newest first."),
+            ("best_eps", "📈 Best EPS",
+             "Highest analyst forward EPS on the nightly dump. Table shows "
+             "Ticker, Sector, Health/Piotroski, Clean Setup, POC, and distance "
+             "to the POC. No live Yahoo fetch — dump only."),
         ]
         for group in (_preset_btns[:5], _preset_btns[5:]):
             presets = st.columns(len(group))
@@ -1327,23 +1489,32 @@ def render_hybrid_screener() -> None:
         rank_filters = f", with {extra[0]} and {extra[1]}"
     else:
         rank_filters = f", with {', '.join(extra[:-1])}, and {extra[-1]}"
-    eng = "3 Magic Rules" if _preset_thatbiz else "hybrid score"
+    _best_eps = bool(st.session_state.get(_k("best_eps")))
+    if _best_eps:
+        eng = "forward EPS"
+    elif _preset_thatbiz:
+        eng = "3 Magic Rules"
+    else:
+        eng = "hybrid score"
     sec_txt = (f", limited to {len(sectors_filter)} sectors"
                if sectors_filter else "")
     ma_txt = ("" if ma50_mode == "off"
               else f", {ma50_mode} the 50-day MA")
+    _score_txt = ("" if _best_eps else f", score ≥ {float(min_score):g}")
     st.markdown(
         f"<div style='background:#16344f;border:1px solid #3d6a94;"
         f"border-left:4px solid #F0A6FF;padding:10px 14px;margin:4px 0 12px;"
         f"font-size:13.5px;border-radius:8px;'>"
         f"Ranking the top <b>{int(top_n)}</b> by "
         f"<b style='color:#F0A6FF;'>{eng}</b>, "
-        f"{exchange}, max ${int(max_price):,}, score ≥ {float(min_score):g}"
-        f"{ma_txt}{sec_txt}{rank_filters}."
+        f"{exchange}, max ${int(max_price):,}"
+        f"{_score_txt}{ma_txt}{sec_txt}{rank_filters}."
         f"</div>",
         unsafe_allow_html=True)
 
     run = st.button("🚀 Run Screener", type="primary", width="stretch", key=_k("run"))
+    if st.session_state.pop(_k("autorun"), False):
+        run = True
 
     if run:
         _sector_label = ("All Sectors" if not sectors_filter else
@@ -1366,6 +1537,7 @@ def render_hybrid_screener() -> None:
             "use_ipo": use_ipo,
             "ipo_days": ipo_days,
             "thatbiz": bool(st.session_state.get(_k("gate_thatbiz"))),
+            "best_eps": _best_eps,
             "enabled": enabled,
             "weights": weights,
         }
@@ -1377,7 +1549,8 @@ def render_hybrid_screener() -> None:
                 return
         st.session_state["_hs_raw"] = screened
         display = (_format_display(screened, enabled,
-                                   show_listing=bool(st.session_state.get(_k("ipo"))))
+                                   show_listing=bool(st.session_state.get(_k("ipo"))),
+                                   best_eps=_best_eps)
                    if not screened.empty else screened)
         st.session_state["_hs_display"] = display
         st.session_state["_hs_diag"] = diag
@@ -1387,7 +1560,8 @@ def render_hybrid_screener() -> None:
     _raw = st.session_state.get("_hs_raw")
     if _raw is not None:
         display = (_format_display(_raw, enabled,
-                                   show_listing=bool(st.session_state.get(_k("ipo"))))
+                                   show_listing=bool(st.session_state.get(_k("ipo"))),
+                                   best_eps=_best_eps)
                    if not getattr(_raw, "empty", True) else _raw)
         st.session_state["_hs_display"] = display
     else:
@@ -1442,7 +1616,11 @@ def render_hybrid_screener() -> None:
         return
 
     active = diag.get("active") or []
-    if active:
+    if _best_eps:
+        st.success(
+            "**Best EPS** — ranked by analyst forward EPS from the nightly dump "
+            "(highest first). POC is the last 15-bar volume-profile point of control.")
+    elif active:
         st.success("**Active metrics:** " + " · ".join(METRICS[k]["label"] for k in active if k in METRICS))
     else:
         st.info("No metrics active — sorted by tightest stored range.")
@@ -1531,21 +1709,29 @@ def render_hybrid_screener() -> None:
                         except Exception:
                             pass
 
-    order = [c for c in [
-        "#", "Ticker", "Sector",
-        getattr(ce, "HEALTH_COL", "Health/Piotroski"),
-        getattr(ce, "SETUP_COL", "Clean Setup"),
-        "Price",
-        "Pricing power", "Gross Margin", "ROIC",
-        "D/E", "Current ratio", "OE Yield", "ROIC Trend",
-        "RevenueGrowth", "EarningsGrowth",
-        getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "EARN_COL", "Earnings"),
-        "First print", "Days listed",
-        "MarketCap", "P/E",
-        "OwnerEarnings", "MA50", "RangeHigh", "RangeLow", "RangePos",
-        "MFI_Signal", "Short % Float", "Days to Cover",
-        "Div Yield", "Div Rate",
-    ] if c in display.columns]
+    if _best_eps:
+        order = [c for c in [
+            "#", "Ticker", "Sector",
+            getattr(ce, "HEALTH_COL", "Health/Piotroski"),
+            getattr(ce, "SETUP_COL", "Clean Setup"),
+            "POC", "ToPOC%", "Forward EPS", "Price",
+        ] if c in display.columns]
+    else:
+        order = [c for c in [
+            "#", "Ticker", "Sector",
+            getattr(ce, "HEALTH_COL", "Health/Piotroski"),
+            getattr(ce, "SETUP_COL", "Clean Setup"),
+            "Price",
+            "Pricing power", "Gross Margin", "ROIC",
+            "D/E", "Current ratio", "OE Yield", "ROIC Trend",
+            "RevenueGrowth", "EarningsGrowth",
+            getattr(ce, "CAT_UP_COL", "▲ Up"), getattr(ce, "EARN_COL", "Earnings"),
+            "First print", "Days listed",
+            "MarketCap", "P/E",
+            "OwnerEarnings", "MA50", "RangeHigh", "RangeLow", "RangePos",
+            "MFI_Signal", "Short % Float", "Days to Cover",
+            "Div Yield", "Div Rate",
+        ] if c in display.columns]
     _cat_cfg = {
         "#": st.column_config.NumberColumn(
             "#", width="small", format="%d",

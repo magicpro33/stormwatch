@@ -1745,6 +1745,8 @@ SCAN_COL_HELP = {
     "RevGrowth": "Year-over-year revenue growth from the nightly dump.",
     "RevenueGrowth": "Year-over-year revenue growth from the nightly dump.",
     "EarningsGrowth": "Year-over-year earnings growth from the nightly dump.",
+    "Forward EPS": "Analyst forward EPS (next fiscal year) from the nightly dump. Best EPS ranks this highest first.",
+    "ForwardEPS": "Analyst forward EPS (next fiscal year) from the nightly dump. Best EPS ranks this highest first.",
     "Gross Margin": "Gross profit ÷ revenue. 60%+ is pricing power.",
     "GrossMargin": "Gross profit ÷ revenue. 60%+ is pricing power.",
     "Piotroski": "Piotroski F-Score (0–9). 7–9 strong; 0–2 weak.",
