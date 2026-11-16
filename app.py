@@ -286,18 +286,65 @@ def _look_extra_css(name: str, f: dict, serif: str) -> str:
     background-color: {f['pill']} !important;
     color: {f['text']} !important;
 }}
+.stApp p, .stApp li, .stApp label, .stApp span,
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] span,
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *,
+[data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] * {{
+    color: {f['text']} !important;
+}}
+.stApp h1, .stApp h2, .stApp h3, .stApp h4,
+.mw-mast-name, .hub-title, .hub-sec, .hub-title-pop, .mw-menu-title,
+[data-testid="stWidgetLabel"] p {{
+    color: {f['head']} !important;
+}}
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * {{
+    color: {f['muted']} !important;
+}}
+[data-baseweb="tooltip"], [data-baseweb="tooltip"] *,
+[data-baseweb="popover"], [data-baseweb="popover"] *,
+[data-baseweb="menu"], [data-baseweb="menu"] * {{
+    background: {f['card']} !important;
+    color: {f['text']} !important;
+}}
 [data-baseweb="tag"], [data-baseweb="tag"] *,
-.hub-title-pop, .mw-menu-title {{
+.hub-title, .hub-sec, .hub-title-pop, .mw-menu-title, .t20-title, .t20-head, .t20-box,
+div[data-testid="stExpander"], div[data-testid="stAlert"],
+div[data-testid="stVerticalBlockBorderWrapper"] {{
     background: {f['card']} !important;
     background-color: {f['card']} !important;
     color: {f['head']} !important;
-    border: 1px solid {f['accent']} !important;
+    border-color: {f['accent']} !important;
 }}
-div[data-testid="stSegmentedControl"] button,
-div[data-testid="stSegmentedControl"] button > div,
+div[data-testid="stSegmentedControl"],
+div[data-testid="stSegmentedControl"] [data-baseweb="button-group"],
+.st-key-mw_nav [data-baseweb="button-group"],
+.st-key-mw_main [data-baseweb="button-group"],
+.st-key-mw_hub [data-baseweb="button-group"],
+.st-key-mw_map [data-baseweb="button-group"],
+.st-key-dc_view [data-baseweb="button-group"],
+.st-key-cc_view [data-baseweb="button-group"],
+.st-key-mw_look_bar [data-baseweb="button-group"] {{
+    background: {f['bg']} !important;
+    background-color: {f['bg']} !important;
+}}
 .st-key-mw_nav [data-baseweb="button-group"] > button,
-.st-key-mw_nav [data-baseweb="button-group"] > * button,
-.st-key-mw_nav [data-baseweb="button-group"] > button > div {{
+.st-key-mw_nav [data-baseweb="button-group"] > button *,
+.st-key-mw_main [data-baseweb="button-group"] > button,
+.st-key-mw_main [data-baseweb="button-group"] > button *,
+.st-key-mw_hub [data-baseweb="button-group"] > button,
+.st-key-mw_hub [data-baseweb="button-group"] > button *,
+.st-key-mw_map [data-baseweb="button-group"] > button,
+.st-key-mw_map [data-baseweb="button-group"] > button *,
+.st-key-dc_view [data-baseweb="button-group"] > button,
+.st-key-dc_view [data-baseweb="button-group"] > button *,
+.st-key-cc_view [data-baseweb="button-group"] > button,
+.st-key-cc_view [data-baseweb="button-group"] > button *,
+.st-key-mw_look_bar [data-baseweb="button-group"] > button,
+.st-key-mw_look_bar [data-baseweb="button-group"] > button *,
+div[data-testid="stSegmentedControl"] button,
+div[data-testid="stSegmentedControl"] button * {{
     background: {f['bg']} !important;
     background-color: {f['bg']} !important;
     color: {f['head']} !important;
@@ -305,16 +352,18 @@ div[data-testid="stSegmentedControl"] button > div,
     box-shadow: none !important;
     font-family: {serif} !important;
 }}
-div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"],
-div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"] > div,
 .st-key-mw_nav [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
-.st-key-mw_nav [data-baseweb="button-group"] > * button[data-testid="stBaseButton-segmented_controlActive"],
-.st-key-mw_nav [data-baseweb="button-group"] > button[aria-checked="true"],
-.st-key-mw_nav [data-baseweb="button-group"] > button[aria-pressed="true"] {{
+.st-key-mw_main [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
+.st-key-mw_hub [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
+.st-key-mw_map [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
+.st-key-dc_view [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
+.st-key-cc_view [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
+.st-key-mw_look_bar [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
+div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"] {{
     background: {f['bg']} !important;
     background-color: {f['bg']} !important;
     color: {f['head']} !important;
-    border: 2px solid {f['head']} !important;
+    border: 2px solid #C6A15B !important;
     box-shadow: none !important;
 }}
 div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
@@ -976,18 +1025,25 @@ _BANK_METAL = {
 }
 
 
+def _natural(color: str) -> str:
+    """Pastel hues become metal, wood, or leather."""
+    return _BANK_METAL.get(str(color).lower(), "#C6A15B")
+
+
 def _bank_edge(color: str) -> str:
-    """Private Bank borders and chips are the Run Scan gold."""
+    """Private Bank borders are gold. Fortune borders are metal and wood."""
     if _look_name() == "Private Bank":
         return "#C6A15B"
+    if _look_name() == "Fortune":
+        return _natural(color)
     return color
 
 
 def _bank_ink(color: str) -> str:
-    """Pastel ink on Private Bank becomes metal, wood, or leather."""
-    if _look_name() != "Private Bank":
+    """Pastel ink becomes metal, wood, or leather on Fortune and Private Bank."""
+    if _look_name() not in ("Fortune", "Private Bank"):
         return color
-    return _BANK_METAL.get(str(color).lower(), "#C6A15B")
+    return _natural(color)
 
 
 def _menu_category_css() -> str:
@@ -6231,6 +6287,8 @@ def _tab_color(name, default="#FFD15C"):
         color = _TAB_COLOR[max(hits, key=len)] if hits else default
     if _look_name() == "Private Bank":
         return "#C6A15B"
+    if _look_name() == "Fortune":
+        return _natural(color)
     return color
 
 
