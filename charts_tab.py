@@ -739,8 +739,41 @@ def _metrics(items: list[tuple[str, str, str, str]]) -> None:
             for a, b, c, d in items])
 
 
+def _chart_skin() -> dict:
+    look = str(st.session_state.get("mw_look") or "")
+    if look == "Fortune":
+        return dict(template="plotly_white", paper="#FFFCF6", plot="#F6F1E7",
+                    ink="#1C1915", grid="#E3D5BE", chip="#F3EBDD",
+                    font="Libre Baskerville, Georgia, serif")
+    if look == "Private Bank":
+        return dict(template="plotly_dark", paper="#121C30", plot="#0C1424",
+                    ink="#F3EDE2", grid="#3E3424", chip="#1A2740",
+                    font="Libre Baskerville, Georgia, serif")
+    return dict(template="plotly_dark", paper=PAPER, plot=NAVY,
+                ink=INK, grid="#1e3a5f", chip="#122a42",
+                font="JetBrains Mono, monospace")
+
+
+def _restyle(fig) -> None:
+    """Light paper on Fortune so chart text is not washed out on a dark plot."""
+    skin = _chart_skin()
+    fig.update_layout(
+        template=skin["template"],
+        paper_bgcolor=skin["paper"],
+        plot_bgcolor=skin["plot"],
+        font=dict(color=skin["ink"], family=skin["font"], size=12),
+    )
+    fig.update_xaxes(gridcolor=skin["grid"])
+    fig.update_yaxes(gridcolor=skin["grid"])
+    axis = fig.layout.xaxis
+    if axis is not None and getattr(axis, "rangeselector", None) is not None:
+        axis.rangeselector.bgcolor = skin["chip"]
+        axis.rangeselector.font = dict(color=skin["ink"], size=11)
+
+
 def _plotly(fig, key: str) -> None:
     """Keep Plotly hover labels — Streamlit's default theme can hide them."""
+    _restyle(fig)
     kw = dict(
         width="stretch", key=key,
         config={"displayModeBar": False, "responsive": True},
@@ -752,10 +785,11 @@ def _plotly(fig, key: str) -> None:
 
 
 def _hoverlabel(color: str) -> dict:
+    skin = _chart_skin()
     return dict(
-        bgcolor="#0c1829",
+        bgcolor=skin["paper"],
         bordercolor=color,
-        font=dict(color=INK, family="JetBrains Mono, monospace", size=12),
+        font=dict(color=skin["ink"], family=skin["font"], size=12),
     )
 
 
@@ -1635,7 +1669,52 @@ def _debt_live() -> None:
         _debt_pills(_live_project(_debt_snapshot()))
 
 
+def _money_flow_chart() -> None:
+    """Sector breakdown of dollars that came in or left with the price."""
+    import cascade_engine as ce
+    import plotly.graph_objects as go
+    try:
+        flow = ce.market_dollar_flow(1)
+    except Exception as exc:
+        st.caption(f"Money-flow chart unavailable: {exc}")
+        return
+    if flow is None or flow.empty:
+        st.info("No sector dollar flow in the nightly dump yet.")
+        return
+    net = float(flow.attrs.get("net") or flow.Dollars.sum())
+    asof = flow.attrs.get("asof") or ""
+    start = flow.attrs.get("start") or ""
+    _sec("Money entering and leaving the market", GOLD)
+    st.caption(
+        f"{start} → {asof}. Each bar is the sector's traded dollars times "
+        "its price change. Right of zero, money came in with rising prices. "
+        "Left of zero, money left as prices fell. "
+        f"Net {net / 1e9:+,.1f} billion."
+    )
+    colors = [GREEN if v >= 0 else RED for v in flow.Dollars]
+    fig = go.Figure(go.Bar(
+        x=flow.Dollars / 1e9,
+        y=flow.Sector,
+        orientation="h",
+        marker_color=colors,
+        hovertemplate="%{y}<br>$%{x:.2f}B<extra></extra>",
+    ))
+    fig.add_vline(x=0, line_color=DIM, line_width=1)
+    fig.update_layout(
+        height=max(320, 28 * len(flow) + 60),
+        showlegend=False,
+        margin=dict(l=8, r=16, t=8, b=8),
+        xaxis=dict(title="Billions of dollars", zeroline=False, ticksuffix="B",
+                   tickprefix="$"),
+        yaxis=dict(zeroline=False),
+    )
+    _plotly(fig, "ch_money_flow")
+
+
 def _render_nerd_body() -> None:
+    with st.container(border=True, key="ch_flow"):
+        _money_flow_chart()
+
     tape = _pull_history()
 
     with st.container(border=True, key="ch_metal"):

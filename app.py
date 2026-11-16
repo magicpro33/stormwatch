@@ -190,7 +190,7 @@ if _engine_v != REQUIRED_ENGINE:
 # ── Look ─────────────────────────────────────────────────────────────
 # Current is the glass HUD. The other four restyle the chrome. The choice
 # is kept in data/ so a reload opens on the look last picked.
-_LOOK_OPTIONS = ("Current", "Fortune", "Private Bank", "Research Note", "Observatory")
+_LOOK_OPTIONS = ("Current", "Fortune", "Private Bank", "Observatory")
 
 
 def _look_path() -> str:
@@ -235,29 +235,65 @@ def _look_name() -> str:
     return name if name in _LOOK_OPTIONS else "Current"
 
 
+def _look_extra_css(name: str, f: dict, serif: str) -> str:
+    """Theme-only fixes that should not touch the other looks."""
+    if name == "Fortune":
+        return f"""
+.js-plotly-plot .main-svg .bg {{ fill: {f['bg']} !important; }}
+.js-plotly-plot text {{ fill: {f['text']} !important; }}
+.js-plotly-plot .xgrid, .js-plotly-plot .ygrid,
+.js-plotly-plot .zerolinelayer line {{ stroke: {f['line']} !important; }}
+.modebar, [data-testid="stPlotlyChart"],
+[data-testid="stDataFrame"], [data-baseweb="popover"],
+[data-baseweb="menu"], [data-testid="stHeader"],
+.t20-title, .t20-head, .t20-box, .dc-badge, .dc-day {{
+    background: {f['card']} !important;
+    color: {f['text']} !important;
+}}
+[data-baseweb="tab"], [data-baseweb="tab"] * {{
+    background: {f['btn']} !important;
+    color: {f['btntxt']} !important;
+    border-color: #8C6A32 !important;
+    font-family: {serif} !important;
+}}
+"""
+    if name == "Private Bank":
+        return f"""
+[data-baseweb="tag"], [data-baseweb="tag"] *,
+[data-baseweb="tag"] span {{
+    background: {f['btn']} !important;
+    background-color: {f['btn']} !important;
+    color: {f['btntxt']} !important;
+    border-color: #8C6A32 !important;
+}}
+.hub-title, .hub-sec, .hub-title-pop, .mw-menu-title,
+div[data-testid="stExpander"],
+div[data-testid="stVerticalBlockBorderWrapper"],
+.st-key-mw_nav, .st-key-mw_page {{
+    border-color: {f['line']} !important;
+}}
+"""
+    return ""
+
+
 def _look_css(name: str) -> str:
     """Chrome override for one of the four classic looks. Current adds nothing."""
     faces = {
         "Fortune": dict(
             bg="#F6F1E7", card="#FFFCF6", text="#1C1915", muted="#6E655C",
-            accent="#1F8A9A", line="#E3D5BE", field="#FFFCF6",
-            primary="#1C1915", onprim="#F6F1E7",
-            pill="#F3EBDD", onpill="#1C1915",
-            active="#A68534", onactive="#1C1915", activebg="#F6F1E7",
+            accent="#C6A15B", line="#E3D5BE", field="#FFFCF6",
+            primary="#C6A15B", onprim="#1C1915",
+            pill="#C6A15B", onpill="#1C1915",
+            active="#A68534", onactive="#1C1915", activebg="#C6A15B",
+            btn="#C6A15B", btntxt="#1C1915",
             serif="1", radius="4px", shadow="none"),
         "Private Bank": dict(
             bg="#0C1424", card="#121C30", text="#F3EDE2", muted="#B7A98F",
-            accent="#C6A15B", line="#3E3424", field="#10192C",
+            accent="#C6A15B", line="#C6A15B", field="#10192C",
             primary="#C6A15B", onprim="#0C1424",
-            pill="#121C30", onpill="#D9CDB8",
-            active="#C6A15B", onactive="#F3EDE2", activebg="#1A2740",
-            serif="1", radius="2px", shadow="none"),
-        "Research Note": dict(
-            bg="#F3F2EE", card="#FAFAF8", text="#1B2A4A", muted="#5C6B82",
-            accent="#1B2A4A", line="#D5D8DE", field="#FFFFFF",
-            primary="#1B2A4A", onprim="#F7F7F5",
-            pill="#E7E8EC", onpill="#1B2A4A",
-            active="#1B2A4A", onactive="#F7F7F5", activebg="#1B2A4A",
+            pill="#C6A15B", onpill="#0C1424",
+            active="#A68534", onactive="#0C1424", activebg="#C6A15B",
+            btn="#C6A15B", btntxt="#0C1424",
             serif="1", radius="2px", shadow="none"),
         "Observatory": dict(
             bg="#141414", card="#1C1C1C", text="#E8E2D6", muted="#A39E93",
@@ -265,6 +301,7 @@ def _look_css(name: str) -> str:
             primary="#E8E2D6", onprim="#141414",
             pill="#1C1C1C", onpill="#C8C2B6",
             active="#C8C2B6", onactive="#141414", activebg="#2A2A2A",
+            btn="#1C1C1C", btntxt="#E8E2D6",
             serif="1", radius="2px", shadow="none"),
     }
     f = faces.get(name)
@@ -328,18 +365,21 @@ div[data-testid="stSelectbox"] svg, div[data-testid="stMultiSelect"] svg {{
     fill: {f['text']} !important;
 }}
 div[data-testid="stButton"] button,
-div[data-testid="stDownloadButton"] button {{
-    background-color: {f['card']} !important;
-    border: 1px solid {f['line']} !important;
+div[data-testid="stButton"] button *,
+div[data-testid="stDownloadButton"] button,
+div[data-testid="stDownloadButton"] button * {{
+    background-color: {f['btn']} !important;
+    border: 1px solid {f['accent']} !important;
     border-radius: {f['radius']} !important;
-    color: {f['text']} !important;
+    color: {f['btntxt']} !important;
     box-shadow: none !important;
+    font-family: {serif} !important;
 }}
 div[data-testid="stButton"] button:hover,
 div[data-testid="stDownloadButton"] button:hover {{
-    border-color: {f['accent']} !important;
-    color: {f['text']} !important;
-    background-color: {f['pill']} !important;
+    border-color: {f['active']} !important;
+    color: {f['btntxt']} !important;
+    background-color: {f['activebg']} !important;
 }}
 div[data-testid="stButton"] button[kind="primary"],
 div[data-testid="stButton"] button[data-testid="stBaseButton-primary"] {{
@@ -360,6 +400,7 @@ div[data-testid="stSegmentedControl"] button,
     border-radius: {f['radius']} !important;
     color: {f['onpill']} !important;
     box-shadow: none !important;
+    font-family: {serif} !important;
 }}
 div[data-testid="stSegmentedControl"] button *,
 .st-key-mw_nav [data-baseweb='button-group'] > button *,
@@ -386,7 +427,7 @@ div[data-testid="stVerticalBlockBorderWrapper"],
 .st-key-mw_nav, .st-key-mw_page, .hub-title, .hub-sec, .mw-menu-title {{
     background: {f['card']} !important;
     background-color: {f['card']} !important;
-    border: 1px solid {f['line']} !important;
+    {'' if name == 'Fortune' else f"border: 1px solid {f['line']} !important;"}
     border-radius: {f['radius']} !important;
     box-shadow: {f['shadow']} !important;
     -webkit-backdrop-filter: none !important;
@@ -410,10 +451,17 @@ div[data-testid="stRadio"] label span {{
 [style*="background:#07111f" i],
 [style*="background:#0a1828" i],
 [style*="background:#122540" i],
-[style*="background:#06101c" i] {{
+[style*="background:#06101c" i],
+[style*="#16344f" i],
+[style*="#1d2b40" i],
+[style*="#1e2d45" i],
+[style*="#12233c" i],
+[style*="#0a1624" i],
+[style*="#122a42" i] {{
     background: {f['card']} !important;
+    background-color: {f['card']} !important;
     color: {f['text']} !important;
-    border-color: {f['line']} !important;
+    {'' if name == 'Fortune' else f"border-color: {f['line']} !important;"}
 }}
 [style*="color:#EAF2FF" i],
 [style*="color:#F6F4E9" i],
@@ -425,9 +473,9 @@ div[data-testid="stRadio"] label span {{
 [data-testid="stAlert"], [data-testid="stNotification"] {{
     background: {f['card']} !important;
     color: {f['text']} !important;
-    border-color: {f['line']} !important;
+    {'' if name == 'Fortune' else f"border-color: {f['line']} !important;"}
 }}
-"""
+""" + _look_extra_css(name, f, serif)
 
 
 # ── Global theme (Glass HUD) + tab focus-outline fix ────────────────────────────────────
@@ -839,6 +887,40 @@ _MENU_CAT_COLORS = {
 }
 
 
+_BANK_METAL = {
+    "#ffd15c": "#C6A15B",   # brass
+    "#7fd4ff": "#8A9196",   # pewter
+    "#3fbf7f": "#6E7F62",   # patina
+    "#f0a6ff": "#6B4423",   # walnut
+    "#c8f542": "#A67C52",   # oak
+    "#ff8fa3": "#6E3B2E",   # mahogany
+    "#2dd4bf": "#7A8C8A",   # oxidized silver
+    "#ffb020": "#B87333",   # copper
+    "#a78bfa": "#5C4A3A",   # dark walnut
+    "#ff9b6a": "#C47A4A",   # bronze
+    "#f4f8ff": "#E4D5BE",   # ivory
+    "#c5d4ff": "#B7A48A",   # leather
+    "#6ee7b7": "#8A9A78",   # verdigris
+    "#67e8f9": "#C6A15B",   # brass
+    "#9af7c4": "#6E7F62",
+    "#e8c872": "#C6A15B",
+}
+
+
+def _bank_edge(color: str) -> str:
+    """Private Bank borders and chips are the Run Scan gold."""
+    if _look_name() == "Private Bank":
+        return "#C6A15B"
+    return color
+
+
+def _bank_ink(color: str) -> str:
+    """Pastel ink on Private Bank becomes metal, wood, or leather."""
+    if _look_name() != "Private Bank":
+        return color
+    return _BANK_METAL.get(str(color).lower(), "#C6A15B")
+
+
 def _menu_category_css() -> str:
     rules = []
     # Glass HUD: every pill menu shares one calm look; the active pill takes the cyan accent.
@@ -855,18 +937,19 @@ def _menu_category_css() -> str:
             f"{base} > button[aria-selected='true'],"
             f"{base} > button[aria-pressed='true']"
         )
-        rules.append(act + "{background:rgba(103,232,249,0.16) !important;border-color:#67E8F9 !important;}")
+        rules.append(act + "{background:rgba(103,232,249,0.16) !important;border-color:"
+                     + _bank_edge("#67E8F9") + " !important;}")
         rules.append(act.replace(",", " *,") + " *{color:#EAF2FF !important;font-weight:500 !important;}")
     rules.append(
         "[class*='_safe_ai'] label, [class*='_safe_ai'] label p, "
         "[class*='_safe_ai'] label span {"
-        "color:#9AF7C4 !important;font-weight:800 !important;"
+        "color:" + _bank_ink("#9AF7C4") + " !important;font-weight:800 !important;"
         "letter-spacing:.6px !important;}"
     )
     rules.append(
         "[class*='_thatbiz'] label, [class*='_thatbiz'] label p, "
         "[class*='_thatbiz'] label span {"
-        "color:#E8C872 !important;font-weight:800 !important;"
+        "color:" + _bank_ink("#E8C872") + " !important;font-weight:800 !important;"
         "letter-spacing:.6px !important;}"
     )
     # Section labels and Basic/Advanced choices keep their section color.
@@ -880,7 +963,7 @@ def _menu_category_css() -> str:
         rules.append(
             f".st-key-{key} [data-testid='stWidgetLabel'] p,"
             f".st-key-{key} [data-testid='stWidgetLabel'] span{{"
-            f"color:{col} !important;font-weight:800 !important;}}"
+            f"color:{_bank_ink(col)} !important;font-weight:800 !important;}}"
         )
     rules.append(
         ".mw-sec{font-weight:800;font-size:15px;letter-spacing:.03em;"
@@ -945,7 +1028,7 @@ def _menu_category_css() -> str:
     ):
         rules.append(
             f".st-key-{_pk}{{border-color:rgba(255,255,255,0.12) !important;"
-            f"border-left:3px solid {_pc} !important;"
+            f"border-left:3px solid {_bank_edge(_pc)} !important;"
             f"box-shadow:0 8px 32px rgba(0,0,0,0.35) !important}}"
         )
     for _slug, _pc in (
@@ -961,7 +1044,7 @@ def _menu_category_css() -> str:
         ("_az_insider", "#67E8F9"),
     ):
         rules.append(
-            f'[class*="{_slug}"]{{border-left:3px solid {_pc} !important;'
+            f'[class*="{_slug}"]{{border-left:3px solid {_bank_edge(_pc)} !important;'
             f"border-radius:10px}}"
         )
     return "\n".join(rules)
@@ -1104,9 +1187,8 @@ GREEN = "#3fbf7f"
 RED = "#e05252"
 DIM = "#9aa8bd"
 _LOOK_INK = {
-    "Fortune": ("#1F8A9A", "#2E7D4F", "#9C3B3B", "#6E655C"),
-    "Private Bank": ("#C6A15B", "#3E8F62", "#9C3B3B", "#B7A98F"),
-    "Research Note": ("#1B2A4A", "#1F6B45", "#8E2F2F", "#5C6B82"),
+    "Fortune": ("#C6A15B", "#2E7D4F", "#9C3B3B", "#6E655C"),
+    "Private Bank": ("#C6A15B", "#6E7F62", "#6E3B2E", "#B7A98F"),
     "Observatory": ("#C8C2B6", "#8FBF9A", "#D08A84", "#A39E93"),
 }
 if _look_name() in _LOOK_INK:
@@ -5497,7 +5579,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                              name="Volume", opacity=0.6, showlegend=False,
                              hovertemplate="Volume — shares traded this bar<br>%{y:,.0f}<extra></extra>"),
                       row=2, col=1)
-    _light_chart = _look_name() in ("Fortune", "Research Note")
+    _light_chart = _look_name() == "Fortune"
     fig.update_layout(height=500,
                       template="plotly_white" if _light_chart else "plotly_dark",
                       paper_bgcolor="rgba(0,0,0,0)",
@@ -6030,15 +6112,18 @@ def _tab_color(name, default="#FFD15C"):
     """Color for a menu option. Longest key match wins so 'Crypto Helper' ≠ 'Help'."""
     raw = str(name or "")
     if raw in _TAB_COLOR:
-        return _TAB_COLOR[raw]
-    hits = [k for k in _TAB_COLOR if k.lower() in raw.lower()]
-    if hits:
-        return _TAB_COLOR[max(hits, key=len)]
-    return default
+        color = _TAB_COLOR[raw]
+    else:
+        hits = [k for k in _TAB_COLOR if k.lower() in raw.lower()]
+        color = _TAB_COLOR[max(hits, key=len)] if hits else default
+    if _look_name() == "Private Bank":
+        return "#C6A15B"
+    return color
 
 
 def _paint_box(key, color):
     """Tint a bordered container to the selected menu option's color."""
+    color = _bank_edge(color)
     _md_html(
         f"<style>.st-key-{key}{{border-color:{color} !important;"
         f"box-shadow:0 0 0 1px color-mix(in srgb,{color} 16%,transparent),"
@@ -6134,6 +6219,25 @@ def _t20_css():
 .st-key-t20_sectors [data-testid="stWidgetLabel"] p,
 .st-key-t20_sectors [data-testid="stRadio"] label p{{color:#6EE7B7 !important}}
 .st-key-t20_run [data-testid="stMarkdownContainer"] strong{{color:#A78BFA !important}}
+</style>""")
+    if _look_name() == "Private Bank":
+        _md_html("""<style>
+.t20-title,.t20-head,.t20-box,[class*="st-key-t20_"]{
+  border-color:#C6A15B !important;border-left-color:#C6A15B !important}
+.st-key-t20_engine [data-testid="stMarkdownContainer"] strong,
+.st-key-t20_engine [data-testid="stWidgetLabel"] p,
+.st-key-t20_engine [data-testid="stRadio"] label p{color:#8A9196 !important}
+.st-key-t20_lens [data-testid="stMarkdownContainer"] strong,
+.st-key-t20_lens [data-testid="stWidgetLabel"] p{color:#6B4423 !important}
+.st-key-t20_sectors [data-testid="stMarkdownContainer"] strong,
+.st-key-t20_sectors [data-testid="stWidgetLabel"] p,
+.st-key-t20_sectors [data-testid="stRadio"] label p{color:#8A9A78 !important}
+.st-key-t20_run [data-testid="stMarkdownContainer"] strong{color:#5C4A3A !important}
+</style>""")
+    elif _look_name() == "Fortune":
+        _md_html("""<style>
+.t20-title,.t20-head,.t20-box{background:#FFFCF6 !important;color:#1C1915 !important}
+.t20-title,.t20-head,.t20-box,.t20-title *,.t20-head *,.t20-box *{color:#1C1915 !important}
 </style>""")
 
 

@@ -11810,6 +11810,48 @@ def sector_flow(lookback: int = SECTOR_FLOW_LOOKBACK,
     return df
 
 
+def market_dollar_flow(lookback: int = 1) -> pd.DataFrame:
+    """Dollars that traded with the price, by sector.
+
+    Each name contributes its latest dollar volume times its return over
+    the window. A rising price on heavy trade counts as money coming in.
+    A falling price on heavy trade counts as money leaving. This is the
+    tape's dollar move, not a measured fund-flow print.
+    """
+    panel, tickers, sectors, mdv, dts = load_dump_panel()
+    C, V = panel["c"], np.nan_to_num(panel["v"])
+    T = C.shape[0]
+    lb = max(1, int(lookback))
+    end = T - 1
+    start = max(0, end - lb)
+    prev = C[start]
+    px = C[end].astype(float)
+    with np.errstate(all="ignore"):
+        r = px / np.where(prev == 0, np.nan, prev) - 1.0
+    dvol = (C[end] * V[end]).astype(float)
+    ok = (np.isfinite(r) & np.isfinite(dvol) & (px >= 3.0) & (mdv >= 2e6)
+          & _recent_ok_mask(panel))
+    sec_arr = np.array([str(s) for s in sectors])
+    rows = []
+    for s in sorted(set(sec_arr)):
+        if s.strip().lower() in ("unknown", "", "n/a", "none"):
+            continue
+        m = ok & (sec_arr == s)
+        n = int(m.sum())
+        if n < 15:
+            continue
+        dollars = float(np.nansum(dvol[m] * r[m]))
+        rows.append(dict(Sector=s, Dollars=dollars, Names=n))
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows).sort_values("Dollars", ascending=True).reset_index(drop=True)
+    df.attrs["asof"] = str(pd.to_datetime(dts[end]).date())
+    df.attrs["start"] = str(pd.to_datetime(dts[start]).date())
+    df.attrs["net"] = float(df.Dollars.sum())
+    df.attrs["lookback"] = lb
+    return df
+
+
 def flow_sessions(n: int = SECTOR_FLOW_MAX_BACK) -> list:
     """The last n trading dates in the dump, newest first — for the day picker."""
     panel, tickers, sectors, mdv, dts = load_dump_panel()
