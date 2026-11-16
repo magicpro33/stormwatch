@@ -106,6 +106,8 @@ NODES = {
     "BOAT": ("Global Shipping & Freight", "theme"),
     "PPA": ("Aerospace & Defense (broad)", "theme"),
     "SHLD": ("Global Defense", "theme"),
+    "GRID": ("Smart Grid", "theme"),
+    "PAVE": ("US Infrastructure", "theme"),
     "NLR": ("Nuclear Energy", "theme"),
     "GDXJ": ("Junior Gold Miners", "theme"),
     "SIL": ("Silver Miners", "theme"),
@@ -132,6 +134,8 @@ RATIO_SENTINELS = {
     "IWM/SPY":  ("Small vs Large", "risk breadth — small caps lead risk-on and risk-off"),
     "EEM/SPY":  ("EM vs US", "global liquidity reach — EM outperforms when dollars flow out"),
     "FXY/UUP":  ("Yen vs Dollar", "the carry trade's engine — yen surging against the dollar = unwind risk for every yen-funded position on earth"),
+    "XLU/XLK":  ("Power vs Tech", "data-center electricity vs the AI multiple — utilities leading tech is the buildout-stress tell"),
+    "IGV/SMH":  ("Software vs Semis", "the AI bill vs the AI spend — software lagging semis means the multiple is questioned before the capex stops"),
 }
 
 
@@ -157,6 +161,137 @@ def ratio_sentinel_impulses(closes: pd.DataFrame) -> pd.DataFrame:
 
 LOCAL_HISTORY = os.path.join(_mw_data_dir(), "history.parquet")
 HISTORY_YEARS = 3
+MANUAL_FEED = os.path.join(_mw_data_dir(), "cascade_manual.json")
+_CAPE_CACHE = os.path.join(_mw_data_dir(), "shiller_cape.json")
+# GuruFocus, 15 Nov 2026: 39.9×, about 43% above its 20-year average of 27.9.
+# Long-run mean since the 1870s is ~17. Used only when a live pull and the
+# user's own feed are both empty.
+_CAPE_SNAPSHOT = {
+    "value": 39.9,
+    "asof": "2026-11-15",
+    "mean": 17.2,
+    "avg20": 27.9,
+    "source": "GuruFocus published reading, 15 Nov 2026 (not a live pull)",
+    "live": False,
+}
+
+
+def load_manual_feed() -> dict:
+    """Numbers the dump cannot see — CAPE, crack spread, desk notes."""
+    try:
+        if os.path.exists(MANUAL_FEED):
+            with open(MANUAL_FEED, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            return raw if isinstance(raw, dict) else {}
+    except Exception as e:
+        _log_exc("load_manual_feed", e)
+    return {}
+
+
+def save_manual_feed(feed: dict) -> None:
+    os.makedirs(os.path.dirname(MANUAL_FEED), exist_ok=True)
+    with open(MANUAL_FEED, "w", encoding="utf-8") as f:
+        json.dump(feed, f, indent=2)
+
+
+def _cape_num(v):
+    try:
+        x = float(v)
+        return x if np.isfinite(x) and 5 < x < 80 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _fetch_cape_live() -> dict | None:
+    """One public page. Failure keeps the last cache or the Nov 2026 snapshot."""
+    try:
+        r = requests.get(
+            "https://www.multpl.com/shiller-pe",
+            timeout=8,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        r.raise_for_status()
+        m = re.search(
+            r"Current Shiller PE Ratio is\s*([0-9]+(?:\.[0-9]+)?)",
+            r.text, re.I)
+        if not m:
+            m = re.search(r"Shiller PE Ratio is\s*([0-9]+(?:\.[0-9]+)?)", r.text, re.I)
+        val = _cape_num(m.group(1) if m else None)
+        if val is None:
+            return None
+        return {
+            "value": val,
+            "asof": date.today().isoformat(),
+            "mean": _CAPE_SNAPSHOT["mean"],
+            "avg20": _CAPE_SNAPSHOT["avg20"],
+            "source": "multpl.com Shiller PE page",
+            "live": True,
+        }
+    except Exception as e:
+        _log_exc("fetch_cape", e)
+        return None
+
+
+def shiller_cape(refresh: bool = False) -> dict:
+    """Market Shiller CAPE. Manual feed wins, then a fresh pull, then cache, then snapshot."""
+    manual = load_manual_feed()
+    typed = _cape_num(manual.get("cape"))
+    if typed is not None:
+        return {
+            "value": typed,
+            "asof": str(manual.get("cape_asof") or "").strip() or "your feed",
+            "mean": _CAPE_SNAPSHOT["mean"],
+            "avg20": _CAPE_SNAPSHOT["avg20"],
+            "source": "your Cascade feed",
+            "live": False,
+            "manual": True,
+        }
+    cached = {}
+    try:
+        if os.path.exists(_CAPE_CACHE):
+            with open(_CAPE_CACHE, "r", encoding="utf-8") as f:
+                cached = json.load(f) or {}
+    except Exception:
+        cached = {}
+    fresh = False
+    try:
+        time_age = datetime.now().timestamp() - os.path.getmtime(_CAPE_CACHE)
+        fresh = time_age < 20 * 3600 and _cape_num(cached.get("value")) is not None
+    except Exception:
+        fresh = False
+    if not refresh:
+        return cached if fresh else (cached if _cape_num(cached.get("value")) else dict(_CAPE_SNAPSHOT))
+    live = _fetch_cape_live()
+    out = live or (cached if _cape_num(cached.get("value")) else None) or dict(_CAPE_SNAPSHOT)
+    if live:
+        try:
+            with open(_CAPE_CACHE, "w", encoding="utf-8") as f:
+                json.dump(out, f)
+        except Exception as e:
+            _log_exc("shiller_cape.cache", e)
+    return out
+
+
+def _aicap_stress(closes: pd.DataFrame) -> tuple:
+    """Stretched CAPE plus power, semis, or credit actually confirming it."""
+    cape = _cape_num((shiller_cape() or {}).get("value"))
+    if cape is None or cape < 35:
+        return False, cape, ""
+    xlu = _rel63(closes, "XLU", "XLK")
+    smh = _rel63(closes, "SMH", "SPY")
+    hyg = _rel63(closes, "HYG", "IEF")
+    bits = [f"Shiller CAPE {cape:.1f}×"]
+    hit = False
+    if np.isfinite(xlu) and xlu > 0.02:
+        hit = True
+        bits.append(f"utilities leading tech ({xlu:+.0%}/63d)")
+    if np.isfinite(smh) and smh < -0.03:
+        hit = True
+        bits.append(f"semis lagging the market ({smh:+.0%}/63d)")
+    if np.isfinite(hyg) and hyg < -0.015:
+        hit = True
+        bits.append(f"credit backing away ({hyg:+.0%}/63d)")
+    return hit, cape, "; ".join(bits)
 
 
 def _data_read_path(preferred: str) -> str:
@@ -8708,6 +8843,7 @@ REGIME_LABELS = {
     "base":   "⛅ No Clear Driver — no dominant force, quality quietly wins",
     "carry":  "💴 Yen Carry Unwind — BOJ hike + yen surge; gold & defensives catch the bid",
     "diesel": "⛽ Diesel Crisis — distillate tight, crack spreads blow out; refiners + alt energy lead",
+    "aicap":  "⚡ AI Power & Credit — capex is a financing race; power and cash earnings lead, the multiple lags",
 }
 
 # short names for the dropdown (emoji + plain name only)
@@ -8716,11 +8852,12 @@ REGIME_NAMES = {
     "bear": "⛈️ Fear / Risk-Off", "strong": "💵 Rising Dollar",
     "repress": "💸 Debasement", "reset": "🌍 Reserve Reset",
     "base": "⛅ No Clear Driver", "carry": "💴 Yen Carry Unwind",
-    "diesel": "⛽ Diesel Crisis",
+    "diesel": "⛽ Diesel Crisis", "aicap": "⚡ AI Power & Credit",
 }
 
 # display order for the Lenses tab and comparison tables
-LENS_ORDER = ["qe", "stag", "bull", "bear", "strong", "repress", "reset", "carry", "base"]
+LENS_ORDER = ["qe", "stag", "bull", "bear", "strong", "repress", "reset",
+              "aicap", "carry", "diesel", "base"]
 
 # structured explainer cards — compact fields (leads/lags/trigger) feed the
 # Top 20 / APEX strips; the rest is the Lenses tab playbook.
@@ -9230,6 +9367,117 @@ REGIME_CARDS = {
             "Auto routes the yen signature here instead of folding it into "
             "Fear / Risk-Off. Named pick applies the full book.",
         trigger="the yen is surging and Nasdaq is draining at the same time"),
+    "aicap": dict(
+        emoji="⚡", name="AI Power & Credit", aka="late-2026 buildout stress",
+        thesis="The AI spend is still the economy's engine, but it is now a "
+               "financing race. Power, grid, and cash earnings lead. The multiple lags.",
+        story="Through November 2026 the tape is expensive and the inflation "
+              "that will not finish falling is not a wage spiral. Fed Vice Chair "
+              "Bowman (10 Nov 2026) put core PCE near 3.3% and split the "
+              "above-target part roughly three ways: tariffs, energy, and AI-related "
+              "prices. Hiring is low and firing is low. Financial conditions have "
+              "tightened on lower equity prices, a stronger dollar, and wider "
+              "credit spreads, because the buildout is being funded with debt and "
+              "leases rather than cash flow alone. Hyperscaler capex plans cited "
+              "by RBC run past $5 trillion for 2026–2030, mostly data centers. "
+              "Shiller CAPE is about 40×, versus a long-run mean near 17 and a "
+              "20-year average near 28. That is a valuation backdrop, not a timing "
+              "signal. This lens only takes the wheel when that stretch lines up "
+              "with power outrunning tech, semis lagging the market, or credit "
+              "backing away.",
+        mechanism="Electricity and grid equipment are the scarce input. Utilities "
+                 "and electrical industrials get a demand bid the old 'utilities "
+                 "lag in a bull market' playbook does not have. Semiconductors can "
+                 "still earn from the spend while unprofitable software and "
+                 "long-duration stories are the funding source. Wider credit is "
+                 "the tell that the bill is moving onto balance sheets. A VIX "
+                 "shock or a yen unwind still outranks this — those are liquidation, "
+                 "not a slow financing grind.",
+        leads="Utilities · Grid & electrical industrials · Nuclear · Cash-flow semis · Staples",
+        lags="Unprofitable software · High-multiple communication · Discretionary · Real estate",
+        wins=[
+            ("Utilities and the grid",
+             "Data-center load is a volume story for power and wires. Highest "
+             "sector tilt in this book (1.16×), the opposite of Easy Money."),
+            ("Industrials that build the plant",
+             "Electrical equipment, construction, and infrastructure ride the "
+             "same capex without carrying the software multiple (1.12×)."),
+            ("Energy, as a live cost not a 1970s regime",
+             "Bowman tied a quarter of the inflation overshoot to energy and "
+             "said it should fade when the Middle East supply shock resolves. "
+             "Mild tilt (1.08×), not the Hot Inflation 1.25×."),
+            ("Staples",
+             "Low-hire, low-fire labor plus prices that are still above target. "
+             "Necessities hold up better than wants (1.06×)."),
+        ],
+        loses=[
+            ("Communication services",
+             "Several of the biggest spenders sit here. The market is repricing "
+             "how the capex gets financed (0.90×)."),
+            ("Consumer discretionary and real estate",
+             "Higher-for-longer real rates and a soft hiring market. Wants and "
+             "cap rates give ground (0.86× / 0.88×)."),
+            ("Story software",
+             "Industry overlay, not the whole tech sector. Application software "
+             "is cut; semiconductor equipment is not."),
+        ],
+        examples_win="Regulated utilities, nuclear, electrical equipment, infrastructure, cash-flow semis",
+        examples_lose="High-multiple software, ad-driven platforms funding capex with debt, REITs, discretionary retail",
+        vs="Hot Inflation fades all of tech and bids energy hardest. This book "
+           "keeps the power and the semiconductor supply chain and only fades "
+           "the multiple. Rising Dollar is just a strong dollar. Easy Money is "
+           "the opposite trade: speculative duration. If CAPE is high but power "
+           "and credit are calm, Auto leaves this lens and shrinks the book.",
+        watch="Shiller CAPE at 35× or higher, plus one of: utilities beating "
+              "tech over 63 sessions, semis lagging the S&P, or junk lagging "
+              "Treasuries. A diesel crack you type into Feed the map does not "
+              "switch this lens — it votes Diesel Crisis instead.",
+        rhymes="Late-1990s capex boom with a stretched CAPE · 2026 hyperscaler financing",
+        how="Sector tilts are a 2026 desk map, not a walk-forward result. Auto "
+            "applies them only when CAPE and the tape agree, and regime_confirm "
+            "shrinks them toward 1.0 when power and credit do not confirm. "
+            "Named pick applies the full book. Not a forecast and not advice.",
+        trigger="Shiller CAPE is stretched and power, semis, or credit is confirming the financing stress"),
+    "diesel": dict(
+        emoji="⛽", name="Diesel Crisis", aka="distillate squeeze",
+        thesis="The product is tight even when crude is not. Refiners, midstream, "
+               "and the fuels people substitute toward lead. Freight-heavy cyclicals pay.",
+        story="A diesel crisis is a refining and logistics shock, not an oil-in-the-ground "
+              "story. Crack spreads blow out, trucking and rail feel it, and power "
+              "sources that are not distillate (nuclear, renewables, the grid) catch "
+              "a substitution bid. The engine cannot see crack spreads in the nightly "
+              "dump. Auto only votes this lens when you type a US Gulf diesel crack "
+              "into Feed the map on Market Weather.",
+        mechanism="Refining margin is the price. Integrated oils and E&P are not the "
+                 "same trade as refiners. Airlines, autos, and apparel eat the "
+                 "freight and fuel bill.",
+        leads="Refiners · Midstream · Utilities · Industrials · Staples",
+        lags="Autos · Airlines · Discretionary retail · Real estate",
+        wins=[
+            ("Refiners and midstream",
+             "The crack is their revenue. Highest sector tilt in the book (Energy 1.28×) "
+             "with the industry overlay aimed at refining, not just E&P."),
+            ("Utilities and rails",
+             "Substitution and the freight that still has to move (1.18× / 1.12×)."),
+        ],
+        loses=[
+            ("Autos, airlines, apparel",
+             "Fuel and freight are a cost they cannot fully pass through in a slow "
+             "hiring market."),
+            ("Real estate and discretionary",
+             "A household paying more to move goods spends less on wants."),
+        ],
+        examples_win="Refiners, midstream, regulated power, rails",
+        examples_lose="Airlines, autos, apparel retail",
+        vs="Hot Inflation bids crude producers because oil itself is the shock. "
+           "Diesel Crisis can happen with crude calm, as long as the product is tight.",
+        watch="A diesel crack you enter on Feed the map. Above $30/bbl votes this "
+              "lens. Leave the field blank if you do not have a print.",
+        rhymes="2022 distillate tightness · any refinery outage that blows the crack out",
+        how="Same sector and industry multipliers the calculator already carried. "
+            "The missing piece was the playbook card and a place to type the crack, "
+            "because that series is not in the stock dump.",
+        trigger="you supplied a diesel crack of $30/bbl or higher"),
     "base": dict(
         emoji="⛅", name="No Clear Driver", aka="base case",
         thesis="No dominant force. Quality quietly wins; story stocks and deep "
@@ -9348,6 +9596,13 @@ SECTOR_TILTS = {
                "Technology": 1.04, "Healthcare": 0.96, "Financial Services": 0.90,
                "Communication Services": 0.88, "Real Estate": 0.84,
                "Consumer Cyclical": 0.74},
+    # 2026 desk map, not a walk-forward. Power and the plant lead; the multiple
+    # and the financed spend lag. Auto shrinks this unless the tape confirms.
+    "aicap":  {"Utilities": 1.16, "Industrials": 1.12, "Energy": 1.08,
+               "Consumer Defensive": 1.06, "Basic Materials": 1.04,
+               "Healthcare": 1.02, "Technology": 0.96, "Financial Services": 0.94,
+               "Communication Services": 0.90, "Real Estate": 0.88,
+               "Consumer Cyclical": 0.86},
 }
 
 # Where this regime ACTUALLY paid — measured excess vs SPY over 21 sessions,
@@ -9443,6 +9698,21 @@ INDUSTRY_TILTS = {
         "Auto Manufacturers": 0.88, "Airlines": 0.86,
         "Apparel Retail": 0.90,
     },
+    "aicap": {
+        "Utilities - Regulated Electric": 1.12,
+        "Utilities - Renewable": 1.10,
+        "Utilities - Independent Power Producers": 1.10,
+        "Uranium": 1.12,
+        "Electrical Equipment & Parts": 1.10,
+        "Engineering & Construction": 1.08,
+        "Semiconductor Equipment & Materials": 1.08,
+        "Semiconductors": 1.04,
+        "Software - Application": 0.86,
+        "Software - Infrastructure": 0.88,
+        "Internet Content & Information": 0.90,
+        "REIT - Office": 0.90, "REIT - Retail": 0.92,
+        "Gold": 1.04,
+    },
     "base": {},
 }
 
@@ -9517,6 +9787,13 @@ def regime_confirm(regime: str, closes: pd.DataFrame) -> tuple:
         return 0.90, "yen+Nasdaq signature"
     elif regime == "diesel":
         return 0.85, "named diesel book"
+    elif regime == "aicap":
+        xlu = _rel63(closes, "XLU", "XLK")
+        hyg = _rel63(closes, "HYG", "IEF")
+        if ((np.isfinite(xlu) and xlu > 0.02)
+                or (np.isfinite(hyg) and hyg < -0.01)):
+            return 1.0, "power or credit confirming the financing book"
+        return 0.40, "CAPE stretched but power and credit are not confirming — book shrunk"
     return 1.0, ""
 
 
@@ -9574,6 +9851,10 @@ def macro_regime(closes: pd.DataFrame, pressure_gauge=None) -> dict:
         reg = "reset"
         drivers.append(f"gold {gold:+.0%} with the dollar {uup:+.0%} and long "
                        f"yields rising (TLT {tlt:+.0%}) — creditors backing away")
+    elif _aicap_stress(closes)[0]:
+        _hit, _cape, _why = _aicap_stress(closes)
+        reg = "aicap"
+        drivers.append(_why or f"Shiller CAPE {_cape:.1f}× with the financing tape")
     elif np.isfinite(uup) and uup > 0.04:
         reg = "strong"; drivers.append(f"dollar +{uup:.0%}/63d")
     else:
@@ -11056,6 +11337,22 @@ def macro_advisor(node_closes: pd.DataFrame, pressure: dict | None = None,
         elif _hz >= 1.0:
             vote("bull", 1.5, "Credit spreads (HY)", f"z {_hz:+.1f} — tightening, risk appetite healthy")
 
+    # ── 7b. Nov 2026 valuation / financing / a crack the dump cannot see ─
+    _ai_hit, _cape_v, _ai_why = _aicap_stress(node_closes)
+    if _ai_hit:
+        vote("aicap", 2.5, "AI power & credit", _ai_why)
+    elif _cape_v is not None and _cape_v >= 35:
+        vote("aicap", 0.5, "Shiller CAPE",
+             f"{_cape_v:.1f}× — stretched, tape not confirming")
+    _feed = load_manual_feed()
+    try:
+        _crack = float(_feed.get("crack_spread"))
+    except (TypeError, ValueError):
+        _crack = float("nan")
+    if np.isfinite(_crack) and _crack >= 30:
+        vote("diesel", 3.0, "Your diesel crack",
+             f"${_crack:.1f}/bbl — product tight even if crude is not")
+
     # ── 8. news ──────────────────────────────────────────────────────
     news = macro_news_scan() if include_news else {}
     n_articles = news.pop("_articles", 0) if news else 0
@@ -11344,7 +11641,8 @@ def macro_sim_bundle(watchlist=None, live_regime: str | None = None,
     wl_tickers = list(dict.fromkeys(wl_tickers))
 
     scans, watch, cross = {}, {}, {}
-    regimes = ["base", "bull", "bear", "qe", "stag", "strong", "carry", "repress", "diesel"]
+    regimes = ["base", "bull", "bear", "qe", "stag", "strong", "carry",
+               "repress", "diesel", "aicap", "reset"]
     if live_regime not in regimes:
         regimes.append(live_regime)
     dump_tickers = []

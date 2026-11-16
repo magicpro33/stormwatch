@@ -3115,6 +3115,22 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                                  f"<span style='font-family:monospace;color:#b0c8e8'>{fwpe:.1f}x</span>",
                                  metric_scale(fwpe, 0, 60, 25, 40, "good under 25x",
                                               higher=False, neg_bad=True)))
+            _cape = {}
+            try:
+                _cape = ce.shiller_cape() or {}
+            except Exception:
+                _cape = {}
+            _cape_v = _cape.get("value")
+            if _cape_v is not None:
+                rows.append(mrow(
+                    "Shiller P/E",
+                    "S&P 500 CAPE: price divided by 10-year inflation-adjusted earnings. "
+                    "A market backdrop on every stock, not this company's multiple. "
+                    "Long-run mean is about 17×.",
+                    f"<span style='font-family:monospace;color:#b0c8e8'>{float(_cape_v):.1f}x</span> "
+                    f"<span style='font-size:11px;color:#7a9ab8'>{_esc(str(_cape.get('asof') or ''))} · {_esc(str(_cape.get('source') or ''))}</span>",
+                    metric_scale(float(_cape_v), 5, 45, 20, 30,
+                                 "stretched above 30x", higher=False)))
             if pb:
                 rows.append(mrow("P/B Ratio", "Below 1 = under book value; above 3 = premium.",
                                  az_tag_inv(pb, 6, 3, "{:.2f}", "x"),
@@ -7547,6 +7563,52 @@ def _bull_head_clicked():
             "Headline saved." if ok else (ce.bull_list_last_error() or "Could not save headline."))
 
 
+def _render_cascade_feed():
+    """Desk inputs the dump and the node prices do not contain."""
+    cur = {}
+    try:
+        cur = ce.load_manual_feed() or {}
+    except Exception:
+        cur = {}
+    with st.expander("Feed the map — numbers it cannot see", expanded=False):
+        st.caption(
+            "The nightly dump and the cascade nodes do not include Shiller CAPE, "
+            "diesel crack spreads, tariff rates, or whether a war is still shutting "
+            "in supply. Type what you have. Blank fields are ignored. Saved on this "
+            "computer and used the next time the map refreshes.")
+        with st.form("mw_cascade_feed"):
+            c1, c2 = st.columns(2)
+            cape = c1.text_input(
+                "Shiller CAPE", value=str(cur.get("cape") or ""),
+                help="Market CAPE, not a single stock. Overrides the published snapshot on every valuation card.")
+            cape_asof = c2.text_input(
+                "CAPE as-of (YYYY-MM-DD)", value=str(cur.get("cape_asof") or ""))
+            crack = st.text_input(
+                "US Gulf diesel crack ($/bbl)",
+                value=str(cur.get("crack_spread") or ""),
+                help="30 or higher votes the Diesel Crisis lens. Leave blank if you do not have a print.")
+            note = st.text_area(
+                "Rules, wars, and other changes",
+                value=str(cur.get("note") or ""),
+                height=88,
+                help="Shown on the map as your note. It does not change the score by itself.")
+            if st.form_submit_button("Save feed"):
+                def _blank(s):
+                    t = str(s or "").strip()
+                    return t
+                ce.save_manual_feed({
+                    "cape": _blank(cape),
+                    "cape_asof": _blank(cape_asof),
+                    "crack_spread": _blank(crack),
+                    "note": _blank(note),
+                })
+                st.success("Saved. Hit Refresh to fold the numbers into the regime call.")
+
+
+def _cascade_idle_note():
+    st.info("No data is loaded until you hit Refresh on Market Weather.")
+
+
 def _try_closes_for_scan():
     """Dump scanners keep working when Alpaca/Yahoo node history is down."""
     c, a = _try_closes()
@@ -8027,12 +8089,11 @@ with st.container(border=True, key="mw_page"):
     # ── 🌊 cascade map ───────────────────────────────────────────────────
     if _main == "Cascade Map" and _map == "Market Weather":
         _hub_title("🌊 Market Weather", "#7FD4FF")
-        closes, asof = _require_closes()
-        if st.session_state.get("mw_analyze"):
-            render_ticker_analysis(st.session_state["mw_analyze"], closes)
-            st.divider()
-
-        _cc1, _cc2 = st.columns([6, 1], vertical_alignment="center")
+        _cc1, _cc2 = st.columns([5.2, 1.2], vertical_alignment="center")
+        _cc1.markdown(
+            f"<div style='color:{DIM};font-size:14px;line-height:1.4;padding-top:8px;'>"
+            "No data is loaded until you hit <b>Refresh</b>.</div>",
+            unsafe_allow_html=True)
         if _cc2.button("🔄 Refresh", key="mw_refresh", width="stretch",
                        help="Get the latest prices and recompute everything now. "
                             "Takes a minute or two. If the internet feeds are down, "
@@ -8042,10 +8103,10 @@ with st.container(border=True, key="mw_page"):
                     ce.refresh_history()
                 except Exception as _re:
                     log_exc("refresh_history", _re)
-                # The nightly dump has its own in-process cache that
-                # st.cache_data.clear() cannot reach, so refresh it explicitly —
-                # otherwise "Refresh" only updated the node history and the dump
-                # could stay a session behind for the life of the process.
+                try:
+                    ce.shiller_cape(refresh=True)
+                except Exception as _ce:
+                    log_exc("shiller_cape", _ce)
                 _new_dump = None
                 try:
                     _new_dump = ce.refresh_dump()
@@ -8057,320 +8118,344 @@ with st.container(border=True, key="mw_page"):
             if _new_dump is not None:
                 _lcs = ce._last_completed_session()
                 if pd.Timestamp(_new_dump) >= _lcs:
-                    st.success(f"✅ Dump is current — through {_new_dump.date()}.")
+                    st.success("Dump is current — through " + str(_new_dump.date()) + ".")
                 else:
                     st.warning(
-                        f"⚠️ Dump still ends {_new_dump.date()}, but the last "
-                        f"completed session was {_lcs.date()}. The app is up to "
-                        "date with GitHub — the nightly scan has not published "
-                        "that session yet. Check the Action run in magicpro33/stock.")
+                        "Dump still ends " + str(_new_dump.date())
+                        + ", but the last completed session was "
+                        + str(_lcs.date()) + ". The nightly scan has not published "
+                        "that session yet.")
+            st.session_state["mw_cascade_loaded"] = True
             st.rerun()
 
-        edges = _edges(asof)
-        waves = ce.active_waves(closes, edges)
-        board = ce.forecast_board(waves) if not waves.empty else pd.DataFrame()
-
-        # ── one plain-English headline ───────────────────────────────────
-        if waves.empty or board.empty:
-            st.markdown(
-                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:5px solid {DIM};border-radius:12px;padding:16px 20px;margin:6px 0 12px;">
-                <div style="font-size:20px;font-weight:800;">☀️ Calm markets right now</div>
-                <div style="color:{DIM};font-size:14px;margin-top:4px;">
-                Nothing big is moving hard enough to push other things around today.
-                Come back after the next 🔄 refresh, or check other tabs.</div>
-                </div>""", unsafe_allow_html=True)
+        if not st.session_state.get("mw_cascade_loaded"):
+            _render_cascade_feed()
         else:
-            n_up = int((board.call == "UP").sum())
-            n_dn = int((board.call == "DOWN").sum())
-            movers = ", ".join(board.head(3).target_name)
-            st.markdown(
-                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:5px solid {ACCENT};border-radius:12px;padding:16px 20px;margin:6px 0 6px;">
-                <div style="font-size:20px;font-weight:800;">🌊 {len(board)} market{'s' if len(board)!=1 else ''} moving with the current waves</div>
-                <div style="color:#d7e0ec;font-size:14px;margin-top:5px;line-height:1.5;">
-                Some big markets have been moving fast. These are the markets historically
-                connected to them — <b style="color:{GREEN};">{n_up} connected upward</b> and
-                <b style="color:{RED};">{n_dn} connected downward</b>, starting with <b>{movers}</b>.</div>
-                <div style="color:{DIM};font-size:12px;margin-top:6px;">
-                ⚠️ <b>Read this as a map, not a forecast.</b> Walk-forward testing on 3 years
-                of real data found these links have <b>no measurable ability to predict</b>
-                direction 10 days out (49% — a coin flip). They describe what moves together,
-                which is useful context; they do not tell you what happens next.</div>
-                </div>""", unsafe_allow_html=True)
+            closes, asof = _require_closes()
+            if st.session_state.get("mw_analyze"):
+                render_ticker_analysis(st.session_state["mw_analyze"], closes)
+                st.divider()
+            try:
+                _cap = ce.shiller_cape() or {}
+            except Exception:
+                _cap = {}
+            if _cap.get("value") is not None:
+                st.caption(
+                    "Shiller CAPE "
+                    + format(float(_cap["value"]), ".1f")
+                    + "x as of "
+                    + str(_cap.get("asof") or "—")
+                    + " · "
+                    + str(_cap.get("source") or ""))
+            _note = str((ce.load_manual_feed() or {}).get("note") or "").strip()
+            if _note:
+                st.caption("Your note: " + _note)
 
-        # ── today's money rotation, in plain English ────────────────────
-        _mlb, _moff, _mlbl = flow_window_picker("map")
-        try:
-            _mflow = _sector_flow(asof, _mlb, _moff, dump_asof=_dump_asof_key())
-        except Exception:
-            _mflow = pd.DataFrame()
-        if _mflow is not None and not _mflow.empty:
-            _in = _mflow.head(3)
-            _out = _mflow.tail(3).iloc[::-1]
-            _chip = lambda s, r, col: (
-                f"<span style='display:inline-block;background:#081325;border:1px solid "
-                f"#1d2b40;border-left:3px solid {col};border-radius:6px;padding:4px 10px;"
-                f"margin:3px 5px 3px 0;font-size:12.5px;'>{_esc(s)} "
-                f"<b style='color:{col};'>{r:+.1%}</b></span>")
-            st.markdown(
-                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-radius:10px;padding:12px 16px;margin:6px 0 10px;">
-                  <div style="font-size:14px;font-weight:700;margin-bottom:2px;">
-                    💰 Where money moved — {_mlbl}</div>
-                  <div style="color:{DIM};font-size:12px;margin-bottom:8px;">
-                    Money leaves some corners of the market and shows up in others.
-                    Window: {_mflow.attrs.get('window_start','—')} → {_mflow.attrs.get('window_end','—')}
-                    · nightly dump through <b>{_mflow.attrs.get('window_end','—')}</b>.
-                    If that is behind the last trading day, the dump has not published
-                    yet — hit 🔄 Refresh above.</div>
-                  <div style="font-size:12px;color:{GREEN};margin-bottom:2px;">FLOWED IN →</div>
-                  <div>{''.join(_chip(r.Sector, r.Ret, GREEN) for _, r in _in.iterrows())}</div>
-                  <div style="font-size:12px;color:{RED};margin:8px 0 2px;">FLOWED OUT →</div>
-                  <div>{''.join(_chip(r.Sector, r.Ret, RED) for _, r in _out.iterrows())}</div>
-                </div>""", unsafe_allow_html=True)
+            edges = _edges(asof)
+            waves = ce.active_waves(closes, edges)
+            board = ce.forecast_board(waves) if not waves.empty else pd.DataFrame()
 
-            st.caption("Each card below is one market. Green = likely to rise, red = likely "
-                       "to fall over the next week or two. The bar shows how strong the signal "
-                       "is; more agreeing sources = more trustworthy.")
-
-            # ── show green (up) / red (down) / both — default green only ──
-            _filter = st.radio(
-                "Show", ["📈 Only going up", "📉 Only going down", "📊 Both"],
-                horizontal=True, key="mw_dir_filter", label_visibility="collapsed")
-            if _filter.startswith("📈"):
-                _fb = board[board.call == "UP"]
-            elif _filter.startswith("📉"):
-                _fb = board[board.call == "DOWN"]
+            # ── one plain-English headline ───────────────────────────────────
+            if waves.empty or board.empty:
+                st.markdown(
+                    f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-left:5px solid {DIM};border-radius:12px;padding:16px 20px;margin:6px 0 12px;">
+                    <div style="font-size:20px;font-weight:800;">☀️ Calm markets right now</div>
+                    <div style="color:{DIM};font-size:14px;margin-top:4px;">
+                    Nothing big is moving hard enough to push other things around today.
+                    Come back after the next 🔄 refresh, or check other tabs.</div>
+                    </div>""", unsafe_allow_html=True)
             else:
-                _fb = board
-            _fb = _fb.reset_index(drop=True)
+                n_up = int((board.call == "UP").sum())
+                n_dn = int((board.call == "DOWN").sum())
+                movers = ", ".join(board.head(3).target_name)
+                st.markdown(
+                    f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-left:5px solid {ACCENT};border-radius:12px;padding:16px 20px;margin:6px 0 6px;">
+                    <div style="font-size:20px;font-weight:800;">🌊 {len(board)} market{'s' if len(board)!=1 else ''} moving with the current waves</div>
+                    <div style="color:#d7e0ec;font-size:14px;margin-top:5px;line-height:1.5;">
+                    Some big markets have been moving fast. These are the markets historically
+                    connected to them — <b style="color:{GREEN};">{n_up} connected upward</b> and
+                    <b style="color:{RED};">{n_dn} connected downward</b>, starting with <b>{movers}</b>.</div>
+                    <div style="color:{DIM};font-size:12px;margin-top:6px;">
+                    ⚠️ <b>Read this as a map, not a forecast.</b> Walk-forward testing on 3 years
+                    of real data found these links have <b>no measurable ability to predict</b>
+                    direction 10 days out (49% — a coin flip). They describe what moves together,
+                    which is useful context; they do not tell you what happens next.</div>
+                    </div>""", unsafe_allow_html=True)
 
-            if _fb.empty:
-                _word = "rising" if _filter.startswith("📈") else "falling"
-                st.info(f"Nothing is forecast as {_word} right now. Try another view above.")
+            # ── today's money rotation, in plain English ────────────────────
+            _mlb, _moff, _mlbl = flow_window_picker("map")
+            try:
+                _mflow = _sector_flow(asof, _mlb, _moff, dump_asof=_dump_asof_key())
+            except Exception:
+                _mflow = pd.DataFrame()
+            if _mflow is not None and not _mflow.empty:
+                _in = _mflow.head(3)
+                _out = _mflow.tail(3).iloc[::-1]
+                _chip = lambda s, r, col: (
+                    f"<span style='display:inline-block;background:#081325;border:1px solid "
+                    f"#1d2b40;border-left:3px solid {col};border-radius:6px;padding:4px 10px;"
+                    f"margin:3px 5px 3px 0;font-size:12.5px;'>{_esc(s)} "
+                    f"<b style='color:{col};'>{r:+.1%}</b></span>")
+                st.markdown(
+                    f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-radius:10px;padding:12px 16px;margin:6px 0 10px;">
+                      <div style="font-size:14px;font-weight:700;margin-bottom:2px;">
+                        💰 Where money moved — {_mlbl}</div>
+                      <div style="color:{DIM};font-size:12px;margin-bottom:8px;">
+                        Money leaves some corners of the market and shows up in others.
+                        Window: {_mflow.attrs.get('window_start','—')} → {_mflow.attrs.get('window_end','—')}
+                        · nightly dump through <b>{_mflow.attrs.get('window_end','—')}</b>.
+                        If that is behind the last trading day, the dump has not published
+                        yet — hit 🔄 Refresh above.</div>
+                      <div style="font-size:12px;color:{GREEN};margin-bottom:2px;">FLOWED IN →</div>
+                      <div>{''.join(_chip(r.Sector, r.Ret, GREEN) for _, r in _in.iterrows())}</div>
+                      <div style="font-size:12px;color:{RED};margin:8px 0 2px;">FLOWED OUT →</div>
+                      <div>{''.join(_chip(r.Sector, r.Ret, RED) for _, r in _out.iterrows())}</div>
+                    </div>""", unsafe_allow_html=True)
 
-            # ── plain forecast cards ─────────────────────────────────────
-            bcols = st.columns(2)
-            for i, (_, b) in enumerate(_fb.head(8).iterrows()):
-                up = b.call == "UP"
-                col = GREEN if up else RED
-                verdict = "linked UPWARD" if up else "linked DOWNWARD"
-                arrow = "📈" if up else "📉"
-                # translate hit rate into plain confidence words
-                # NOTE: these hit rates are IN-SAMPLE — measured on the same window
-                # the edge was selected on. Out-of-sample they do not hold, so the
-                # wording is deliberately "historical fit", never "accuracy".
-                if b.avg_hit >= 0.62:
-                    conf, confc = "strong historical fit", DIM
-                elif b.avg_hit >= 0.55:
-                    conf, confc = "moderate historical fit", DIM
+                st.caption("Each card below is one market. Green = likely to rise, red = likely "
+                           "to fall over the next week or two. The bar shows how strong the signal "
+                           "is; more agreeing sources = more trustworthy.")
+
+                # ── show green (up) / red (down) / both — default green only ──
+                _filter = st.radio(
+                    "Show", ["📈 Only going up", "📉 Only going down", "📊 Both"],
+                    horizontal=True, key="mw_dir_filter", label_visibility="collapsed")
+                if _filter.startswith("📈"):
+                    _fb = board[board.call == "UP"]
+                elif _filter.startswith("📉"):
+                    _fb = board[board.call == "DOWN"]
                 else:
-                    conf, confc = "weak historical fit", DIM
-                src_word = "market" if b.n_sources == 1 else "markets"
-                with bcols[i % 2]:
-                    st.markdown(
-                        f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                        border-left:5px solid {col};border-radius:10px;
-                        padding:12px 16px;margin-bottom:10px;">
-                          <div style="display:flex;align-items:baseline;">
-                            <span style="font-size:18px;font-weight:800;">{_esc(b.target_name)}</span>
-                            <span style="margin-left:auto;color:{col};font-weight:800;font-size:15px;">{arrow} {verdict}</span>
-                          </div>
-                          <div style="background:#081325;border-radius:5px;height:8px;margin:9px 0 8px;">
-                            <div style="background:{col};height:8px;border-radius:5px;
-                            width:{max(int(b.conviction*100),8)}%;"></div></div>
-                          <div style="color:#d7e0ec;font-size:12.5px;line-height:1.5;">
-                            <b>{_esc(b.sources)}</b> {'has' if b.n_sources==1 else 'have'} been moving, and
-                            {_esc(b.target_name)} has historically moved with {'it' if b.n_sources==1 else 'them'}.</div>
-                          <div style="color:{DIM};font-size:11.5px;margin-top:5px;">
-                            {b.n_sources} {src_word} · <span style="color:{confc};">{conf}</span>
-                            ({b.avg_hit:.0%} in-sample — not an out-of-sample hit rate)</div>
-                        </div>""", unsafe_allow_html=True)
+                    _fb = board
+                _fb = _fb.reset_index(drop=True)
 
-            if len(_fb) > 8:
-                st.caption(f"+ {len(_fb)-8} more in this view — showing the 8 strongest.")
+                if _fb.empty:
+                    _word = "rising" if _filter.startswith("📈") else "falling"
+                    st.info(f"Nothing is forecast as {_word} right now. Try another view above.")
 
-            # ── everything technical, tucked away ────────────────────────
-            with st.expander("🔬 For the technically minded — waves, edges & trade plans"):
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Storm tracks (edges)", len(edges), help=HELP["edges_metric"])
-                c2.metric("Active waves now",
-                          int(waves.source.nunique()) if not waves.empty else 0,
-                          help=HELP["waves_metric"])
-                c3.metric("Downstream forecasts", len(waves), help=HELP["forecasts_metric"])
-                st.caption(f"Data through {asof} · source: "
-                           f"{getattr(ce, 'LAST_HISTORY_SOURCE', 'cached parquet')} · "
-                           f"edges on trailing {ce.EDGE_TRAIN} sessions · "
-                           f"forecasts look {ce.EDGE_HORIZON} sessions ahead.")
-
-                # trade plans + followers per forecast target
-                st.markdown("**📋 Trade plans & fastest-following stocks**")
-                _pt = st.selectbox("Pick a forecast to expand",
-                                   list(board.head(12).target_name), key="mw_plan_pick")
-                _brow = board[board.target_name == _pt]
-                if not _brow.empty:
-                    b = _brow.iloc[0]
-                    try:
-                        pl = ce.investment_plan(b, closes)
+                # ── plain forecast cards ─────────────────────────────────────
+                bcols = st.columns(2)
+                for i, (_, b) in enumerate(_fb.head(8).iterrows()):
+                    up = b.call == "UP"
+                    col = GREEN if up else RED
+                    verdict = "linked UPWARD" if up else "linked DOWNWARD"
+                    arrow = "📈" if up else "📉"
+                    # translate hit rate into plain confidence words
+                    # NOTE: these hit rates are IN-SAMPLE — measured on the same window
+                    # the edge was selected on. Out-of-sample they do not hold, so the
+                    # wording is deliberately "historical fit", never "accuracy".
+                    if b.avg_hit >= 0.62:
+                        conf, confc = "strong historical fit", DIM
+                    elif b.avg_hit >= 0.55:
+                        conf, confc = "moderate historical fit", DIM
+                    else:
+                        conf, confc = "weak historical fit", DIM
+                    src_word = "market" if b.n_sources == 1 else "markets"
+                    with bcols[i % 2]:
                         st.markdown(
-                            f"**{pl['action']}**\n\n"
-                            f"- **Trigger:** {pl['trigger']}\n"
-                            f"- **Entry:** {pl['entry']}\n"
-                            f"- **Stop:** {pl['stop']}\n"
-                            f"- **Price target:** {pl['target']}\n"
-                            f"- **Time exit:** {pl['time_exit']}\n"
-                            f"- **Size:** {pl['size']}\n"
-                            f"- **Stand-down rule:** {pl['invalidation']}")
-                        st.caption("Rule-generated from the trigger's own stats and the "
-                                   "asset's volatility — a playbook, not personal advice.")
-                        st.button(f"🔬 Analyze {b.target}", key=f"an_{b.target}",
-                                  on_click=_open_analysis, args=(b.target,))
-                        fl = _followers(b.target, asof)
-                        if fl is not None and not fl.empty:
-                            live = ce.alpaca_prices(list(fl.Ticker))
-                            if live:
-                                fl["Price"] = fl.Ticker.map(live).fillna(fl.Price)
-                            st.markdown("**🏇 Fastest followers** — individual stocks that "
-                                        "historically chase this market's moves within ~5 "
-                                        "sessions"
-                                        + (", live Alpaca prices" if live else "") + ":")
-                            fl = _stamp_hs(fl)
-                            _sel = _hub_df(
-                                _style_health_setup(fl.style.format({"Price": "${:,.2f}",
-                                                 "FollowCorr": "{:+.2f}",
-                                                 "Beta": "{:+.2f}"})
-                                .map(lambda v: _css_sign(v, dead=0.05), subset=["FollowCorr"])),
-                                width=_DF_WIDTH, hide_index=True,
-                                on_select="rerun", selection_mode="single-row",
-                                key=f"fl_{b.target}",
-                                column_order=_order_with_cat(
-                                    [c for c in ["Ticker", "Sector", "Price",
-                                                 "FollowCorr", "Beta"]
-                                     if c in fl.columns], fl) or None,
-                                column_config={
-                                    **_health_setup_col_cfgs(),
-                                    "FollowCorr": st.column_config.Column(
-                                        help="Correlation between this node's 5-day move and the stock's 5-day move ONE WEEK LATER — a lagged response, not same-day beta."),
-                                    "Beta": st.column_config.Column(
-                                        help="Size of the lagged response: node moves 1% → stock historically moves this % the following week."),
-                                    "Price": st.column_config.Column(
-                                        help="Live via Alpaca when a key is configured; otherwise last close from the nightly dump."),
-                                })
-                            _rows = (_sel.selection.rows
-                                     if _sel and getattr(_sel, "selection", None) else [])
-                            if _rows:
-                                _tk = fl.iloc[_rows[0]].Ticker
-                                _hkey = f"_fl_handled_{b.target}"
-                                if st.session_state.get(_hkey) != _tk:
-                                    st.session_state[_hkey] = _tk
-                                    st.session_state["mw_analyze"] = _tk
-                                    st.rerun()
-                            st.caption("👆 Tap a row for the full stock analysis.")
-                    except Exception as _pe:
-                        st.caption(f"Plan unavailable: {_pe}")
+                            f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                            border-left:5px solid {col};border-radius:10px;
+                            padding:12px 16px;margin-bottom:10px;">
+                              <div style="display:flex;align-items:baseline;">
+                                <span style="font-size:18px;font-weight:800;">{_esc(b.target_name)}</span>
+                                <span style="margin-left:auto;color:{col};font-weight:800;font-size:15px;">{arrow} {verdict}</span>
+                              </div>
+                              <div style="background:#081325;border-radius:5px;height:8px;margin:9px 0 8px;">
+                                <div style="background:{col};height:8px;border-radius:5px;
+                                width:{max(int(b.conviction*100),8)}%;"></div></div>
+                              <div style="color:#d7e0ec;font-size:12.5px;line-height:1.5;">
+                                <b>{_esc(b.sources)}</b> {'has' if b.n_sources==1 else 'have'} been moving, and
+                                {_esc(b.target_name)} has historically moved with {'it' if b.n_sources==1 else 'them'}.</div>
+                              <div style="color:{DIM};font-size:11.5px;margin-top:5px;">
+                                {b.n_sources} {src_word} · <span style="color:{confc};">{conf}</span>
+                                ({b.avg_hit:.0%} in-sample — not an out-of-sample hit rate)</div>
+                            </div>""", unsafe_allow_html=True)
 
-                # flow map (Sankey)
-                st.markdown("**🌊 Flow map** — who's pushing what")
-                wshow = waves.copy()
-                wshow["strength"] = wshow.edge_ic.abs()
-                import plotly.graph_objects as go
-                srcs = list(wshow.source_name.unique())
-                tgts = list(wshow.target_name.unique())
-                labels, node_col = [], []
-                for s in srcs:
-                    z = float(wshow.loc[wshow.source_name == s, "source_z"].iloc[0])
-                    labels.append(f"⚡ {s} (z {z:+.1f})")
-                    node_col.append(GREEN if z > 0 else RED)
-                for t in tgts:
-                    g = wshow[wshow.target_name == t]
-                    nup = int(g.call.str.contains("UP").sum())
-                    labels.append(f"{t} · {len(g)} wave{'s' if len(g) > 1 else ''}")
-                    node_col.append(GREEN if nup * 2 > len(g) else (RED if nup * 2 < len(g) else "#12233c"))
-                s_ix = {s: i for i, s in enumerate(srcs)}
-                t_ix = {t: len(srcs) + i for i, t in enumerate(tgts)}
-                link_col = [("rgba(63,191,127,0.45)" if "UP" in c else "rgba(224,82,82,0.45)")
-                            for c in wshow.call]
-                fig = go.Figure(go.Sankey(
-                    arrangement="snap",
-                    node=dict(label=labels, color=node_col, pad=14, thickness=16,
-                              line=dict(color="#1d2b40", width=1)),
-                    link=dict(source=[s_ix[s] for s in wshow.source_name],
-                              target=[t_ix[t] for t in wshow.target_name],
-                              value=(wshow.strength * 100).clip(lower=5).tolist(),
-                              color=link_col,
-                              customdata=[f"IC {ic:+.2f} · hit {h:.0%}" if h == h else f"IC {ic:+.2f}"
-                                          for ic, h in zip(wshow.edge_ic, wshow.hit_rate)],
-                              hovertemplate="%{source.label} → %{target.label}<br>%{customdata}<extra></extra>")))
-                fig.update_layout(height=max(340, 26 * max(len(srcs), len(tgts))),
-                                  paper_bgcolor="rgba(0,0,0,0)", font_color="#EAF2FF",
-                                  font_size=12, margin=dict(l=10, r=10, t=10, b=24))
-                st.plotly_chart(fig, width="stretch", key="wd_sankey")
-                st.caption("Ribbon width = signal strength · green pushes the target UP, "
-                           "red pushes DOWN · ribbons converging on one target = independent "
-                           "waves agreeing. Hover a ribbon for its stats.")
+                if len(_fb) > 8:
+                    st.caption(f"+ {len(_fb)-8} more in this view — showing the 8 strongest.")
 
-                # full edge table
-                st.markdown("**🗺 Strongest storm tracks (full list)**")
-                e = edges.copy()
-                e = e[["source_name", "target_name", "ic", "hit_rate"]].rename(columns={
-                    "source_name": "Leads", "target_name": "Follows",
-                    "ic": "IC", "hit_rate": "Hit %"}).head(60)
-                st.dataframe(
-                    e.style.format({"IC": "{:+.2f}", "Hit %": "{:.0%}"})
-                    .map(lambda v: _css_sign(abs(v) if v == v else v, dead=0.15)
-                         if isinstance(v, float) else "", subset=["IC"])
-                    .map(_css_hit, subset=["Hit %"]),
-                    width=_DF_WIDTH, hide_index=True,
-                    column_config=_scan_col_cfgs({
-                        "Leads": st.column_config.Column(help="Upstream node — its moves come first."),
-                        "Follows": st.column_config.Column(help="Downstream node — historically reacts within the horizon."),
-                        "IC": st.column_config.Column(help=HELP["edge_ic"]),
-                        "Hit %": st.column_config.Column(help=HELP["hit_rate"]),
-                    }))
+                # ── everything technical, tucked away ────────────────────────
+                with st.expander("🔬 For the technically minded — waves, edges & trade plans"):
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Storm tracks (edges)", len(edges), help=HELP["edges_metric"])
+                    c2.metric("Active waves now",
+                              int(waves.source.nunique()) if not waves.empty else 0,
+                              help=HELP["waves_metric"])
+                    c3.metric("Downstream forecasts", len(waves), help=HELP["forecasts_metric"])
+                    st.caption(f"Data through {asof} · source: "
+                               f"{getattr(ce, 'LAST_HISTORY_SOURCE', 'cached parquet')} · "
+                               f"edges on trailing {ce.EDGE_TRAIN} sessions · "
+                               f"forecasts look {ce.EDGE_HORIZON} sessions ahead.")
 
-            with st.expander("📊 Full sector breakdown"):
-                st.caption("A sector counts as 'receiving money' when its return, how "
-                           "many of its stocks rose, and how heavily it traded all "
-                           "lean the same way — not just because one big name jumped.")
-                st.dataframe(
-                    _mflow[["Rank", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
-                    .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
-                                   "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
-                    .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
-                         subset=["Ret", "RS"]),
-                    width=_DF_WIDTH, hide_index=True,
-                    column_config=_scan_col_cfgs({
-                        "Ret": st.column_config.Column(help="Sector return, weighted by where the money actually traded."),
-                        "RS": st.column_config.Column(help="How much better or worse than the whole market."),
-                        "Breadth": st.column_config.Column(help="Share of the sector's stocks that went up."),
-                        "VolSurge": st.column_config.Column(help="Trading activity vs its own 63-day normal. Above 1 = busier than usual."),
-                    }))
-                st.caption("Used by the Top 20 tab's 🔥 hot-sector filter and its "
-                           "sector-flow tilt.")
+                    # trade plans + followers per forecast target
+                    st.markdown("**📋 Trade plans & fastest-following stocks**")
+                    _pt = st.selectbox("Pick a forecast to expand",
+                                       list(board.head(12).target_name), key="mw_plan_pick")
+                    _brow = board[board.target_name == _pt]
+                    if not _brow.empty:
+                        b = _brow.iloc[0]
+                        try:
+                            pl = ce.investment_plan(b, closes)
+                            st.markdown(
+                                f"**{pl['action']}**\n\n"
+                                f"- **Trigger:** {pl['trigger']}\n"
+                                f"- **Entry:** {pl['entry']}\n"
+                                f"- **Stop:** {pl['stop']}\n"
+                                f"- **Price target:** {pl['target']}\n"
+                                f"- **Time exit:** {pl['time_exit']}\n"
+                                f"- **Size:** {pl['size']}\n"
+                                f"- **Stand-down rule:** {pl['invalidation']}")
+                            st.caption("Rule-generated from the trigger's own stats and the "
+                                       "asset's volatility — a playbook, not personal advice.")
+                            st.button(f"🔬 Analyze {b.target}", key=f"an_{b.target}",
+                                      on_click=_open_analysis, args=(b.target,))
+                            fl = _followers(b.target, asof)
+                            if fl is not None and not fl.empty:
+                                live = ce.alpaca_prices(list(fl.Ticker))
+                                if live:
+                                    fl["Price"] = fl.Ticker.map(live).fillna(fl.Price)
+                                st.markdown("**🏇 Fastest followers** — individual stocks that "
+                                            "historically chase this market's moves within ~5 "
+                                            "sessions"
+                                            + (", live Alpaca prices" if live else "") + ":")
+                                fl = _stamp_hs(fl)
+                                _sel = _hub_df(
+                                    _style_health_setup(fl.style.format({"Price": "${:,.2f}",
+                                                     "FollowCorr": "{:+.2f}",
+                                                     "Beta": "{:+.2f}"})
+                                    .map(lambda v: _css_sign(v, dead=0.05), subset=["FollowCorr"])),
+                                    width=_DF_WIDTH, hide_index=True,
+                                    on_select="rerun", selection_mode="single-row",
+                                    key=f"fl_{b.target}",
+                                    column_order=_order_with_cat(
+                                        [c for c in ["Ticker", "Sector", "Price",
+                                                     "FollowCorr", "Beta"]
+                                         if c in fl.columns], fl) or None,
+                                    column_config={
+                                        **_health_setup_col_cfgs(),
+                                        "FollowCorr": st.column_config.Column(
+                                            help="Correlation between this node's 5-day move and the stock's 5-day move ONE WEEK LATER — a lagged response, not same-day beta."),
+                                        "Beta": st.column_config.Column(
+                                            help="Size of the lagged response: node moves 1% → stock historically moves this % the following week."),
+                                        "Price": st.column_config.Column(
+                                            help="Live via Alpaca when a key is configured; otherwise last close from the nightly dump."),
+                                    })
+                                _rows = (_sel.selection.rows
+                                         if _sel and getattr(_sel, "selection", None) else [])
+                                if _rows:
+                                    _tk = fl.iloc[_rows[0]].Ticker
+                                    _hkey = f"_fl_handled_{b.target}"
+                                    if st.session_state.get(_hkey) != _tk:
+                                        st.session_state[_hkey] = _tk
+                                        st.session_state["mw_analyze"] = _tk
+                                        st.rerun()
+                                st.caption("👆 Tap a row for the full stock analysis.")
+                        except Exception as _pe:
+                            st.caption(f"Plan unavailable: {_pe}")
 
-        # ── plain how-it-works, always available ─────────────────────────
-        with st.expander("❓ What am I looking at? (plain-English)"):
-            st.markdown(
-                "**The big idea:** money doesn't teleport — it flows. When one big "
-                "market moves hard (say oil spikes, or the dollar jumps), other "
-                "things it's connected to tend to move too, but a little later. This "
-                "tab finds those patterns from years of history and turns them into "
-                "simple forecasts.\n\n"
-                "- **The cards** tell you what's likely to move this week and why, in "
-                "plain words. Green = up, red = down.\n"
-                "- **The bar** is how strong the signal is. Longer = stronger.\n"
-                "- **Historical fit** is how often the pattern held *on the same data "
-                "used to find it*. That is not a forecast accuracy. When we tested "
-                "these links properly — fitting on the past and scoring on days the "
-                "model had never seen — they were right about 49% of the time, i.e. "
-                "a coin flip.\n"
-                "- **So what is this good for?** Seeing what is moving together right "
-                "now, and which corners of the market are connected. That context is "
-                "real. The direction call is not.\n"
-                "- **🔄 Refresh** grabs the newest prices and recomputes everything.\n\n"
-                "It's a research tool, not advice. Forecasts can be wrong, so never "
-                "bet more than you can afford to lose.")
+                    # flow map (Sankey)
+                    st.markdown("**🌊 Flow map** — who's pushing what")
+                    wshow = waves.copy()
+                    wshow["strength"] = wshow.edge_ic.abs()
+                    import plotly.graph_objects as go
+                    srcs = list(wshow.source_name.unique())
+                    tgts = list(wshow.target_name.unique())
+                    labels, node_col = [], []
+                    for s in srcs:
+                        z = float(wshow.loc[wshow.source_name == s, "source_z"].iloc[0])
+                        labels.append(f"⚡ {s} (z {z:+.1f})")
+                        node_col.append(GREEN if z > 0 else RED)
+                    for t in tgts:
+                        g = wshow[wshow.target_name == t]
+                        nup = int(g.call.str.contains("UP").sum())
+                        labels.append(f"{t} · {len(g)} wave{'s' if len(g) > 1 else ''}")
+                        node_col.append(GREEN if nup * 2 > len(g) else (RED if nup * 2 < len(g) else "#12233c"))
+                    s_ix = {s: i for i, s in enumerate(srcs)}
+                    t_ix = {t: len(srcs) + i for i, t in enumerate(tgts)}
+                    link_col = [("rgba(63,191,127,0.45)" if "UP" in c else "rgba(224,82,82,0.45)")
+                                for c in wshow.call]
+                    fig = go.Figure(go.Sankey(
+                        arrangement="snap",
+                        node=dict(label=labels, color=node_col, pad=14, thickness=16,
+                                  line=dict(color="#1d2b40", width=1)),
+                        link=dict(source=[s_ix[s] for s in wshow.source_name],
+                                  target=[t_ix[t] for t in wshow.target_name],
+                                  value=(wshow.strength * 100).clip(lower=5).tolist(),
+                                  color=link_col,
+                                  customdata=[f"IC {ic:+.2f} · hit {h:.0%}" if h == h else f"IC {ic:+.2f}"
+                                              for ic, h in zip(wshow.edge_ic, wshow.hit_rate)],
+                                  hovertemplate="%{source.label} → %{target.label}<br>%{customdata}<extra></extra>")))
+                    fig.update_layout(height=max(340, 26 * max(len(srcs), len(tgts))),
+                                      paper_bgcolor="rgba(0,0,0,0)", font_color="#EAF2FF",
+                                      font_size=12, margin=dict(l=10, r=10, t=10, b=24))
+                    st.plotly_chart(fig, width="stretch", key="wd_sankey")
+                    st.caption("Ribbon width = signal strength · green pushes the target UP, "
+                               "red pushes DOWN · ribbons converging on one target = independent "
+                               "waves agreeing. Hover a ribbon for its stats.")
+
+                    # full edge table
+                    st.markdown("**🗺 Strongest storm tracks (full list)**")
+                    e = edges.copy()
+                    e = e[["source_name", "target_name", "ic", "hit_rate"]].rename(columns={
+                        "source_name": "Leads", "target_name": "Follows",
+                        "ic": "IC", "hit_rate": "Hit %"}).head(60)
+                    st.dataframe(
+                        e.style.format({"IC": "{:+.2f}", "Hit %": "{:.0%}"})
+                        .map(lambda v: _css_sign(abs(v) if v == v else v, dead=0.15)
+                             if isinstance(v, float) else "", subset=["IC"])
+                        .map(_css_hit, subset=["Hit %"]),
+                        width=_DF_WIDTH, hide_index=True,
+                        column_config=_scan_col_cfgs({
+                            "Leads": st.column_config.Column(help="Upstream node — its moves come first."),
+                            "Follows": st.column_config.Column(help="Downstream node — historically reacts within the horizon."),
+                            "IC": st.column_config.Column(help=HELP["edge_ic"]),
+                            "Hit %": st.column_config.Column(help=HELP["hit_rate"]),
+                        }))
+
+                with st.expander("📊 Full sector breakdown"):
+                    st.caption("A sector counts as 'receiving money' when its return, how "
+                               "many of its stocks rose, and how heavily it traded all "
+                               "lean the same way — not just because one big name jumped.")
+                    st.dataframe(
+                        _mflow[["Rank", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
+                        .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
+                                       "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
+                        .map(lambda v: _css_sign(v) if isinstance(v, float) else "",
+                             subset=["Ret", "RS"]),
+                        width=_DF_WIDTH, hide_index=True,
+                        column_config=_scan_col_cfgs({
+                            "Ret": st.column_config.Column(help="Sector return, weighted by where the money actually traded."),
+                            "RS": st.column_config.Column(help="How much better or worse than the whole market."),
+                            "Breadth": st.column_config.Column(help="Share of the sector's stocks that went up."),
+                            "VolSurge": st.column_config.Column(help="Trading activity vs its own 63-day normal. Above 1 = busier than usual."),
+                        }))
+                    st.caption("Used by the Top 20 tab's 🔥 hot-sector filter and its "
+                               "sector-flow tilt.")
+
+            # ── plain how-it-works, always available ─────────────────────────
+            with st.expander("❓ What am I looking at? (plain-English)"):
+                st.markdown(
+                    "**The big idea:** money doesn't teleport — it flows. When one big "
+                    "market moves hard (say oil spikes, or the dollar jumps), other "
+                    "things it's connected to tend to move too, but a little later. This "
+                    "tab finds those patterns from years of history and turns them into "
+                    "simple forecasts.\n\n"
+                    "- **The cards** tell you what's likely to move this week and why, in "
+                    "plain words. Green = up, red = down.\n"
+                    "- **The bar** is how strong the signal is. Longer = stronger.\n"
+                    "- **Historical fit** is how often the pattern held *on the same data "
+                    "used to find it*. That is not a forecast accuracy. When we tested "
+                    "these links properly — fitting on the past and scoring on days the "
+                    "model had never seen — they were right about 49% of the time, i.e. "
+                    "a coin flip.\n"
+                    "- **So what is this good for?** Seeing what is moving together right "
+                    "now, and which corners of the market are connected. That context is "
+                    "real. The direction call is not.\n"
+                    "- **🔄 Refresh** grabs the newest prices and recomputes everything.\n\n"
+                    "It's a research tool, not advice. Forecasts can be wrong, so never "
+                    "bet more than you can afford to lose.")
 
 
     # ── 🔎 stock lookup ──────────────────────────────────────────────────
@@ -10106,111 +10191,114 @@ with st.container(border=True, key="mw_page"):
     # ── 🔭 Lenses — full playbooks for every macro regime ─────────────────
     if _main == "Cascade Map" and _map == "Lenses":
         _hub_title("🔭 Lenses", "#2DD4BF")
-        closes, asof = _require_closes()
-        GAUGE = _gauge()
-        st.markdown(
-            "A **macro lens** is a playbook you overlay on a ranking. It does **not** "
-            "change a stock's quality score, analog odds, or APEX CALM/RS gates. Those "
-            "numbers stay honest. The lens only **re-orders** names that already passed "
-            "the filter, tilting toward sectors (and, for Reserve Reset, themes) that "
-            "the playbook says will lead, and away from the ones it says will lag.")
-        st.markdown(
-            "- **🚫 Off** — you asked for no tilt, even if a regime is detected.\n"
-            "- **📡 Auto** — use whatever the app reads live from oil, the dollar, "
-            "VIX, gold, and the pressure gauge.\n"
-            "- **A named lens** — run Top 20 or APEX under that playbook on purpose "
-            "(what-if, or because you disagree with Auto).")
-        st.caption("Playbooks are distilled from the Macro Simulator plus, for Reserve "
-                   "Reset, 804 sessions of measured node history. Probability tilts, "
-                   "not prophecy. Not investment advice.")
-
-        try:
-            _live = ce.macro_regime(closes, pressure_gauge=GAUGE)
-            _lk = _live.get("regime")
-            _lcd = ce.REGIME_CARDS.get(_lk, {})
+        if not st.session_state.get("mw_cascade_loaded"):
+            _cascade_idle_note()
+        else:
+            closes, asof = _require_closes()
+            GAUGE = _gauge()
             st.markdown(
-                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:4px solid {ACCENT};border-radius:10px;padding:12px 16px;margin:8px 0 14px;">
-                <div style="font-weight:700;font-size:15px;">📡 Live Auto call:
-                {_esc(_lcd.get('emoji',''))} {_esc(_lcd.get('name', _live.get('label','')))}</div>
-                <div style="color:{ACCENT};margin:4px 0 6px">{_esc(_lcd.get('thesis',''))}</div>
-                <div style="color:{DIM};font-size:12.5px">From: {_esc(' · '.join(_live.get('drivers') or []))}</div>
-                <div style="margin-top:6px;font-size:13px">
-                <span style="color:{GREEN}">▲ {_esc(_lcd.get('leads',''))}</span>
-                &nbsp;·&nbsp;
-                <span style="color:{RED}">▼ {_esc(_lcd.get('lags',''))}</span></div>
-                </div>""", unsafe_allow_html=True)
-        except Exception:
-            _lk = None
+                "A **macro lens** is a playbook you overlay on a ranking. It does **not** "
+                "change a stock's quality score, analog odds, or APEX CALM/RS gates. Those "
+                "numbers stay honest. The lens only **re-orders** names that already passed "
+                "the filter, tilting toward sectors (and, for Reserve Reset, themes) that "
+                "the playbook says will lead, and away from the ones it says will lag.")
+            st.markdown(
+                "- **🚫 Off** — you asked for no tilt, even if a regime is detected.\n"
+                "- **📡 Auto** — use whatever the app reads live from oil, the dollar, "
+                "VIX, gold, and the pressure gauge.\n"
+                "- **A named lens** — run Top 20 or APEX under that playbook on purpose "
+                "(what-if, or because you disagree with Auto).")
+            st.caption("Playbooks are distilled from the Macro Simulator plus, for Reserve "
+                       "Reset, 804 sessions of measured node history. Probability tilts, "
+                       "not prophecy. Not investment advice.")
 
-        st.markdown("#### At a glance")
-        _glance_rows = []
-        for _gk in getattr(ce, "LENS_ORDER", list(ce.REGIME_CARDS)):
-            _gcd = ce.REGIME_CARDS.get(_gk) or {}
-            _live_mark = " ← live" if _gk == _lk else ""
-            _glance_rows.append({
-                "Lens": f"{_gcd.get('emoji','')} {_gcd.get('name','')}{_live_mark}",
-                "The bet": _gcd.get("thesis", ""),
-                "Wins": _gcd.get("leads", ""),
-                "Loses": _gcd.get("lags", ""),
-            })
-        st.dataframe(pd.DataFrame(_glance_rows), width=_DF_WIDTH, hide_index=True,
-                     column_config=_scan_col_cfgs())
+            try:
+                _live = ce.macro_regime(closes, pressure_gauge=GAUGE)
+                _lk = _live.get("regime")
+                _lcd = ce.REGIME_CARDS.get(_lk, {})
+                st.markdown(
+                    f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-left:4px solid {ACCENT};border-radius:10px;padding:12px 16px;margin:8px 0 14px;">
+                    <div style="font-weight:700;font-size:15px;">📡 Live Auto call:
+                    {_esc(_lcd.get('emoji',''))} {_esc(_lcd.get('name', _live.get('label','')))}</div>
+                    <div style="color:{ACCENT};margin:4px 0 6px">{_esc(_lcd.get('thesis',''))}</div>
+                    <div style="color:{DIM};font-size:12.5px">From: {_esc(' · '.join(_live.get('drivers') or []))}</div>
+                    <div style="margin-top:6px;font-size:13px">
+                    <span style="color:{GREEN}">▲ {_esc(_lcd.get('leads',''))}</span>
+                    &nbsp;·&nbsp;
+                    <span style="color:{RED}">▼ {_esc(_lcd.get('lags',''))}</span></div>
+                    </div>""", unsafe_allow_html=True)
+            except Exception:
+                _lk = None
 
-        st.divider()
-        st.markdown("#### Open a playbook")
-        _lens_pick_opts = {
-            f"{ce.REGIME_CARDS[k]['emoji']} {ce.REGIME_CARDS[k]['name']}": k
-            for k in getattr(ce, "LENS_ORDER", list(ce.REGIME_CARDS))
-            if k in ce.REGIME_CARDS
-        }
-        _default_pick = 0
-        if _lk in list(_lens_pick_opts.values()):
-            _default_pick = list(_lens_pick_opts.values()).index(_lk)
-        _pick_label = st.selectbox(
-            "Playbook", list(_lens_pick_opts), index=_default_pick,
-            key="lenses_pick", label_visibility="collapsed")
-        _pick_key = _lens_pick_opts[_pick_label]
-        render_lens_playbook(ce.REGIME_CARDS[_pick_key], _pick_key, full=True)
-
-        st.divider()
-        st.markdown("#### Sector multiplier grid")
-        st.caption("How each lens re-weights GICS sectors in Top 20 and APEX. "
-                   "1.00 = no change. Green = promoted, red = demoted. Base is "
-                   "omitted because every sector is 1.00. Reserve Reset's real edge "
-                   "is thematic (miners, uranium, defense) — the GICS layer is mild "
-                   "on purpose.")
-        _tilt_keys = [k for k in getattr(ce, "LENS_ORDER", [])
-                      if k != "base" and ce.SECTOR_TILTS.get(k)]
-        _all_secs = sorted({s for t in ce.SECTOR_TILTS.values() for s in t})
-        if _tilt_keys and _all_secs:
-            _grid = pd.DataFrame(
-                {ce.REGIME_CARDS[k]["name"]: [
-                    ce.SECTOR_TILTS.get(k, {}).get(s, 1.0) for s in _all_secs]
-                 for k in _tilt_keys},
-                index=_all_secs)
-
-            def _tilt_css(v):
-                if v > 1.02:
-                    return f"color:{GREEN};font-weight:600"
-                if v < 0.98:
-                    return f"color:{RED};font-weight:600"
-                return f"color:{DIM}"
-
-            _fmt = _grid.style.format("{:.2f}")
-            _styled = (_fmt.map(_tilt_css) if hasattr(_fmt, "map")
-                       else _fmt.applymap(_tilt_css))
-            st.dataframe(
-                _styled, width=_DF_WIDTH,
-                column_config={
-                    col: st.column_config.Column(
-                        help="How this lens re-weights the sector. 1.00 = no "
-                             "change. Above 1 = promoted, below 1 = demoted.")
-                    for col in _grid.columns
+            st.markdown("#### At a glance")
+            _glance_rows = []
+            for _gk in getattr(ce, "LENS_ORDER", list(ce.REGIME_CARDS)):
+                _gcd = ce.REGIME_CARDS.get(_gk) or {}
+                _live_mark = " ← live" if _gk == _lk else ""
+                _glance_rows.append({
+                    "Lens": f"{_gcd.get('emoji','')} {_gcd.get('name','')}{_live_mark}",
+                    "The bet": _gcd.get("thesis", ""),
+                    "Wins": _gcd.get("leads", ""),
+                    "Loses": _gcd.get("lags", ""),
                 })
+            st.dataframe(pd.DataFrame(_glance_rows), width=_DF_WIDTH, hide_index=True,
+                         column_config=_scan_col_cfgs())
+
+            st.divider()
+            st.markdown("#### Open a playbook")
+            _lens_pick_opts = {
+                f"{ce.REGIME_CARDS[k]['emoji']} {ce.REGIME_CARDS[k]['name']}": k
+                for k in getattr(ce, "LENS_ORDER", list(ce.REGIME_CARDS))
+                if k in ce.REGIME_CARDS
+            }
+            _default_pick = 0
+            if _lk in list(_lens_pick_opts.values()):
+                _default_pick = list(_lens_pick_opts.values()).index(_lk)
+            _pick_label = st.selectbox(
+                "Playbook", list(_lens_pick_opts), index=_default_pick,
+                key="lenses_pick", label_visibility="collapsed")
+            _pick_key = _lens_pick_opts[_pick_label]
+            render_lens_playbook(ce.REGIME_CARDS[_pick_key], _pick_key, full=True)
+
+            st.divider()
+            st.markdown("#### Sector multiplier grid")
+            st.caption("How each lens re-weights GICS sectors in Top 20 and APEX. "
+                       "1.00 = no change. Green = promoted, red = demoted. Base is "
+                       "omitted because every sector is 1.00. Reserve Reset's real edge "
+                       "is thematic (miners, uranium, defense) — the GICS layer is mild "
+                       "on purpose.")
+            _tilt_keys = [k for k in getattr(ce, "LENS_ORDER", [])
+                          if k != "base" and ce.SECTOR_TILTS.get(k)]
+            _all_secs = sorted({s for t in ce.SECTOR_TILTS.values() for s in t})
+            if _tilt_keys and _all_secs:
+                _grid = pd.DataFrame(
+                    {ce.REGIME_CARDS[k]["name"]: [
+                        ce.SECTOR_TILTS.get(k, {}).get(s, 1.0) for s in _all_secs]
+                     for k in _tilt_keys},
+                    index=_all_secs)
+
+                def _tilt_css(v):
+                    if v > 1.02:
+                        return f"color:{GREEN};font-weight:600"
+                    if v < 0.98:
+                        return f"color:{RED};font-weight:600"
+                    return f"color:{DIM}"
+
+                _fmt = _grid.style.format("{:.2f}")
+                _styled = (_fmt.map(_tilt_css) if hasattr(_fmt, "map")
+                           else _fmt.applymap(_tilt_css))
+                st.dataframe(
+                    _styled, width=_DF_WIDTH,
+                    column_config={
+                        col: st.column_config.Column(
+                            help="How this lens re-weights the sector. 1.00 = no "
+                                 "change. Above 1 = promoted, below 1 = demoted.")
+                        for col in _grid.columns
+                    })
 
 
-    # ── 🎯 POC Future — AMD accumulation / manipulation / distribution ────
+        # ── 🎯 POC Future — AMD accumulation / manipulation / distribution ────
     if _main == "Scan Hub" and _hub == "POC Future":
         _hub_title("🎯 POC Future", "#6EE7B7", tagline="Point of Control")
         _hub_keep_restore("poc", ("poc_",))
@@ -11150,287 +11238,305 @@ with st.container(border=True, key="mw_page"):
     # ── 🌡 pressure ──────────────────────────────────────────────────────
     if _main == "Cascade Map" and _map == "Cascade Pressure":
         _hub_title("🌡 Cascade Pressure", "#FF8FA3")
-        st.caption("The upstream source of every wave: global net liquidity. "
-                   "Rising pressure = waves travel far. Draining = fade the rallies.")
-        try:
-            p = _pressure()
-            g_l, g_r = st.columns([6, 1])
-            g_l.markdown(f"### {p['gauge_label']}")
-            with g_r.popover("❓"):
-                st.markdown(HELP["gauge"])
-            c = p["components"]
-            m1, m2, m3 = st.columns(3)
-            if "Net US Liquidity ($tn)" in c:
-                m1.metric("Net US Liquidity", f"${c['Net US Liquidity ($tn)']:,.2f}tn",
-                          delta=f"{c.get('NetLiq Δ 21d ($bn)', 0):+,.0f} $bn / 21d",
-                          help=HELP["netliq"] + "  \nΔ: " + HELP["netliq_d"])
-            if "Stablecoin Supply ($bn)" in c:
-                m2.metric("Stablecoin Supply", f"${c['Stablecoin Supply ($bn)']:,.0f}bn",
-                          delta=f"{c.get('Stables Δ 21d ($bn)', 0):+,.1f} $bn / 21d",
-                          help=HELP["stables"] + "  \nΔ: " + HELP["stables_d"])
-            if "HY Spread (%)" in c:
-                m3.metric("HY Credit Spread", f"{c['HY Spread (%)']:.2f}%",
-                          delta=f"{c.get('HY Δ 21d (bp)', 0):+,.0f} bp / 21d",
-                          delta_color="inverse",   # tightening (down) = good = green
-                          help=HELP["hy"] + "  \nΔ: " + HELP["hy_d"])
-            g1, g2 = st.columns(2)
-            if "netliq" in p:
-                g1.markdown("**Net US Liquidity ($tn)** — Fed BS − TGA − RRP")
-                g1.line_chart(p["netliq"].tail(500), height=220)
-            if "stables" in p:
-                g2.markdown("**Stablecoin supply ($bn)** — crypto dry powder")
-                g2.line_chart(p["stables"].tail(500), height=220)
-            if "hy_oas" in p:
-                st.markdown("**High-yield credit spread (%)** — the market's blood pressure (down = risk-on)")
-                st.line_chart(p["hy_oas"].tail(500), height=200)
-            for err in p.get("errors", []):
-                st.caption(f"⚠️ {err}")
-        except Exception as e:
-            st.warning(f"Pressure feeds unavailable right now: {e}")
+        if not st.session_state.get("mw_cascade_loaded"):
+            _cascade_idle_note()
+        else:
+            st.caption("The upstream source of every wave: global net liquidity. "
+                       "Rising pressure = waves travel far. Draining = fade the rallies.")
+            try:
+                p = _pressure()
+                g_l, g_r = st.columns([6, 1])
+                g_l.markdown(f"### {p['gauge_label']}")
+                with g_r.popover("❓"):
+                    st.markdown(HELP["gauge"])
+                c = p["components"]
+                m1, m2, m3 = st.columns(3)
+                if "Net US Liquidity ($tn)" in c:
+                    m1.metric("Net US Liquidity", f"${c['Net US Liquidity ($tn)']:,.2f}tn",
+                              delta=f"{c.get('NetLiq Δ 21d ($bn)', 0):+,.0f} $bn / 21d",
+                              help=HELP["netliq"] + "  \nΔ: " + HELP["netliq_d"])
+                if "Stablecoin Supply ($bn)" in c:
+                    m2.metric("Stablecoin Supply", f"${c['Stablecoin Supply ($bn)']:,.0f}bn",
+                              delta=f"{c.get('Stables Δ 21d ($bn)', 0):+,.1f} $bn / 21d",
+                              help=HELP["stables"] + "  \nΔ: " + HELP["stables_d"])
+                if "HY Spread (%)" in c:
+                    m3.metric("HY Credit Spread", f"{c['HY Spread (%)']:.2f}%",
+                              delta=f"{c.get('HY Δ 21d (bp)', 0):+,.0f} bp / 21d",
+                              delta_color="inverse",   # tightening (down) = good = green
+                              help=HELP["hy"] + "  \nΔ: " + HELP["hy_d"])
+                g1, g2 = st.columns(2)
+                if "netliq" in p:
+                    g1.markdown("**Net US Liquidity ($tn)** — Fed BS − TGA − RRP")
+                    g1.line_chart(p["netliq"].tail(500), height=220)
+                if "stables" in p:
+                    g2.markdown("**Stablecoin supply ($bn)** — crypto dry powder")
+                    g2.line_chart(p["stables"].tail(500), height=220)
+                if "hy_oas" in p:
+                    st.markdown("**High-yield credit spread (%)** — the market's blood pressure (down = risk-on)")
+                    st.line_chart(p["hy_oas"].tail(500), height=200)
+                for err in p.get("errors", []):
+                    st.caption(f"⚠️ {err}")
+            except Exception as e:
+                st.warning(f"Pressure feeds unavailable right now: {e}")
 
 
-    # ── 🛰 sentinels ─────────────────────────────────────────────────────
+        # ── 🛰 sentinels ─────────────────────────────────────────────────────
     if _main == "Cascade Map" and _map == "Cascade Sentinels":
         _hub_title("🛰 Cascade Sentinels", "#FFD15C")
-        closes, asof = _require_closes()
-        st.caption("The 24/7 early-warning line — fast, frictionless assets that "
-                   "react to pressure changes first. Crypto trades all weekend; "
-                   "Saturday knows things about Monday.")
-        sb = ce.sentinel_board(closes)
-        if sb.empty:
-            st.info("No sentinel data loaded.")
+        if not st.session_state.get("mw_cascade_loaded"):
+            _cascade_idle_note()
         else:
-            st.dataframe(
-                sb.style.format({"Last": "{:,.2f}", "5d %": "{:+.1f}%",
-                                 "21d %": "{:+.1f}%", "ImpulseZ": "{:+.2f}"})
-                .map(lambda v: f"color:{GREEN}" if isinstance(v, str) and "surging" in v
-                     else (f"color:{RED}" if isinstance(v, str) and "dumping" in v else ""),
-                     subset=["Signal"])
-                .map(lambda v: _css_sign(v, dead=0.75), subset=["ImpulseZ"])
-                .map(lambda v: _css_sign(v, dead=0.5), subset=["5d %", "21d %"]),
-                width=_DF_WIDTH, hide_index=True,
-                column_config=_scan_col_cfgs({
-                    "Sentinel": st.column_config.Column(help=HELP["sentinel_why"]),
-                    "Last": st.column_config.Column(help="Latest close (or last trade for 24/7 assets)."),
-                    "5d %": st.column_config.Column(help="Return over the last 5 sessions — the raw move behind the impulse."),
-                    "21d %": st.column_config.Column(help="Return over the last month of sessions — the slower trend context."),
-                    "ImpulseZ": st.column_config.Column(help=HELP["impulse"]),
-                    "Signal": st.column_config.Column(help=HELP["sig_col"]),
-                }))
-            with st.expander("❓ Why these assets are the sentinels"):
-                st.markdown(HELP["sentinel_why"])
-            hot = sb[sb.ImpulseZ.abs() >= ce.WAVE_Z]
-            if not hot.empty:
-                names = ", ".join(hot.Sentinel)
-                st.markdown(f"⚡ **Sentinels firing:** {names} — check the Cascade "
-                            "Map for where these waves historically travel next.")
+            closes, asof = _require_closes()
+            st.caption("The 24/7 early-warning line — fast, frictionless assets that "
+                       "react to pressure changes first. Crypto trades all weekend; "
+                       "Saturday knows things about Monday.")
+            sb = ce.sentinel_board(closes)
+            if sb.empty:
+                st.info("No sentinel data loaded.")
+            else:
+                st.dataframe(
+                    sb.style.format({"Last": "{:,.2f}", "5d %": "{:+.1f}%",
+                                     "21d %": "{:+.1f}%", "ImpulseZ": "{:+.2f}"})
+                    .map(lambda v: f"color:{GREEN}" if isinstance(v, str) and "surging" in v
+                         else (f"color:{RED}" if isinstance(v, str) and "dumping" in v else ""),
+                         subset=["Signal"])
+                    .map(lambda v: _css_sign(v, dead=0.75), subset=["ImpulseZ"])
+                    .map(lambda v: _css_sign(v, dead=0.5), subset=["5d %", "21d %"]),
+                    width=_DF_WIDTH, hide_index=True,
+                    column_config=_scan_col_cfgs({
+                        "Sentinel": st.column_config.Column(help=HELP["sentinel_why"]),
+                        "Last": st.column_config.Column(help="Latest close (or last trade for 24/7 assets)."),
+                        "5d %": st.column_config.Column(help="Return over the last 5 sessions — the raw move behind the impulse."),
+                        "21d %": st.column_config.Column(help="Return over the last month of sessions — the slower trend context."),
+                        "ImpulseZ": st.column_config.Column(help=HELP["impulse"]),
+                        "Signal": st.column_config.Column(help=HELP["sig_col"]),
+                    }))
+                with st.expander("❓ Why these assets are the sentinels"):
+                    st.markdown(HELP["sentinel_why"])
+                hot = sb[sb.ImpulseZ.abs() >= ce.WAVE_Z]
+                if not hot.empty:
+                    names = ", ".join(hot.Sentinel)
+                    st.markdown(f"⚡ **Sentinels firing:** {names} — check the Cascade "
+                                "Map for where these waves historically travel next.")
 
 
-    # ── 📅 forced flows ──────────────────────────────────────────────────
+        # ── 📅 forced flows ──────────────────────────────────────────────────
     if _main == "Cascade Map" and _map == "Cascade Sentinels":
-        st.markdown("#### 🏛 Bond master switch — the risk-free rate & credit spreads")
-        try:
-            _bond = ce.bond_master_switch(closes)
-        except Exception as _be:
-            _bond = {}; st.caption(f"Bond reading unavailable: {_be}")
-        if _bond.get("available"):
-            _bz = _bond.get("score")
-            _bc = (RED if (_bz is not None and _bz <= -1.5) else
-                   "#d0b040" if (_bz is not None and _bz <= -0.75) else
-                   GREEN if (_bz is not None and _bz >= 1.0) else DIM)
-            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:5px solid {_bc};border-radius:10px;padding:12px 16px;margin-bottom:8px;">
-                <div style="font-weight:700;font-size:15px;">{_esc(_bond.get('warning',''))}</div>
-                <div style="color:{DIM};font-size:12px;margin-top:6px;">
-                The bond market is bigger than the stock market and prices everything
-                else off the risk-free rate. But only ONE bond signal earned a vote here:
-                <b>junk-credit spreads</b>. Tested on 3 years of real data, widening HY
-                spreads preceded weaker equities (rank IC +0.16 vs SPY 21 days out;
-                widest quintile +0.60% vs +2.00%). Investment-grade spreads showed
-                nothing, and rising long yields actually preceded <i>stronger</i>
-                equities in this sample — so those are shown as context and never scored.
-                </div></div>""", unsafe_allow_html=True)
-            _bl = pd.DataFrame(_bond["legs"])
-            _bl["Role"] = np.where(_bl.scored, "✅ scored", "· context")
-            st.dataframe(
-                _bl[["leg", "z", "move", "Role", "note"]]
-                .rename(columns={"leg": "Signal", "z": "z-score",
-                                 "move": "21d move %", "note": "Reading"})
-                .style.format({"z-score": "{:+.2f}", "21d move %": "{:+.2f}%"})
-                .map(lambda v: _css_sign(v) if isinstance(v, (int, float)) else "",
-                     subset=["z-score"]),
-                width=_DF_WIDTH, hide_index=True,
-                column_config=_scan_col_cfgs({
-                    "z-score": st.column_config.Column(help="How unusual this 21-day move is versus its own past year. Negative on a spread proxy = spreads WIDENING."),
-                    "Role": st.column_config.Column(help="Only the junk-credit leg tested predictive, so only it votes in the macro advisor."),
-                }))
-            st.caption("Why price ratios: HYG/IEF and LQD/IEF compare corporate bonds "
-                       "against duration-matched treasuries, so the ratio falling means "
-                       "credit is demanding more yield — spreads widening — without "
-                       "needing a yield feed.")
-        st.divider()
-        st.markdown("#### 🇯🇵 Yen carry trade monitor")
-        try:
-            _cm = ce.yen_carry_monitor(closes)
-        except Exception:
-            _cm = {}
-        if _cm:
-            _lc = {"unwind": RED, "stirring": "#d0b040", "carry_on": GREEN,
-                   "calm": GREEN, "na": DIM}.get(_cm["level"], DIM)
-            _chip = lambda lab, v, inv=False: (
-                f"<span style='background:#081325;border:1px solid #1d2b40;border-radius:6px;"
-                f"padding:3px 10px;font-size:12px;font-family:monospace;'>"
-                f"{lab} <b style='color:"
-                + (DIM if v is None else (RED if ((v >= 0.75) if inv else (v <= -0.75))
-                   else (GREEN if ((v <= -0.75) if inv else (v >= 0.75)) else DIM)))
-                + f";'>{'—' if v is None else f'{v:+.1f}z'}</b></span>")
-            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-left:5px solid {_lc};border-radius:10px;padding:12px 16px;margin-bottom:8px;">
-                <div style="font-weight:700;font-size:15px;">{_cm['label']}</div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">
-                  {_chip("🇯🇵 Yen (FXY)", _cm['yen_z'])}
-                  {_chip("Nikkei", _cm['nikkei_z'])}
-                  {_chip("QQQ", _cm['qqq_z'])}
-                  {_chip("BTC", _cm['btc_z'])}
-                  {_chip("VIX", _cm['vix_z'], inv=True)}
-                  <span style='background:#081325;border:1px solid #1d2b40;border-radius:6px;
-                    padding:3px 10px;font-size:12px;font-family:monospace;'
-                    title="Yen impulse amplified by how many risk assets confirm the drain — the unwind signature is COINCIDENCE, not any single number.">
-                    carry stress <b style='color:{_lc};'>{_cm['stress']:.1f}</b></span>
-                </div>
-                <div style="color:{DIM};font-size:12px;">
-                  {"Confirming: " + " · ".join(_cm['confirms']) if _cm['confirms'] else "No risk-asset confirmation — yen moves alone are currency noise, not forced deleveraging."}
-                </div>
-                <div style="color:{DIM};font-size:12px;margin-top:6px;">
-                  <b>The mechanism:</b> the world borrows at Japan's near-zero rates to fund
-                  risk positions everywhere. When the BoJ tightens or the yen surges, every
-                  yen-funded long gets margin-called at once — yen ▲ + QQQ/BTC ▼ + VIX ▲
-                  <i>simultaneously</i> is the signature (Aug 5, 2024). A weakening yen is
-                  the opposite: fresh carry = a global risk tailwind. A true unwind
-                  auto-flips the Top 20's regime to 🌩 Shock.
-                </div></div>""", unsafe_allow_html=True)
-        st.markdown("#### 🔭 Ratio sentinels — relationships that lead")
-        st.caption("Two assets divided by each other strip out the market and "
-                   "leave the message. These ratios historically turn before "
-                   "the index does.")
-        try:
-            _rs = ce.ratio_sentinel_impulses(closes)
-        except Exception:
-            _rs = pd.DataFrame()
-        if _rs.empty:
-            st.info("Ratio sentinels need their components in the node history — "
-                    "hit 🔄 Refresh on the Cascade Map after deploying the "
-                    "expanded node list.")
+        if not st.session_state.get("mw_cascade_loaded"):
+            _cascade_idle_note()
         else:
-            for _, r in _rs.iterrows():
-                zc = GREEN if r.z >= 1.0 else (RED if r.z <= -1.0 else DIM)
-                arrow = "▲" if (pd.notna(r.trend63) and r.trend63 > 0) else "▼"
-                ac = GREEN if arrow == "▲" else RED
-                st.markdown(f"""<div style="display:flex;align-items:center;gap:12px;
-                    background:#0c1829;border:1px solid #1d2b40;border-radius:8px;
-                    padding:8px 14px;margin-bottom:6px;">
-                    <span style="font-family:monospace;font-weight:700;min-width:96px;">{r['pair']}</span>
-                    <span style="min-width:150px;font-size:13px;">{r['name']}</span>
-                    <span style="font-family:monospace;color:{zc};min-width:76px;"
-                          title="Impulse z of the ratio's 5-day move vs its own 6-month history — same wave math as the nodes.">z {r.z:+.1f}</span>
-                    <span style="font-family:monospace;color:{ac};min-width:66px;"
-                          title="63-session trend of the ratio.">{arrow} {r.trend63:+.1%}</span>
-                    <span style="color:{DIM};font-size:12px;flex:1;">{r['meaning']}</span>
-                    </div>""", unsafe_allow_html=True)
+            st.markdown("#### 🏛 Bond master switch — the risk-free rate & credit spreads")
+            try:
+                _bond = ce.bond_master_switch(closes)
+            except Exception as _be:
+                _bond = {}; st.caption(f"Bond reading unavailable: {_be}")
+            if _bond.get("available"):
+                _bz = _bond.get("score")
+                _bc = (RED if (_bz is not None and _bz <= -1.5) else
+                       "#d0b040" if (_bz is not None and _bz <= -0.75) else
+                       GREEN if (_bz is not None and _bz >= 1.0) else DIM)
+                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-left:5px solid {_bc};border-radius:10px;padding:12px 16px;margin-bottom:8px;">
+                    <div style="font-weight:700;font-size:15px;">{_esc(_bond.get('warning',''))}</div>
+                    <div style="color:{DIM};font-size:12px;margin-top:6px;">
+                    The bond market is bigger than the stock market and prices everything
+                    else off the risk-free rate. But only ONE bond signal earned a vote here:
+                    <b>junk-credit spreads</b>. Tested on 3 years of real data, widening HY
+                    spreads preceded weaker equities (rank IC +0.16 vs SPY 21 days out;
+                    widest quintile +0.60% vs +2.00%). Investment-grade spreads showed
+                    nothing, and rising long yields actually preceded <i>stronger</i>
+                    equities in this sample — so those are shown as context and never scored.
+                    </div></div>""", unsafe_allow_html=True)
+                _bl = pd.DataFrame(_bond["legs"])
+                _bl["Role"] = np.where(_bl.scored, "✅ scored", "· context")
+                st.dataframe(
+                    _bl[["leg", "z", "move", "Role", "note"]]
+                    .rename(columns={"leg": "Signal", "z": "z-score",
+                                     "move": "21d move %", "note": "Reading"})
+                    .style.format({"z-score": "{:+.2f}", "21d move %": "{:+.2f}%"})
+                    .map(lambda v: _css_sign(v) if isinstance(v, (int, float)) else "",
+                         subset=["z-score"]),
+                    width=_DF_WIDTH, hide_index=True,
+                    column_config=_scan_col_cfgs({
+                        "z-score": st.column_config.Column(help="How unusual this 21-day move is versus its own past year. Negative on a spread proxy = spreads WIDENING."),
+                        "Role": st.column_config.Column(help="Only the junk-credit leg tested predictive, so only it votes in the macro advisor."),
+                    }))
+                st.caption("Why price ratios: HYG/IEF and LQD/IEF compare corporate bonds "
+                           "against duration-matched treasuries, so the ratio falling means "
+                           "credit is demanding more yield — spreads widening — without "
+                           "needing a yield feed.")
+            st.divider()
+            st.markdown("#### 🇯🇵 Yen carry trade monitor")
+            try:
+                _cm = ce.yen_carry_monitor(closes)
+            except Exception:
+                _cm = {}
+            if _cm:
+                _lc = {"unwind": RED, "stirring": "#d0b040", "carry_on": GREEN,
+                       "calm": GREEN, "na": DIM}.get(_cm["level"], DIM)
+                _chip = lambda lab, v, inv=False: (
+                    f"<span style='background:#081325;border:1px solid #1d2b40;border-radius:6px;"
+                    f"padding:3px 10px;font-size:12px;font-family:monospace;'>"
+                    f"{lab} <b style='color:"
+                    + (DIM if v is None else (RED if ((v >= 0.75) if inv else (v <= -0.75))
+                       else (GREEN if ((v <= -0.75) if inv else (v >= 0.75)) else DIM)))
+                    + f";'>{'—' if v is None else f'{v:+.1f}z'}</b></span>")
+                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-left:5px solid {_lc};border-radius:10px;padding:12px 16px;margin-bottom:8px;">
+                    <div style="font-weight:700;font-size:15px;">{_cm['label']}</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">
+                      {_chip("🇯🇵 Yen (FXY)", _cm['yen_z'])}
+                      {_chip("Nikkei", _cm['nikkei_z'])}
+                      {_chip("QQQ", _cm['qqq_z'])}
+                      {_chip("BTC", _cm['btc_z'])}
+                      {_chip("VIX", _cm['vix_z'], inv=True)}
+                      <span style='background:#081325;border:1px solid #1d2b40;border-radius:6px;
+                        padding:3px 10px;font-size:12px;font-family:monospace;'
+                        title="Yen impulse amplified by how many risk assets confirm the drain — the unwind signature is COINCIDENCE, not any single number.">
+                        carry stress <b style='color:{_lc};'>{_cm['stress']:.1f}</b></span>
+                    </div>
+                    <div style="color:{DIM};font-size:12px;">
+                      {"Confirming: " + " · ".join(_cm['confirms']) if _cm['confirms'] else "No risk-asset confirmation — yen moves alone are currency noise, not forced deleveraging."}
+                    </div>
+                    <div style="color:{DIM};font-size:12px;margin-top:6px;">
+                      <b>The mechanism:</b> the world borrows at Japan's near-zero rates to fund
+                      risk positions everywhere. When the BoJ tightens or the yen surges, every
+                      yen-funded long gets margin-called at once — yen ▲ + QQQ/BTC ▼ + VIX ▲
+                      <i>simultaneously</i> is the signature (Aug 5, 2024). A weakening yen is
+                      the opposite: fresh carry = a global risk tailwind. A true unwind
+                      auto-flips the Top 20's regime to 🌩 Shock.
+                    </div></div>""", unsafe_allow_html=True)
+            st.markdown("#### 🔭 Ratio sentinels — relationships that lead")
+            st.caption("Two assets divided by each other strip out the market and "
+                       "leave the message. These ratios historically turn before "
+                       "the index does.")
+            try:
+                _rs = ce.ratio_sentinel_impulses(closes)
+            except Exception:
+                _rs = pd.DataFrame()
+            if _rs.empty:
+                st.info("Ratio sentinels need their components in the node history — "
+                        "hit 🔄 Refresh on the Cascade Map after deploying the "
+                        "expanded node list.")
+            else:
+                for _, r in _rs.iterrows():
+                    zc = GREEN if r.z >= 1.0 else (RED if r.z <= -1.0 else DIM)
+                    arrow = "▲" if (pd.notna(r.trend63) and r.trend63 > 0) else "▼"
+                    ac = GREEN if arrow == "▲" else RED
+                    st.markdown(f"""<div style="display:flex;align-items:center;gap:12px;
+                        background:#0c1829;border:1px solid #1d2b40;border-radius:8px;
+                        padding:8px 14px;margin-bottom:6px;">
+                        <span style="font-family:monospace;font-weight:700;min-width:96px;">{r['pair']}</span>
+                        <span style="min-width:150px;font-size:13px;">{r['name']}</span>
+                        <span style="font-family:monospace;color:{zc};min-width:76px;"
+                              title="Impulse z of the ratio's 5-day move vs its own 6-month history — same wave math as the nodes.">z {r.z:+.1f}</span>
+                        <span style="font-family:monospace;color:{ac};min-width:66px;"
+                              title="63-session trend of the ratio.">{arrow} {r.trend63:+.1%}</span>
+                        <span style="color:{DIM};font-size:12px;flex:1;">{r['meaning']}</span>
+                        </div>""", unsafe_allow_html=True)
 
     if _main == "Cascade Map" and _map == "Forced Flows":
         _hub_title("📅 Forced Flows", "#6EE7B7")
-        st.caption("The closest thing to prophecy that legally exists: flows that "
-                   "are scheduled and price-insensitive. They don't care what the "
-                   "chart looks like — they have to trade.")
-        with st.expander("❓ Why scheduled flows are tradeable"):
-            st.markdown(
-                "Index funds, pensions, and dealers are **forced** to trade on "
-                "these dates regardless of price — a rebalance must buy the "
-                "added stock at the close, a pension must restore its 60/40 mix "
-                "at month-end, dealers must hedge expiring options. Because the "
-                "flow is mechanical and the date is public, the pressure it "
-                "creates (and the reversal after it passes) is one of the few "
-                "genuinely knowable things in markets. Each card explains its "
-                "own mechanism.")
-        ff = ce.forced_flows(closes=closes, earnings=_earnings())
-        for _, ev in ff.iterrows():
-            days = (ev.Date - pd.Timestamp.today().date()).days
-            st.markdown(
-                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
-                border-radius:10px;padding:12px 14px;margin-bottom:10px;">
-                <span style="color:{ACCENT};font-weight:700;">{ev.Date:%a %b %d}</span>
-                <span style="color:{DIM};"> · in {days}d</span><br>
-                <span style="font-weight:700;font-size:15px;">{ev.Event}</span><br>
-                <span style="color:{DIM};font-size:13px;">{ev.Why}</span>
-                <div style="margin-top:8px;font-size:13px;line-height:1.7;">
-                  <span style="color:{ACCENT};">👥 Who's forced:</span> {ev.Who}<br>
-                  <span style="color:{ACCENT};">💰 What they trade:</span> {ev.What}<br>
-                  <span style="color:{ACCENT};">🎯 What to watch:</span> {ev.Watch}
-                </div>
-                <div style="margin-top:8px;background:#081325;border:1px solid #1d2b40;
-                  border-radius:8px;padding:8px 12px;font-size:13px;line-height:1.6;">
-                  <span style="color:{GREEN};font-weight:700;">{ev.Buy}</span>
-                </div></div>""", unsafe_allow_html=True)
+        if not st.session_state.get("mw_cascade_loaded"):
+            _cascade_idle_note()
+        else:
+            st.caption("The closest thing to prophecy that legally exists: flows that "
+                       "are scheduled and price-insensitive. They don't care what the "
+                       "chart looks like — they have to trade.")
+            with st.expander("❓ Why scheduled flows are tradeable"):
+                st.markdown(
+                    "Index funds, pensions, and dealers are **forced** to trade on "
+                    "these dates regardless of price — a rebalance must buy the "
+                    "added stock at the close, a pension must restore its 60/40 mix "
+                    "at month-end, dealers must hedge expiring options. Because the "
+                    "flow is mechanical and the date is public, the pressure it "
+                    "creates (and the reversal after it passes) is one of the few "
+                    "genuinely knowable things in markets. Each card explains its "
+                    "own mechanism.")
+            ff = ce.forced_flows(closes=closes, earnings=_earnings())
+            for _, ev in ff.iterrows():
+                days = (ev.Date - pd.Timestamp.today().date()).days
+                st.markdown(
+                    f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+                    <span style="color:{ACCENT};font-weight:700;">{ev.Date:%a %b %d}</span>
+                    <span style="color:{DIM};"> · in {days}d</span><br>
+                    <span style="font-weight:700;font-size:15px;">{ev.Event}</span><br>
+                    <span style="color:{DIM};font-size:13px;">{ev.Why}</span>
+                    <div style="margin-top:8px;font-size:13px;line-height:1.7;">
+                      <span style="color:{ACCENT};">👥 Who's forced:</span> {ev.Who}<br>
+                      <span style="color:{ACCENT};">💰 What they trade:</span> {ev.What}<br>
+                      <span style="color:{ACCENT};">🎯 What to watch:</span> {ev.Watch}
+                    </div>
+                    <div style="margin-top:8px;background:#081325;border:1px solid #1d2b40;
+                      border-radius:8px;padding:8px 12px;font-size:13px;line-height:1.6;">
+                      <span style="color:{GREEN};font-weight:700;">{ev.Buy}</span>
+                    </div></div>""", unsafe_allow_html=True)
 
 
-    # ── 🔬 validation lab ────────────────────────────────────────────────
+        # ── 🔬 validation lab ────────────────────────────────────────────────
     if _main == "Cascade Map" and _map == "Cascade Validation Lab":
         _hub_title("🔬 Cascade Validation Lab", "#F0A6FF")
-        closes, asof = _require_closes()
-        st.caption("Trust nothing you haven't walk-forward tested. This re-runs "
-                   "the honest experiment: weekly, re-estimate the graph on "
-                   "trailing data only, follow the top-5 wave forecasts, compare "
-                   "to the equal-weight universe.")
-        if st.button("🔬 Run walk-forward validation", type="primary"):
-            with st.spinner("Walking forward through history — a few minutes…"):
-                bt, summ = ce.backtest(closes)
-            if not summ:
-                st.warning("Not enough history to validate — need ~1.5 years of data.")
-            else:
-                c = st.columns(4)
-                c[0].metric("Periods", summ["periods"], help=HELP["periods"])
-                c[1].metric("Mean 10d fwd", f"{summ['mean_fwd']:+.2%}",
-                            f"{summ['mean_excess']:+.2%} vs universe",
-                            help=HELP["mean_fwd"])
-                c[2].metric("Beat universe", f"{summ['hit_vs_bench']:.0%}",
-                            help=HELP["beat"])
-                c[3].metric("Sharpe (strat vs univ)",
-                            f"{summ['sharpe']:.2f} / {summ['bench_sharpe']:.2f}",
-                            help=HELP["sharpe"])
-                def _span(v):
-                    col = GREEN if v > 0 else (RED if v < 0 else DIM)
-                    return f"<span style='color:{col};font-weight:700'>{v:+.2%}</span>"
-                st.markdown(
-                    f"**Honesty split** — 1st half excess: {_span(summ['h1_excess'])} · "
-                    f"2nd half excess: {_span(summ['h2_excess'])} "
-                    + ("✅ holds up out-of-sample" if summ['h2_excess'] > 0 else
-                       "⚠️ second half is weak — treat forecasts skeptically"),
-                    unsafe_allow_html=True)
-                with st.expander("❓ What the honesty split means"):
-                    st.markdown(HELP["honesty"])
-                eq = (1 + bt.set_index("date")[["strat", "bench"]]).cumprod()
-                st.line_chart(eq, height=260)
-                st.dataframe(
-                    bt.tail(20).style.format(
-                        {"strat": "{:+.2%}", "bench": "{:+.2%}", "excess": "{:+.2%}"})
-                    .map(lambda v: _css_sign(v), subset=["strat", "excess"])
-                    .map(lambda v: f"color:{DIM}", subset=["bench"]),
-                    width=_DF_WIDTH, hide_index=True,
-                    column_config=_scan_col_cfgs({
-                        "strat": st.column_config.Column(help="Direction-adjusted mean return of the top-5 forecasts that week."),
-                        "bench": st.column_config.Column(help="Equal-weight universe over the same horizon — the bar to beat."),
-                        "excess": st.column_config.Column(help="strat minus bench: green = the forecasts earned their keep that week."),
-                    }))
-        st.caption("One year is one regime. Cascade edges break when regimes "
-                   "flip — that is why they are re-estimated every week and why "
-                   "this tab exists. Not investment advice.")
+        if not st.session_state.get("mw_cascade_loaded"):
+            _cascade_idle_note()
+        else:
+            closes, asof = _require_closes()
+            st.caption("Trust nothing you haven't walk-forward tested. This re-runs "
+                       "the honest experiment: weekly, re-estimate the graph on "
+                       "trailing data only, follow the top-5 wave forecasts, compare "
+                       "to the equal-weight universe.")
+            if st.button("🔬 Run walk-forward validation", type="primary"):
+                with st.spinner("Walking forward through history — a few minutes…"):
+                    bt, summ = ce.backtest(closes)
+                if not summ:
+                    st.warning("Not enough history to validate — need ~1.5 years of data.")
+                else:
+                    c = st.columns(4)
+                    c[0].metric("Periods", summ["periods"], help=HELP["periods"])
+                    c[1].metric("Mean 10d fwd", f"{summ['mean_fwd']:+.2%}",
+                                f"{summ['mean_excess']:+.2%} vs universe",
+                                help=HELP["mean_fwd"])
+                    c[2].metric("Beat universe", f"{summ['hit_vs_bench']:.0%}",
+                                help=HELP["beat"])
+                    c[3].metric("Sharpe (strat vs univ)",
+                                f"{summ['sharpe']:.2f} / {summ['bench_sharpe']:.2f}",
+                                help=HELP["sharpe"])
+                    def _span(v):
+                        col = GREEN if v > 0 else (RED if v < 0 else DIM)
+                        return f"<span style='color:{col};font-weight:700'>{v:+.2%}</span>"
+                    st.markdown(
+                        f"**Honesty split** — 1st half excess: {_span(summ['h1_excess'])} · "
+                        f"2nd half excess: {_span(summ['h2_excess'])} "
+                        + ("✅ holds up out-of-sample" if summ['h2_excess'] > 0 else
+                           "⚠️ second half is weak — treat forecasts skeptically"),
+                        unsafe_allow_html=True)
+                    with st.expander("❓ What the honesty split means"):
+                        st.markdown(HELP["honesty"])
+                    eq = (1 + bt.set_index("date")[["strat", "bench"]]).cumprod()
+                    st.line_chart(eq, height=260)
+                    st.dataframe(
+                        bt.tail(20).style.format(
+                            {"strat": "{:+.2%}", "bench": "{:+.2%}", "excess": "{:+.2%}"})
+                        .map(lambda v: _css_sign(v), subset=["strat", "excess"])
+                        .map(lambda v: f"color:{DIM}", subset=["bench"]),
+                        width=_DF_WIDTH, hide_index=True,
+                        column_config=_scan_col_cfgs({
+                            "strat": st.column_config.Column(help="Direction-adjusted mean return of the top-5 forecasts that week."),
+                            "bench": st.column_config.Column(help="Equal-weight universe over the same horizon — the bar to beat."),
+                            "excess": st.column_config.Column(help="strat minus bench: green = the forecasts earned their keep that week."),
+                        }))
+            st.caption("One year is one regime. Cascade edges break when regimes "
+                       "flip — that is why they are re-estimated every week and why "
+                       "this tab exists. Not investment advice.")
 
 
-    # ── 📖 guide: every wave, every term, every key ──────────────────────
+        # ── 📖 guide: every wave, every term, every key ──────────────────────
     if _main == "Cascade Map" and _map == "Guide":
         _hub_title("📖 Guide", "#F4F8FF")
-        _try_closes()
+        if st.session_state.get("mw_cascade_loaded"):
+            _try_closes()
+        else:
+            st.caption("Node prices stay unloaded until you hit Refresh on Market Weather.")
         _cats = {"core": "🏛 Core Indices", "sector": "🏭 Sectors",
                  "theme": "🎯 Themes & Industries", "factor": "🧬 Factors",
                  "breadth": "📊 Breadth", "country": "🌍 Countries",
@@ -11482,7 +11588,7 @@ with st.container(border=True, key="mw_page"):
             ("Analog forecast", "We find every past (day, stock) that looked like this one does now — same momentum percentile, range position, volume buzz, trend — and report what actually happened to them next. A distribution, not a prophecy."),
             ("Landing zone", "The middle 80% of analog outcomes (10th to 90th percentile). Its WIDTH is the risk."),
             ("Pop / crash odds", "Share of analogs that gained/lost 15%+ in 21 sessions, with the lift vs an average stock's base rate."),
-            ("Macro regime", "The app's live read of the environment from oil, the dollar, VIX, gold, and the pressure gauge. Eight playbooks: Easy Money, Hot Inflation, Risk-On Calm, Fear / Risk-Off, Rising Dollar, Debasement, Reserve Reset, No Clear Driver. Full win/lose writeups live in the 🔭 Lenses tab."),
+            ("Macro regime", "The app's live read of the environment from oil, the dollar, VIX, gold, credit, Shiller CAPE, and the pressure gauge. Playbooks include Easy Money, Hot Inflation, Risk-On Calm, Fear / Risk-Off, Rising Dollar, Debasement, Reserve Reset, AI Power & Credit, Yen Carry, Diesel Crisis, and No Clear Driver. Full writeups live in the 🔭 Lenses tab."),
             ("Macro lens", "A playbook overlaid on Top 20, ShakeOut, or APEX. Each tab has its own lens and Recommend button. It re-orders names that already passed that tab's filter. It does not change the Felix score, cascade score, analog odds, shakeout checklist, or APEX gates. Off ignores a detected regime; Auto uses the live call; a named lens is a what-if."),
             ("MacroFit", "Sector × industry multiplier from the current lens. Auto shrinks it toward 1.00 when the live tape does not confirm the lead sector."),
             ("Pressure gauge", "Net Fed liquidity + stablecoin flows + credit spreads combined into −3…+3. Positive = money looking for a home."),
