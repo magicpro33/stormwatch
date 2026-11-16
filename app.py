@@ -372,6 +372,40 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     color: #143028 !important;
     border-color: #2E7D4F !important;
 }}
+.stApp button[data-testid^="stBaseButton-segmented_control"],
+.stApp button[data-testid^="stBaseButton-segmented_control"] * {{
+    background: #F6F1E7 !important;
+    background-color: #F6F1E7 !important;
+    color: #2C2416 !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+}}
+.stApp button[data-testid="stBaseButton-segmented_controlActive"],
+.stApp button[data-testid="stBaseButton-segmented_controlActive"] * {{
+    background: #F6F1E7 !important;
+    background-color: #F6F1E7 !important;
+    color: #2C2416 !important;
+    border: 2px solid #C6A15B !important;
+    box-shadow: none !important;
+}}
+.stApp [data-baseweb="select"] > div,
+.stApp [data-baseweb="select"] span,
+.stApp [data-baseweb="select"] div,
+.stApp [data-baseweb="popover"] [role="listbox"],
+.stApp [data-baseweb="popover"] [role="option"],
+.stApp [data-baseweb="menu"],
+.stApp [data-baseweb="menu"] li,
+.stApp [role="listbox"],
+.stApp [role="option"] {{
+    background: #FFFCF6 !important;
+    background-color: #FFFCF6 !important;
+    color: #2C2416 !important;
+}}
+.stApp [data-testid="stSlider"] [role="slider"] {{
+    background: #3fbf7f !important;
+    background-color: #3fbf7f !important;
+    border-color: #2E7D4F !important;
+}}
 :root, .stApp {{
     --text-color: #2C2416;
     --background-color: #F6F1E7;

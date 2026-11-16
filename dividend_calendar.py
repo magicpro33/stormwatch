@@ -55,96 +55,103 @@ def _html(markup: str) -> None:
         st.markdown(markup.replace("$", "&#36;"), unsafe_allow_html=True)
 
 
+def _fortune() -> bool:
+    return str(st.session_state.get("mw_look") or "") == "Fortune"
+
+
 def _css() -> None:
+    navy, ink, steel, line, dim = NAVY, INK, STEEL, LINE, DIM
+    accent, orange, blue, gold = ACCENT, ORANGE_ALT, BLUE, GOLD
+    if _fortune():
+        navy, ink, steel = "#FFFCF6", "#2C2416", "#F3EBDD"
+        line, dim = "#E3D5BE", "#5C5346"
+        accent, orange, blue, gold = "#5C3A1A", "#3fbf7f", "#5C3A1A", "#8A6A2F"
     _html(
         f"""<style>
-.dc-badge{{background:{NAVY};border:1px solid {LINE};border-left:4px solid {ACCENT};
-  border-radius:10px;padding:8px 14px;margin:6px 0 12px;font-size:13px;color:{INK}}}
+.dc-badge{{background:{navy};border:1px solid {line};border-left:4px solid {accent};
+  border-radius:10px;padding:8px 14px;margin:6px 0 12px;font-size:13px;color:{ink}}}
 .dc-grid{{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;margin-top:8px}}
 .dc-hdr{{text-align:center;font-size:11px;font-weight:700;letter-spacing:.1em;
-  text-transform:uppercase;color:{DIM};padding:4px 0}}
-.dc-day{{background:{NAVY};border:1px solid {LINE};border-radius:8px;min-height:86px;padding:7px 6px}}
-.dc-day.today{{border:2px solid {ACCENT}}}
+  text-transform:uppercase;color:{dim};padding:4px 0;background:{navy}}}
+.dc-day{{background:{navy};border:1px solid {line};border-radius:8px;min-height:86px;padding:7px 6px}}
+.dc-day.today{{border:2px solid {accent}}}
 .dc-day.empty{{background:transparent;border:none;min-height:0}}
-.dc-num{{font-size:11px;font-weight:600;color:{DIM};margin-bottom:4px}}
-.dc-day.today .dc-num{{color:{ACCENT};font-weight:800}}
+.dc-num{{font-size:11px;font-weight:600;color:{dim};margin-bottom:4px}}
+.dc-day.today .dc-num{{color:{accent};font-weight:800}}
 .dc-chip{{display:block;border-radius:4px;padding:2px 5px;margin-bottom:3px;
   font-size:11px;font-weight:700;font-family:ui-monospace,monospace;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid}}
 .dc-t1{{background:rgba(63,191,127,.16);color:{GREEN};border-color:{GREEN}}}
 .dc-t2{{background:rgba(63,191,127,.10);color:#6fd49a;border-color:#6fd49a}}
-.dc-t3{{background:rgba(232,119,34,.14);color:{ACCENT};border-color:{ACCENT}}}
+.dc-t3{{background:rgba(63,191,127,.14);color:{orange};border-color:{orange}}}
 .dc-t4{{background:rgba(232,119,34,.08);color:#f0a05a;border-color:#f0a05a}}
 .dc-t5{{background:rgba(224,82,82,.12);color:{RED};border-color:{RED}}}
 .dc-leg{{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px}}
-.dc-leg span{{padding:2px 10px;border-radius:4px;font-size:11px;font-weight:700;color:{INK}}}
-.dc-month{{text-align:center;font-size:20px;font-weight:800;color:{INK};margin:4px 0;
-  background:{NAVY};border:1px solid {LINE};border-left:4px solid {ORANGE_ALT};
-  border-right:4px solid {ORANGE_ALT};border-radius:10px;padding:6px 10px}}
-.dc-calc{{background:{NAVY};border:1px solid {LINE};border-left:4px solid {ACCENT};
-  border-radius:10px;padding:16px 18px;color:{INK}}}
-.dc-res{{background:#081325;border:1px solid {LINE};border-left:4px solid {GREEN};
+.dc-leg span{{padding:2px 10px;border-radius:4px;font-size:11px;font-weight:700;color:{ink}}}
+.dc-month{{text-align:center;font-size:20px;font-weight:800;color:{ink};margin:4px 0;
+  background:{navy};border:1px solid {line};border-left:4px solid {orange};
+  border-right:4px solid {orange};border-radius:10px;padding:6px 10px}}
+.dc-calc{{background:{navy};border:1px solid {line};border-left:4px solid {accent};
+  border-radius:10px;padding:16px 18px;color:{ink}}}
+.dc-res{{background:{navy};border:1px solid {line};border-left:4px solid {GREEN};
   border-radius:10px;padding:14px 16px}}
-.dc-sechead{{background:{NAVY};border:2px solid color-mix(in srgb,var(--sc,{ACCENT}) 50%,{LINE});
+.dc-sechead{{background:{navy};border:2px solid {line};
   border-radius:16px;padding:12px 18px;margin:18px 0 10px;font-size:15px;font-weight:800;
-  color:var(--sc,{ACCENT});letter-spacing:.02em;
-  box-shadow:0 0 18px color-mix(in srgb,var(--sc,{ACCENT}) 20%,transparent)}}
-.dc-sechead small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
+  color:{accent};letter-spacing:.02em}}
+.dc-sechead small{{font-weight:500;font-size:12px;color:{dim};margin-left:8px}}
 .dc-sechead.lg{{font-size:21px;padding:14px 20px}}
 .dc-sechead.lg small{{font-size:14px}}
 .dc-sechead.xl{{font-size:24px;padding:16px 22px;text-align:center}}
 .dc-sechead.xl small{{font-size:15px}}
-.dc-cinfo{{font-size:15px;font-weight:500;color:{DIM};margin-top:6px;letter-spacing:0}}
-.dc-cinfo b{{color:{INK};font-family:ui-monospace,monospace}}
-.dc-title{{background:{NAVY};border:2px solid color-mix(in srgb,#F0A6FF 55%,{LINE});
+.dc-cinfo{{font-size:15px;font-weight:500;color:{dim};margin-top:6px;letter-spacing:0}}
+.dc-cinfo b{{color:{ink};font-family:ui-monospace,monospace}}
+.dc-title{{background:{navy};border:2px solid {line};
   border-radius:20px;padding:16px 22px;margin:4px 0 14px;text-align:center;
-  font-size:24px;font-weight:800;color:#F0A6FF;letter-spacing:.02em;
-  box-shadow:0 0 0 1px color-mix(in srgb,#F0A6FF 12%,transparent),
-             0 0 24px color-mix(in srgb,#F0A6FF 20%,transparent)}}
+  font-size:24px;font-weight:800;color:{accent};letter-spacing:.02em}}
 .dc-metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0}}
 @media(max-width:720px){{.dc-metrics{{grid-template-columns:repeat(2,minmax(0,1fr))}}}}
-.dc-met{{background:{NAVY};border:1px solid {LINE};border-left:4px solid var(--mc,{ACCENT});
+.dc-met{{background:{navy};border:1px solid {line};border-left:4px solid var(--mc,{accent});
   border-radius:10px;padding:10px 14px}}
-.dc-mlbl{{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:{DIM}}}
-.dc-mval{{font-family:ui-monospace,monospace;font-size:24px;font-weight:800;color:var(--mc,{INK});margin-top:2px}}
-.dc-msub{{font-size:12px;color:{DIM};font-family:ui-monospace,monospace}}
-.dc-box{{background:{NAVY};border:1px solid {LINE};border-left:4px solid var(--bc,{BLUE});
-  border-radius:10px;padding:12px 16px;color:{INK};font-size:14px;line-height:1.55}}
+.dc-mlbl{{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:{dim}}}
+.dc-mval{{font-family:ui-monospace,monospace;font-size:24px;font-weight:800;color:var(--mc,{ink});margin-top:2px}}
+.dc-msub{{font-size:12px;color:{dim};font-family:ui-monospace,monospace}}
+.dc-box{{background:{navy};border:1px solid {line};border-left:4px solid var(--bc,{accent});
+  border-radius:10px;padding:12px 16px;color:{ink};font-size:14px;line-height:1.55}}
 .dc-box ul{{margin:0;padding-left:20px}}
 .dc-box li{{margin-bottom:6px}}
 .dc-wrap.pj{{border-left:4px solid {PURPLE}}}
 .dc-wrap.tb{{border-left:4px solid {GREEN}}}
-.dc-cal{{background:{NAVY};border:1px solid {LINE};border-left:4px solid {ACCENT};
+.dc-cal{{background:{navy};border:1px solid {line};border-left:4px solid {accent};
   border-radius:10px;padding:10px 12px}}
-.dc-leg{{background:{NAVY};border:1px solid {LINE};border-left:4px solid {GOLD};
+.dc-leg{{background:{navy};border:1px solid {line};border-left:4px solid {gold};
   border-radius:10px;padding:8px 12px}}
-.st-key-dc_filters{{border-left:4px solid {BLUE};border-radius:10px}}
+.st-key-dc_filters{{border-left:4px solid {accent};border-radius:10px}}
 [class*="st-key-dc_calcbox"]{{border-left:4px solid {GREEN};border-radius:10px}}
 .dc-row{{display:flex;justify-content:space-between;align-items:baseline;
   padding:6px 0;border-bottom:1px solid #1d2b40}}
 .dc-row:last-child{{border-bottom:none}}
-.dc-lbl{{font-size:13px;color:{DIM}}}
-.dc-val{{font-family:ui-monospace,monospace;font-size:15px;font-weight:700;color:{INK}}}
+.dc-lbl{{font-size:13px;color:{dim}}}
+.dc-val{{font-family:ui-monospace,monospace;font-size:15px;font-weight:700;color:{ink}}}
 .dc-val.big{{font-size:20px;color:{GREEN}}}
-.dc-buy{{background:{RED};color:{INK};padding:2px 8px;border-radius:4px;
+.dc-buy{{background:{RED};color:#FFFCF6;padding:2px 8px;border-radius:4px;
   font-size:11px;font-weight:800}}
-.dc-tmr{{background:{GREEN};color:#081325;padding:2px 8px;border-radius:4px;
+.dc-tmr{{background:{GREEN};color:#143028;padding:2px 8px;border-radius:4px;
   font-size:11px;font-weight:800}}
-.dc-wrap{{max-height:480px;overflow-y:auto;border:1px solid {LINE};border-radius:8px;background:{NAVY}}}
+.dc-wrap{{max-height:480px;overflow-y:auto;border:1px solid {line};border-radius:8px;background:{navy}}}
 .dc-stbl{{width:100%;border-collapse:collapse}}
-.dc-stbl thead th{{position:sticky;top:0;z-index:2;background:{STEEL};color:{DIM};
+.dc-stbl thead th{{position:sticky;top:0;z-index:2;background:{steel};color:{dim};
   font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:10px;
-  text-align:left;white-space:nowrap;border-bottom:1px solid {LINE}}}
-.dc-stbl tbody td{{padding:10px;border-bottom:1px solid #1d2b40;font-size:13px;color:{INK};background:{NAVY}}}
+  text-align:left;white-space:nowrap;border-bottom:1px solid {line}}}
+.dc-stbl tbody td{{padding:10px;border-bottom:1px solid {line};font-size:13px;color:{ink};background:{navy}}}
 .dc-stbl tbody tr:last-child td{{border-bottom:none}}
-.dc-stbl tbody tr.dc-trow:hover td{{background:{STEEL}}}
-.dc-stbl tbody tr.dc-sel td{{background:#214c70;border-left:3px solid {ACCENT}}}
-.dc-tk{{font-family:ui-monospace,monospace;font-weight:800;color:{INK}}}
-.dc-sec{{font-size:12px;color:{DIM}}}
-.dc-tdn{{font-family:ui-monospace,monospace;color:{INK}}}
-.dc-fr{{font-size:12px;color:{DIM}}}
-.dc-dt{{font-family:ui-monospace,monospace;color:{DIM}}}
-.dc-cd{{font-family:ui-monospace,monospace;color:{INK};white-space:nowrap}}
+.dc-stbl tbody tr.dc-trow:hover td{{background:{steel}}}
+.dc-stbl tbody tr.dc-sel td{{background:{steel};border-left:3px solid {accent}}}
+.dc-tk{{font-family:ui-monospace,monospace;font-weight:800;color:{ink}}}
+.dc-sec{{font-size:12px;color:{dim}}}
+.dc-tdn{{font-family:ui-monospace,monospace;color:{ink}}}
+.dc-fr{{font-size:12px;color:{dim}}}
+.dc-dt{{font-family:ui-monospace,monospace;color:{dim}}}
+.dc-cd{{font-family:ui-monospace,monospace;color:{ink};white-space:nowrap}}
 .dc-yb{{padding:2px 9px;border-radius:100px;font-family:ui-monospace,monospace;
   font-size:12px;font-weight:700;background:rgba(255,255,255,.06);color:var(--yc);
   border:1px solid var(--yc)}}
@@ -161,6 +168,10 @@ def _sechead(title, color=ACCENT, sub="", size=""):
 def _metric_cards(cards):
     """cards = [(label, value, sub, color), ...] rendered as bordered cards."""
     out = ['<div class="dc-metrics">']
+    if _fortune():
+        swap = {ACCENT: "#3fbf7f", BLUE: "#5C3A1A", GOLD: "#8A6A2F", "#7FD4FF": "#5C3A1A",
+                "#4aa3df": "#5C3A1A", "#E87722": "#3fbf7f"}
+        cards = [(a, b, c, swap.get(color, color)) for a, b, c, color in cards]
     for label, value, sub, color in cards:
         out.append(
             f'<div class="dc-met" style="--mc:{color}">'
