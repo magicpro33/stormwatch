@@ -749,6 +749,9 @@ HELP = {
         "(pure liquidity canaries — the weekend knows things about Monday); "
         "the yen is the carry-trade thermometer (yen surging = leverage "
         "unwinding globally); copper and gold split growth vs fear; "
+        "oil is the fast energy-shock tell and natural gas is the fast "
+        "US electricity tell (UNG is a shock gauge — futures roll eats it, "
+        "so read the jump, don't own it); "
         "semiconductors are the equity market's nervous system; high-yield "
         "credit sniffs stress first; VIX is the price of insurance itself.",
     "sig_col": "🔥 surging / 🧊 dumping = the impulse z crossed ±1.25. A "
@@ -958,9 +961,36 @@ with _ht:
 
 
 # ── data ─────────────────────────────────────────────────────────────
-@st.cache_data(ttl=3600, max_entries=1, show_spinner="Loading 3 years of global node history…")
+# Held on the cascade_engine module, which Streamlit does not re-import
+# between tab clicks. st.cache_data copies its return value on every call,
+# and copying the multi-year node panel was the pause between tabs.
+
+
+def _run_memo() -> dict:
+    box = getattr(ce, "_run_memo", None)
+    if not isinstance(box, dict):
+        box = {"hist": None, "pressure": None}
+        ce._run_memo = box
+    return box
+
+
+def _drop_run_memo() -> None:
+    box = _run_memo()
+    box["hist"] = None
+    box["pressure"] = None
+    try:
+        st.session_state.pop("_gauge_cache", None)
+    except Exception:
+        pass
+
+
 def _history():
-    return ce.fetch_history()
+    box = _run_memo()
+    if box["hist"] is not None:
+        return box["hist"]
+    df = ce.fetch_history()
+    box["hist"] = df
+    return df
 
 
 @st.cache_data(ttl=3600, max_entries=2, show_spinner=False)
@@ -968,9 +998,13 @@ def _edges(key: str):
     return ce.estimate_edges(_history())
 
 
-@st.cache_data(ttl=1800, max_entries=1, show_spinner="Reading the pressure system…")
 def _pressure():
-    return ce.pressure_system()
+    box = _run_memo()
+    if box["pressure"] is not None:
+        return box["pressure"]
+    p = ce.pressure_system()
+    box["pressure"] = p
+    return p
 
 
 @st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
@@ -3124,11 +3158,8 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
             if _cape_v is not None:
                 rows.append(mrow(
                     "Shiller P/E",
-                    "S&P 500 CAPE: price divided by 10-year inflation-adjusted earnings. "
-                    "A market backdrop on every stock, not this company's multiple. "
-                    "Long-run mean is about 17×.",
-                    f"<span style='font-family:monospace;color:#b0c8e8'>{float(_cape_v):.1f}x</span> "
-                    f"<span style='font-size:11px;color:#7a9ab8'>{_esc(str(_cape.get('asof') or ''))} · {_esc(str(_cape.get('source') or ''))}</span>",
+                    "S&P 500 CAPE. Market backdrop, not this stock. Long-run mean ~17×.",
+                    f"<span style='font-family:monospace;color:#b0c8e8'>{float(_cape_v):.1f}x</span>",
                     metric_scale(float(_cape_v), 5, 45, 20, 30,
                                  "stretched above 30x", higher=False)))
             if pb:
@@ -7457,6 +7488,7 @@ def _require_closes():
         log_exc("fetch_history", e)
         st.error(f"Could not load market history: {e}")
         if st.button("🔄 Retry download", type="primary", key="hist_retry_err"):
+            _drop_run_memo()
             st.cache_data.clear()
             st.rerun()
         st.stop()
@@ -7465,6 +7497,7 @@ def _require_closes():
                  "this deployment right now. This is normally temporary: hit retry in a "
                  "minute or two and the download is cached once it succeeds.")
         if st.button("🔄 Retry download", type="primary", key="hist_retry_empty"):
+            _drop_run_memo()
             st.cache_data.clear()
             st.rerun()
         st.caption("The Cascade Map needs this node history. Dump scanners "
@@ -8112,6 +8145,7 @@ with st.container(border=True, key="mw_page"):
                     _new_dump = ce.refresh_dump()
                 except Exception as _rd:
                     log_exc("refresh_dump", _rd)
+                _drop_run_memo()
                 st.cache_data.clear()
                 st.session_state["_wl_px_nonce"] = int(
                     st.session_state.get("_wl_px_nonce", 0)) + 1
@@ -11287,9 +11321,9 @@ with st.container(border=True, key="mw_page"):
             _cascade_idle_note()
         else:
             closes, asof = _require_closes()
-            st.caption("The 24/7 early-warning line — fast, frictionless assets that "
-                       "react to pressure changes first. Crypto trades all weekend; "
-                       "Saturday knows things about Monday.")
+            st.caption("The early-warning line — fast assets that react to pressure "
+                       "changes first. Crypto trades all weekend. Oil and natural gas "
+                       "are the energy and power shock gauges; UNG is a gauge, not a holding.")
             sb = ce.sentinel_board(closes)
             if sb.empty:
                 st.info("No sentinel data loaded.")
@@ -11323,7 +11357,7 @@ with st.container(border=True, key="mw_page"):
         # ── 📅 forced flows ──────────────────────────────────────────────────
     if _main == "Cascade Map" and _map == "Cascade Sentinels":
         if not st.session_state.get("mw_cascade_loaded"):
-            _cascade_idle_note()
+            pass
         else:
             st.markdown("#### 🏛 Bond master switch — the risk-free rate & credit spreads")
             try:

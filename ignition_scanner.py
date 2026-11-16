@@ -3900,9 +3900,8 @@ def render_ignition_scanner_tab(render_detail=None):
                 if _cape.get("value") is not None:
                     val_rows.append(mrow(
                         "Shiller P/E",
-                        "S&P 500 CAPE: price / 10-year real earnings. Market backdrop, not this company's multiple. Long-run mean ~17×.",
-                        f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{float(_cape['value']):.1f}x</span> "
-                        f"<span style='font-size:11px;color:#7a9ab8'>{_cape.get('asof') or ''} · {_cape.get('source') or ''}</span>",
+                        "S&P 500 CAPE. Market backdrop, not this stock. Long-run mean ~17×.",
+                        f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{float(_cape['value']):.1f}x</span>",
                         metric_scale(float(_cape["value"]), 5, 45, 20, 30,
                                      "stretched above 30x", higher=False)))
                 if pb is not None:

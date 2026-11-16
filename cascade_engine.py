@@ -121,8 +121,8 @@ SECTOR_FLOW_MAX_BACK = 15       # how far back the day/range pickers may go
 
 ENGINE_VERSION = "2.51"   # app.py checks this — push both files together
 
-SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "SMH", "HYG", "^VIX",
-             "KRE", "EMB", "UUP", "TLT", "^N225"]
+SENTINELS = ["BTC-USD", "ETH-USD", "FXY", "CPER", "GLD", "USO", "UNG", "SMH",
+             "HYG", "^VIX", "KRE", "EMB", "UUP", "TLT", "^N225"]
 
 # ratio sentinels — relationships that lead, computed from node closes
 RATIO_SENTINELS = {
