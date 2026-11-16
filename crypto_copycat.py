@@ -58,7 +58,7 @@ MIN_ACCOUNTS = {
 
 ACCENT = "#E87722"
 GREEN = "#3fbf7f"
-RED = "#e05252"
+RED = "#9E1B2F"
 DIM = "#9aa8bd"
 INK = "#F6F4E9"
 ET = ZoneInfo("America/New_York")

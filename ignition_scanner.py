@@ -202,17 +202,17 @@ h1, h2, h3 { font-family: 'Rajdhani', sans-serif !important;
 .fuel-tag a:hover { text-decoration: underline; opacity: 0.85; }
 
 /* ── Catalyst tag color classes (navy-amber palette) ─────────────── */
-.ct-earnings     { background:#0d2215; border-color:#1e6b35; color:#4dd880; }
+.ct-earnings     { background:#0d2215; border-color:#1e6b35; color:#3fbf7f; }
 .ct-fda          { background:#150d22; border-color:#6b35a0; color:#c07ae0; }
 .ct-buyout       { background:#211800; border-color:#c47d0e; color:#f5c040; }
-.ct-legal        { background:#220d0d; border-color:#a03535; color:#ff4444; }
+.ct-legal        { background:#220d0d; border-color:#a03535; color:#9E1B2F; }
 .ct-partnership  { background:#07111f; border-color:#1e6a8a; color:#29b6c8; }
 .ct-squeeze      { background:#1f1200; border-color:#c47d0e; color:#f5a623; }
 .ct-breakout     { background:#071a10; border-color:#1a8040; color:#3ddc84; }
 .ct-geopolitical { background:#0d1020; border-color:#3a5090; color:#7090d0; }
 .ct-rate         { background:#1a1500; border-color:#907020; color:#d0b040; }
 .ct-bimodal      { background:#221800; border-color:#f5a623; color:#f5a623; }
-.ct-earn-growth  { background:#071a10; border-color:#1e8a3a; color:#4dd880; }
+.ct-earn-growth  { background:#071a10; border-color:#1e8a3a; color:#3fbf7f; }
 .ct-dtc          { background:#0a1828; border-color:#1e4a7a; color:#5090d0; }
 
 /* ── DTC fuel gauge pill ──────────────────────────────────────────── */
@@ -579,17 +579,17 @@ CATALYST_SIGNAL_CSS = """<style>
 }
 .fuel-tag a { color: inherit; text-decoration: none; }
 .fuel-tag a:hover { text-decoration: underline; opacity: 0.85; }
-.ct-earnings     { background:#0d2215; border-color:#1e6b35; color:#4dd880; }
+.ct-earnings     { background:#0d2215; border-color:#1e6b35; color:#3fbf7f; }
 .ct-fda          { background:#150d22; border-color:#6b35a0; color:#c07ae0; }
 .ct-buyout       { background:#211800; border-color:#c47d0e; color:#f5c040; }
-.ct-legal        { background:#220d0d; border-color:#a03535; color:#ff4444; }
+.ct-legal        { background:#220d0d; border-color:#a03535; color:#9E1B2F; }
 .ct-partnership  { background:#07111f; border-color:#1e6a8a; color:#29b6c8; }
 .ct-squeeze      { background:#1f1200; border-color:#c47d0e; color:#f5a623; }
 .ct-breakout     { background:#071a10; border-color:#1a8040; color:#3ddc84; }
 .ct-geopolitical { background:#0d1020; border-color:#3a5090; color:#7090d0; }
 .ct-rate         { background:#1a1500; border-color:#907020; color:#d0b040; }
 .ct-bimodal      { background:#221800; border-color:#f5a623; color:#f5a623; }
-.ct-earn-growth  { background:#071a10; border-color:#1e8a3a; color:#4dd880; }
+.ct-earn-growth  { background:#071a10; border-color:#1e8a3a; color:#3fbf7f; }
 .dtc-gauge {
     display: inline-flex; align-items: center; gap: 5px;
     font-family: 'Space Mono', monospace; font-size: 11px;
@@ -714,17 +714,17 @@ def render_catalyst_signals(ticker: str) -> None:
                 f"color:{color};cursor:help'>{part}</span>")
         return "".join(bits)
 
-    sc_col = "#3fbf7f" if score > 0 else ("#e05252" if score < 0 else "#9aa8bd")
+    sc_col = "#3fbf7f" if score > 0 else ("#9E1B2F" if score < 0 else "#9aa8bd")
     html = (
         "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:6px 0 8px'>"
         "<div style='background:#0c1829;border:1px solid #3fbf7f;border-radius:10px;padding:10px 12px'>"
         "<div style='color:#3fbf7f;font-weight:800;font-size:11px;letter-spacing:1px;"
         "text-transform:uppercase;margin-bottom:8px'>▲ Up</div>"
         f"{_pills(up, '#3fbf7f', '#1e6b35', '#0d2215')}</div>"
-        "<div style='background:#0c1829;border:1px solid #e05252;border-radius:10px;padding:10px 12px'>"
-        "<div style='color:#e05252;font-weight:800;font-size:11px;letter-spacing:1px;"
+        "<div style='background:#0c1829;border:1px solid #9E1B2F;border-radius:10px;padding:10px 12px'>"
+        "<div style='color:#9E1B2F;font-weight:800;font-size:11px;letter-spacing:1px;"
         "text-transform:uppercase;margin-bottom:8px'>▼ Down</div>"
-        f"{_pills(down, '#e05252', '#a03535', '#220d0d')}</div></div>"
+        f"{_pills(down, '#9E1B2F', '#a03535', '#220d0d')}</div></div>"
     )
     if other:
         html += f"<div style='margin:0 0 8px'>{_pills(other, '#E87722', '#c47d0e', '#221800')}</div>"
@@ -2533,7 +2533,7 @@ def render_ignition_scanner_tab(render_detail=None):
     # ----------------------------------------------------------------------------
     def az_pill(label, good):
         bg = "#0d2215" if good is True else ("#220d0d" if good is False else "#1a1500")
-        col = "#4dd880" if good is True else ("#ff4444" if good is False else "#d0b040")
+        col = "#3fbf7f" if good is True else ("#9E1B2F" if good is False else "#d0b040")
         bc  = "#1e6b35" if good is True else ("#a03535" if good is False else "#907020")
         return (f"<span style='display:inline-block;background:{bg};color:{col};"
                 f"border:1px solid {bc};border-radius:4px;font-family:Space Mono,monospace;"
@@ -2543,7 +2543,7 @@ def render_ignition_scanner_tab(render_detail=None):
     def az_tag(v, hi, lo, fmt="{:.2f}", suffix=""):
         try:
             fv = float(v)
-            col = "#4dd880" if fv >= hi else ("#d0b040" if fv >= lo else "#ff4444")
+            col = "#3fbf7f" if fv >= hi else ("#d0b040" if fv >= lo else "#9E1B2F")
             return f"<span style='font-family:Space Mono,monospace;color:{col}'>{fmt.format(fv)}{suffix}</span>"
         except Exception:
             return "--"
@@ -2552,7 +2552,7 @@ def render_ignition_scanner_tab(render_detail=None):
     def az_tag_inv(v, hi, lo, fmt="{:.2f}", suffix=""):
         try:
             fv = float(v)
-            col = "#ff4444" if fv >= hi else ("#d0b040" if fv >= lo else "#4dd880")
+            col = "#9E1B2F" if fv >= hi else ("#d0b040" if fv >= lo else "#3fbf7f")
             return f"<span style='font-family:Space Mono,monospace;color:{col}'>{fmt.format(fv)}{suffix}</span>"
         except Exception:
             return "--"
@@ -2592,7 +2592,7 @@ def render_ignition_scanner_tab(render_detail=None):
             zones = _band(vmin, good, "rgba(77,216,128,.5)") + _band(good, ok, "rgba(208,176,64,.45)")
         if neg_bad and v < 0:
             in_good = in_ok = False
-        color = "#4dd880" if in_good else ("#d0b040" if in_ok else "#ff4444")
+        color = "#3fbf7f" if in_good else ("#d0b040" if in_ok else "#9E1B2F")
         mark = _pct(0 if (neg_bad and v < 0) else v)
         cap = _az_esc(caption)
         return (
@@ -2627,7 +2627,7 @@ def render_ignition_scanner_tab(render_detail=None):
 
     def pct_color(v):
         if v is None: return "--"
-        col = "#4dd880" if v >= 0 else "#ff4444"
+        col = "#3fbf7f" if v >= 0 else "#9E1B2F"
         return f"<span style='font-family:Space Mono,monospace;color:{col}'>{'+' if v >= 0 else ''}{v:.2f}%</span>"
 
 
@@ -2726,9 +2726,9 @@ def render_ignition_scanner_tab(render_detail=None):
                 top = min(ay, zero_y)
                 height = abs(ay - zero_y)
                 if t["kind"] == "beat":
-                    fill = "fill='#4dd880'"
+                    fill = "fill='#3fbf7f'"
                 elif t["kind"] == "miss":
-                    fill = "fill='#ff4444'"
+                    fill = "fill='#9E1B2F'"
                 else:  # projected — amber, hatched/translucent to signal "future"
                     fill = "fill='#f5a623' fill-opacity='0.55' stroke='#f5a623' stroke-width='1' stroke-dasharray='3,2'"
                 bars_svg.append(
@@ -2754,8 +2754,8 @@ def render_ignition_scanner_tab(render_detail=None):
         legend = (
             "<div style='display:flex;gap:12px;flex-wrap:wrap;font-family:Space Mono,monospace;"
             "font-size:10px;color:#7a9ab8;margin:2px 0 6px'>"
-            "<span><span style='color:#4dd880'>█</span> beat</span>"
-            "<span><span style='color:#ff4444'>█</span> miss</span>"
+            "<span><span style='color:#3fbf7f'>█</span> beat</span>"
+            "<span><span style='color:#9E1B2F'>█</span> miss</span>"
             "<span><span style='color:#7a9ab8'>╌</span> estimate</span>"
             "<span><span style='color:#f5a623'>▦</span> projected</span>"
             "</div>"
@@ -2769,7 +2769,7 @@ def render_ignition_scanner_tab(render_detail=None):
                 a = f"${q['actual']:.2f}"   if q["actual"]   is not None else "--"
                 e = f"${q['estimate']:.2f}" if q["estimate"] is not None else "--"
                 if q["surprise"] is not None:
-                    sc = "#4dd880" if q["surprise"] >= 0 else "#ff4444"
+                    sc = "#3fbf7f" if q["surprise"] >= 0 else "#9E1B2F"
                     s = f"<span style='color:{sc}'>{q['surprise']:+.1f}%</span>"
                 else:
                     s = "--"
@@ -2804,7 +2804,7 @@ def render_ignition_scanner_tab(render_detail=None):
             for f in eps_forward:
                 est = f"${f['estimate']:.2f}"
                 na  = f"{f['n_analysts']}" if f.get("n_analysts") else "--"
-                ecol = "#4dd880" if f["estimate"] >= 0 else "#ff4444"
+                ecol = "#3fbf7f" if f["estimate"] >= 0 else "#9E1B2F"
                 frows.append(
                     f"<tr>"
                     f"<td style='padding:3px 8px;font-family:Space Mono,monospace;font-size:11px;color:#f5a623'>{f['period']}</td>"
@@ -2919,12 +2919,12 @@ def render_ignition_scanner_tab(render_detail=None):
         rows = []
         if rate is not None:
             rows.append(mrow("Annual Payout", "Total dollars paid per share per year.",
-                             f"<span style='font-family:Space Mono,monospace;color:#4dd880;font-weight:500'>${rate:.2f}</span>/share"))
+                             f"<span style='font-family:Space Mono,monospace;color:#3fbf7f;font-weight:500'>${rate:.2f}</span>/share"))
         if per_payment is not None:
             rows.append(mrow("Per Payment", "Dollar amount of each individual dividend payment.",
                              f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>${per_payment:.2f}</span>"))
         if yld_pct is not None:
-            yc = "#4dd880" if yld_pct >= 4 else ("#d0b040" if yld_pct >= 2 else "#7a9ab8")
+            yc = "#3fbf7f" if yld_pct >= 4 else ("#d0b040" if yld_pct >= 2 else "#7a9ab8")
             rows.append(mrow("Dividend Yield", "Annual payout as % of current price. 4%+ = high yield.",
                              f"<span style='font-family:Space Mono,monospace;color:{yc};font-weight:500'>{yld_pct:.2f}%</span>"))
         if freq_label != "--":
@@ -2942,14 +2942,14 @@ def render_ignition_scanner_tab(render_detail=None):
                    if next_pay_est else
                    "Next scheduled dividend payment date from the company.")
             rows.append(mrow("Next Payout Date", tip,
-                             f"<span style='font-family:Space Mono,monospace;color:#4dd880;font-weight:500'>{_np}</span>{est_tag}"))
+                             f"<span style='font-family:Space Mono,monospace;color:#3fbf7f;font-weight:500'>{_np}</span>{est_tag}"))
         _lp = _fmt_date(last_pay)
         if _lp:
             rows.append(mrow("Last Pay Date", "When the most recent dividend was actually paid out.",
                              f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{_lp}</span>"))
         if payout is not None:
             pr_pct = payout * 100 if payout < 1 else payout
-            pc = "#4dd880" if pr_pct < 60 else ("#d0b040" if pr_pct < 90 else "#ff4444")
+            pc = "#3fbf7f" if pr_pct < 60 else ("#d0b040" if pr_pct < 90 else "#9E1B2F")
             rows.append(mrow("Payout Ratio", "% of earnings paid as dividends. Under 60% = sustainable. Over 90% = at risk.",
                              f"<span style='font-family:Space Mono,monospace;color:{pc}'>{pr_pct:.1f}%</span>"))
 
@@ -2989,7 +2989,7 @@ def render_ignition_scanner_tab(render_detail=None):
             ("🔗 DEAL", "Partnership, contract, collaboration, licensing. 2+ keywords (agreement alone is not enough). Signed rank +3.", "+3"),
             ("Earnings (days)", "Days until the next print. 0–2 days = binary event, Fuel catalyst sub-score +30. Decays with distance. Not a signed dump rank.", "0–2d Fuel peak"),
         ]),
-        ("Catalysts ▼ Down — historically hurt the next move", "#e05252", [
+        ("Catalysts ▼ Down — historically hurt the next move", "#9E1B2F", [
             ("🩸 SELL OFF", "Hard down day. Continuation risk, not a washout bounce. Dump flag. Signed rank -12.", "-12"),
             ("🎈 GAP UP", "Opened strong; that pop often faded in the sample. Dump flag. Signed rank -8.", "-8"),
             ("💸 OFFERING", "Share offering / dilution / ATM / registered direct. Dump + news. Signed rank -8.", "-8"),
@@ -3079,7 +3079,7 @@ def render_ignition_scanner_tab(render_detail=None):
             ("Revenue Growth", "YoY revenue change. Double-digit growth = attractive to institutions.", "10%+ = strong"),
             ("Earnings Growth", "YoY EPS change. Growing faster than revenue = margin expansion.", "10%+ = strong"),
         ]),
-        ("Flags and alerts", "#ff4444", [
+        ("Flags and alerts", "#9E1B2F", [
             ("IGNITING", "Orange card border + IGNITING badge. Phone push: urgent priority (punches through Do Not Disturb). Fires once per ticker per day.", "urgent push"),
             ("GAP REV", "Teal card border + GAP REV badge. Phone push: high priority. Labeled separately from IGNITING so you know the context immediately.", "high push"),
             ("Score alert", "Score crossed the sidebar threshold (default 65). Phone push: default priority. Each ticker alerts once per day.", "default push"),
@@ -3735,7 +3735,7 @@ def render_ignition_scanner_tab(render_detail=None):
                     pct_pos = max(0.0, min(1.0, (px - lo52) / (hi52 - lo52))) if hi52 != lo52 else 0.5
                     bar_pct = int(pct_pos * 100)
                     # Color: near low=red, mid=amber, near high=green
-                    bar_col = "#4dd880" if pct_pos > 0.7 else ("#d0b040" if pct_pos > 0.35 else "#ff4444")
+                    bar_col = "#3fbf7f" if pct_pos > 0.7 else ("#d0b040" if pct_pos > 0.35 else "#9E1B2F")
                     st.markdown(
                         f"<div style='background:#0d1e33;border:1px solid #1e3a5f;border-radius:8px;"
                         f"padding:14px 16px;margin-bottom:12px'>"
@@ -3758,7 +3758,7 @@ def render_ignition_scanner_tab(render_detail=None):
                     bw = bb_upper - bb_lower
                     bpos = max(0.0, min(1.0, (px - bb_lower) / bw)) if bw > 0 else 0.5
                     bpct = int(bpos * 100)
-                    bcol = "#ff4444" if bpos > 0.85 else ("#4dd880" if bpos < 0.15 else "#8baac8")
+                    bcol = "#9E1B2F" if bpos > 0.85 else ("#3fbf7f" if bpos < 0.15 else "#8baac8")
                     bb_label = "Near upper band (overbought)" if bpos > 0.85 else ("Near lower band (oversold)" if bpos < 0.15 else "Inside bands (neutral)")
                     st.markdown(
                         f"<div style='background:#0d1e33;border:1px solid #1e3a5f;border-radius:8px;"
@@ -3793,29 +3793,29 @@ def render_ignition_scanner_tab(render_detail=None):
                 az_section("Technical Signals")
                 tech_rows = []
                 if rsi_v is not None:
-                    if rsi_v < 30:    ri, rc = "Oversold — potential bounce", "#4dd880"
-                    elif rsi_v < 45:  ri, rc = "Weak — losing momentum", "#ff4444"
+                    if rsi_v < 30:    ri, rc = "Oversold — potential bounce", "#3fbf7f"
+                    elif rsi_v < 45:  ri, rc = "Weak — losing momentum", "#9E1B2F"
                     elif rsi_v < 55:  ri, rc = "Neutral — no clear direction", "#8baac8"
-                    elif rsi_v < 70:  ri, rc = "Strong — uptrend confirmed", "#4dd880"
-                    else:             ri, rc = "Overbought — pullback possible", "#ff4444"
+                    elif rsi_v < 70:  ri, rc = "Strong — uptrend confirmed", "#3fbf7f"
+                    else:             ri, rc = "Overbought — pullback possible", "#9E1B2F"
                     tech_rows.append(mrow("RSI (14d)", "Relative Strength Index 0-100. Below 30 = oversold. Above 70 = overbought. 45-70 = momentum sweet spot.", f"<span style='color:{rc};font-family:Space Mono,monospace'>{rsi_v:.1f}</span> <span style='font-size:11px;color:#7a9ab8'>{ri}</span>"))
                 if macd_v is not None:
                     mi = "Bullish — momentum building" if macd_v > macd_s else "Bearish — momentum fading"
-                    mc2 = "#4dd880" if macd_v > macd_s else "#ff4444"
+                    mc2 = "#3fbf7f" if macd_v > macd_s else "#9E1B2F"
                     tech_rows.append(mrow("MACD", "Moving Average Convergence Divergence. MACD above signal line = buyers in control.", f"<span style='color:{mc2};font-family:Space Mono,monospace'>{macd_v:.4f}</span> <span style='font-size:11px;color:#7a9ab8'>{mi}</span>"))
                 if ma50_v and px:
                     pvs = (px - ma50_v) / ma50_v * 100
                     m5i = "Extended — may be overbought" if pvs > 5 else ("Just above — ideal zone" if pvs > 0 else ("Just below — watch reclaim" if pvs > -5 else "Well below — downtrend"))
-                    m5c = "#4dd880" if 0 < pvs < 5 else ("#d0b040" if pvs > 5 else ("#d0b040" if pvs > -5 else "#ff4444"))
+                    m5c = "#3fbf7f" if 0 < pvs < 5 else ("#d0b040" if pvs > 5 else ("#d0b040" if pvs > -5 else "#9E1B2F"))
                     tech_rows.append(mrow("50-Day MA", "50-Day Moving Average. Price just above = support. Just below = watch for reclaim.", f"${ma50_v:.2f} <span style='color:{m5c};font-size:11px'>({'+' if pvs >= 0 else ''}{pvs:.1f}%)</span>"))
                 if ma200_v:
                     m2i = "Golden Cross — long-term uptrend" if (ma50_v and ma50_v > ma200_v) else "Death Cross — long-term downtrend"
-                    m2c = "#4dd880" if (ma50_v and ma50_v > ma200_v) else "#ff4444"
+                    m2c = "#3fbf7f" if (ma50_v and ma50_v > ma200_v) else "#9E1B2F"
                     tech_rows.append(mrow("200-Day MA", "200-Day Moving Average. Golden Cross (50MA above 200MA) = major bull signal.", f"${ma200_v:.2f} <span style='font-size:11px;color:{m2c}'>{m2i}</span>"))
                 if vol_avg and vol_td:
                     vr = vol_td / vol_avg
                     vi = "Very high" if vr > 2 else ("High" if vr > 1.5 else ("Normal" if vr > 0.5 else "Low"))
-                    vc = "#4dd880" if vr > 1.5 else ("#8baac8" if vr > 0.5 else "#d0b040")
+                    vc = "#3fbf7f" if vr > 1.5 else ("#8baac8" if vr > 0.5 else "#d0b040")
                     tech_rows.append(mrow("Volume", "Today's volume vs 20-day average. High volume confirms moves.", f"<span style='color:{vc};font-family:Space Mono,monospace'>{vr:.2f}x avg</span> <span style='font-size:11px;color:#7a9ab8'>{vi}</span>"))
                 if ign_sc is not None:
                     ic = "#f5a623" if ign_sc >= 70 else ("#c47d0e" if ign_sc >= 50 else "#4a6a8a")
@@ -3830,10 +3830,10 @@ def render_ignition_scanner_tab(render_detail=None):
                 if sratio is not None:
                     si_rows.append(mrow("Days to Cover",   "Shares short / avg vol. High = forced shorts if price rises.",        az_tag(sratio, 5, 3, "{:.1f}", "d")))
                 if ins_buys > 0:
-                    ins_col = "#4dd880" if ins_net > 0 else "#ff4444"
+                    ins_col = "#3fbf7f" if ins_net > 0 else "#9E1B2F"
                     si_rows.append(mrow("Insider Buying",  "Net insider buys last 90d (SEC Form 4).", f"<span style='font-family:Space Mono,monospace;color:{ins_col}'>{ins_buys} buys · ${ins_net/1e3:.0f}K net</span>"))
                 elif ins_net < 0:
-                    si_rows.append(mrow("Insider Activity","Net insider selling last 90d.", "<span style='font-family:Space Mono,monospace;color:#ff4444'>net selling</span>"))
+                    si_rows.append(mrow("Insider Activity","Net insider selling last 90d.", "<span style='font-family:Space Mono,monospace;color:#9E1B2F'>net selling</span>"))
                 if news_cnt:
                     si_rows.append(mrow("News 48h",        "Headlines in last 48 hours. Momentum needs a catalyst.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{news_cnt} headlines</span>"))
                 if rg is not None:
@@ -3842,10 +3842,10 @@ def render_ignition_scanner_tab(render_detail=None):
                     si_rows.append(mrow("Earnings Growth", "YoY EPS growth. Growing faster than revenue = margin expansion.",     az_tag(eg * 100, 10, 3, "{:.1f}", "%")))
                 _esp_pct = az_fuel.get("earnings_surprise")
                 if _esp_pct is not None:
-                    _esp_col = "#4dd880" if _esp_pct >= 10 else ("#d0b040" if _esp_pct >= 0 else "#ff4444")
+                    _esp_col = "#3fbf7f" if _esp_pct >= 10 else ("#d0b040" if _esp_pct >= 0 else "#9E1B2F")
                     si_rows.append(mrow("Earnings Surprise", "Last quarter EPS vs analyst estimates. 10%+ beat = strong momentum fuel.", f"<span style='font-family:Space Mono,monospace;color:{_esp_col}'>{_esp_pct:+.1f}%</span> vs estimates"))
                 if fuel_sc is not None:
-                    fc = "#4dd880" if fuel_sc >= 70 else ("#d0b040" if fuel_sc >= 50 else "#4a6a8a")
+                    fc = "#3fbf7f" if fuel_sc >= 70 else ("#d0b040" if fuel_sc >= 50 else "#4a6a8a")
                     si_rows.append(mrow("Fuel Score", "Primed-to-move score (0-100).", f"<span style='color:{fc};font-family:Space Mono,monospace;font-size:15px;font-weight:500'>{fuel_sc:.0f}</span>"))
                 if si_rows:
                     st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(si_rows)}</tbody></table>", unsafe_allow_html=True)
@@ -3975,11 +3975,11 @@ def render_ignition_scanner_tab(render_detail=None):
 
                 if am:
                     az_section("Analyst Consensus")
-                    rcol = "#4dd880" if "buy" in recky.lower() else ("#ff4444" if "sell" in recky.lower() else "#d0b040")
+                    rcol = "#3fbf7f" if "buy" in recky.lower() else ("#9E1B2F" if "sell" in recky.lower() else "#d0b040")
                     rdisp = recky.replace("_", " ").title() if recky else "--"
                     an_rows = [
                         mrow("Recommendation", "Wall Street consensus: Strong Buy / Buy / Hold / Sell. Aggregates all analyst ratings.", f"<span style='color:{rcol};font-weight:500'>{rdisp}</span> <span style='font-size:11px;color:#7a9ab8'>({nana} analysts)</span>"),
-                        mrow("Mean Target", "Average 12-month analyst price target. Implies expected upside/downside from current price.", f"${am:.2f}" + (f" <span style='font-size:11px;color:{'#4dd880' if aus and aus > 0 else '#ff4444'}'>({'+' if aus and aus >= 0 else ''}{aus:.1f}%)</span>" if aus else "")),
+                        mrow("Mean Target", "Average 12-month analyst price target. Implies expected upside/downside from current price.", f"${am:.2f}" + (f" <span style='font-size:11px;color:{'#3fbf7f' if aus and aus > 0 else '#9E1B2F'}'>({'+' if aus and aus >= 0 else ''}{aus:.1f}%)</span>" if aus else "")),
                         mrow("Target Range", "Low-to-high analyst target spread. Wide range = high uncertainty. Narrow = strong consensus.", f"${al:.2f} – ${ahigh:.2f}" if (al and ahigh) else "--"),
                     ]
                     st.markdown(f"<table style='width:100%;border-collapse:collapse'><tbody>{''.join(an_rows)}</tbody></table>", unsafe_allow_html=True)

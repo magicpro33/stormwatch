@@ -1252,15 +1252,15 @@ def _clickable_logo(width: int = 150) -> None:
 
 ACCENT = "#67E8F9"
 MIX_COLOR = "#E87722"   # "either way" / mixed news keeps its amber meaning
-GREEN = "#3fbf7f"
-RED = "#e05252"
+GREEN = "#3fbf7f"       # money green: OK, Strong, Bull, up %
+RED = "#9E1B2F"         # blood red: Weak, Bear, down %
 DIM = "#9aa8bd"
 _LOOK_INK = {
-    "Fortune": ("#8A6A2F", "#8C6239", "#8C3A32", "#7A756C"),
-    "Private Bank": ("#E0C37A", "#E0C37A", "#C47A4A", "#C0C0C0"),
+    "Fortune": ("#8A6A2F", "#7A756C"),
+    "Private Bank": ("#E0C37A", "#C0C0C0"),
 }
 if _look_name() in _LOOK_INK:
-    ACCENT, GREEN, RED, DIM = _LOOK_INK[_look_name()]
+    ACCENT, DIM = _LOOK_INK[_look_name()]
 if _look_name() in ("Fortune", "Private Bank"):
     MIX_COLOR = "#3fbf7f"
 _DF_WIDTH = "content"   # size dataframe columns to cell contents; no leftover pad
@@ -1301,25 +1301,21 @@ def _health_shade(text) -> str:
 
 def _css_health_lbl(v):
     s = str(v or "")
-    if _look_name() == "Private Bank" and ("█" in s or any(w in s for w in ("Strong", "OK", "Weak"))):
-        return f"color:{_health_shade(s)};font-weight:600"
-    if "Strong" in s:
-        return f"color:{GREEN};font-weight:600"
-    if "OK" in s:
-        return f"color:{MIX_COLOR};font-weight:600"
     if "Weak" in s:
         return f"color:{RED};font-weight:600"
+    if "█" in s or "Strong" in s or "OK" in s:
+        return f"color:{_health_shade(s)};font-weight:600"
     return f"color:{DIM}"
 
 
-def _css_cs_trend(v):
+def _css_cs_trend(v, shade=None):
     s = str(v or "").lower()
     if "bull" in s:
-        return f"color:{GREEN};font-weight:600"
+        return f"color:{shade or GREEN};font-weight:700"
     if "bear" in s:
         return f"color:{RED};font-weight:600"
     if "mixed" in s:
-        return f"color:{MIX_COLOR};font-weight:600"
+        return f"color:{shade or GREEN};font-weight:600"
     return f"color:{DIM}"
 
 
@@ -2358,7 +2354,7 @@ def _news_tags(tickers: tuple, sectors_json: str):
 # ═════════ IGNITION Stock Analyzer (ported) ═════════
 def az_pill(label, good):
     bg = "#0d2215" if good is True else ("#220d0d" if good is False else "#1a1500")
-    col = "#4dd880" if good is True else ("#ff4444" if good is False else "#d0b040")
+    col = "#3fbf7f" if good is True else ("#9E1B2F" if good is False else "#d0b040")
     bc = "#1e6b35" if good is True else ("#a03535" if good is False else "#907020")
     return (f"<span style='display:inline-block;background:{bg};color:{col};"
             f"border:1px solid {bc};border-radius:4px;font-family:monospace;"
@@ -2368,7 +2364,7 @@ def az_pill(label, good):
 def az_tag(v, hi, lo, fmt="{:.2f}", suffix=""):
     try:
         fv = float(v)
-        col = "#4dd880" if fv >= hi else ("#d0b040" if fv >= lo else "#ff4444")
+        col = "#3fbf7f" if fv >= hi else ("#d0b040" if fv >= lo else "#9E1B2F")
         return f"<span style='font-family:monospace;color:{col}'>{fmt.format(fv)}{suffix}</span>"
     except Exception:
         return "--"
@@ -2377,7 +2373,7 @@ def az_tag(v, hi, lo, fmt="{:.2f}", suffix=""):
 def az_tag_inv(v, hi, lo, fmt="{:.2f}", suffix=""):
     try:
         fv = float(v)
-        col = "#ff4444" if fv >= hi else ("#d0b040" if fv >= lo else "#4dd880")
+        col = "#9E1B2F" if fv >= hi else ("#d0b040" if fv >= lo else "#3fbf7f")
         return f"<span style='font-family:monospace;color:{col}'>{fmt.format(fv)}{suffix}</span>"
     except Exception:
         return "--"
@@ -2412,7 +2408,7 @@ def metric_scale(value, vmin, vmax, good, ok, caption, higher=True, neg_bad=Fals
         zones = _band(vmin, good, "rgba(77,216,128,.5)") + _band(good, ok, "rgba(208,176,64,.45)")
     if neg_bad and v < 0:
         in_good = in_ok = False
-    color = "#4dd880" if in_good else ("#d0b040" if in_ok else "#ff4444")
+    color = "#3fbf7f" if in_good else ("#d0b040" if in_ok else "#9E1B2F")
     mark = _pct(0 if (neg_bad and v < 0) else v)
     cap = _esc(caption)
     return (
@@ -2598,7 +2594,7 @@ class az_section:
 def pct_color(v):
     if v is None:
         return "--"
-    col = "#4dd880" if v >= 0 else "#ff4444"
+    col = "#3fbf7f" if v >= 0 else "#9E1B2F"
     return f"<span style='font-family:monospace;color:{col}'>{'+' if v >= 0 else ''}{v:.2f}%</span>"
 
 
@@ -2766,8 +2762,8 @@ def render_eps_trend(eps_history, eps_forward=None, why="", source=""):
         if t["value"] is not None:
             ay = y_of(t["value"])
             top, hh = min(ay, zy), abs(ay - zy)
-            fill = ("fill='#4dd880'" if t["kind"] == "beat" else
-                    "fill='#ff4444'" if t["kind"] == "miss" else
+            fill = ("fill='#3fbf7f'" if t["kind"] == "beat" else
+                    "fill='#9E1B2F'" if t["kind"] == "miss" else
                     "fill='#f5a623' fill-opacity='0.55' stroke='#f5a623' stroke-dasharray='3,2'")
             bars.append(f"<rect x='{cx-bar_w/2:.1f}' y='{top:.1f}' width='{bar_w:.1f}' "
                         f"height='{max(hh,1):.1f}' rx='2' {fill}/>")
@@ -2777,8 +2773,8 @@ def render_eps_trend(eps_history, eps_forward=None, why="", source=""):
     legend = (
         "<div style='display:flex;gap:12px;flex-wrap:wrap;font-family:monospace;"
         "font-size:10px;color:#7a9ab8;margin:2px 0 6px'>"
-        "<span><span style='color:#4dd880'>█</span> beat</span>"
-        "<span><span style='color:#ff4444'>█</span> miss</span>"
+        "<span><span style='color:#3fbf7f'>█</span> beat</span>"
+        "<span><span style='color:#9E1B2F'>█</span> miss</span>"
         "<span><span style='color:#7a9ab8'>╌</span> estimate</span>"
         "<span><span style='color:#f5a623'>▦</span> projected</span>"
         "</div>"
@@ -2796,7 +2792,7 @@ def render_eps_trend(eps_history, eps_forward=None, why="", source=""):
             a = f"${q['actual']:.2f}" if q.get("actual") is not None else "--"
             e = f"${q['estimate']:.2f}" if q.get("estimate") is not None else "--"
             if q.get("surprise") is not None:
-                sc = "#4dd880" if q["surprise"] >= 0 else "#ff4444"
+                sc = "#3fbf7f" if q["surprise"] >= 0 else "#9E1B2F"
                 s = f"<span style='color:{sc}'>{q['surprise']:+.1f}%</span>"
             else:
                 s = "--"
@@ -2828,7 +2824,7 @@ def render_eps_trend(eps_history, eps_forward=None, why="", source=""):
         for f in eps_forward:
             est = f"${f['estimate']:.2f}" if f.get("estimate") is not None else "--"
             na = str(f["n_analysts"]) if f.get("n_analysts") else "--"
-            ecol = "#4dd880" if (f.get("estimate") or 0) >= 0 else "#ff4444"
+            ecol = "#3fbf7f" if (f.get("estimate") or 0) >= 0 else "#9E1B2F"
             frows.append(
                 f"<tr>"
                 f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:#f5a623'>{_esc(f.get('period'))}</td>"
@@ -2937,12 +2933,12 @@ def render_dividend_info(info: dict | None) -> None:
     rows = []
     if rate is not None:
         rows.append(mrow("Annual Payout", "Total dollars paid per share per year.",
-                         f"<span style='font-family:monospace;color:#4dd880;font-weight:500'>${float(rate):.2f}</span>/share"))
+                         f"<span style='font-family:monospace;color:#3fbf7f;font-weight:500'>${float(rate):.2f}</span>/share"))
     if per_payment is not None:
         rows.append(mrow("Per Payment", "Dollar amount of each individual dividend payment.",
                          f"<span style='font-family:monospace;color:#b0c8e8'>${float(per_payment):.2f}</span>"))
     if yld_pct is not None:
-        yc = "#4dd880" if yld_pct >= 4 else ("#d0b040" if yld_pct >= 2 else "#7a9ab8")
+        yc = "#3fbf7f" if yld_pct >= 4 else ("#d0b040" if yld_pct >= 2 else "#7a9ab8")
         rows.append(mrow("Dividend Yield", "Annual payout as % of current price. 4%+ = high yield.",
                          f"<span style='font-family:monospace;color:{yc};font-weight:500'>{yld_pct:.2f}%</span>"))
     if freq_label != "--":
@@ -2959,7 +2955,7 @@ def render_dividend_info(info: dict | None) -> None:
                if next_pay_est else
                "Next scheduled dividend payment date from the company.")
         rows.append(mrow("Next Payout Date", tip,
-                         f"<span style='font-family:monospace;color:#4dd880;font-weight:500'>{_np}</span>{est_tag}"))
+                         f"<span style='font-family:monospace;color:#3fbf7f;font-weight:500'>{_np}</span>{est_tag}"))
     _lp = _fmt_date(last_pay)
     if _lp:
         rows.append(mrow("Last Pay Date", "When the most recent dividend was actually paid out.",
@@ -2970,7 +2966,7 @@ def render_dividend_info(info: dict | None) -> None:
         except (TypeError, ValueError):
             pr_pct = None
         if pr_pct is not None:
-            pc = "#4dd880" if pr_pct < 60 else ("#d0b040" if pr_pct < 90 else "#ff4444")
+            pc = "#3fbf7f" if pr_pct < 60 else ("#d0b040" if pr_pct < 90 else "#9E1B2F")
             rows.append(mrow("Payout Ratio", "% of earnings paid as dividends. Under 60% = sustainable. Over 90% = at risk.",
                              f"<span style='font-family:monospace;color:{pc}'>{pr_pct:.1f}%</span>"))
 
@@ -3248,7 +3244,7 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
         return
 
     score = sum(s["score"] for s in live) / len(live)
-    tone = "#4dd880" if score >= 70 else ("#00e5ff" if score >= 50 else "#ff5a7a")
+    tone = "#3fbf7f" if score >= 70 else ("#C6A15B" if score >= 50 else "#9E1B2F")
     best = max(live, key=lambda s: s["score"])
     soft = min(live, key=lambda s: s["score"])
 
@@ -3317,7 +3313,7 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
             if not s.get("live"):
                 col = "#6b7fa3"
             else:
-                col = "#4dd880" if s["score"] >= 70 else ("#d0b040" if s["score"] >= 45 else "#ff5a7a")
+                col = "#3fbf7f" if s["score"] >= 70 else ("#C6A15B" if s["score"] >= 45 else "#9E1B2F")
             rows.append(
                 f"<div style='display:flex;justify-content:space-between;gap:10px;margin-top:6px'>"
                 f"<span style='color:#e8edf5'>{_esc(s['name'])}</span>"
@@ -3542,7 +3538,7 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
             if _rw and px:
                 _hi, _lo = _rw["high"], _rw["low"]
                 pp = max(0.0, min(1.0, (px - _lo) / (_hi - _lo))) if _hi != _lo else 0.5
-                bc = "#4dd880" if pp > 0.7 else ("#d0b040" if pp > 0.35 else "#ff4444")
+                bc = "#3fbf7f" if pp > 0.7 else ("#d0b040" if pp > 0.35 else "#9E1B2F")
                 _off_hi = ((px - _hi) / _hi * 100) if _hi else None
                 _asked = 252 if _pr_spec == "ytd" else int(_pr_spec)
                 _short = _rw["n"] < (_asked * 0.85) if _pr_spec != "ytd" else False
@@ -3573,18 +3569,18 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
         with az_section("Technical Signals", key_prefix):
             rows = []
             if rsi_v is not None:
-                rc = "#4dd880" if 45 < rsi_v < 65 else ("#ff4444" if rsi_v > 70 else "#d0b040")
+                rc = "#3fbf7f" if 45 < rsi_v < 65 else ("#9E1B2F" if rsi_v > 70 else "#d0b040")
                 ri = "oversold" if rsi_v < 30 else ("overbought" if rsi_v > 70 else "sweet spot" if 45 < rsi_v < 65 else "neutral")
                 rows.append(mrow("RSI (14d)", "0-100. Below 30 oversold, above 70 overbought, 45-65 momentum sweet spot.",
                                  f"<span style='color:{rc};font-family:monospace'>{rsi_v:.1f}</span> <span style='font-size:11px;color:#7a9ab8'>{ri}</span>"))
             if macd_v is not None and macd_s is not None:
-                mc = "#4dd880" if macd_v > macd_s else "#ff4444"
+                mc = "#3fbf7f" if macd_v > macd_s else "#9E1B2F"
                 rows.append(mrow("MACD", "MACD above its signal line = buyers in control.",
                                  f"<span style='color:{mc};font-family:monospace'>{macd_v:.3f}</span> <span style='font-size:11px;color:#7a9ab8'>{'bullish' if macd_v > macd_s else 'bearish'}</span>"))
             if ma50_v is not None:
                 pvs = (px - ma50_v) / ma50_v * 100
                 rows.append(mrow("50-Day MA", "Price just above = support; below = watch for reclaim.",
-                                 f"${ma50_v:,.2f} <span style='color:{'#4dd880' if pvs >= 0 else '#ff4444'};font-size:11px'>({pvs:+.1f}%)</span>"))
+                                 f"${ma50_v:,.2f} <span style='color:{'#3fbf7f' if pvs >= 0 else '#9E1B2F'};font-size:11px'>({pvs:+.1f}%)</span>"))
             if ma200_v is not None:
                 gi = "golden cross" if (ma50_v is not None and ma50_v > ma200_v) else "below 50MA"
                 rows.append(mrow("200-Day MA", "Golden Cross (50MA over 200MA) = major trend signal.",
@@ -3616,7 +3612,7 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                                  az_tag(eg * 100, 10, 3, "{:.1f}", "%")))
             _last = next((q for q in reversed(eps_history) if q.get("surprise") is not None), None)
             if _last:
-                ec = "#4dd880" if _last["surprise"] >= 0 else "#ff4444"
+                ec = "#3fbf7f" if _last["surprise"] >= 0 else "#9E1B2F"
                 rows.append(mrow("Earnings Surprise", "Last quarter EPS vs estimates. 10%+ beat = momentum fuel.",
                                  f"<span style='font-family:monospace;color:{ec}'>{_last['surprise']:+.1f}%</span> vs estimates"))
             if rows:
@@ -3858,17 +3854,17 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
         n_dn = max(100 - n_pop - n_up - n_crash, 0)
         n_crash = 100 - n_pop - n_up - n_dn
         dots = []
-        for cnt, col in ((n_pop, "#4dd880"), (n_up, "#1d5a41"),
-                         (n_dn, "#5a2626"), (n_crash, "#ff4444")):
+        for cnt, col in ((n_pop, "#3fbf7f"), (n_up, "#1d5a41"),
+                         (n_dn, "#5a2626"), (n_crash, "#9E1B2F")):
             dots += [f"<span style='width:14px;height:14px;border-radius:50%;background:{col};'></span>"] * cnt
         w1, w2 = st.columns([1, 1.2])
         w1.markdown("<div style='display:grid;grid-template-columns:repeat(10,14px);gap:4px;'>"
                     + "".join(dots) + "</div>", unsafe_allow_html=True)
         w2.markdown(f"""<div style="font-size:14px;line-height:2;">
-          <div><span style="color:#4dd880;font-weight:700;">● {n_pop}</span> <span style="color:{DIM};">exploded +15% or more</span></div>
+          <div><span style="color:#3fbf7f;font-weight:700;">● {n_pop}</span> <span style="color:{DIM};">exploded +15% or more</span></div>
           <div><span style="color:{GREEN};font-weight:700;">● {n_up}</span> <span style="color:{DIM};">gained</span></div>
           <div><span style="color:{RED};font-weight:700;">● {n_dn}</span> <span style="color:{DIM};">lost</span></div>
-          <div><span style="color:#ff4444;font-weight:700;">● {n_crash}</span> <span style="color:{DIM};">crashed −15% or worse</span></div>
+          <div><span style="color:#9E1B2F;font-weight:700;">● {n_crash}</span> <span style="color:{DIM};">crashed −15% or worse</span></div>
           <div style="font-size:12px;color:{DIM};border-top:1px solid #1d2b40;padding-top:6px;margin-top:4px;">
             100 dots summarising {n:,} real historical cases</div></div>""",
                     unsafe_allow_html=True)
@@ -4741,8 +4737,8 @@ _CS_MAX_PV = 8
 _CS_MIN_PX = 5.0
 _CS_MIN_VOL = 250_000
 _CS_TGT_EXT = 40
-_CS_BULL = "#26a69a"
-_CS_BEAR = "#ef5350"
+_CS_BULL = "#3fbf7f"
+_CS_BEAR = "#9E1B2F"
 _CS_CH = "#787b86"
 
 
@@ -6814,19 +6810,13 @@ def _style_health_setup(obj):
     hcol = getattr(ce, "HEALTH_COL", "Health/Piotroski")
     scol = getattr(ce, "SETUP_COL", "Clean Setup")
     ecol = getattr(ce, "EARN_COL", "Earnings")
-    if _look_name() == "Private Bank" and hcol in cols:
+    if hcol in cols and scol in cols:
         def _row(row):
             styles = {c: "" for c in row.index}
-            shade = _health_shade(row.get(hcol))
-            styles[hcol] = f"color:{shade};font-weight:600"
-            if scol in row.index:
-                setup = str(row.get(scol) or "").lower()
-                if "bull" in setup:
-                    styles[scol] = f"color:{shade};font-weight:700"
-                elif "bear" in setup:
-                    styles[scol] = f"color:{RED};font-weight:600"
-                elif "mixed" in setup:
-                    styles[scol] = f"color:{_health_shade('██')};font-weight:600"
+            health = str(row.get(hcol) or "")
+            green = _health_shade(health)
+            styles[hcol] = f"color:{RED if 'Weak' in health else green};font-weight:600"
+            styles[scol] = _css_cs_trend(row.get(scol), green)
             if ecol in row.index:
                 styles[ecol] = _css_earn_cell(row.get(ecol))
             return pd.Series(styles)
@@ -10400,7 +10390,7 @@ with st.container(border=True, key="mw_page"):
                 if _meta["validated"]:
                     st.markdown(f"""<div style="background:#0d2215;border:1px solid #1e6b35;
                         border-left:4px solid {GREEN};border-radius:10px;padding:11px 16px;margin:8px 0 6px;">
-                        <span style="font-weight:800;color:#4dd880;">VALIDATED TIMEFRAME</span>
+                        <span style="font-weight:800;color:#3fbf7f;">VALIDATED TIMEFRAME</span>
                         <span style="color:#d7e0ec;font-size:13px;margin-left:8px;">
                         Daily bars, 984 held-out tickers: the score ≥ 80 + CALM + RS gate produced a
                         <b>60.2% win rate</b> and a <b>4.28%</b> chance of a &gt;10% loss over 20 sessions,

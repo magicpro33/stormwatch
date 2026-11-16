@@ -420,7 +420,7 @@ def _hs_css_sign(v, pos_good=True, dead=0.0):
     if not np.isfinite(v) or abs(v) <= dead:
         return "color:#9aa8bd"
     good = (v > 0) if pos_good else (v < 0)
-    return "color:#3fbf7f;font-weight:600" if good else "color:#e05252;font-weight:600"
+    return "color:#3fbf7f;font-weight:600" if good else "color:#9E1B2F;font-weight:600"
 
 
 def _normalise_sector(raw) -> str:

@@ -28,7 +28,7 @@ BACKTEST_NAME = "storm_watch_backtest.json"
 
 ACCENT = "#E87722"
 GREEN = "#3fbf7f"
-RED = "#e05252"
+RED = "#9E1B2F"
 DIM = "#9aa8bd"
 TEAL = "#5DCAA5"
 

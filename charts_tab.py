@@ -22,7 +22,7 @@ import streamlit as st
 
 ACCENT = "#E87722"
 GREEN = "#3fbf7f"
-RED = "#e05252"
+RED = "#9E1B2F"
 GOLD = "#e8c34a"
 SILVER = "#C5D4FF"
 BLUE = "#7FD4FF"

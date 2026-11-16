@@ -26,7 +26,7 @@ except Exception:
 
 ACCENT = "#E87722"
 GREEN = "#3fbf7f"
-RED = "#e05252"
+RED = "#9E1B2F"
 BLUE = "#4aa3df"
 GOLD = "#e8c34a"
 PURPLE = "#9b7fe0"

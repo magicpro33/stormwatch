@@ -2881,14 +2881,14 @@ def catalyst_legend_html() -> str:
         return "".join(bits)
 
     up = chips("up", "#3fbf7f", "#1e6b35", "#0d2215")
-    down = chips("down", "#e05252", "#a03535", "#220d0d")
+    down = chips("down", "#9E1B2F", "#6E1220", "#220d0d")
     return (
         "<div style='margin:6px 0 2px'>"
         "<span style='color:#3fbf7f;font-weight:800;font-size:11px;"
         "letter-spacing:.6px;margin-right:8px'>▲ UP</span>"
         f"{up}</div>"
         "<div style='margin:2px 0 0'>"
-        "<span style='color:#e05252;font-weight:800;font-size:11px;"
+        "<span style='color:#9E1B2F;font-weight:800;font-size:11px;"
         "letter-spacing:.6px;margin-right:8px'>▼ DOWN</span>"
         f"{down}</div>"
         "<div style='color:#9aa8bd;font-size:11px;margin-top:2px'>"
@@ -6140,25 +6140,21 @@ def _health_shade(text) -> str:
 
 def css_health_lbl(v) -> str:
     s = str(v or "")
-    if _bank_theme() and ("█" in s or any(w in s for w in ("Strong", "OK", "Weak"))):
-        return f"color:{_health_shade(s)};font-weight:600"
-    if "Strong" in s:
-        return "color:#3fbf7f;font-weight:600"
-    if "OK" in s:
-        return f"color:{_ok_amber()};font-weight:600"
     if "Weak" in s:
-        return "color:#e05252;font-weight:600"
+        return "color:#9E1B2F;font-weight:600"
+    if "█" in s or "Strong" in s or "OK" in s:
+        return f"color:{_health_shade(s)};font-weight:600"
     return "color:#9aa8bd"
 
 
-def css_cs_trend(v) -> str:
+def css_cs_trend(v, shade=None) -> str:
     s = str(v or "").lower()
     if "bull" in s:
-        return "color:#3fbf7f;font-weight:600"
+        return f"color:{shade or '#3fbf7f'};font-weight:700"
     if "bear" in s:
-        return "color:#e05252;font-weight:600"
+        return "color:#9E1B2F;font-weight:600"
     if "mixed" in s:
-        return f"color:{_ok_amber()};font-weight:600"
+        return f"color:{shade or '#3fbf7f'};font-weight:600"
     return "color:#9aa8bd"
 
 
@@ -6186,13 +6182,13 @@ def css_earn_cell(v) -> str:
     if not s or s in ("—", "Done"):
         return "color:#9aa8bd"
     if s.startswith("Today"):
-        return "color:#e05252;font-weight:600"
+        return "color:#9E1B2F;font-weight:600"
     try:
         n = int(s.split("d", 1)[0])
     except (TypeError, ValueError):
         return ""
     if n <= 7:
-        return "color:#e05252;font-weight:600"
+        return "color:#9E1B2F;font-weight:600"
     if n <= 21:
         return f"color:{_ok_amber()};font-weight:600"
     return "color:#3fbf7f;font-weight:600"
@@ -6201,17 +6197,17 @@ def css_earn_cell(v) -> str:
 def _bank_health_setup_row(row):
     """Health bar and a bull setup share one money-green shade."""
     styles = {c: "" for c in row.index}
-    shade = _health_shade(row.get(HEALTH_COL))
+    health = str(row.get(HEALTH_COL) or "")
+    green = _health_shade(health)
     if HEALTH_COL in row.index:
-        styles[HEALTH_COL] = f"color:{shade};font-weight:600"
+        styles[HEALTH_COL] = (
+            f"color:{'#9E1B2F' if 'Weak' in health else green};font-weight:600")
     if SETUP_COL in row.index:
         s = str(row.get(SETUP_COL) or "").lower()
-        if "bull" in s:
-            styles[SETUP_COL] = f"color:{shade};font-weight:700"
-        elif "mixed" in s:
-            styles[SETUP_COL] = f"color:{_HEALTH_GREENS[max(0, str(row.get(HEALTH_COL) or '').count('█') // 2)]};font-weight:600"
+        if "bull" in s or "mixed" in s:
+            styles[SETUP_COL] = f"color:{green};font-weight:700"
         elif "bear" in s:
-            styles[SETUP_COL] = "color:#A14A3A;font-weight:600"
+            styles[SETUP_COL] = "color:#9E1B2F;font-weight:600"
     if EARN_COL in row.index:
         styles[EARN_COL] = css_earn_cell(row.get(EARN_COL))
     return pd.Series(styles)
@@ -6222,8 +6218,8 @@ def style_health_setup(obj):
     styler = obj if hasattr(obj, "data") else obj.style
     data = getattr(styler, "data", None)
     cols = list(getattr(data, "columns", [])) if data is not None else []
-    if _bank_theme() and data is not None and HEALTH_COL in cols:
-        styler = data.style.apply(_bank_health_setup_row, axis=1)
+    if data is not None and HEALTH_COL in cols and SETUP_COL in cols:
+        styler = styler.apply(_bank_health_setup_row, axis=1)
         return styler
     if HEALTH_COL in cols:
         styler = styler.map(css_health_lbl, subset=[HEALTH_COL])
