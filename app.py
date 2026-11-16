@@ -229,30 +229,28 @@ def _look_name() -> str:
 
 
 def _money_green_css() -> str:
-    """Orange fills become money green. Text color is left alone."""
+    """Orange slider thumbs, the selected radio dot, and sector chips."""
     return """
-div[data-testid="stSlider"] [role="slider"],
-div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div {
-    background: #3fbf7f !important;
-    background-color: #3fbf7f !important;
-    border-color: #3fbf7f !important;
-}
-[data-baseweb="radio"] [aria-checked="true"] > div:first-child {
-    background-color: #3fbf7f !important;
-    border-color: #2E7D4F !important;
-}
-div[data-testid="stMultiSelect"] [data-baseweb="tag"],
-div[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+.stApp [data-testid="stSlider"] [role="slider"],
+.stApp [data-testid="stSlider"] [role="slider"] > div,
+.stApp [data-baseweb="slider"] [role="slider"] > div {
     background: #3fbf7f !important;
     background-color: #3fbf7f !important;
     border-color: #2E7D4F !important;
 }
-[data-baseweb="tag"][style*="232, 119, 34"],
-[data-baseweb="tag"][style*="232,119,34"],
-[data-baseweb="tag"][style*="#E87722" i],
-[data-baseweb="tag"][style*="#e87722" i] {
+.stApp label[data-baseweb="radio"][aria-checked="true"] > div:first-child,
+.stApp label[data-baseweb="radio"][aria-checked="true"] > div:first-child div {
+    background-color: #3fbf7f !important;
+    border-color: #2E7D4F !important;
+}
+.stApp [data-testid="stMultiSelect"] [data-baseweb="tag"],
+.stApp [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+.stApp [data-testid="stMultiSelect"] [style*="232, 119, 34"],
+.stApp [data-testid="stMultiSelect"] [style*="232,119,34"],
+.stApp [data-testid="stMultiSelect"] [style*="232, 119, 34"] span {
     background: #3fbf7f !important;
     background-color: #3fbf7f !important;
+    border-color: #2E7D4F !important;
 }
 """
 
@@ -12369,3 +12367,6 @@ with st.container(border=True, key="mw_page"):
             "loudly instead of mysteriously.")
         st.caption("Probability tilts, not prophecy. Position sizing is the only "
                    "opinion that matters. Not investment advice.")
+
+if _look_name() in ("Fortune", "Private Bank"):
+    st.markdown("<style>" + _money_green_css() + "</style>", unsafe_allow_html=True)
