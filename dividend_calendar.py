@@ -840,7 +840,8 @@ def render_dividend_calendar_tab():
                             idx = i
                             break
                 sel = st.selectbox("Select stock", opts, index=idx, key="dc_calc_sel")
-                tk = sel.split("  —  ")[0].strip()
+                tk = sel.split("  —  ")[0].strip().upper()
+                st.session_state["dc_pick"] = tk
                 row = src[src["ticker"] == tk].iloc[0]
                 info = _calc_from_row(row)
         else:
@@ -848,6 +849,7 @@ def render_dividend_calendar_tab():
                                 value=st.session_state.get("dc_pick") or "",
                                 placeholder="ET, EPD, DOC",
                                 key="dc_calc_tk").strip().upper()
+            st.session_state["dc_pick"] = ctk or None
             if ctk:
                 hit = df_all[df_all["ticker"] == ctk]
                 if not hit.empty:

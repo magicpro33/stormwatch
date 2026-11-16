@@ -3149,19 +3149,6 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                                  f"<span style='font-family:monospace;color:#b0c8e8'>{fwpe:.1f}x</span>",
                                  metric_scale(fwpe, 0, 60, 25, 40, "good under 25x",
                                               higher=False, neg_bad=True)))
-            _cape = {}
-            try:
-                _cape = ce.shiller_cape() or {}
-            except Exception:
-                _cape = {}
-            _cape_v = _cape.get("value")
-            if _cape_v is not None:
-                rows.append(mrow(
-                    "Shiller P/E",
-                    "S&P 500 CAPE. Market backdrop, not this stock. Long-run mean ~17×.",
-                    f"<span style='font-family:monospace;color:#b0c8e8'>{float(_cape_v):.1f}x</span>",
-                    metric_scale(float(_cape_v), 5, 45, 20, 30,
-                                 "stretched above 30x", higher=False)))
             if pb:
                 rows.append(mrow("P/B Ratio", "Below 1 = under book value; above 3 = premium.",
                                  az_tag_inv(pb, 6, 3, "{:.2f}", "x"),
@@ -10132,6 +10119,11 @@ with st.container(border=True, key="mw_page"):
             st.error(f"Dividend Calender failed to load: {_DC_ERR}")
         else:
             render_dividend_calendar_tab()
+            _dc_tk = str(st.session_state.get("dc_pick") or "").strip().upper()
+            if _dc_tk and _dc_tk.lower() not in ("nan", "none", "—", "-"):
+                asof = _dump_asof_key()
+                st.session_state["lk_tk"] = _dc_tk
+                _render_lookup_stack(_dc_tk, "dc_detail", "dcaz")
 
     if _main == "Nerd Hub":
         _hub_title("🤓 Nerd Hub", "#C8F542")

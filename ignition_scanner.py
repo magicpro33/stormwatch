@@ -3892,18 +3892,6 @@ def render_ignition_scanner_tab(render_detail=None):
                         f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{fwpe:.1f}x</span>",
                         metric_scale(fwpe, 0, 60, 25, 40, "good under 25x",
                                      higher=False, neg_bad=True)))
-                try:
-                    import cascade_engine as _cape_ce
-                    _cape = _cape_ce.shiller_cape() or {}
-                except Exception:
-                    _cape = {}
-                if _cape.get("value") is not None:
-                    val_rows.append(mrow(
-                        "Shiller P/E",
-                        "S&P 500 CAPE. Market backdrop, not this stock. Long-run mean ~17×.",
-                        f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{float(_cape['value']):.1f}x</span>",
-                        metric_scale(float(_cape["value"]), 5, 45, 20, 30,
-                                     "stretched above 30x", higher=False)))
                 if pb is not None:
                     val_rows.append(mrow(
                         "P/B Ratio", "Below 1 = under book value; above 3 = premium.",
