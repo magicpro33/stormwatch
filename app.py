@@ -229,35 +229,30 @@ def _look_name() -> str:
 
 
 def _money_green_css() -> str:
-    """Orange controls and marks become the money green on Fortune and Private Bank."""
+    """Orange fills become money green. Text color is left alone."""
     return """
 div[data-testid="stSlider"] [role="slider"],
-div[data-testid="stSlider"] [data-baseweb="slider"] > div > div,
 div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div {
     background: #3fbf7f !important;
     background-color: #3fbf7f !important;
     border-color: #3fbf7f !important;
 }
-[data-baseweb="radio"] [aria-checked="true"] > div,
-div[data-testid="stCheckbox"] [aria-checked="true"] > div,
-div[data-testid="stCheckbox"] svg {
+[data-baseweb="radio"] [aria-checked="true"] > div:first-child {
     background-color: #3fbf7f !important;
-    border-color: #3fbf7f !important;
-    fill: #3fbf7f !important;
+    border-color: #2E7D4F !important;
 }
-[style*="#E87722" i],
-[style*="#e87722" i],
-[style*="#c47d0e" i],
-[style*="#FFB020" i],
-[style*="#ffb020" i],
-[style*="232, 119, 34"],
-[style*="232,119,34"] {
-    color: #3fbf7f !important;
-    border-color: #3fbf7f !important;
-    outline-color: #3fbf7f !important;
-    fill: #3fbf7f !important;
-    stroke: #3fbf7f !important;
-    accent-color: #3fbf7f !important;
+div[data-testid="stMultiSelect"] [data-baseweb="tag"],
+div[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+    background: #3fbf7f !important;
+    background-color: #3fbf7f !important;
+    border-color: #2E7D4F !important;
+}
+[data-baseweb="tag"][style*="232, 119, 34"],
+[data-baseweb="tag"][style*="232,119,34"],
+[data-baseweb="tag"][style*="#E87722" i],
+[data-baseweb="tag"][style*="#e87722" i] {
+    background: #3fbf7f !important;
+    background-color: #3fbf7f !important;
 }
 """
 
@@ -322,11 +317,9 @@ div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented
     border: 2px solid {f['head']} !important;
     box-shadow: none !important;
 }}
-div[data-testid="stMultiSelect"] [data-baseweb="tag"],
-div[data-testid="stMultiSelect"] [data-baseweb="tag"] * {{
+div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     background: #3fbf7f !important;
     background-color: #3fbf7f !important;
-    color: #143028 !important;
     border-color: #2E7D4F !important;
 }}
 """
@@ -339,22 +332,16 @@ div[data-testid="stVerticalBlockBorderWrapper"],
 .st-key-mw_nav, .st-key-mw_page {{
     border-color: {f['line']} !important;
 }}
-div[data-testid="stRadio"] label,
-div[data-testid="stRadio"] [role="radio"],
-[data-baseweb="radio"] > div,
-div[data-testid="stSelectbox"] > div > div,
-div[data-baseweb="select"] > div,
-div[data-testid="stMultiSelect"] [data-baseweb="tag"],
-div[data-testid="stMultiSelect"] [data-baseweb="tag"] * {{
+div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     background: #3fbf7f !important;
     background-color: #3fbf7f !important;
-    color: #102018 !important;
     border-color: #2E7D4F !important;
 }}
-[style*="#3fbf7f" i], [style*="#4dd880" i],
-[style*="63, 191, 127"], [style*="63,191,127"],
-[style*="77, 216, 128"], [style*="77,216,128"] {{
-    color: {f['head']} !important;
+.st-key-top20_flow label,
+.st-key-top20_flow label p,
+.st-key-top20_flow label span,
+.st-key-top20_flow p {{
+    color: #ffffff !important;
 }}
 """
         return extra + _money_green_css()
@@ -1291,8 +1278,31 @@ def _css_sign(v, pos_good=True, dead=0.0):
     return f"color:{GREEN};font-weight:600" if good else f"color:{RED};font-weight:600"
 
 
+_HEALTH_GREENS = (
+    "#143028", "#18362C", "#1C3E32", "#214838",
+    "#27543E", "#2E6246", "#35714E", "#3C8158",
+    "#3A9462", "#3AAB70", "#3fbf7f",
+)
+
+
+def _health_shade(text) -> str:
+    """More filled blocks, or a stronger word, means a brighter money green."""
+    s = str(text or "")
+    n = s.count("█")
+    if n <= 0:
+        if "Strong" in s:
+            n = 8
+        elif "OK" in s:
+            n = 5
+        elif "Weak" in s:
+            n = 2
+    return _HEALTH_GREENS[max(0, min(10, n))]
+
+
 def _css_health_lbl(v):
     s = str(v or "")
+    if _look_name() == "Private Bank" and ("█" in s or any(w in s for w in ("Strong", "OK", "Weak"))):
+        return f"color:{_health_shade(s)};font-weight:600"
     if "Strong" in s:
         return f"color:{GREEN};font-weight:600"
     if "OK" in s:
@@ -6804,6 +6814,23 @@ def _style_health_setup(obj):
     hcol = getattr(ce, "HEALTH_COL", "Health/Piotroski")
     scol = getattr(ce, "SETUP_COL", "Clean Setup")
     ecol = getattr(ce, "EARN_COL", "Earnings")
+    if _look_name() == "Private Bank" and hcol in cols:
+        def _row(row):
+            styles = {c: "" for c in row.index}
+            shade = _health_shade(row.get(hcol))
+            styles[hcol] = f"color:{shade};font-weight:600"
+            if scol in row.index:
+                setup = str(row.get(scol) or "").lower()
+                if "bull" in setup:
+                    styles[scol] = f"color:{shade};font-weight:700"
+                elif "bear" in setup:
+                    styles[scol] = f"color:{RED};font-weight:600"
+                elif "mixed" in setup:
+                    styles[scol] = f"color:{_health_shade('██')};font-weight:600"
+            if ecol in row.index:
+                styles[ecol] = _css_earn_cell(row.get(ecol))
+            return pd.Series(styles)
+        return styler.apply(_row, axis=1)
     if hcol in cols:
         styler = styler.map(_css_health_lbl, subset=[hcol])
     if scol in cols:
@@ -8465,15 +8492,16 @@ def _stock_lookup_watchlist(closes, asof):
         _edited = None
         try:
             getattr(ce, "render_scan_col_help_strip", lambda *_: None)(st, list(show.columns))
-            _edited = st.data_editor(
+            _wl_styled = (
                 show.style.format({"Price then": "${:,.2f}", "Price now": "${:,.2f}",
                                    "Since saved": "{:+.1%}", "Scanner": "{}"}, na_rep="—",
                                    subset=["Price then", "Price now", "Since saved", "Scanner"])
                 .map(lambda v: _css_sign(v, dead=0.002), subset=["Since saved"])
-                .map(_css_earn_cell, subset=["Earnings"])
-                .map(_css_health_lbl, subset=["Health/Piotroski"])
-                .map(_css_cs_trend, subset=["Clean Setup"])
-                .map(_css_fav, subset=["Fav"]),
+                .map(_css_fav, subset=["Fav"])
+            )
+            _wl_styled = _style_health_setup(_wl_styled)
+            _edited = st.data_editor(
+                _wl_styled,
                 width="stretch", hide_index=True, height="content",
                 row_height=35, num_rows="fixed",
                 disabled=[c for c in show.columns if c not in ("sel", "Fav")],
