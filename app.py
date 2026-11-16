@@ -369,7 +369,36 @@ div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented
 div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     background: #3fbf7f !important;
     background-color: #3fbf7f !important;
+    color: #143028 !important;
     border-color: #2E7D4F !important;
+}}
+:root, .stApp {{
+    --text-color: #2C2416;
+    --background-color: #F6F1E7;
+    --secondary-background-color: #FFFCF6;
+}}
+[data-testid="stDataFrame"], [data-testid="stDataFrame"] * {{
+    --gdg-bg-cell: #FFFCF6;
+    --gdg-bg-cell-medium: #F6F1E7;
+    --gdg-bg-header: #F3EBDD;
+    --gdg-bg-header-has-focus: #F3EBDD;
+    --gdg-bg-header-hovered: #EFE6D6;
+    --gdg-text-dark: #2C2416;
+    --gdg-text-medium: #5C5346;
+    --gdg-text-light: #5C5346;
+    --gdg-text-header: #5C3A1A;
+    --gdg-text-group: #5C3A1A;
+    --gdg-border-color: #E3D5BE;
+    --gdg-horizontal-border-color: #E3D5BE;
+    --gdg-bg-bubble: #F3EBDD;
+    --gdg-accent-color: #C6A15B;
+    --gdg-accent-fg: #2C2416;
+    --gdg-link-color: #5C3A1A;
+}}
+[style*="EAF2FF" i], [style*="F6F4E9" i], [style*="e8f4fd" i],
+[style*="b0c8e8" i], [style*="9FB0C8" i], [style*="9aa8bd" i],
+[style*="7a9ab8" i], [style*="B8C6DC" i], [style*="eaf2ff" i] {{
+    color: #2C2416 !important;
 }}
 """
         return extra + _money_green_css()
@@ -401,8 +430,8 @@ def _look_css(name: str) -> str:
     """Chrome override for one of the four classic looks. Current adds nothing."""
     faces = {
         "Fortune": dict(
-            bg="#F6F1E7", card="#FFFCF6", text="#5C564C", muted="#7A7568",
-            head="#7A4E2D",
+            bg="#F6F1E7", card="#FFFCF6", text="#2C2416", muted="#5C5346",
+            head="#5C3A1A",
             accent="#C6A15B", line="#E3D5BE", field="#FFFCF6",
             primary="#C6A15B", onprim="#1C1915",
             pill="#F3EBDD", onpill="#1C1915",
