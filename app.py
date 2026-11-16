@@ -187,6 +187,249 @@ if _engine_v != REQUIRED_ENGINE:
              "then reboot the app.")
     st.stop()
 
+# ── Look ─────────────────────────────────────────────────────────────
+# Current is the glass HUD. The other four restyle the chrome. The choice
+# is kept in data/ so a reload opens on the look last picked.
+_LOOK_OPTIONS = ("Current", "Fortune", "Private Bank", "Research Note", "Observatory")
+
+
+def _look_path() -> str:
+    try:
+        from mw_paths import data_dir as _dd
+        d = _dd()
+    except Exception:
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "gui_look.json")
+
+
+def _read_look_file() -> str:
+    try:
+        import json
+        with open(_look_path(), encoding="utf-8") as f:
+            name = str(json.load(f).get("look") or "")
+        if name in _LOOK_OPTIONS:
+            return name
+    except Exception:
+        pass
+    return "Current"
+
+
+def _write_look_file(name: str) -> None:
+    try:
+        import json
+        path = _look_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"look": name}, f)
+    except Exception:
+        pass
+
+
+if st.session_state.get("mw_look") not in _LOOK_OPTIONS:
+    st.session_state["mw_look"] = _read_look_file()
+
+
+def _look_name() -> str:
+    name = st.session_state.get("mw_look")
+    return name if name in _LOOK_OPTIONS else "Current"
+
+
+def _look_css(name: str) -> str:
+    """Chrome override for one of the four classic looks. Current adds nothing."""
+    faces = {
+        "Fortune": dict(
+            bg="#F6F1E7", card="#FFFCF6", text="#1C1915", muted="#6E655C",
+            accent="#1F8A9A", line="#E3D5BE", field="#FFFCF6",
+            primary="#1C1915", onprim="#F6F1E7",
+            pill="#F3EBDD", onpill="#1C1915",
+            active="#A68534", onactive="#1C1915", activebg="#F6F1E7",
+            serif="1", radius="4px", shadow="none"),
+        "Private Bank": dict(
+            bg="#0C1424", card="#121C30", text="#F3EDE2", muted="#B7A98F",
+            accent="#C6A15B", line="#3E3424", field="#10192C",
+            primary="#C6A15B", onprim="#0C1424",
+            pill="#121C30", onpill="#D9CDB8",
+            active="#C6A15B", onactive="#F3EDE2", activebg="#1A2740",
+            serif="1", radius="2px", shadow="none"),
+        "Research Note": dict(
+            bg="#F3F2EE", card="#FAFAF8", text="#1B2A4A", muted="#5C6B82",
+            accent="#1B2A4A", line="#D5D8DE", field="#FFFFFF",
+            primary="#1B2A4A", onprim="#F7F7F5",
+            pill="#E7E8EC", onpill="#1B2A4A",
+            active="#1B2A4A", onactive="#F7F7F5", activebg="#1B2A4A",
+            serif="1", radius="2px", shadow="none"),
+        "Observatory": dict(
+            bg="#141414", card="#1C1C1C", text="#E8E2D6", muted="#A39E93",
+            accent="#C8C2B6", line="#3A3A3A", field="#1C1C1C",
+            primary="#E8E2D6", onprim="#141414",
+            pill="#1C1C1C", onpill="#C8C2B6",
+            active="#C8C2B6", onactive="#141414", activebg="#2A2A2A",
+            serif="1", radius="2px", shadow="none"),
+    }
+    f = faces.get(name)
+    if not f:
+        return ""
+    serif = "'Libre Baskerville', Georgia, 'Times New Roman', serif"
+    return f"""
+@import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&display=swap');
+html, body, .stApp {{
+    background: {f['bg']} !important;
+    background-image: none !important;
+    color: {f['text']} !important;
+}}
+.stApp, .stApp p, .stApp li, .stApp label, .stApp span,
+.stApp h1, .stApp h2, .stApp h3, .stApp h4,
+.stApp td, .stApp th, .stApp summary {{
+    color: {f['text']};
+}}
+.stApp h1, .stApp h2, .stApp h3, .mw-mast-name, .hub-title, .hub-sec {{
+    font-family: {serif} !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+    color: {f['text']} !important;
+    text-shadow: none !important;
+}}
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p,
+[data-testid="stMetricLabel"], [data-testid="stMetricLabel"] * {{
+    color: {f['muted']} !important;
+}}
+.mw-masthead {{ border-bottom: 1px solid {f['line']}; padding-bottom: 8px; }}
+.mw-mast-mark {{
+    border: 1px solid {f['accent']} !important;
+    border-radius: 50%;
+}}
+.mw-mast-name {{
+    font-family: {serif} !important;
+    letter-spacing: 0.12em !important;
+    text-transform: uppercase;
+    color: {f['text']} !important;
+}}
+.mw-look-label {{ color: {f['muted']} !important; }}
+div[data-testid="stTextInput"] input,
+div[data-testid="stNumberInput"] input,
+div[data-testid="stDateInput"] input,
+div[data-testid="stTextArea"] textarea,
+div[data-testid="stSelectbox"] > div > div,
+div[data-baseweb="select"] > div {{
+    background-color: {f['field']} !important;
+    border: 1px solid {f['line']} !important;
+    border-radius: {f['radius']} !important;
+    color: {f['text']} !important;
+    box-shadow: none !important;
+}}
+div[data-testid="stTextInput"] input:focus,
+div[data-testid="stNumberInput"] input:focus,
+div[data-testid="stTextArea"] textarea:focus {{
+    border-color: {f['accent']} !important;
+    box-shadow: none !important;
+}}
+div[data-testid="stSelectbox"] svg, div[data-testid="stMultiSelect"] svg {{
+    fill: {f['text']} !important;
+}}
+div[data-testid="stButton"] button,
+div[data-testid="stDownloadButton"] button {{
+    background-color: {f['card']} !important;
+    border: 1px solid {f['line']} !important;
+    border-radius: {f['radius']} !important;
+    color: {f['text']} !important;
+    box-shadow: none !important;
+}}
+div[data-testid="stButton"] button:hover,
+div[data-testid="stDownloadButton"] button:hover {{
+    border-color: {f['accent']} !important;
+    color: {f['text']} !important;
+    background-color: {f['pill']} !important;
+}}
+div[data-testid="stButton"] button[kind="primary"],
+div[data-testid="stButton"] button[data-testid="stBaseButton-primary"] {{
+    background-color: {f['primary']} !important;
+    border-color: {f['primary']} !important;
+    color: {f['onprim']} !important;
+}}
+div[data-testid="stButton"] button[kind="primary"]:hover,
+div[data-testid="stButton"] button[data-testid="stBaseButton-primary"]:hover {{
+    background-color: {f['primary']} !important;
+    color: {f['onprim']} !important;
+}}
+div[data-testid="stSegmentedControl"] button,
+.st-key-mw_nav [data-baseweb='button-group'] > button,
+.st-key-mw_nav [data-baseweb='button-group'] > * button {{
+    background-color: {f['pill']} !important;
+    border: 1px solid {f['line']} !important;
+    border-radius: {f['radius']} !important;
+    color: {f['onpill']} !important;
+    box-shadow: none !important;
+}}
+div[data-testid="stSegmentedControl"] button *,
+.st-key-mw_nav [data-baseweb='button-group'] > button *,
+.st-key-mw_nav [data-baseweb='button-group'] > * button * {{
+    color: {f['onpill']} !important;
+}}
+div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"],
+.st-key-mw_nav [data-baseweb='button-group'] > button[data-testid='stBaseButton-segmented_controlActive'],
+.st-key-mw_nav [data-baseweb='button-group'] > * button[data-testid='stBaseButton-segmented_controlActive'],
+.st-key-mw_nav [data-baseweb='button-group'] > button[aria-checked='true'],
+.st-key-mw_nav [data-baseweb='button-group'] > button[aria-pressed='true'] {{
+    background-color: {f['activebg']} !important;
+    border-color: {f['active']} !important;
+    color: {f['onactive']} !important;
+    box-shadow: none !important;
+}}
+div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"] *,
+.st-key-mw_nav [data-baseweb='button-group'] > button[data-testid='stBaseButton-segmented_controlActive'] *,
+.st-key-mw_nav [data-baseweb='button-group'] > * button[data-testid='stBaseButton-segmented_controlActive'] * {{
+    color: {f['onactive']} !important;
+}}
+div[data-testid="stExpander"],
+div[data-testid="stVerticalBlockBorderWrapper"],
+.st-key-mw_nav, .st-key-mw_page, .hub-title, .hub-sec, .mw-menu-title {{
+    background: {f['card']} !important;
+    background-color: {f['card']} !important;
+    border: 1px solid {f['line']} !important;
+    border-radius: {f['radius']} !important;
+    box-shadow: {f['shadow']} !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    color: {f['text']} !important;
+}}
+.hub-title-pop {{
+    text-shadow: none !important;
+    box-shadow: none !important;
+    color: {f['text']} !important;
+    border-color: {f['line']} !important;
+    background: {f['pill']} !important;
+}}
+div[data-testid="stRadio"] label p,
+div[data-testid="stRadio"] label span {{
+    color: {f['text']} !important;
+}}
+[style*="background:#0c1829" i],
+[style*="background:#081325" i],
+[style*="background:#0d1e33" i],
+[style*="background:#07111f" i],
+[style*="background:#0a1828" i],
+[style*="background:#122540" i],
+[style*="background:#06101c" i] {{
+    background: {f['card']} !important;
+    color: {f['text']} !important;
+    border-color: {f['line']} !important;
+}}
+[style*="color:#EAF2FF" i],
+[style*="color:#F6F4E9" i],
+[style*="color:#b0c8e8" i],
+[style*="color:#9FB0C8" i],
+[style*="color:#9aa8bd" i] {{
+    color: {f['text']} !important;
+}}
+[data-testid="stAlert"], [data-testid="stNotification"] {{
+    background: {f['card']} !important;
+    color: {f['text']} !important;
+    border-color: {f['line']} !important;
+}}
+"""
+
+
 # ── Global theme (Glass HUD) + tab focus-outline fix ────────────────────────────────────
 # Applies once, at the top level, so it covers every tab in every sub-app
 # (Cascade Map, Stock Lookup, Top 20, Hybrid Screener, Ignition Scanner,
@@ -508,6 +751,39 @@ div[data-testid="stPlotlyChart"] > div {
     color: #EAF2FF;
     box-shadow: 0 8px 32px rgba(0,0,0,0.35);
 }
+.mw-masthead {
+    padding: 6px 0 2px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+.mw-mast-mark {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid #67E8F9;
+    box-sizing: border-box;
+    display: inline-block;
+    flex: 0 0 auto;
+}
+.mw-mast-name {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #EAF2FF;
+}
+.mw-look-label {
+    color: #9FB0C8;
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    margin: 8px 0 2px;
+}
+.st-key-mw_look_bar [data-testid="stSegmentedControl"] button {
+    min-height: 32px !important;
+    padding: 2px 12px !important;
+}
 </style>""", unsafe_allow_html=True)
 
 # One hue per menu option. Adjacent items alternate warm / cool so they don't blend.
@@ -692,6 +968,9 @@ def _menu_category_css() -> str:
 
 
 st.markdown("<style>" + _menu_category_css() + "</style>", unsafe_allow_html=True)
+_look_extra = _look_css(_look_name())
+if _look_extra:
+    st.markdown("<style>" + _look_extra + "</style>", unsafe_allow_html=True)
 
 
 # ── help texts (every ❓ icon in the app reads from here) ─────────────
@@ -824,6 +1103,14 @@ MIX_COLOR = "#E87722"   # "either way" / mixed news keeps its amber meaning
 GREEN = "#3fbf7f"
 RED = "#e05252"
 DIM = "#9aa8bd"
+_LOOK_INK = {
+    "Fortune": ("#1F8A9A", "#2E7D4F", "#9C3B3B", "#6E655C"),
+    "Private Bank": ("#C6A15B", "#3E8F62", "#9C3B3B", "#B7A98F"),
+    "Research Note": ("#1B2A4A", "#1F6B45", "#8E2F2F", "#5C6B82"),
+    "Observatory": ("#C8C2B6", "#8FBF9A", "#D08A84", "#A39E93"),
+}
+if _look_name() in _LOOK_INK:
+    ACCENT, GREEN, RED, DIM = _LOOK_INK[_look_name()]
 _DF_WIDTH = "content"   # size dataframe columns to cell contents; no leftover pad
 
 
@@ -925,12 +1212,11 @@ with _hl:
     _clickable_logo(140)
 with _ht:
     st.markdown(
-        """
-        <div style="padding:6px 0 2px;display:flex;align-items:center;gap:14px;">
-          <span style="width:26px;height:26px;border-radius:50%;border:2px solid #67E8F9;box-sizing:border-box;display:inline-block;"></span>
-          <span style="font-size:28px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;">Money Maker</span>
-        </div>
-        """, unsafe_allow_html=True)
+        '<div class="mw-masthead">'
+        '<span class="mw-mast-mark"></span>'
+        '<span class="mw-mast-name">Money Maker</span>'
+        '</div>',
+        unsafe_allow_html=True)
     _dump_line = _dump_header_line()
     with st.container(key="hdr_dump_row"):
         st.markdown(
@@ -958,6 +1244,20 @@ with _ht:
                 except Exception:
                     pass
             st.rerun()
+
+st.markdown('<div class="mw-look-label">Look</div>', unsafe_allow_html=True)
+with st.container(key="mw_look_bar"):
+    if hasattr(st, "segmented_control"):
+        st.segmented_control(
+            "Look", list(_LOOK_OPTIONS), key="mw_look",
+            label_visibility="collapsed",
+            help="Current is the glass look. The other four restyle the page.")
+    else:
+        st.radio("Look", list(_LOOK_OPTIONS), horizontal=True, key="mw_look",
+                 label_visibility="collapsed")
+_picked = _look_name()
+if _picked != _read_look_file():
+    _write_look_file(_picked)
 
 
 # ── data ─────────────────────────────────────────────────────────────
@@ -5197,9 +5497,13 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                              name="Volume", opacity=0.6, showlegend=False,
                              hovertemplate="Volume — shares traded this bar<br>%{y:,.0f}<extra></extra>"),
                       row=2, col=1)
-    fig.update_layout(height=500, template="plotly_dark",
-                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0.03)",
-                      font_color="#EAF2FF", showlegend=True,
+    _light_chart = _look_name() in ("Fortune", "Research Note")
+    fig.update_layout(height=500,
+                      template="plotly_white" if _light_chart else "plotly_dark",
+                      paper_bgcolor="rgba(0,0,0,0)",
+                      plot_bgcolor="rgba(0,0,0,0)" if _light_chart else "rgba(255,255,255,0.03)",
+                      font_color="#1C1915" if _light_chart else "#EAF2FF",
+                      showlegend=True,
                       legend=dict(orientation="h", y=1.05),
                       xaxis_rangeslider_visible=False,
                       barmode="overlay",
