@@ -188,58 +188,90 @@ if _engine_v != REQUIRED_ENGINE:
     st.stop()
 
 # ── Look ─────────────────────────────────────────────────────────────
-# Current is the glass HUD. The other four restyle the chrome. The choice
-# is kept in data/ so a reload opens on the look last picked.
-_LOOK_OPTIONS = ("Current", "Fortune", "Private Bank", "Observatory")
+# Neon Dream is the glass HUD. Each browser keeps its own choice in a
+# cookie, so two people on the same app do not overwrite each other.
+_LOOK_OPTIONS = ("Neon Dream", "Fortune", "Private Bank")
+_LOOK_ALIAS = {
+    "Current": "Neon Dream",
+    "Observatory": "Neon Dream",
+    "Research Note": "Neon Dream",
+}
 
 
-def _look_path() -> str:
+def _canon_look(name: str) -> str:
+    name = _LOOK_ALIAS.get(str(name or "").strip(), str(name or "").strip())
+    return name if name in _LOOK_OPTIONS else ""
+
+
+def _cookie_look() -> str:
     try:
-        from mw_paths import data_dir as _dd
-        d = _dd()
+        cookies = getattr(st, "context", None)
+        raw = ""
+        if cookies is not None:
+            jar = getattr(cookies, "cookies", {}) or {}
+            raw = jar.get("mw_look", "") if hasattr(jar, "get") else ""
+        return _canon_look(raw)
     except Exception:
-        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-        os.makedirs(d, exist_ok=True)
-    return os.path.join(d, "gui_look.json")
+        return ""
 
 
-def _read_look_file() -> str:
-    try:
-        import json
-        with open(_look_path(), encoding="utf-8") as f:
-            name = str(json.load(f).get("look") or "")
-        if name in _LOOK_OPTIONS:
-            return name
-    except Exception:
-        pass
-    return "Current"
-
-
-def _write_look_file(name: str) -> None:
-    try:
-        import json
-        path = _look_path()
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"look": name}, f)
-    except Exception:
-        pass
-
-
-if st.session_state.get("mw_look") not in _LOOK_OPTIONS:
-    st.session_state["mw_look"] = _read_look_file()
+if _canon_look(st.session_state.get("mw_look")):
+    if st.session_state.get("mw_look") not in _LOOK_OPTIONS:
+        st.session_state["mw_look"] = _canon_look(st.session_state.get("mw_look"))
+elif _cookie_look():
+    st.session_state["mw_look"] = _cookie_look()
+else:
+    st.session_state["mw_look"] = "Neon Dream"
 
 
 def _look_name() -> str:
-    name = st.session_state.get("mw_look")
-    return name if name in _LOOK_OPTIONS else "Current"
+    return _canon_look(st.session_state.get("mw_look")) or "Neon Dream"
+
+
+def _money_green_css() -> str:
+    """Orange controls and marks become the money green on Fortune and Private Bank."""
+    return """
+div[data-testid="stSlider"] [role="slider"],
+div[data-testid="stSlider"] [data-baseweb="slider"] > div > div,
+div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div {
+    background: #3fbf7f !important;
+    background-color: #3fbf7f !important;
+    border-color: #3fbf7f !important;
+}
+[data-baseweb="radio"] [aria-checked="true"] > div,
+div[data-testid="stCheckbox"] [aria-checked="true"] > div,
+div[data-testid="stCheckbox"] svg {
+    background-color: #3fbf7f !important;
+    border-color: #3fbf7f !important;
+    fill: #3fbf7f !important;
+}
+[style*="#E87722" i],
+[style*="#e87722" i],
+[style*="#c47d0e" i],
+[style*="#FFB020" i],
+[style*="#ffb020" i],
+[style*="232, 119, 34"],
+[style*="232,119,34"] {
+    color: #3fbf7f !important;
+    border-color: #3fbf7f !important;
+    outline-color: #3fbf7f !important;
+    fill: #3fbf7f !important;
+    stroke: #3fbf7f !important;
+    accent-color: #3fbf7f !important;
+}
+"""
 
 
 def _look_extra_css(name: str, f: dict, serif: str) -> str:
     """Theme-only fixes that should not touch the other looks."""
     if name == "Fortune":
-        return f"""
-.js-plotly-plot .main-svg .bg {{ fill: {f['bg']} !important; }}
+        extra = f"""
+.js-plotly-plot .bg,
+.js-plotly-plot .bglayer rect,
+.js-plotly-plot .rangeslider-container rect,
+.js-plotly-plot .rangeselector rect {{
+    fill: {f['bg']} !important;
+}}
 .js-plotly-plot text {{ fill: {f['text']} !important; }}
 .js-plotly-plot .xgrid, .js-plotly-plot .ygrid,
 .js-plotly-plot .zerolinelayer line {{ stroke: {f['line']} !important; }}
@@ -250,15 +282,43 @@ def _look_extra_css(name: str, f: dict, serif: str) -> str:
     background: {f['card']} !important;
     color: {f['text']} !important;
 }}
-[data-baseweb="tab"], [data-baseweb="tab"] * {{
+[style*="122540" i], [style*="0c1829" i], [style*="081325" i],
+[style*="16344f" i], [style*="1e3a5f" i], [style*="1d2b40" i],
+[style*="0a1624" i], [style*="122a42" i], [style*="12233c" i],
+[style*="1e2d45" i], [style*="0d1e33" i], [style*="07111f" i],
+[style*="06101c" i], [style*="0a1828" i] {{
+    background: {f['pill']} !important;
+    background-color: {f['pill']} !important;
+    color: {f['text']} !important;
+}}
+[data-testid="stSegmentedControl"],
+[data-testid="stSegmentedControl"] [data-baseweb="button-group"],
+[data-testid="stSegmentedControl"] button,
+[data-testid="stSegmentedControl"] button > div,
+.st-key-mw_nav [data-baseweb="button-group"],
+.st-key-mw_nav button,
+.st-key-mw_nav button > div {{
+    background: {f['pill']} !important;
+    background-color: {f['pill']} !important;
+    color: {f['text']} !important;
+    border-color: {f['line']} !important;
+}}
+[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"],
+[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"] > div,
+.st-key-mw_nav button[aria-checked="true"],
+.st-key-mw_nav button[aria-pressed="true"],
+.st-key-mw_nav button[data-testid="stBaseButton-segmented_controlActive"],
+.st-key-mw_nav button[data-testid="stBaseButton-segmented_controlActive"] > div {{
     background: {f['btn']} !important;
+    background-color: {f['btn']} !important;
     color: {f['btntxt']} !important;
     border-color: #8C6A32 !important;
     font-family: {serif} !important;
 }}
 """
+        return extra + _money_green_css()
     if name == "Private Bank":
-        return f"""
+        extra = f"""
 [data-baseweb="tag"], [data-baseweb="tag"] *,
 [data-baseweb="tag"] span {{
     background: {f['btn']} !important;
@@ -273,6 +333,7 @@ div[data-testid="stVerticalBlockBorderWrapper"],
     border-color: {f['line']} !important;
 }}
 """
+        return extra + _money_green_css()
     return ""
 
 
@@ -283,8 +344,8 @@ def _look_css(name: str) -> str:
             bg="#F6F1E7", card="#FFFCF6", text="#1C1915", muted="#6E655C",
             accent="#C6A15B", line="#E3D5BE", field="#FFFCF6",
             primary="#C6A15B", onprim="#1C1915",
-            pill="#C6A15B", onpill="#1C1915",
-            active="#A68534", onactive="#1C1915", activebg="#C6A15B",
+            pill="#F3EBDD", onpill="#1C1915",
+            active="#8C6A32", onactive="#1C1915", activebg="#C6A15B",
             btn="#C6A15B", btntxt="#1C1915",
             serif="1", radius="4px", shadow="none"),
         "Private Bank": dict(
@@ -294,14 +355,6 @@ def _look_css(name: str) -> str:
             pill="#C6A15B", onpill="#0C1424",
             active="#A68534", onactive="#0C1424", activebg="#C6A15B",
             btn="#C6A15B", btntxt="#0C1424",
-            serif="1", radius="2px", shadow="none"),
-        "Observatory": dict(
-            bg="#141414", card="#1C1C1C", text="#E8E2D6", muted="#A39E93",
-            accent="#C8C2B6", line="#3A3A3A", field="#1C1C1C",
-            primary="#E8E2D6", onprim="#141414",
-            pill="#1C1C1C", onpill="#C8C2B6",
-            active="#C8C2B6", onactive="#141414", activebg="#2A2A2A",
-            btn="#1C1C1C", btntxt="#E8E2D6",
             serif="1", radius="2px", shadow="none"),
     }
     f = faces.get(name)
@@ -1189,10 +1242,11 @@ DIM = "#9aa8bd"
 _LOOK_INK = {
     "Fortune": ("#C6A15B", "#2E7D4F", "#9C3B3B", "#6E655C"),
     "Private Bank": ("#C6A15B", "#6E7F62", "#6E3B2E", "#B7A98F"),
-    "Observatory": ("#C8C2B6", "#8FBF9A", "#D08A84", "#A39E93"),
 }
 if _look_name() in _LOOK_INK:
     ACCENT, GREEN, RED, DIM = _LOOK_INK[_look_name()]
+if _look_name() in ("Fortune", "Private Bank"):
+    MIX_COLOR = "#3fbf7f"
 _DF_WIDTH = "content"   # size dataframe columns to cell contents; no leftover pad
 
 
@@ -1333,13 +1387,37 @@ with st.container(key="mw_look_bar"):
         st.segmented_control(
             "Look", list(_LOOK_OPTIONS), key="mw_look",
             label_visibility="collapsed",
-            help="Current is the glass look. The other four restyle the page.")
+            help="Neon Dream is the glass look. Fortune and Private Bank restyle the page. This browser keeps the choice.")
     else:
         st.radio("Look", list(_LOOK_OPTIONS), horizontal=True, key="mw_look",
                  label_visibility="collapsed")
-_picked = _look_name()
-if _picked != _read_look_file():
-    _write_look_file(_picked)
+_embed_html(
+    """<script>
+(function () {
+  var doc = (window.parent && window.parent.document) ? window.parent.document : document;
+  var bar = doc.querySelector(".st-key-mw_look_bar");
+  if (!bar) return;
+  var buttons = bar.querySelectorAll("button");
+  function label(b) { return (b.innerText || "").replace(/\\s+/g, " ").trim(); }
+  function save(name) {
+    if (!name) return;
+    var c = "mw_look=" + encodeURIComponent(name) + ";path=/;max-age=31536000;SameSite=Lax";
+    document.cookie = c;
+    try { doc.cookie = c; } catch (e) {}
+  }
+  buttons.forEach(function (b) {
+    if (b.dataset.mwLookSave) return;
+    b.dataset.mwLookSave = "1";
+    b.addEventListener("click", function () { save(label(b)); });
+  });
+  buttons.forEach(function (b) {
+    var id = b.getAttribute("data-testid") || "";
+    if (id.indexOf("Active") >= 0) save(label(b));
+  });
+})();
+</script>""",
+    height=0,
+)
 
 
 # ── data ─────────────────────────────────────────────────────────────

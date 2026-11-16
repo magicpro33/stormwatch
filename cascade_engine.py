@@ -6092,12 +6092,23 @@ def clean_setup_trends(tickers) -> dict:
     return out
 
 
+def _ok_amber() -> str:
+    """Orange marks turn money green on Fortune and Private Bank."""
+    try:
+        import streamlit as st
+        if st.session_state.get("mw_look") in ("Fortune", "Private Bank"):
+            return "#3fbf7f"
+    except Exception:
+        pass
+    return "#E87722"
+
+
 def css_health_lbl(v) -> str:
     s = str(v or "")
     if "Strong" in s:
         return "color:#3fbf7f;font-weight:600"
     if "OK" in s:
-        return "color:#E87722;font-weight:600"
+        return f"color:{_ok_amber()};font-weight:600"
     if "Weak" in s:
         return "color:#e05252;font-weight:600"
     return "color:#9aa8bd"
@@ -6110,7 +6121,7 @@ def css_cs_trend(v) -> str:
     if "bear" in s:
         return "color:#e05252;font-weight:600"
     if "mixed" in s:
-        return "color:#E87722;font-weight:600"
+        return f"color:{_ok_amber()};font-weight:600"
     return "color:#9aa8bd"
 
 
@@ -6146,7 +6157,7 @@ def css_earn_cell(v) -> str:
     if n <= 7:
         return "color:#e05252;font-weight:600"
     if n <= 21:
-        return "color:#E87722;font-weight:600"
+        return f"color:{_ok_amber()};font-weight:600"
     return "color:#3fbf7f;font-weight:600"
 
 

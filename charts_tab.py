@@ -875,10 +875,19 @@ def _window_slider(key: str, tmin, tmax, presets: list | None = None) -> None:
     )
 
 
+def _money(color: str) -> str:
+    """Orange series become money green on Fortune and Private Bank."""
+    if (str(st.session_state.get("mw_look") or "") in ("Fortune", "Private Bank")
+            and str(color).lower() in ("#e87722", "#ffb020", "#c47d0e")):
+        return "#3fbf7f"
+    return color
+
+
 def _line_fig(s: pd.Series, *, color: str, y_title: str, hover: str,
               y_prefix: str = "", y_suffix: str = "", y_mult: float = 1.0,
               height: int = 420, buttons=None, slider: bool = True,
               fill: bool = True, range_label: str = ""):
+    color = _money(color)
     import plotly.graph_objects as go
 
     y = s.astype(float) * y_mult
@@ -1222,7 +1231,7 @@ def _crypto_series(px: pd.DataFrame, last: dict | None = None) -> list:
     rows = []
     for ticker, name, color in CRYPTO_FIVE:
         s = _stamp_last(_yf_close(px, ticker), (last or {}).get(ticker))
-        rows.append((ticker, name, color, s))
+        rows.append((ticker, name, _money(color), s))
     return rows
 
 
@@ -1471,7 +1480,7 @@ def _debt_pills(snap: dict) -> None:
 
 
 def _nation_color(name: str, i: int = 0) -> str:
-    return _NATION_COLOR.get(name) or _NATION_FALLBACK[i % len(_NATION_FALLBACK)]
+    return _money(_NATION_COLOR.get(name) or _NATION_FALLBACK[i % len(_NATION_FALLBACK)])
 
 
 def _holder_bars(rows: list[tuple[str, float]]) -> None:
@@ -1825,5 +1834,10 @@ def _render_nerd_body() -> None:
 
 
 def render_charts_tab() -> None:
+    global ACCENT
+    if str(st.session_state.get("mw_look") or "") in ("Fortune", "Private Bank"):
+        ACCENT = "#3fbf7f"
+    else:
+        ACCENT = "#E87722"
     _css()
     _render_nerd_body()
