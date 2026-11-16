@@ -6092,19 +6092,56 @@ def clean_setup_trends(tickers) -> dict:
     return out
 
 
-def _ok_amber() -> str:
-    """Orange marks turn money green on Fortune and Private Bank."""
+def _metal_themes() -> bool:
     try:
         import streamlit as st
-        if st.session_state.get("mw_look") in ("Fortune", "Private Bank"):
-            return "#3fbf7f"
+        return st.session_state.get("mw_look") in ("Fortune", "Private Bank")
     except Exception:
-        pass
+        return False
+
+
+def _bank_theme() -> bool:
+    try:
+        import streamlit as st
+        return st.session_state.get("mw_look") == "Private Bank"
+    except Exception:
+        return False
+
+
+def _ok_amber() -> str:
+    """Orange marks turn money green on Fortune and Private Bank."""
+    if _metal_themes():
+        return "#3fbf7f"
     return "#E87722"
+
+
+# Dark forest up to money green. The top step is the money green itself,
+# not a neon mint. More filled blocks = brighter.
+_HEALTH_GREENS = (
+    "#143028", "#18362C", "#1C3E32", "#214838",
+    "#27543E", "#2E6246", "#35714E", "#3C8158",
+    "#3A9462", "#3AAB70", "#3fbf7f",
+)
+
+
+def _health_shade(text) -> str:
+    s = str(text or "")
+    n = s.count("█")
+    if n <= 0:
+        if "Strong" in s:
+            n = 8
+        elif "OK" in s:
+            n = 5
+        elif "Weak" in s:
+            n = 2
+    n = max(0, min(10, int(n)))
+    return _HEALTH_GREENS[n]
 
 
 def css_health_lbl(v) -> str:
     s = str(v or "")
+    if _bank_theme() and ("█" in s or any(w in s for w in ("Strong", "OK", "Weak"))):
+        return f"color:{_health_shade(s)};font-weight:600"
     if "Strong" in s:
         return "color:#3fbf7f;font-weight:600"
     if "OK" in s:
@@ -6161,11 +6198,33 @@ def css_earn_cell(v) -> str:
     return "color:#3fbf7f;font-weight:600"
 
 
+def _bank_health_setup_row(row):
+    """Health bar and a bull setup share one money-green shade."""
+    styles = {c: "" for c in row.index}
+    shade = _health_shade(row.get(HEALTH_COL))
+    if HEALTH_COL in row.index:
+        styles[HEALTH_COL] = f"color:{shade};font-weight:600"
+    if SETUP_COL in row.index:
+        s = str(row.get(SETUP_COL) or "").lower()
+        if "bull" in s:
+            styles[SETUP_COL] = f"color:{shade};font-weight:700"
+        elif "mixed" in s:
+            styles[SETUP_COL] = f"color:{_HEALTH_GREENS[max(0, str(row.get(HEALTH_COL) or '').count('█') // 2)]};font-weight:600"
+        elif "bear" in s:
+            styles[SETUP_COL] = "color:#A14A3A;font-weight:600"
+    if EARN_COL in row.index:
+        styles[EARN_COL] = css_earn_cell(row.get(EARN_COL))
+    return pd.Series(styles)
+
+
 def style_health_setup(obj):
     """Color Health/Piotroski, Clean Setup, and earnings the same way the watchlist does."""
     styler = obj if hasattr(obj, "data") else obj.style
     data = getattr(styler, "data", None)
     cols = list(getattr(data, "columns", [])) if data is not None else []
+    if _bank_theme() and data is not None and HEALTH_COL in cols:
+        styler = data.style.apply(_bank_health_setup_row, axis=1)
+        return styler
     if HEALTH_COL in cols:
         styler = styler.map(css_health_lbl, subset=[HEALTH_COL])
     if SETUP_COL in cols:

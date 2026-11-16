@@ -291,46 +291,70 @@ def _look_extra_css(name: str, f: dict, serif: str) -> str:
     background-color: {f['pill']} !important;
     color: {f['text']} !important;
 }}
-[data-testid="stSegmentedControl"],
-[data-testid="stSegmentedControl"] [data-baseweb="button-group"],
-[data-testid="stSegmentedControl"] button,
-[data-testid="stSegmentedControl"] button > div,
-.st-key-mw_nav [data-baseweb="button-group"],
-.st-key-mw_nav button,
-.st-key-mw_nav button > div {{
-    background: {f['pill']} !important;
-    background-color: {f['pill']} !important;
-    color: {f['text']} !important;
-    border-color: {f['line']} !important;
+[data-baseweb="tag"], [data-baseweb="tag"] *,
+.hub-title-pop, .mw-menu-title {{
+    background: {f['card']} !important;
+    background-color: {f['card']} !important;
+    color: {f['head']} !important;
+    border: 1px solid {f['accent']} !important;
 }}
-[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"],
-[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"] > div,
-.st-key-mw_nav button[aria-checked="true"],
-.st-key-mw_nav button[aria-pressed="true"],
-.st-key-mw_nav button[data-testid="stBaseButton-segmented_controlActive"],
-.st-key-mw_nav button[data-testid="stBaseButton-segmented_controlActive"] > div {{
-    background: {f['btn']} !important;
-    background-color: {f['btn']} !important;
-    color: {f['btntxt']} !important;
-    border-color: #8C6A32 !important;
+div[data-testid="stSegmentedControl"] button,
+div[data-testid="stSegmentedControl"] button > div,
+.st-key-mw_nav [data-baseweb="button-group"] > button,
+.st-key-mw_nav [data-baseweb="button-group"] > * button,
+.st-key-mw_nav [data-baseweb="button-group"] > button > div {{
+    background: {f['bg']} !important;
+    background-color: {f['bg']} !important;
+    color: {f['head']} !important;
+    border: 1px solid transparent !important;
+    box-shadow: none !important;
     font-family: {serif} !important;
+}}
+div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"],
+div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"] > div,
+.st-key-mw_nav [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
+.st-key-mw_nav [data-baseweb="button-group"] > * button[data-testid="stBaseButton-segmented_controlActive"],
+.st-key-mw_nav [data-baseweb="button-group"] > button[aria-checked="true"],
+.st-key-mw_nav [data-baseweb="button-group"] > button[aria-pressed="true"] {{
+    background: {f['bg']} !important;
+    background-color: {f['bg']} !important;
+    color: {f['head']} !important;
+    border: 2px solid {f['head']} !important;
+    box-shadow: none !important;
+}}
+div[data-testid="stMultiSelect"] [data-baseweb="tag"],
+div[data-testid="stMultiSelect"] [data-baseweb="tag"] * {{
+    background: #3fbf7f !important;
+    background-color: #3fbf7f !important;
+    color: #143028 !important;
+    border-color: #2E7D4F !important;
 }}
 """
         return extra + _money_green_css()
     if name == "Private Bank":
         extra = f"""
-[data-baseweb="tag"], [data-baseweb="tag"] *,
-[data-baseweb="tag"] span {{
-    background: {f['btn']} !important;
-    background-color: {f['btn']} !important;
-    color: {f['btntxt']} !important;
-    border-color: #8C6A32 !important;
-}}
 .hub-title, .hub-sec, .hub-title-pop, .mw-menu-title,
 div[data-testid="stExpander"],
 div[data-testid="stVerticalBlockBorderWrapper"],
 .st-key-mw_nav, .st-key-mw_page {{
     border-color: {f['line']} !important;
+}}
+div[data-testid="stRadio"] label,
+div[data-testid="stRadio"] [role="radio"],
+[data-baseweb="radio"] > div,
+div[data-testid="stSelectbox"] > div > div,
+div[data-baseweb="select"] > div,
+div[data-testid="stMultiSelect"] [data-baseweb="tag"],
+div[data-testid="stMultiSelect"] [data-baseweb="tag"] * {{
+    background: #3fbf7f !important;
+    background-color: #3fbf7f !important;
+    color: #102018 !important;
+    border-color: #2E7D4F !important;
+}}
+[style*="#3fbf7f" i], [style*="#4dd880" i],
+[style*="63, 191, 127"], [style*="63,191,127"],
+[style*="77, 216, 128"], [style*="77,216,128"] {{
+    color: {f['head']} !important;
 }}
 """
         return extra + _money_green_css()
@@ -341,7 +365,8 @@ def _look_css(name: str) -> str:
     """Chrome override for one of the four classic looks. Current adds nothing."""
     faces = {
         "Fortune": dict(
-            bg="#F6F1E7", card="#FFFCF6", text="#1C1915", muted="#6E655C",
+            bg="#F6F1E7", card="#FFFCF6", text="#5C564C", muted="#7A7568",
+            head="#7A4E2D",
             accent="#C6A15B", line="#E3D5BE", field="#FFFCF6",
             primary="#C6A15B", onprim="#1C1915",
             pill="#F3EBDD", onpill="#1C1915",
@@ -349,7 +374,8 @@ def _look_css(name: str) -> str:
             btn="#C6A15B", btntxt="#1C1915",
             serif="1", radius="4px", shadow="none"),
         "Private Bank": dict(
-            bg="#0C1424", card="#121C30", text="#F3EDE2", muted="#B7A98F",
+            bg="#0C1424", card="#121C30", text="#D5D8DC", muted="#A7A297",
+            head="#E4C77B",
             accent="#C6A15B", line="#C6A15B", field="#10192C",
             primary="#C6A15B", onprim="#0C1424",
             pill="#C6A15B", onpill="#0C1424",
@@ -377,8 +403,11 @@ html, body, .stApp {{
     font-family: {serif} !important;
     font-weight: 400 !important;
     letter-spacing: 0 !important;
-    color: {f['text']} !important;
+    color: {f['head']} !important;
     text-shadow: none !important;
+}}
+.stApp label, .stApp strong, .stApp b {{
+    color: {f['head']} !important;
 }}
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p,
 [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] * {{
@@ -393,7 +422,7 @@ html, body, .stApp {{
     font-family: {serif} !important;
     letter-spacing: 0.12em !important;
     text-transform: uppercase;
-    color: {f['text']} !important;
+    color: {f['head']} !important;
 }}
 .mw-look-label {{ color: {f['muted']} !important; }}
 div[data-testid="stTextInput"] input,
@@ -1240,8 +1269,8 @@ GREEN = "#3fbf7f"
 RED = "#e05252"
 DIM = "#9aa8bd"
 _LOOK_INK = {
-    "Fortune": ("#C6A15B", "#2E7D4F", "#9C3B3B", "#6E655C"),
-    "Private Bank": ("#C6A15B", "#6E7F62", "#6E3B2E", "#B7A98F"),
+    "Fortune": ("#8A6A2F", "#8C6239", "#8C3A32", "#7A756C"),
+    "Private Bank": ("#E0C37A", "#E0C37A", "#C47A4A", "#C0C0C0"),
 }
 if _look_name() in _LOOK_INK:
     ACCENT, GREEN, RED, DIM = _LOOK_INK[_look_name()]
