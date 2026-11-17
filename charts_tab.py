@@ -1678,12 +1678,40 @@ def _debt_live() -> None:
         _debt_pills(_live_project(_debt_snapshot()))
 
 
+_FLOW_SPANS = (
+    ("1 day", 1),
+    ("2 days", 2),
+    ("3 days", 3),
+    ("4 days", 4),
+    ("5 days", 5),
+    ("6 days", 6),
+    ("7 days", 7),
+    ("1 month", 21),
+    ("3 months", 63),
+    ("6 months", 126),
+    ("1 year", 252),
+    ("2 years", 504),
+    ("5 years", 1260),
+)
+
+
 def _money_flow_chart() -> None:
     """Sector breakdown of dollars that came in or left with the price."""
     import cascade_engine as ce
     import plotly.graph_objects as go
+    labels = [name for name, _ in _FLOW_SPANS]
+    days = {name: n for name, n in _FLOW_SPANS}
+    pick = st.selectbox(
+        "Range",
+        labels,
+        index=0,
+        key="ch_money_flow_span",
+        help="How far back to add up dollars that traded with the price. "
+             "Days are trading sessions. A month is about 21 sessions, "
+             "a year about 252.",
+    )
     try:
-        flow = ce.market_dollar_flow(1)
+        flow = ce.market_dollar_flow(days[pick])
     except Exception as exc:
         st.caption(f"Money-flow chart unavailable: {exc}")
         return
@@ -1694,10 +1722,12 @@ def _money_flow_chart() -> None:
     asof = flow.attrs.get("asof") or ""
     start = flow.attrs.get("start") or ""
     _sec("Money entering and leaving the market", GOLD)
+    sessions = int(flow.attrs.get("sessions") or flow.attrs.get("lookback") or 1)
     st.caption(
-        f"{start} → {asof}. Each bar is the sector's traded dollars times "
-        "its price change. Right of zero, money came in with rising prices. "
-        "Left of zero, money left as prices fell. "
+        f"{start} → {asof} · {sessions} session{'s' if sessions != 1 else ''}. "
+        "Each bar adds up, day by day, the sector's traded dollars times "
+        "that day's price change. Right of zero, money came in with rising "
+        "prices. Left of zero, money left as prices fell. "
         f"Net {net / 1e9:+,.1f} billion."
     )
     colors = [GREEN if v >= 0 else RED for v in flow.Dollars]

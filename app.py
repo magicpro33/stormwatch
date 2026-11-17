@@ -409,6 +409,22 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     --background-color: #F6F1E7;
     --secondary-background-color: #FFFCF6;
 }}
+section.main,
+[data-testid="stMain"],
+[data-testid="stAppViewContainer"] {{
+    scrollbar-color: #8A6A2F #E7DCC8 !important;
+}}
+section.main::-webkit-scrollbar-thumb,
+[data-testid="stMain"]::-webkit-scrollbar-thumb,
+[data-testid="stAppViewContainer"]::-webkit-scrollbar-thumb {{
+    background: #8A6A2F !important;
+    border-color: #E7DCC8 !important;
+}}
+section.main::-webkit-scrollbar-track,
+[data-testid="stMain"]::-webkit-scrollbar-track,
+[data-testid="stAppViewContainer"]::-webkit-scrollbar-track {{
+    background: #E7DCC8 !important;
+}}
 [data-testid="stDataFrame"], [data-testid="stDataFrame"] * {{
     --gdg-bg-cell: #FFFCF6;
     --gdg-bg-cell-medium: #F6F1E7;
@@ -688,6 +704,33 @@ html, body {
 [data-testid="stMainBlockContainer"],
 section.main {
     background: transparent !important;
+}
+/* Keep a classic scrollbar. Overlay bars fade out and look like a sliver. */
+section.main,
+[data-testid="stMain"],
+[data-testid="stAppViewContainer"] {
+    overflow-y: scroll !important;
+    scrollbar-width: auto !important;
+    scrollbar-color: #c5c9d1 #1a2233 !important;
+}
+section.main::-webkit-scrollbar,
+[data-testid="stMain"]::-webkit-scrollbar,
+[data-testid="stAppViewContainer"]::-webkit-scrollbar {
+    width: 16px !important;
+    height: 16px !important;
+    display: block !important;
+}
+section.main::-webkit-scrollbar-thumb,
+[data-testid="stMain"]::-webkit-scrollbar-thumb,
+[data-testid="stAppViewContainer"]::-webkit-scrollbar-thumb {
+    background: #c5c9d1 !important;
+    border-radius: 8px !important;
+    border: 3px solid #1a2233 !important;
+}
+section.main::-webkit-scrollbar-track,
+[data-testid="stMain"]::-webkit-scrollbar-track,
+[data-testid="stAppViewContainer"]::-webkit-scrollbar-track {
+    background: #1a2233 !important;
 }
 
 /* Type: Inter for text, JetBrains Mono for numbers. Icons are left alone. */

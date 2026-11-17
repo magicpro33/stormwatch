@@ -11877,26 +11877,32 @@ def sector_flow(lookback: int = SECTOR_FLOW_LOOKBACK,
 
 
 def market_dollar_flow(lookback: int = 1) -> pd.DataFrame:
-    """Dollars that traded with the price, by sector.
+    """Dollars that traded with the price, by sector, over a window.
 
-    Each name contributes its latest dollar volume times its return over
-    the window. A rising price on heavy trade counts as money coming in.
+    Each session, a name contributes that day's dollar volume times that
+    day's price change. Those daily dollars are added up across the
+    window. A rising price on heavy trade counts as money coming in.
     A falling price on heavy trade counts as money leaving. This is the
     tape's dollar move, not a measured fund-flow print.
     """
     panel, tickers, sectors, mdv, dts = load_dump_panel()
     C, V = panel["c"], np.nan_to_num(panel["v"])
     T = C.shape[0]
+    if T < 2:
+        return pd.DataFrame()
     lb = max(1, int(lookback))
     end = T - 1
     start = max(0, end - lb)
-    prev = C[start]
-    px = C[end].astype(float)
+    prev = C[start:end]
+    curr = C[start + 1:end + 1]
+    vol = V[start + 1:end + 1]
     with np.errstate(all="ignore"):
-        r = px / np.where(prev == 0, np.nan, prev) - 1.0
-    dvol = (C[end] * V[end]).astype(float)
-    ok = (np.isfinite(r) & np.isfinite(dvol) & (px >= 3.0) & (mdv >= 2e6)
-          & _recent_ok_mask(panel))
+        r = curr / np.where(prev == 0, np.nan, prev) - 1.0
+        dvol = curr.astype(float) * vol.astype(float)
+        signed = np.where(np.isfinite(r) & np.isfinite(dvol), dvol * r, 0.0)
+    px = C[end].astype(float)
+    ok = (px >= 3.0) & (mdv >= 2e6) & _recent_ok_mask(panel)
+    signed[:, ~ok] = 0.0
     sec_arr = np.array([str(s) for s in sectors])
     rows = []
     for s in sorted(set(sec_arr)):
@@ -11906,7 +11912,7 @@ def market_dollar_flow(lookback: int = 1) -> pd.DataFrame:
         n = int(m.sum())
         if n < 15:
             continue
-        dollars = float(np.nansum(dvol[m] * r[m]))
+        dollars = float(signed[:, m].sum())
         rows.append(dict(Sector=s, Dollars=dollars, Names=n))
     if not rows:
         return pd.DataFrame()
@@ -11914,7 +11920,8 @@ def market_dollar_flow(lookback: int = 1) -> pd.DataFrame:
     df.attrs["asof"] = str(pd.to_datetime(dts[end]).date())
     df.attrs["start"] = str(pd.to_datetime(dts[start]).date())
     df.attrs["net"] = float(df.Dollars.sum())
-    df.attrs["lookback"] = lb
+    df.attrs["lookback"] = int(end - start)
+    df.attrs["sessions"] = int(end - start)
     return df
 
 
