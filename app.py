@@ -378,10 +378,10 @@ div[data-testid="stSegmentedControl"] button * {{
 .st-key-cc_view [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
 .st-key-mw_look_bar [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
 div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"] {{
-    background: {f['bg']} !important;
-    background-color: {f['bg']} !important;
-    color: {f['head']} !important;
-    border: 2px solid #C6A15B !important;
+    background: #C6A15B !important;
+    background-color: #C6A15B !important;
+    color: #1C1915 !important;
+    border: 2px solid #8C6A32 !important;
     box-shadow: none !important;
 }}
 div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
@@ -398,27 +398,43 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     border-color: transparent !important;
     box-shadow: none !important;
 }}
-.stApp button[data-testid="stBaseButton-segmented_controlActive"],
-.stApp button[data-testid="stBaseButton-segmented_controlActive"] * {{
-    background: #F6F1E7 !important;
-    background-color: #F6F1E7 !important;
-    color: #5C3A1A !important;
-    border: 2px solid #C6A15B !important;
+.stApp button[data-testid="stBaseButton-segmented_controlActive"] {{
+    background: #C6A15B !important;
+    background-color: #C6A15B !important;
+    color: #1C1915 !important;
+    border: 2px solid #8C6A32 !important;
     box-shadow: none !important;
+}}
+.stApp button[data-testid="stBaseButton-segmented_controlActive"] * {{
+    background: transparent !important;
+    background-color: transparent !important;
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
 }}
 .stApp button[role="radio"] {{
     background: #F6F1E7 !important;
     background-color: #F6F1E7 !important;
     color: #5C3A1A !important;
-    border: 1px solid #E3D5BE !important;
+    border: 1px solid #C6A15B !important;
     box-shadow: none !important;
 }}
 .stApp button[role="radio"][aria-pressed="true"],
 .stApp button[role="radio"][aria-checked="true"] {{
-    background: #F6F1E7 !important;
-    background-color: #F6F1E7 !important;
-    color: #5C3A1A !important;
-    border: 2px solid #C6A15B !important;
+    background: #C6A15B !important;
+    background-color: #C6A15B !important;
+    color: #1C1915 !important;
+    border: 2px solid #8C6A32 !important;
+}}
+.stApp button[role="radio"][aria-pressed="true"] p,
+.stApp button[role="radio"][aria-pressed="true"] span,
+.stApp button[role="radio"][aria-pressed="true"] div,
+.stApp button[role="radio"][aria-checked="true"] p,
+.stApp button[role="radio"][aria-checked="true"] span,
+.stApp button[role="radio"][aria-checked="true"] div {{
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+    background: transparent !important;
+    background-color: transparent !important;
 }}
 .stApp button[role="radio"] p,
 .stApp button[role="radio"] span,
@@ -530,11 +546,12 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     opacity: 1 !important;
 }}
 .stApp label[data-testid="stRadioOption"]:not(:has(input:checked)) > div > div:first-child,
-.stApp [data-testid="stRadio"] label:not(:has(input:checked)) > div:first-child {{
+.stApp [data-testid="stRadio"] label:not(:has(input:checked)) > div:first-child,
+.stApp [data-testid="stRadio"] label[data-baseweb="radio"]:not(:has(input:checked)) > div:first-child {{
     background: #FFFCF6 !important;
     background-color: #FFFCF6 !important;
-    border: 2px solid #2C2416 !important;
-    box-shadow: 0 0 0 1px #2C2416 !important;
+    border: 3px solid #1A1208 !important;
+    box-shadow: inset 0 0 0 1px #1A1208 !important;
     opacity: 1 !important;
 }}
 .stApp label[data-testid="stRadioOption"]:not(:has(input:checked)) > div > div:first-child > div,
@@ -3030,7 +3047,7 @@ def _light_chart_ink(color):
             return color
         if r > g + 40 and r > b + 20:
             return color
-        if r + g + b > 380 or (b > 120 and r > 140 and g > 150):
+        if r + g + b > 280 or min(r, g, b) > 150 or (b > 110 and r > 120 and g > 130):
             return "#2C2416"
     if s in ("#eaf2ff", "#f6f4e9", "#ffffff", "#fff", "#9aa8bd", "#b0c8e8",
              "#d7e0ec", "#c5d4ff", "#7a9ab8", "#9fb0c8", "#e8f4fd", "white"):
@@ -7320,7 +7337,14 @@ def _hub_df(data, **kwargs):
     if callable(fn):
         fn(st, cols)
     if _look_name() == "Fortune" and hasattr(data, "set_properties"):
-        data = data.set_properties(**{"background-color": "#FFFCF6"})
+        # Dark ink goes on first so later green/red cell colors still win.
+        data = data.set_properties(**{
+            "background-color": "#FFFCF6",
+            "color": "#2C2416",
+        })
+        todo = getattr(data, "_todo", None)
+        if todo and len(todo) > 1:
+            todo.insert(0, todo.pop())
     extra = kwargs.get("column_config")
     kwargs["column_config"] = _scan_col_cfgs(extra)
     return st.dataframe(data, **kwargs)
@@ -12867,13 +12891,13 @@ _embed_html(
           var on = (b.getAttribute("data-testid") || "").indexOf("Active") >= 0
             || b.getAttribute("aria-pressed") === "true"
             || b.getAttribute("aria-checked") === "true";
-          setImp(b, "background", "#F6F1E7");
-          setImp(b, "background-color", "#F6F1E7");
-          setImp(b, "color", "#5C3A1A");
+          setImp(b, "background", on ? "#C6A15B" : "#F6F1E7");
+          setImp(b, "background-color", on ? "#C6A15B" : "#F6F1E7");
+          setImp(b, "color", on ? "#1C1915" : "#5C3A1A");
           setImp(b, "box-shadow", "none");
-          setImp(b, "border", on ? "2px solid #C6A15B" : "1px solid #E3D5BE");
+          setImp(b, "border", on ? "2px solid #8C6A32" : "1px solid #C6A15B");
           b.querySelectorAll("p, span, div").forEach(function (n) {
-            setImp(n, "color", "#5C3A1A");
+            setImp(n, "color", on ? "#1C1915" : "#5C3A1A");
             setImp(n, "background", "transparent");
             setImp(n, "background-color", "transparent");
           });
@@ -12892,19 +12916,22 @@ _embed_html(
           setImp(el, "color", "#5C3A1A");
           setImp(el, "opacity", "1");
         });
-        doc.querySelectorAll('label[data-testid="stRadioOption"] > div > div:first-child, [data-testid="stRadio"] label > div:first-child').forEach(function (dot) {
-          var lab = dot.closest("label");
-          var input = lab && lab.querySelector("input");
+        var view = doc.defaultView || root;
+        doc.querySelectorAll('[data-testid="stRadio"] label, label[data-testid="stRadioOption"]').forEach(function (lab) {
+          var input = lab.querySelector("input");
           if (input && input.checked) return;
-          setImp(dot, "background", "#FFFCF6");
-          setImp(dot, "background-color", "#FFFCF6");
-          setImp(dot, "border", "2px solid #2C2416");
-          setImp(dot, "box-shadow", "0 0 0 1px #2C2416");
-          setImp(dot, "opacity", "1");
-          dot.querySelectorAll("div").forEach(function (inner) {
-            setImp(inner, "background", "transparent");
-            setImp(inner, "background-color", "transparent");
-            setImp(inner, "opacity", "0");
+          lab.querySelectorAll("div").forEach(function (el) {
+            var cs;
+            try { cs = view.getComputedStyle(el); } catch (e) { return; }
+            var w = parseFloat(cs.width), h = parseFloat(cs.height);
+            if (!(w >= 10 && w <= 26 && h >= 10 && h <= 26)) return;
+            var br = parseFloat(cs.borderRadius) || 0;
+            if (br < 6 && (cs.borderRadius || "").indexOf("%") < 0) return;
+            setImp(el, "background", "#FFFCF6");
+            setImp(el, "background-color", "#FFFCF6");
+            setImp(el, "border", "3px solid #1A1208");
+            setImp(el, "box-shadow", "inset 0 0 0 1px #1A1208");
+            setImp(el, "opacity", "1");
           });
         });
         var view = doc.defaultView || root;
@@ -12995,7 +13022,7 @@ _embed_html(
           if (isNaN(r)) return false;
           if (g > r + 30 && g > b + 15) return false;
           if (r > g + 30 && r > b + 15) return false;
-          return (r + g + b) > 380 || (b > 120 && r > 140 && g > 150);
+          return (r + g + b) > 280 || Math.min(r, g, b) > 145 || (b > 110 && r > 120 && g > 130);
         }
         doc.querySelectorAll(".js-plotly-plot text, .js-plotly-plot tspan").forEach(function (el) {
           var fill = el.getAttribute("fill") || "";

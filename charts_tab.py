@@ -777,7 +777,7 @@ def _pale_ink(color) -> bool:
             return False
         if r > g + 40 and r > b + 20:
             return False
-        return r + g + b > 380 or (b > 120 and r > 140 and g > 150)
+        return r + g + b > 280 or min(r, g, b) > 150 or (b > 110 and r > 120 and g > 130)
     return False
 
 
