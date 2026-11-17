@@ -626,6 +626,18 @@ def _grid(
     )
     visible = ordered.loc[:, order]
     styled = visible.style
+
+    def _short_dt(v):
+        try:
+            if pd.isna(v):
+                return "—"
+            return pd.Timestamp(v).strftime("%m/%d %H:%M:%S")
+        except Exception:
+            return "—"
+
+    dt_cols = [c for c in visible.columns if pd.api.types.is_datetime64_any_dtype(visible[c])]
+    if dt_cols:
+        styled = styled.format({c: _short_dt for c in dt_cols}, na_rep="—")
     paint = [c for c in sign_cols if c in visible.columns]
     if paint:
         styled = styled.map(_cell_sign, subset=paint)
@@ -643,7 +655,11 @@ def _grid(
         todo = getattr(styled, "_todo", None)
         if todo and len(todo) > 1:
             todo.insert(0, todo.pop())
-        _html_block(f"<div class='mw-fq-table'>{styled.to_html()}</div>")
+        _box = min(int(height), 48 + 28 * max(len(visible), 1))
+        _html_block(
+            f"<div class='mw-fq-table' style='max-height:{_box}px;overflow:auto;'>"
+            f"{styled.to_html()}</div>"
+        )
         return ordered
     st.dataframe(
         styled,
@@ -683,13 +699,13 @@ def _flow_chart(fills: list, title: str, key: str = "cc_flow") -> None:
         paper_bgcolor="#FFFCF6" if _fq else "rgba(0,0,0,0)",
         plot_bgcolor="#F6F1E7" if _fq else "rgba(0,0,0,0)",
         font=dict(color=_ink),
-        height=420,
-        margin=dict(l=16, r=16, t=48, b=96),
+        height=340,
+        margin=dict(l=12, r=12, t=36, b=64),
         yaxis=dict(gridcolor=_gridc, zerolinecolor="#C6A15B" if _fq else "#4a7aa0",
-                   tickprefix="$", separatethousands=True, tickfont=dict(color=_ink),
+                   tickprefix="$", separatethousands=True, tickfont=dict(color=_ink, size=10),
                    automargin=True),
-        xaxis=dict(gridcolor=_gridc, tickfont=dict(color=_ink, size=12),
-                   tickangle=-40, automargin=True, ticklabeloverflow="allow"),
+        xaxis=dict(gridcolor=_gridc, tickfont=dict(color=_ink, size=10),
+                   tickangle=-32, automargin=True, ticklabeloverflow="allow"),
     )
     try:
         st.plotly_chart(fig, theme=None, width="stretch", key=key)
