@@ -264,11 +264,13 @@ def _money_green_css() -> str:
     background-color: #3fbf7f !important;
     border-color: #2E7D4F !important;
 }
-.stApp [data-testid="stCheckbox"] label:has(input[role="switch"]:checked) > div:nth-child(2) {
+.stApp [data-testid="stCheckbox"] label:has(input[role="switch"]:checked) > div:nth-child(2),
+.stApp [data-testid="stToggle"] label:has(input:checked) > div:nth-child(2) {
     background: #3fbf7f !important;
     background-color: #3fbf7f !important;
 }
-.stApp [data-testid="stCheckbox"] label:has(input[role="switch"]:checked) > div:nth-child(2) > div {
+.stApp [data-testid="stCheckbox"] label:has(input[role="switch"]:checked) > div:nth-child(2) > div,
+.stApp [data-testid="stToggle"] label:has(input:checked) > div:nth-child(2) > div {
     background: #F6F4E9 !important;
     background-color: #F6F4E9 !important;
 }
@@ -12488,15 +12490,11 @@ if _look_name() in ("Fortune", "Private Bank"):
         setImp(el, "background-color", "transparent");
         setImp(el, "box-shadow", "none");
       });
-      var view = doc.defaultView || root;
       function toGreen(img) {
         return img.replace(/rgba?\\(232,\\s*119,\\s*34(?:,\\s*[\\d.]+)?\\)/g, "rgb(63, 191, 127)");
       }
-      doc.querySelectorAll('[data-testid="stSlider"] div').forEach(function (el) {
-        var img = "";
-        try { img = view.getComputedStyle(el).backgroundImage || ""; } catch (e) { return; }
-        if (img.indexOf("232, 119, 34") < 0 && img.indexOf("232,119,34") < 0) return;
-        setImp(el, "background-image", toGreen(img));
+      doc.querySelectorAll('[data-testid="stSlider"] div, [data-testid="stSelectSlider"] div').forEach(function (el) {
+        if (el.style && el.style.getPropertyValue("background-image")) el.style.removeProperty("background-image");
       });
       var sheets = doc.styleSheets;
       for (var s = 0; s < sheets.length; s++) {
@@ -12523,7 +12521,7 @@ if _look_name() in ("Fortune", "Private Bank"):
   paint();
   if (!root.__mwMoneyGreen) {
     root.__mwMoneyGreen = true;
-    root.setInterval(paint, 400);
+    root.setInterval(paint, 50);
   }
 })();
 </script>""",
