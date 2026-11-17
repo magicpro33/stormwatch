@@ -287,7 +287,7 @@ def _look_extra_css(name: str, f: dict, serif: str) -> str:
 }}
 .js-plotly-plot .xgrid, .js-plotly-plot .ygrid,
 .js-plotly-plot .zerolinelayer line {{ stroke: #C6A15B !important; }}
-.modebar, [data-testid="stPlotlyChart"],
+.modebar,
 [data-testid="stDataFrame"], [data-baseweb="popover"],
 [data-baseweb="menu"], [data-testid="stHeader"],
 .t20-title, .t20-head, .t20-box, .dc-badge, .dc-day {{
@@ -522,7 +522,6 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     color: #5C3A1A !important;
     border-color: #C6A15B !important;
 }}
-[data-testid="stPlotlyChart"],
 [data-testid="stVegaLiteChart"],
 [data-testid="stArrowVegaLiteChart"],
 [data-testid="stDateInput"] input,
@@ -587,18 +586,22 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     background-color: #FFFCF6 !important;
     color: #2C2416 !important;
 }}
-[data-testid="stPlotlyChart"],
-.js-plotly-plot,
-.js-plotly-plot .plot-container,
-.js-plotly-plot .svg-container,
-.js-plotly-plot .main-svg {{
-    background: #FFFCF6 !important;
-    background-color: #FFFCF6 !important;
+[data-testid="stPlotlyChart"] {{
+    background: transparent !important;
     border: none !important;
     box-shadow: none !important;
 }}
-.js-plotly-plot .bglayer > rect {{
-    fill: #E7DCC8 !important;
+.js-plotly-plot .hoverlayer .bg,
+.js-plotly-plot g.hovertext > rect:first-of-type {{
+    fill: #FFFCF6 !important;
+    fill-opacity: 1 !important;
+}}
+.js-plotly-plot .hoverlayer text,
+.js-plotly-plot .hoverlayer tspan,
+.js-plotly-plot .hoverlayer span {{
+    fill: #1A1208 !important;
+    color: #1A1208 !important;
+    -webkit-text-fill-color: #1A1208 !important;
 }}
 [data-testid="stToast"],
 [data-testid="stToast"] > div,
@@ -1213,6 +1216,18 @@ div[data-testid="stPlotlyChart"] > div {
     overflow: visible !important;
     min-height: 280px;
 }
+.js-plotly-plot .hoverlayer .bg,
+.js-plotly-plot g.hovertext > rect:first-of-type {
+    fill: #0c1829 !important;
+    fill-opacity: 0.96 !important;
+}
+.js-plotly-plot .hoverlayer text,
+.js-plotly-plot .hoverlayer tspan,
+.js-plotly-plot .hoverlayer span {
+    fill: #F6F4E9 !important;
+    color: #F6F4E9 !important;
+    -webkit-text-fill-color: #F6F4E9 !important;
+}
 
 /* Inline cards written with the old navy fills pick up the glass look too */
 [style*="background:#0c1829" i],
@@ -1223,6 +1238,17 @@ div[data-testid="stPlotlyChart"] > div {
 [style*="background:#122540" i],
 [style*="background:#06101c" i] {
     background: rgba(255,255,255,0.045) !important;
+}
+.js-plotly-plot [style*="background:#0c1829" i],
+.js-plotly-plot [style*="background:#081325" i],
+.js-plotly-plot [style*="background:#0d1e33" i],
+.js-plotly-plot [style*="background:#07111f" i],
+.js-plotly-plot [style*="background:#0a1828" i],
+.js-plotly-plot [style*="background:#122540" i],
+.js-plotly-plot [style*="background:#06101c" i] {
+    background: #0c1829 !important;
+    background-color: #0c1829 !important;
+    color: #F6F4E9 !important;
 }
 
 .st-key-mw_nav,
@@ -3151,14 +3177,13 @@ def _fortune_chart_text(fig):
 
 def _fig_show(fig, **kw):
     """Draw a chart. Fortune uses light paper and bronze lettering."""
-    if _look_name() == "Fortune":
+    look = _look_name()
+    if look == "Fortune":
         fig.update_layout(
             template="plotly_white",
             paper_bgcolor="#FFFCF6",
             plot_bgcolor="#E7DCC8",
             font=dict(color="#2C2416", size=12),
-            hoverlabel=dict(bgcolor="#FFFCF6", bordercolor="#C6A15B",
-                            font=dict(color="#2C2416", size=12)),
         )
         polar = any(getattr(t, "type", "") == "scatterpolar" for t in fig.data)
         if polar:
@@ -3178,6 +3203,16 @@ def _fig_show(fig, **kw):
             fig.update_xaxes(**axis)
             fig.update_yaxes(**axis)
         _fortune_chart_text(fig)
+    if look == "Fortune":
+        hover = dict(bgcolor="#FFFCF6", bordercolor="#C6A15B",
+                     font=dict(color="#1A1208", size=12))
+    elif look == "Private Bank":
+        hover = dict(bgcolor="#121C30", bordercolor="#C6A15B",
+                     font=dict(color="#F6F4E9", size=12))
+    else:
+        hover = dict(bgcolor="#0c1829", bordercolor="#3d6a94",
+                     font=dict(color="#F6F4E9", size=12))
+    fig.update_layout(hoverlabel=hover)
     try:
         st.plotly_chart(fig, theme=None, **kw)
     except TypeError:
