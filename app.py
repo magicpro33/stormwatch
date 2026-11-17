@@ -190,7 +190,7 @@ if _engine_v != REQUIRED_ENGINE:
 # ── Look ─────────────────────────────────────────────────────────────
 # Neon Dream is the glass HUD. Each browser keeps its own choice in a
 # cookie, so two people on the same app do not overwrite each other.
-_LOOK_OPTIONS = ("Neon Dream", "Fortune", "Private Bank")
+_LOOK_OPTIONS = ("Neon Dream", "Private Bank", "Fortune")
 _LOOK_ALIAS = {
     "Current": "Neon Dream",
     "Observatory": "Neon Dream",
