@@ -281,13 +281,12 @@ def _look_extra_css(name: str, f: dict, serif: str) -> str:
     """Theme-only fixes that should not touch the other looks."""
     if name == "Fortune":
         extra = f"""
-.js-plotly-plot .bglayer > rect,
 .js-plotly-plot .rangeslider-container .bg,
 .js-plotly-plot .rangeselector rect {{
-    fill: {f['bg']} !important;
+    fill: {f['card']} !important;
 }}
 .js-plotly-plot .xgrid, .js-plotly-plot .ygrid,
-.js-plotly-plot .zerolinelayer line {{ stroke: {f['line']} !important; }}
+.js-plotly-plot .zerolinelayer line {{ stroke: #C6A15B !important; }}
 .modebar, [data-testid="stPlotlyChart"],
 [data-testid="stDataFrame"], [data-baseweb="popover"],
 [data-baseweb="menu"], [data-testid="stHeader"],
@@ -521,7 +520,6 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     border-color: #C6A15B !important;
 }}
 [data-testid="stPlotlyChart"],
-[data-testid="stPlotlyChart"] > div,
 [data-testid="stVegaLiteChart"],
 [data-testid="stArrowVegaLiteChart"],
 [data-testid="stDateInput"] input,
@@ -586,12 +584,10 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     background-color: #FFFCF6 !important;
     color: #2C2416 !important;
 }}
-.js-plotly-plot .main-svg,
-.js-plotly-plot .svg-container {{
+[data-testid="stPlotlyChart"] {{
     background: #FFFCF6 !important;
-}}
-.js-plotly-plot .bglayer > rect {{
-    fill: #F6F1E7 !important;
+    border: 1px solid #C6A15B !important;
+    border-radius: 8px !important;
 }}
 .stApp [data-testid="stExpander"] details,
 .stApp [data-testid="stExpander"] summary,
@@ -3093,15 +3089,25 @@ def _fig_show(fig, **kw):
         fig.update_layout(
             template="plotly_white",
             paper_bgcolor="#FFFCF6",
-            plot_bgcolor="#F6F1E7",
+            plot_bgcolor="#E7DCC8",
             font=dict(color="#2C2416", size=12),
-            hoverlabel=dict(bgcolor="#FFFCF6", bordercolor="#E3D5BE",
+            hoverlabel=dict(bgcolor="#FFFCF6", bordercolor="#C6A15B",
                             font=dict(color="#2C2416", size=12)),
         )
         polar = any(getattr(t, "type", "") == "scatterpolar" for t in fig.data)
-        if not polar:
-            axis = dict(gridcolor="#E3D5BE", zerolinecolor="#E3D5BE",
-                        color="#5C3A1A", tickfont=dict(color="#5C3A1A"),
+        if polar:
+            fig.update_layout(polar=dict(
+                bgcolor="#FFFCF6",
+                radialaxis=dict(range=[0, 100], gridcolor="#C6A15B",
+                                linecolor="#8C6A32",
+                                tickfont=dict(color="#2C2416", size=11)),
+                angularaxis=dict(gridcolor="#C6A15B", linecolor="#8C6A32",
+                                 tickfont=dict(color="#2C2416", size=13)),
+            ))
+        else:
+            axis = dict(gridcolor="#C6A15B", zerolinecolor="#8C6A32",
+                        showline=True, mirror=True, linecolor="#8C6A32", linewidth=1.2,
+                        color="#2C2416", tickfont=dict(color="#2C2416"),
                         title_font=dict(color="#5C3A1A"))
             fig.update_xaxes(**axis)
             fig.update_yaxes(**axis)
@@ -3775,9 +3781,11 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
         r=rr, theta=tt, customdata=dd,
         mode="lines+markers",
         fill="toself",
-        fillcolor="rgba(0,229,255,0.07)",
-        line=dict(color="#00e5ff", width=2),
-        marker=dict(size=7, color="#00e5ff"),
+        fillcolor=("rgba(140,106,50,0.38)" if _look_name() == "Fortune"
+                   else "rgba(0,229,255,0.18)"),
+        line=dict(color="#5C3A1A" if _look_name() == "Fortune" else "#00e5ff",
+                  width=3),
+        marker=dict(size=8, color="#8C6A32" if _look_name() == "Fortune" else "#00e5ff"),
         cliponaxis=False,
         hovertemplate="<b>%{theta}</b>  %{customdata[1]}<br>%{customdata[0]}<extra></extra>",
         name="Quant",
@@ -3795,14 +3803,14 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
             radialaxis=dict(
                 range=[0, 100],
                 showline=False,
-                gridcolor="rgba(198,161,91,0.45)" if _look_name() == "Fortune" else "rgba(30,45,69,0.7)",
+                gridcolor="#C6A15B" if _look_name() == "Fortune" else "rgba(30,45,69,0.7)",
                 tickfont=dict(size=9, color="#5C5346" if _look_name() == "Fortune" else "#6b7fa3"),
                 tickvals=[25, 50, 75, 100],
                 angle=90,
             ),
             angularaxis=dict(
-                gridcolor="rgba(198,161,91,0.45)" if _look_name() == "Fortune" else "rgba(30,45,69,0.7)",
-                linecolor="rgba(198,161,91,0.45)" if _look_name() == "Fortune" else "rgba(30,45,69,0.7)",
+                gridcolor="#C6A15B" if _look_name() == "Fortune" else "rgba(30,45,69,0.7)",
+                linecolor="#8C6A32" if _look_name() == "Fortune" else "rgba(30,45,69,0.7)",
                 tickfont=dict(size=12, color="#5C3A1A" if _look_name() == "Fortune" else "#e8edf5"),
                 rotation=90,
                 direction="clockwise",
@@ -13002,13 +13010,6 @@ _embed_html(
           }
           setImp(el, "background", bg);
           setImp(el, "background-color", bg);
-        });
-        doc.querySelectorAll(".js-plotly-plot .bglayer > rect").forEach(function (el) {
-          setImp(el, "fill", "#F6F1E7");
-        });
-        doc.querySelectorAll("[data-testid='stPlotlyChart'], [data-testid='stPlotlyChart'] > div, .js-plotly-plot, .js-plotly-plot .svg-container").forEach(function (el) {
-          setImp(el, "background", "#FFFCF6");
-          setImp(el, "background-color", "#FFFCF6");
         });
         function paleFill(fill) {
           var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(fill || "");

@@ -713,7 +713,7 @@ def _fmt_scale(n, digits=1) -> str:
 def _pills(items: list[dict], grid: str = "ch-pills") -> None:
     cells = []
     for it in items:
-        color = it.get("color") or ACCENT
+        color = _vis(it.get("color") or ACCENT)
         ico = it.get("icon") or ""
         feat = " feature" if it.get("feature") else ""
         ico_html = f"<div class='ch-ico'>{_esc(ico)}</div>" if ico else ""
@@ -742,8 +742,8 @@ def _metrics(items: list[tuple[str, str, str, str]]) -> None:
 def _chart_skin() -> dict:
     look = str(st.session_state.get("mw_look") or "")
     if look == "Fortune":
-        return dict(template="plotly_white", paper="#FFFCF6", plot="#F6F1E7",
-                    ink="#1C1915", grid="#E3D5BE", chip="#F3EBDD",
+        return dict(template="plotly_white", paper="#FFFCF6", plot="#E7DCC8",
+                    ink="#1C1915", grid="#C6A15B", chip="#F3EBDD",
                     font="Libre Baskerville, Georgia, serif")
     if look == "Private Bank":
         return dict(template="plotly_dark", paper="#121C30", plot="#0C1424",
@@ -790,10 +790,15 @@ def _restyle(fig) -> None:
         plot_bgcolor=skin["plot"],
         font=dict(color=skin["ink"], family=skin["font"], size=12),
     )
+    frame = dict(showline=True, mirror=True, linecolor="#8C6A32", linewidth=1.2) if skin["template"] == "plotly_white" else {}
     fig.update_xaxes(gridcolor=skin["grid"], tickfont=dict(color=skin["ink"]),
-                     title_font=dict(color=skin["ink"]))
+                     title_font=dict(color=skin["ink"]), **frame)
     fig.update_yaxes(gridcolor=skin["grid"], tickfont=dict(color=skin["ink"]),
-                     title_font=dict(color=skin["ink"]))
+                     title_font=dict(color=skin["ink"]), **frame)
+    axis = fig.layout.xaxis
+    if axis is not None and getattr(axis, "rangeslider", None) is not None:
+        axis.rangeslider.bgcolor = skin["chip"]
+        axis.rangeslider.bordercolor = skin["grid"]
     if skin["template"] == "plotly_white":
         def _font(font):
             if font is None:
@@ -920,6 +925,10 @@ def _window_slider(key: str, tmin, tmax, presets: list | None = None) -> None:
     )
 
 
+def _fortune() -> bool:
+    return str(st.session_state.get("mw_look") or "") == "Fortune"
+
+
 def _money(color: str) -> str:
     """Orange series become money green on Fortune and Private Bank."""
     if (str(st.session_state.get("mw_look") or "") in ("Fortune", "Private Bank")
@@ -928,11 +937,33 @@ def _money(color: str) -> str:
     return color
 
 
+def _vis(color: str) -> str:
+    """Light series ink becomes readable on Fortune paper. Green and red stay."""
+    if not _fortune():
+        return color
+    s = str(color or "").strip().lower()
+    if s in ("#3fbf7f", "#9e1b2f", "#ff4444", "#ef5350", "#26c485", "#e05252"):
+        return color
+    return {
+        "#7fd4ff": "#1F4E79",
+        "#c5d4ff": "#3D4F73",
+        "#f6f4e9": "#2C2416",
+        "#9aa8bd": "#5C5346",
+        "#e8c34a": "#8C6A32",
+        "#eaf2ff": "#2C2416",
+        "#a78bfa": "#5B3A8C",
+        "#2dd4bf": "#0F6E62",
+        "#f0a6ff": "#7A3E86",
+        "#00e5ff": "#0E6E78",
+        "#6ee7b7": "#1F7A45",
+    }.get(s, color)
+
+
 def _line_fig(s: pd.Series, *, color: str, y_title: str, hover: str,
               y_prefix: str = "", y_suffix: str = "", y_mult: float = 1.0,
               height: int = 420, buttons=None, slider: bool = True,
               fill: bool = True, range_label: str = ""):
-    color = _money(color)
+    color = _vis(_money(color))
     import plotly.graph_objects as go
 
     y = s.astype(float) * y_mult
@@ -1081,6 +1112,18 @@ def _css() -> None:
   font-variant-numeric:tabular-nums;font-size:13px}}
 </style>"""
     )
+    if _fortune():
+        _html(
+            """<style>
+.ch-pill{background:#FFFCF6 !important;border:1px solid #E3D5BE !important;color:#2C2416 !important}
+.ch-mlbl,.ch-msub,.ch-trend-h,.ch-coin-head,.ch-coin-num,.ch-coin-sym{color:#5C5346 !important}
+.ch-mval{color:var(--mc) !important}
+.ch-spark{background:#F3EBDD !important}
+.ch-coin-wrap{background:#FFFCF6 !important;border-color:#E3D5BE !important}
+.ch-coin-row,.ch-coin-head{border-color:#E3D5BE !important}
+.ch-coin-name,.ch-coin-px{color:#2C2416 !important}
+</style>"""
+        )
 
 
 def _dollar_since_2020() -> None:
@@ -1348,7 +1391,7 @@ def _crypto_chart(px: pd.DataFrame) -> None:
         fig.add_trace(go.Scatter(
             x=s.index, y=s.values,
             mode="lines",
-            line=dict(color=color, width=2.2),
+            line=dict(color=_vis(color), width=2.2),
             name=name,
             hovertemplate=name + "<br>%{x|%b %d, %Y}<br>$%{y:,.2f}<extra></extra>",
         ))
@@ -1783,7 +1826,7 @@ def _money_flow_chart() -> None:
         marker_color=colors,
         hovertemplate="%{y}<br>$%{x:.2f}B<extra></extra>",
     ))
-    fig.add_vline(x=0, line_color=DIM, line_width=1)
+    fig.add_vline(x=0, line_color=_vis(DIM), line_width=1)
     fig.update_layout(
         height=max(320, 28 * len(flow) + 60),
         showlegend=False,
