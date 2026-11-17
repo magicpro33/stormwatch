@@ -1423,9 +1423,10 @@ def _crypto_chart(px: pd.DataFrame) -> None:
         paper_bgcolor=PAPER,
         plot_bgcolor=NAVY,
         font=dict(color=INK, family="JetBrains Mono, monospace", size=12),
-        legend=dict(orientation="h", yanchor="bottom", y=1.08,
-                    xanchor="left", x=0, bgcolor="rgba(0,0,0,0)"),
-        margin=dict(l=12, r=12, t=72, b=8),
+        legend=dict(orientation="v", yanchor="top", y=1, x=1.02,
+                    xanchor="left", bgcolor="rgba(0,0,0,0)",
+                    font=dict(size=12)),
+        margin=dict(l=16, r=176, t=52, b=8),
         hovermode="x unified",
         hoverlabel=_hoverlabel(PURPLE),
         xaxis=dict(
@@ -1445,7 +1446,7 @@ def _crypto_chart(px: pd.DataFrame) -> None:
                 bgcolor="#122a42",
                 activecolor=PURPLE,
                 font=dict(color=INK, size=11),
-                x=1, y=1.24, xanchor="right",
+                x=0, y=1.14, xanchor="left",
             ),
             rangeslider=dict(visible=True, thickness=0.10,
                              bgcolor="#0a1624", bordercolor=LINE),
@@ -1805,6 +1806,7 @@ def _money_flow_chart() -> None:
     import plotly.graph_objects as go
     labels = [name for name, _ in _FLOW_SPANS]
     days = {name: n for name, n in _FLOW_SPANS}
+    _sec("Money entering and leaving the market", GOLD)
     pick = st.selectbox(
         "Time frame",
         labels,
@@ -1822,21 +1824,12 @@ def _money_flow_chart() -> None:
     if flow is None or flow.empty:
         st.info("No sector dollar flow in the nightly dump yet.")
         return
-    net = float(flow.attrs.get("net") or flow.Dollars.sum())
     asof = flow.attrs.get("asof") or ""
     start = flow.attrs.get("start") or ""
-    _sec("Money entering and leaving the market", GOLD)
     sessions = int(flow.attrs.get("sessions") or flow.attrs.get("lookback") or 1)
     when = (f"{pick} · {start} → {asof} · {sessions} "
             f"session{'s' if sessions != 1 else ''}")
     _html(f"<div class='ch-flow-when'>{_esc(when)}</div>")
-    st.caption(
-        f"{start} → {asof} · {sessions} session{'s' if sessions != 1 else ''}. "
-        "Each bar adds up, day by day, the sector's traded dollars times "
-        "that day's price change. Right of zero, money came in with rising "
-        "prices. Left of zero, money left as prices fell. "
-        f"Net {net / 1e9:+,.1f} billion."
-    )
     colors = [GREEN if v >= 0 else RED for v in flow.Dollars]
     fig = go.Figure(go.Bar(
         x=flow.Dollars / 1e9,
@@ -1847,15 +1840,14 @@ def _money_flow_chart() -> None:
     ))
     fig.add_vline(x=0, line_color=_vis(DIM), line_width=1)
     fig.update_layout(
-        height=max(320, 28 * len(flow) + 80),
+        height=max(360, 32 * len(flow) + 70),
         showlegend=False,
-        margin=dict(l=8, r=16, t=36, b=8),
-        title=dict(text=when, x=0, xanchor="left", font=dict(size=13)),
+        margin=dict(l=8, r=28, t=8, b=8),
         xaxis=dict(title="Billions of dollars", zeroline=False, ticksuffix="B",
                    tickprefix="$", rangeslider=dict(visible=False)),
-        yaxis=dict(zeroline=False),
+        yaxis=dict(zeroline=False, automargin=True),
     )
-    _plotly(fig, "ch_money_flow")
+    _plotly(fig, f"ch_money_flow_{pick}")
 
 
 def _render_nerd_body() -> None:

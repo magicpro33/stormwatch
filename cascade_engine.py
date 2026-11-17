@@ -11922,9 +11922,12 @@ def market_dollar_flow(lookback: int = 1) -> pd.DataFrame:
     curr = C[start + 1:end + 1]
     vol = V[start + 1:end + 1]
     with np.errstate(all="ignore"):
-        r = curr / np.where(prev == 0, np.nan, prev) - 1.0
+        r = curr / np.where(prev <= 0, np.nan, prev) - 1.0
+        # A bad print (a 10x tick) would otherwise dwarf the whole sector.
+        r = np.clip(r, -0.4, 0.4)
         dvol = curr.astype(float) * vol.astype(float)
-        signed = np.where(np.isfinite(r) & np.isfinite(dvol), dvol * r, 0.0)
+        day_ok = np.isfinite(curr) & (curr >= 3.0) & np.isfinite(prev) & (prev > 0)
+        signed = np.where(day_ok & np.isfinite(r) & np.isfinite(dvol), dvol * r, 0.0)
     px = C[end].astype(float)
     ok = (px >= 3.0) & (mdv >= 2e6) & _recent_ok_mask(panel)
     signed[:, ~ok] = 0.0
@@ -11943,7 +11946,8 @@ def market_dollar_flow(lookback: int = 1) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.DataFrame(rows).sort_values("Dollars", ascending=True).reset_index(drop=True)
     df.attrs["asof"] = str(pd.to_datetime(dts[end]).date())
-    df.attrs["start"] = str(pd.to_datetime(dts[start]).date())
+    first = min(start + 1, end)
+    df.attrs["start"] = str(pd.to_datetime(dts[first]).date())
     df.attrs["net"] = float(df.Dollars.sum())
     df.attrs["lookback"] = int(end - start)
     df.attrs["sessions"] = int(end - start)

@@ -3876,8 +3876,13 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
                     si_rows.append(mrow("Earnings Growth", "YoY EPS growth. Growing faster than revenue = margin expansion.",     az_tag(eg * 100, 10, 3, "{:.1f}", "%")))
                 _esp_pct = az_fuel.get("earnings_surprise")
                 if _esp_pct is not None:
-                    _esp_col = "#3fbf7f" if _esp_pct >= 10 else ("#d0b040" if _esp_pct >= 0 else "#9E1B2F")
-                    si_rows.append(mrow("Earnings Surprise", "Last quarter EPS vs analyst estimates. 10%+ beat = strong momentum fuel.", f"<span style='font-family:Space Mono,monospace;color:{_esp_col}'>{_esp_pct:+.1f}%</span> vs estimates"))
+                    if _esp_pct >= 10:
+                        _esp_tone, _esp_col = "mw-good", "#3fbf7f"
+                    elif _esp_pct >= 0:
+                        _esp_tone, _esp_col = "mw-mid", "#E87722"
+                    else:
+                        _esp_tone, _esp_col = "mw-bad", "#9E1B2F"
+                    si_rows.append(mrow("Earnings Surprise", "Last quarter EPS vs analyst estimates. 10%+ beat = strong momentum fuel.", f"<span class='{_esp_tone}' style='font-family:Space Mono,monospace;color:{_esp_col}'>{_esp_pct:+.1f}%</span> vs estimates"))
                 if fuel_sc is not None:
                     fc = "#3fbf7f" if fuel_sc >= 70 else ("#d0b040" if fuel_sc >= 50 else "#4a6a8a")
                     si_rows.append(mrow("Fuel Score", "Primed-to-move score (0-100).", f"<span style='color:{fc};font-family:Space Mono,monospace;font-size:15px;font-weight:500'>{fuel_sc:.0f}</span>"))

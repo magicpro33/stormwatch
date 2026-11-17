@@ -4308,9 +4308,10 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                                  az_tag(eg * 100, 10, 3, "{:.1f}", "%")))
             _last = next((q for q in reversed(eps_history) if q.get("surprise") is not None), None)
             if _last:
-                ec = "#3fbf7f" if _last["surprise"] >= 0 else "#9E1B2F"
+                _sur = float(_last["surprise"])
+                _stn = "good" if _sur >= 10 else ("mid" if _sur >= 0 else "bad")
                 rows.append(mrow("Earnings Surprise", "Last quarter EPS vs estimates. 10%+ beat = momentum fuel.",
-                                 f"<span style='font-family:monospace;color:{ec}'>{_last['surprise']:+.1f}%</span> vs estimates"))
+                                 f"{_sig_txt(f'{_sur:+.1f}%', _stn)} vs estimates"))
             if rows:
                 mtable(rows)
             else:
@@ -13268,7 +13269,15 @@ _embed_html(
         setImp(el, "box-shadow", "none");
       });
       function toGreen(img) {
-        return img.replace(/rgba?\\(232,\\s*119,\\s*34(?:,\\s*[\\d.]+)?\\)/g, "rgb(63, 191, 127)");
+        return String(img || "")
+          .replace(/rgba?\\(\\s*232\\s*,\\s*119\\s*,\\s*34(?:\\s*,\\s*[\\d.]+)?\\s*\\)/gi, "rgb(63, 191, 127)")
+          .replace(/#e87722/gi, "#3fbf7f");
+      }
+      function isOrange(bg) {
+        var m = /rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/.exec(bg || "");
+        if (!m) return false;
+        var r = +m[1], g = +m[2], b = +m[3];
+        return r > 190 && g > 70 && g < 170 && b < 90 && (r - g) > 40;
       }
       function recolorTracks() {
         var sheets = doc.styleSheets;
@@ -13278,16 +13287,26 @@ _embed_html(
           if (!rules) continue;
           for (var i = 0; i < rules.length; i++) {
             var stl = rules[i].style;
-            if (!stl || !stl.backgroundImage) continue;
-            var img = stl.backgroundImage;
-            if (img.indexOf("232, 119, 34") < 0 && img.indexOf("232,119,34") < 0) continue;
-            stl.backgroundImage = toGreen(img);
+            if (!stl) continue;
+            ["backgroundImage", "background", "backgroundColor"].forEach(function (prop) {
+              var img = stl[prop];
+              if (!img) return;
+              var low = String(img).toLowerCase();
+              if (low.indexOf("232") < 0 && low.indexOf("e87722") < 0 && !isOrange(img)) return;
+              stl[prop] = toGreen(img);
+            });
           }
         }
-        doc.querySelectorAll('[data-testid="stSlider"] div, [data-testid="stSelectSlider"] div').forEach(function (el) {
-          var inline = el.style ? (el.style.backgroundImage || "") : "";
-          if (inline.indexOf("232, 119, 34") < 0 && inline.indexOf("232,119,34") < 0) return;
-          el.style.setProperty("background-image", toGreen(inline), "important");
+        var view = doc.defaultView || root;
+        doc.querySelectorAll('[data-testid="stSlider"] *, [data-testid="stSelectSlider"] *, [data-baseweb="slider"] *').forEach(function (el) {
+          if ((el.getAttribute("data-testid") || "") === "stSliderThumbValue") return;
+          var cs;
+          try { cs = view.getComputedStyle(el); } catch (e) { return; }
+          if (isOrange(cs.backgroundColor)) {
+            setImp(el, "background", GREEN);
+            setImp(el, "background-color", GREEN);
+            setImp(el, "border-color", "#2E7D4F");
+          }
         });
       }
       recolorTracks();
