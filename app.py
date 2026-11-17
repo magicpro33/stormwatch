@@ -281,13 +281,11 @@ def _look_extra_css(name: str, f: dict, serif: str) -> str:
     """Theme-only fixes that should not touch the other looks."""
     if name == "Fortune":
         extra = f"""
-.js-plotly-plot .bg,
-.js-plotly-plot .bglayer rect,
-.js-plotly-plot .rangeslider-container rect,
+.js-plotly-plot .bglayer > rect,
+.js-plotly-plot .rangeslider-container .bg,
 .js-plotly-plot .rangeselector rect {{
     fill: {f['bg']} !important;
 }}
-.js-plotly-plot text {{ fill: {f['text']} !important; }}
 .js-plotly-plot .xgrid, .js-plotly-plot .ygrid,
 .js-plotly-plot .zerolinelayer line {{ stroke: {f['line']} !important; }}
 .modebar, [data-testid="stPlotlyChart"],
@@ -506,9 +504,6 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     color: #5C3A1A !important;
     border-color: #C6A15B !important;
 }}
-.js-plotly-plot .bg,
-.js-plotly-plot .bglayer rect,
-.js-plotly-plot rect.bg,
 [data-testid="stPlotlyChart"],
 [data-testid="stPlotlyChart"] > div,
 [data-testid="stVegaLiteChart"],
@@ -574,12 +569,29 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     background-color: #FFFCF6 !important;
     color: #2C2416 !important;
 }}
-.js-plotly-plot .bglayer rect,
-.js-plotly-plot rect.bg {{
+.js-plotly-plot .main-svg,
+.js-plotly-plot .svg-container {{
+    background: #FFFCF6 !important;
+}}
+.js-plotly-plot .bglayer > rect {{
     fill: #F6F1E7 !important;
 }}
-.js-plotly-plot text {{
-    fill: #5C3A1A !important;
+.stApp [data-testid="stExpander"] details,
+.stApp [data-testid="stExpander"] summary,
+.stApp [data-testid="stExpanderDetails"] {{
+    background: #FFFCF6 !important;
+    background-color: #FFFCF6 !important;
+    color: #2C2416 !important;
+}}
+.stApp [data-testid="stExpander"] summary,
+.stApp [data-testid="stExpander"] summary * {{
+    color: #5C3A1A !important;
+    -webkit-text-fill-color: #5C3A1A !important;
+}}
+.stApp [data-testid="stMetricDelta"] {{
+    background: #F3EBDD !important;
+    background-color: #F3EBDD !important;
+    border-radius: 999px !important;
 }}
 .stApp span.mw-good, .stApp .mw-good {{ color: #3fbf7f !important; }}
 .stApp span.mw-mid, .stApp .mw-mid {{ color: #E87722 !important; }}
@@ -3066,6 +3078,8 @@ def _fig_show(fig, **kw):
             paper_bgcolor="#FFFCF6",
             plot_bgcolor="#F6F1E7",
             font=dict(color="#2C2416", size=12),
+            hoverlabel=dict(bgcolor="#FFFCF6", bordercolor="#E3D5BE",
+                            font=dict(color="#2C2416", size=12)),
         )
         polar = any(getattr(t, "type", "") == "scatterpolar" for t in fig.data)
         if not polar:
@@ -4251,6 +4265,8 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                     subset=["Shares"] if "Shares" in odf.columns else [])
                 if "Flag" in odf.columns:
                     _ost = _ost.map(_css_owner_flag, subset=["Flag"])
+                if _look_name() == "Fortune":
+                    _ost = _ost.set_properties(**{"background-color": "#FFFCF6"})
                 st.dataframe(
                     _ost, width="stretch", hide_index=True,
                     height=_fit_list_height(min(len(odf), 10)),
@@ -4274,6 +4290,8 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                     na_rep="—", subset=["Shares", "Value"])
                 if "Action" in tdf.columns:
                     _tst = _tst.map(_css_insider_act, subset=["Action"])
+                if _look_name() == "Fortune":
+                    _tst = _tst.set_properties(**{"background-color": "#FFFCF6"})
                 st.dataframe(
                     _tst, width="stretch", hide_index=True,
                     height=_fit_list_height(min(len(tdf), 12)),
@@ -5871,14 +5889,17 @@ def _lk_draw_clean_setup(fig, xx, d, chart_df, pack):
         if end_i >= vis0:
             x_end = _lk_bar_x(end_i, vis0, xx, pack, d)
             if x_end is not None and np.isfinite(t["tgt"]):
+                _up = bool(t["is_up"])
+                _tgt_ink = _CS_BULL if _up else _CS_BEAR
+                _tgt_bg = ("#E5F6EC" if _up else "#F8E8EA") if _look_name() == "Fortune" else _lk_hex_rgba(_tgt_ink, 0.3)
                 fig.add_annotation(
                     x=x_end, y=float(t["tgt"]),
                     text=f"{t['tgt']:.2f}", showarrow=False,
                     xanchor="left", yanchor="middle", xshift=4,
-                    font=dict(size=9, color=_CS_BULL if t["is_up"] else _CS_BEAR,
+                    font=dict(size=9, color=_tgt_ink,
                               family="JetBrains Mono, monospace"),
-                    bgcolor=_lk_hex_rgba(_CS_BULL if t["is_up"] else _CS_BEAR, 0.3),
-                    borderpad=2, row=1, col=1)
+                    bgcolor=_tgt_bg, bordercolor=_tgt_ink, borderpad=2,
+                    row=1, col=1)
     for bar, price, txt, is_up in cs["signals"]:
         if bar < vis0 or bar > vis1 or not np.isfinite(price):
             continue
@@ -12936,6 +12957,51 @@ _embed_html(
           setImp(el, "background-color", "#F3EBDD");
           setImp(el, "color", "#5C3A1A");
           setImp(el, "border-color", "#C6A15B");
+        });
+        doc.querySelectorAll('[data-testid="stExpander"] details, [data-testid="stExpander"] summary, [data-testid="stExpanderDetails"]').forEach(function (el) {
+          setImp(el, "background", "#FFFCF6");
+          setImp(el, "background-color", "#FFFCF6");
+          setImp(el, "color", "#5C3A1A");
+        });
+        doc.querySelectorAll('[data-testid="stMetricDelta"]').forEach(function (el) {
+          var c = "";
+          try { c = view.getComputedStyle(el).color || ""; } catch (e) { c = ""; }
+          var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c);
+          var bg = "#F3EBDD";
+          if (m) {
+            var rr = +m[1], gg = +m[2], bb = +m[3];
+            if (gg > rr + 20 && gg >= bb) bg = "#E5F6EC";
+            else if (rr > gg + 20 && rr >= bb) bg = "#F8E8EA";
+          }
+          setImp(el, "background", bg);
+          setImp(el, "background-color", bg);
+        });
+        doc.querySelectorAll(".js-plotly-plot .bglayer > rect").forEach(function (el) {
+          setImp(el, "fill", "#F6F1E7");
+        });
+        doc.querySelectorAll("[data-testid='stPlotlyChart'], [data-testid='stPlotlyChart'] > div, .js-plotly-plot, .js-plotly-plot .svg-container").forEach(function (el) {
+          setImp(el, "background", "#FFFCF6");
+          setImp(el, "background-color", "#FFFCF6");
+        });
+        function paleFill(fill) {
+          var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(fill || "");
+          if (!m && fill && fill.charAt(0) === "#") {
+            var h = fill.slice(1);
+            if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+            if (h.length === 6) m = [0, parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+          }
+          if (!m || m.length < 4) return false;
+          var r = +m[1], g = +m[2], b = +m[3];
+          if (isNaN(r)) return false;
+          if (g > r + 30 && g > b + 15) return false;
+          if (r > g + 30 && r > b + 15) return false;
+          return (r + g + b) > 380 || (b > 120 && r > 140 && g > 150);
+        }
+        doc.querySelectorAll(".js-plotly-plot text, .js-plotly-plot tspan").forEach(function (el) {
+          var fill = el.getAttribute("fill") || "";
+          if (!fill) { try { fill = view.getComputedStyle(el).fill || ""; } catch (e) { fill = ""; } }
+          if (!paleFill(fill)) return;
+          setImp(el, "fill", "#2C2416");
         });
       }
       doc.querySelectorAll('[data-testid="stRadio"] label, label[data-testid="stRadioOption"]').forEach(function (lab) {
