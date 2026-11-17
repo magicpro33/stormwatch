@@ -2313,15 +2313,6 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
                     f"color:#7a9ab8'>{scan_count} tickers scanned</div>",
                     unsafe_allow_html=True,
                 )
-        if "ig_last_results" not in st.session_state:
-            st.markdown(
-                "<div style='padding:6px 0;font-family:Space Mono,monospace;"
-                "font-size:13px;font-weight:700;color:#39FF14;"
-                "text-shadow:0 0 8px rgba(57,255,20,0.65)'>"
-                "Hit Scan to run. Nothing is fetched until then.</div>",
-                unsafe_allow_html=True,
-            )
-
     ig_progress_slot = st.empty()
 
     _hub_sec("2 · Watchlist", "#7FD4FF",

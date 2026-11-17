@@ -534,13 +534,23 @@ def _sign_color(value, pos_good=True) -> str:
     return GREEN if good else RED
 
 
+def _fortune() -> bool:
+    return str(st.session_state.get("mw_look") or "") == "Fortune"
+
+
 def _chips(items: list[tuple[str, str, str]]) -> None:
+    fq = _fortune()
+    bg = "#FFFCF6" if fq else "#0c1829"
+    edge = "#E3D5BE" if fq else "#1d2b40"
+    lab = "#5C5346" if fq else DIM
     cells = []
     for label, value, color in items:
+        if fq and str(color).lower() in ("#f6f4e9", "#9aa8bd", INK.lower(), DIM.lower()):
+            color = "#2C2416" if str(color).lower() in ("#f6f4e9", INK.lower()) else "#5C5346"
         cells.append(
-            "<div style='background:#0c1829;border:1px solid #1d2b40;border-radius:10px;"
+            f"<div style='background:{bg};border:1px solid {edge};border-radius:10px;"
             "padding:8px 12px;min-width:120px;'>"
-            f"<div style='color:{DIM};font-size:11px;letter-spacing:.04em;'>{_esc(label)}</div>"
+            f"<div style='color:{lab};font-size:11px;letter-spacing:.04em;'>{_esc(label)}</div>"
             f"<div style='color:{color};font-weight:750;font-size:18px;'>{_esc(value)}</div>"
             "</div>"
         )
@@ -621,6 +631,20 @@ def _grid(
         styled = styled.map(_cell_sign, subset=paint)
     if side_col and side_col in visible.columns:
         styled = styled.map(_side_css, subset=[side_col])
+    if _fortune():
+        try:
+            styled = styled.hide(axis="index")
+        except Exception:
+            pass
+        styled = styled.set_properties(**{
+            "background-color": "#FFFCF6",
+            "color": "#2C2416",
+        })
+        todo = getattr(styled, "_todo", None)
+        if todo and len(todo) > 1:
+            todo.insert(0, todo.pop())
+        _html_block(f"<div class='mw-fq-table'>{styled.to_html()}</div>")
+        return ordered
     st.dataframe(
         styled,
         width="content",
@@ -650,19 +674,22 @@ def _flow_chart(fills: list, title: str, key: str = "cc_flow") -> None:
         marker_color=[GREEN if v >= 0 else RED for v in vals],
         hovertemplate="%{x}<br>%{y:$,.0f}<extra></extra>",
     ))
-    _fq = str(st.session_state.get("mw_look") or "") == "Fortune"
+    _fq = _fortune()
     _ink = "#2C2416" if _fq else INK
-    _grid = "#E3D5BE" if _fq else "#1d2b40"
+    _gridc = "#E3D5BE" if _fq else "#1d2b40"
     fig.update_layout(
         title=dict(text=title, font=dict(size=14, color=_ink)),
+        template="plotly_white" if _fq else "plotly_dark",
         paper_bgcolor="#FFFCF6" if _fq else "rgba(0,0,0,0)",
         plot_bgcolor="#F6F1E7" if _fq else "rgba(0,0,0,0)",
         font=dict(color=_ink),
-        height=320,
-        margin=dict(l=8, r=8, t=40, b=8),
-        yaxis=dict(gridcolor=_grid, zerolinecolor="#C6A15B" if _fq else "#4a7aa0",
-                   tickprefix="$", separatethousands=True, tickfont=dict(color=_ink)),
-        xaxis=dict(gridcolor=_grid, tickfont=dict(color=_ink)),
+        height=420,
+        margin=dict(l=16, r=16, t=48, b=96),
+        yaxis=dict(gridcolor=_gridc, zerolinecolor="#C6A15B" if _fq else "#4a7aa0",
+                   tickprefix="$", separatethousands=True, tickfont=dict(color=_ink),
+                   automargin=True),
+        xaxis=dict(gridcolor=_gridc, tickfont=dict(color=_ink, size=12),
+                   tickangle=-40, automargin=True, ticklabeloverflow="allow"),
     )
     try:
         st.plotly_chart(fig, theme=None, width="stretch", key=key)
@@ -1148,9 +1175,9 @@ def _live_fragment() -> None:
 def _render_vaults() -> None:
     _html_block(
         f"""
-        <div style="background:#0c1829;border:1px solid #1d2b40;border-radius:10px;
-            padding:10px 14px;margin:4px 0 10px;color:{DIM};font-size:13px;line-height:1.45;">
-          <span style="color:{INK};font-weight:700;">Better copy path: Hyperliquid vaults.</span>
+        <div style="background:{'#FFFCF6' if _fortune() else '#0c1829'};border:1px solid {'#E3D5BE' if _fortune() else '#1d2b40'};border-radius:10px;
+            padding:10px 14px;margin:4px 0 10px;color:{'#5C5346' if _fortune() else DIM};font-size:13px;line-height:1.45;">
+          <span style="color:{'#5C3A1A' if _fortune() else INK};font-weight:700;">Better copy path: Hyperliquid vaults.</span>
           Depositing into a vault is the exchange's copy product — the leader trades the
           pooled margin and your share follows the vault PnL, after the fee disclosed on
           the vault page. That beats mirroring a fill that already happened.

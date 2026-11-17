@@ -587,7 +587,8 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     color: #2C2416 !important;
 }}
 [data-testid="stPlotlyChart"] {{
-    background: transparent !important;
+    background: #FFFCF6 !important;
+    background-color: #FFFCF6 !important;
     border: none !important;
     box-shadow: none !important;
 }}
