@@ -754,6 +754,33 @@ def _chart_skin() -> dict:
                 font="JetBrains Mono, monospace")
 
 
+def _pale_ink(color) -> bool:
+    """True for washed light lettering. Green and red marks stay as they are."""
+    if not isinstance(color, str):
+        return False
+    s = color.strip().lower()
+    if s in ("#3fbf7f", "#9e1b2f", "#ff4444", "#4dd880", "#e87722", "#c6a15b",
+             "#26c485", "#ef5350", "#6ee7b7"):
+        return False
+    if s in ("#eaf2ff", "#f6f4e9", "#ffffff", "#fff", "#9aa8bd", "#b0c8e8",
+             "#d7e0ec", "#c5d4ff", "#7a9ab8", "#9fb0c8", "white"):
+        return True
+    if s.startswith("#") and len(s) in (4, 7):
+        h = s[1:]
+        if len(h) == 3:
+            h = "".join(ch * 2 for ch in h)
+        try:
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        except ValueError:
+            return False
+        if g > r + 40 and g > b + 20:
+            return False
+        if r > g + 40 and r > b + 20:
+            return False
+        return r + g + b > 380 or (b > 120 and r > 140 and g > 150)
+    return False
+
+
 def _restyle(fig) -> None:
     """Light paper on Fortune so chart text is not washed out on a dark plot."""
     skin = _chart_skin()
@@ -763,8 +790,26 @@ def _restyle(fig) -> None:
         plot_bgcolor=skin["plot"],
         font=dict(color=skin["ink"], family=skin["font"], size=12),
     )
-    fig.update_xaxes(gridcolor=skin["grid"])
-    fig.update_yaxes(gridcolor=skin["grid"])
+    fig.update_xaxes(gridcolor=skin["grid"], tickfont=dict(color=skin["ink"]),
+                     title_font=dict(color=skin["ink"]))
+    fig.update_yaxes(gridcolor=skin["grid"], tickfont=dict(color=skin["ink"]),
+                     title_font=dict(color=skin["ink"]))
+    if skin["template"] == "plotly_white":
+        def _font(font):
+            if font is None:
+                return
+            c = getattr(font, "color", None)
+            if _pale_ink(c):
+                font.color = skin["ink"]
+        lay = fig.layout
+        if lay.title is not None:
+            _font(getattr(lay.title, "font", None))
+        if lay.legend is not None:
+            _font(getattr(lay.legend, "font", None))
+        for ann in lay.annotations or []:
+            _font(getattr(ann, "font", None))
+        for trace in fig.data:
+            _font(getattr(trace, "textfont", None))
     axis = fig.layout.xaxis
     if axis is not None and getattr(axis, "rangeselector", None) is not None:
         axis.rangeselector.bgcolor = skin["chip"]

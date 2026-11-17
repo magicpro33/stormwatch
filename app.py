@@ -433,9 +433,13 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"],
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"] *,
 .stApp [data-testid="stSelectbox"] > div,
-.stApp [data-testid="stSelectbox"] > div > div {{
+.stApp [data-testid="stSelectbox"] > div > div,
+.stApp [data-testid="stMultiSelect"] [data-baseweb="select"],
+.stApp [data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+.stApp [data-testid="stMultiSelect"] [data-baseweb="select"] > div > div {{
     color: #1A1208 !important;
     -webkit-text-fill-color: #1A1208 !important;
+    background: #FFFCF6 !important;
     background-color: #FFFCF6 !important;
     opacity: 1 !important;
 }}
@@ -2992,6 +2996,68 @@ def pct_color(v):
             f"{'+' if v >= 0 else ''}{v:.2f}%</span>")
 
 
+def _light_chart_ink(color):
+    """Fortune: pale chart lettering becomes bronze. Green and red stay."""
+    if not isinstance(color, str):
+        return color
+    s = color.strip().lower()
+    if s in ("#3fbf7f", "#1f7a45", "#9e1b2f", "#ff4444", "#4dd880", "#26c485",
+             "#ef5350", "#e05252", "#6ee7b7", "#c6a15b", "#e87722", "#d0b040"):
+        return color
+    if s.startswith("rgba"):
+        return color
+    if s.startswith("#") and len(s) in (4, 7):
+        h = s[1:]
+        if len(h) == 3:
+            h = "".join(ch * 2 for ch in h)
+        try:
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        except ValueError:
+            return color
+        if g > r + 40 and g > b + 20:
+            return color
+        if r > g + 40 and r > b + 20:
+            return color
+        if r + g + b > 380 or (b > 120 and r > 140 and g > 150):
+            return "#2C2416"
+    if s in ("#eaf2ff", "#f6f4e9", "#ffffff", "#fff", "#9aa8bd", "#b0c8e8",
+             "#d7e0ec", "#c5d4ff", "#7a9ab8", "#9fb0c8", "#e8f4fd", "white"):
+        return "#2C2416"
+    return color
+
+
+def _fortune_chart_text(fig):
+    """Darken pale titles, ticks, and notes. Leave green and red marks."""
+    def _font(font):
+        if font is None:
+            return
+        c = getattr(font, "color", None)
+        nxt = _light_chart_ink(c)
+        if nxt != c:
+            font.color = nxt
+
+    lay = fig.layout
+    _font(lay.font)
+    if lay.title is not None:
+        _font(getattr(lay.title, "font", None))
+    if lay.legend is not None:
+        _font(getattr(lay.legend, "font", None))
+    for ann in lay.annotations or []:
+        _font(getattr(ann, "font", None))
+    def _axis(ax):
+        _font(getattr(ax, "tickfont", None))
+        title = getattr(ax, "title", None)
+        if title is not None:
+            _font(getattr(title, "font", None))
+    fig.for_each_xaxis(_axis)
+    fig.for_each_yaxis(_axis)
+    for trace in fig.data:
+        _font(getattr(trace, "textfont", None))
+        hover = getattr(trace, "hoverlabel", None)
+        if hover is not None:
+            _font(getattr(hover, "font", None))
+
+
 def _fig_show(fig, **kw):
     """Draw a chart. Fortune uses light paper and bronze lettering."""
     if _look_name() == "Fortune":
@@ -3008,6 +3074,7 @@ def _fig_show(fig, **kw):
                         title_font=dict(color="#5C3A1A"))
             fig.update_xaxes(**axis)
             fig.update_yaxes(**axis)
+        _fortune_chart_text(fig)
     try:
         st.plotly_chart(fig, theme=None, **kw)
     except TypeError:
@@ -12839,7 +12906,15 @@ _embed_html(
           setImp(el, "background-color", "#FFFCF6");
           setImp(el, "color", "#5C3A1A");
         });
-        doc.querySelectorAll('[data-testid="stSelectbox"] div, [data-testid="stSelectbox"] span, [data-testid="stSelectbox"] p, [data-testid="stSelectbox"] input, [data-baseweb="select"] div, [data-baseweb="select"] span, [data-baseweb="select"] p, [role="option"], [role="option"] div, [role="option"] span, [data-testid="stRadio"] label, [data-testid="stRadio"] p, [data-testid="stRadio"] span, label[data-testid="stRadioOption"], label[data-testid="stRadioOption"] p').forEach(function (el) {
+        doc.querySelectorAll('[data-testid="stSelectbox"] [data-baseweb="select"], [data-testid="stSelectbox"] [data-baseweb="select"] div, [data-testid="stMultiSelect"] [data-baseweb="select"], [data-testid="stMultiSelect"] [data-baseweb="select"] > div, [data-testid="stMultiSelect"] [data-baseweb="select"] > div > div').forEach(function (el) {
+          if (el.closest && el.closest("[data-baseweb='tag']")) return;
+          setImp(el, "background", "#FFFCF6");
+          setImp(el, "background-color", "#FFFCF6");
+          setImp(el, "color", "#1A1208");
+          setImp(el, "-webkit-text-fill-color", "#1A1208");
+          setImp(el, "opacity", "1");
+        });
+        doc.querySelectorAll('[data-testid="stSelectbox"] span, [data-testid="stSelectbox"] p, [data-baseweb="select"] span, [data-baseweb="select"] p, [role="option"], [role="option"] div, [role="option"] span, [data-testid="stRadio"] label, [data-testid="stRadio"] p, [data-testid="stRadio"] span, label[data-testid="stRadioOption"], label[data-testid="stRadioOption"] p').forEach(function (el) {
           if (el.closest && el.closest("[data-baseweb='tag']")) return;
           setImp(el, "color", "#1A1208");
           setImp(el, "-webkit-text-fill-color", "#1A1208");
