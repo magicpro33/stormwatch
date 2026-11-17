@@ -404,9 +404,47 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
 .stApp button[data-testid="stBaseButton-segmented_controlActive"] * {{
     background: #F6F1E7 !important;
     background-color: #F6F1E7 !important;
-    color: #2C2416 !important;
+    color: #5C3A1A !important;
     border: 2px solid #C6A15B !important;
     box-shadow: none !important;
+}}
+.stApp button[role="radio"] {{
+    background: #F6F1E7 !important;
+    background-color: #F6F1E7 !important;
+    color: #5C3A1A !important;
+    border: 1px solid #E3D5BE !important;
+    box-shadow: none !important;
+}}
+.stApp button[role="radio"][aria-pressed="true"],
+.stApp button[role="radio"][aria-checked="true"] {{
+    background: #F6F1E7 !important;
+    background-color: #F6F1E7 !important;
+    color: #5C3A1A !important;
+    border: 2px solid #C6A15B !important;
+}}
+.stApp button[role="radio"] p,
+.stApp button[role="radio"] span,
+.stApp button[role="radio"] div {{
+    color: #5C3A1A !important;
+    background: transparent !important;
+    background-color: transparent !important;
+}}
+.stApp [data-baseweb="select"] *,
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"],
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] * {{
+    color: #5C3A1A !important;
+}}
+[data-baseweb="popover"],
+[data-baseweb="popover"] *,
+[data-baseweb="menu"],
+[data-baseweb="menu"] *,
+[role="listbox"],
+[role="listbox"] *,
+[role="option"],
+[role="option"] * {{
+    background: #FFFCF6 !important;
+    background-color: #FFFCF6 !important;
+    color: #5C3A1A !important;
 }}
 .stApp [data-baseweb="select"] > div,
 .stApp [data-baseweb="select"] span,
@@ -2535,7 +2573,10 @@ def _news_tags(tickers: tuple, sectors_json: str):
 
 # ═════════ IGNITION Stock Analyzer (ported) ═════════
 def az_pill(label, good):
-    bg = "#0d2215" if good is True else ("#220d0d" if good is False else "#1a1500")
+    if _look_name() == "Fortune":
+        bg = "#E5F6EC" if good is True else ("#F8E8EA" if good is False else "#F8F1DC")
+    else:
+        bg = "#0d2215" if good is True else ("#220d0d" if good is False else "#1a1500")
     col = "#3fbf7f" if good is True else ("#9E1B2F" if good is False else "#d0b040")
     bc = "#1e6b35" if good is True else ("#a03535" if good is False else "#907020")
     return (f"<span style='display:inline-block;background:{bg};color:{col};"
@@ -2594,7 +2635,7 @@ def metric_scale(value, vmin, vmax, good, ok, caption, higher=True, neg_bad=Fals
     mark = _pct(0 if (neg_bad and v < 0) else v)
     cap = _esc(caption)
     return (
-        f"<div title='{cap}' style='position:relative;height:12px;background:#122540;"
+        f"<div title='{cap}' style='position:relative;height:12px;background:{'#E7DCC8' if _look_name() == 'Fortune' else '#122540'};"
         f"border-radius:4px;overflow:hidden'>{zones}"
         f"<div style='position:absolute;left:calc({mark:.1f}% - 2px);top:0;width:4px;"
         f"height:12px;background:{color}'></div></div>"
@@ -2603,10 +2644,15 @@ def metric_scale(value, vmin, vmax, good, ok, caption, higher=True, neg_bad=Fals
 
 
 def mrow(label, tooltip, value, scale=""):
-    return (f"<tr style='border-bottom:1px solid #122540'>"
-            f"<td style='padding:8px 10px;font-size:13px;color:#b0c8e8;width:34%'>"
-            f"<span title='{tooltip}' style='cursor:help;border-bottom:1px dashed #1e3a5f'>{label}</span></td>"
-            f"<td style='padding:8px 8px;font-size:13px;font-family:monospace;color:#F6F4E9;"
+    _light = _look_name() == "Fortune"
+    line = "#E3D5BE" if _light else "#122540"
+    lab = "#5C3A1A" if _light else "#b0c8e8"
+    val = "#2C2416" if _light else "#F6F4E9"
+    dash = "#C6A15B" if _light else "#1e3a5f"
+    return (f"<tr style='border-bottom:1px solid {line}'>"
+            f"<td style='padding:8px 10px;font-size:13px;color:{lab};width:34%'>"
+            f"<span title='{tooltip}' style='cursor:help;border-bottom:1px dashed {dash}'>{label}</span></td>"
+            f"<td style='padding:8px 8px;font-size:13px;font-family:monospace;color:{val};"
             f"width:28%;white-space:nowrap'>{value}</td>"
             f"<td style='padding:6px 8px;width:38%;vertical-align:middle'>{scale}</td></tr>")
 
@@ -3454,37 +3500,40 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
         margin=dict(l=56, r=56, t=28, b=28),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#e8edf5", family="JetBrains Mono, monospace"),
+        font=dict(color="#5C3A1A" if _look_name() == "Fortune" else "#e8edf5",
+                  family="JetBrains Mono, monospace"),
         showlegend=False,
         polar=dict(
-            bgcolor="#0c1829",
+            bgcolor="#FFFCF6" if _look_name() == "Fortune" else "#0c1829",
             radialaxis=dict(
                 range=[0, 100],
                 showline=False,
-                gridcolor="rgba(30,45,69,0.7)",
-                tickfont=dict(size=9, color="#6b7fa3"),
+                gridcolor="rgba(198,161,91,0.45)" if _look_name() == "Fortune" else "rgba(30,45,69,0.7)",
+                tickfont=dict(size=9, color="#5C5346" if _look_name() == "Fortune" else "#6b7fa3"),
                 tickvals=[25, 50, 75, 100],
                 angle=90,
             ),
             angularaxis=dict(
-                gridcolor="rgba(30,45,69,0.7)",
-                linecolor="rgba(30,45,69,0.7)",
-                tickfont=dict(size=12, color="#e8edf5"),
+                gridcolor="rgba(198,161,91,0.45)" if _look_name() == "Fortune" else "rgba(30,45,69,0.7)",
+                linecolor="rgba(198,161,91,0.45)" if _look_name() == "Fortune" else "rgba(30,45,69,0.7)",
+                tickfont=dict(size=12, color="#5C3A1A" if _look_name() == "Fortune" else "#e8edf5"),
                 rotation=90,
                 direction="clockwise",
             ),
         ),
     )
     box = f"{key_prefix}_quant"
+    _fq = _look_name() == "Fortune"
     st.markdown(
-        f"<style>.st-key-{box}{{background:#0c1829;border:1px solid #1e2d45 !important;"
+        f"<style>.st-key-{box}{{background:{'#FFFCF6' if _fq else '#0c1829'};"
+        f"border:1px solid {'#E3D5BE' if _fq else '#1e2d45'} !important;"
         f"border-radius:12px}}</style>",
         unsafe_allow_html=True)
     with st.container(border=True, key=box):
         st.markdown(
             "<div style='font-family:JetBrains Mono,monospace;font-size:13px;"
-            "font-weight:700;color:#00e5ff;letter-spacing:.6px'>Quant Rating</div>"
-            "<div style='color:#6b7fa3;font-size:12px;margin:2px 0 6px'>"
+            f"font-weight:700;color:{'#8A6A2F' if _fq else '#00e5ff'};letter-spacing:.6px'>Quant Rating</div>"
+            f"<div style='color:{'#5C5346' if _fq else '#6b7fa3'};font-size:12px;margin:2px 0 6px'>"
             "Same shape as the Sector Rotation Radar. 0–100, higher is the "
             "better side of that lens.</div>",
             unsafe_allow_html=True)
@@ -3493,20 +3542,20 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
         rows = []
         for s in spokes:
             if not s.get("live"):
-                col = "#6b7fa3"
+                col = "#5C5346" if _fq else "#6b7fa3"
             else:
                 col = "#3fbf7f" if s["score"] >= 70 else ("#C6A15B" if s["score"] >= 45 else "#9E1B2F")
             rows.append(
                 f"<div style='display:flex;justify-content:space-between;gap:10px;margin-top:6px'>"
-                f"<span style='color:#e8edf5'>{_esc(s['name'])}</span>"
+                f"<span style='color:{'#2C2416' if _fq else '#e8edf5'}'>{_esc(s['name'])}</span>"
                 f"<b style='color:{col};font-family:monospace'>{s['score']:.0f}</b></div>"
-                f"<div style='color:#6b7fa3;font-size:11px;line-height:1.3'>{_esc(s['detail'])}</div>")
+                f"<div style='color:{'#5C5346' if _fq else '#6b7fa3'};font-size:11px;line-height:1.3'>{_esc(s['detail'])}</div>")
         right.markdown(
             f"<div style='font-size:42px;font-weight:800;line-height:1;color:{tone};"
             f"font-family:JetBrains Mono,monospace'>{score:.0f}</div>"
-            f"<div style='color:#6b7fa3;font-size:11px;letter-spacing:1px;margin-bottom:8px'>"
+            f"<div style='color:{'#5C5346' if _fq else '#6b7fa3'};font-size:11px;letter-spacing:1px;margin-bottom:8px'>"
             f"QUANT / 100</div>"
-            f"<div style='color:#9aa8bd;font-size:12px;margin-bottom:6px'>"
+            f"<div style='color:{'#5C3A1A' if _fq else '#9aa8bd'};font-size:12px;margin-bottom:6px'>"
             f"Strongest {_esc(best['name'])} {best['score']:.0f}"
             f" · softest {_esc(soft['name'])} {soft['score']:.0f}</div>"
             + "".join(rows),
@@ -3725,17 +3774,21 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                 _asked = 252 if _pr_spec == "ytd" else int(_pr_spec)
                 _short = _rw["n"] < (_asked * 0.85) if _pr_spec != "ytd" else False
                 _span = f"{_fmt_bar_date(_rw['start'])} – {_fmt_bar_date(_rw['end'])}"
+                _pr_bg = "#FFFCF6" if _look_name() == "Fortune" else "#0d1e33"
+                _pr_line = "#E3D5BE" if _look_name() == "Fortune" else "#1e3a5f"
+                _pr_ink = "#5C3A1A" if _look_name() == "Fortune" else "#7a9ab8"
+                _pr_track = "#E7DCC8" if _look_name() == "Fortune" else "#081325"
                 st.markdown(
-                    f"<div style='background:#0d1e33;border:1px solid #1e3a5f;border-radius:8px;padding:12px 14px;margin-bottom:10px'>"
-                    f"<div style='display:flex;justify-content:space-between;font-family:monospace;font-size:11px;color:#7a9ab8;margin-bottom:6px'>"
+                    f"<div style='background:{_pr_bg};border:1px solid {_pr_line};border-radius:8px;padding:12px 14px;margin-bottom:10px'>"
+                    f"<div style='display:flex;justify-content:space-between;font-family:monospace;font-size:11px;color:{_pr_ink};margin-bottom:6px'>"
                     f"<span>Low ${_lo:,.2f}<br><span style='font-size:10px'>{_fmt_bar_date(_rw['low_dt'])}</span></span>"
                     f"<span style='text-align:right'>High ${_hi:,.2f}<br><span style='font-size:10px'>{_fmt_bar_date(_rw['high_dt'])}</span></span></div>"
-                    f"<div style='background:#081325;border-radius:4px;height:10px;position:relative'>"
+                    f"<div style='background:{_pr_track};border-radius:4px;height:10px;position:relative'>"
                     f"<div style='background:{bc};height:10px;border-radius:4px;width:{int(pp*100)}%'></div></div>"
                     f"<div style='text-align:center;font-family:monospace;font-size:12px;color:{bc};margin-top:6px'>"
                     f"${px:,.2f} · {int(pp*100)}% of range"
                     f"{'' if _off_hi is None else f' · {_off_hi:+.1f}% vs high'}</div>"
-                    f"<div style='text-align:center;font-size:11px;color:#7a9ab8;margin-top:4px'>"
+                    f"<div style='text-align:center;font-size:11px;color:{_pr_ink};margin-top:4px'>"
                     f"{_esc(_pr_pick)} · {_rw['n']} sessions · {_span}</div></div>",
                     unsafe_allow_html=True)
                 if _short:
@@ -12458,17 +12511,32 @@ if _look_name() in ("Fortune", "Private Bank"):
     painting = true;
     try {
       if (fortune) {
-        doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"]').forEach(function (b) {
+        doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"], button[role="radio"]').forEach(function (b) {
+          var on = (b.getAttribute("data-testid") || "").indexOf("Active") >= 0
+            || b.getAttribute("aria-pressed") === "true"
+            || b.getAttribute("aria-checked") === "true";
           setImp(b, "background", "#F6F1E7");
           setImp(b, "background-color", "#F6F1E7");
-          setImp(b, "color", "#2C2416");
+          setImp(b, "color", "#5C3A1A");
           setImp(b, "box-shadow", "none");
-          var on = (b.getAttribute("data-testid") || "").indexOf("Active") >= 0;
-          setImp(b, "border", on ? "2px solid #C6A15B" : "1px solid transparent");
+          setImp(b, "border", on ? "2px solid #C6A15B" : "1px solid #E3D5BE");
+          b.querySelectorAll("p, span, div").forEach(function (n) {
+            setImp(n, "color", "#5C3A1A");
+            setImp(n, "background", "transparent");
+            setImp(n, "background-color", "transparent");
+          });
         });
         doc.querySelectorAll('[data-baseweb="button-group"]').forEach(function (g) {
           setImp(g, "background", "#F6F1E7");
           setImp(g, "background-color", "#F6F1E7");
+        });
+        doc.querySelectorAll('[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [role="option"]').forEach(function (el) {
+          setImp(el, "background", "#FFFCF6");
+          setImp(el, "background-color", "#FFFCF6");
+          setImp(el, "color", "#5C3A1A");
+        });
+        doc.querySelectorAll('[data-baseweb="select"] span, [data-baseweb="select"] div, [role="option"] span, [role="option"] div').forEach(function (el) {
+          setImp(el, "color", "#5C3A1A");
         });
       }
       doc.querySelectorAll('[data-testid="stRadio"] label, label[data-testid="stRadioOption"]').forEach(function (lab) {
