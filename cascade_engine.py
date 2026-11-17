@@ -2049,27 +2049,41 @@ def scan_col_help(name: str) -> str:
     return HEALTH_SETUP_HELP.get(n) or SCAN_COL_HELP.get(n) or ""
 
 
-_COLTIP_CSS = (
-    "<style>"
-    ".mw-coltip-row{display:flex;flex-wrap:wrap;gap:6px 8px;"
-    "margin:2px 0 10px;align-items:center;position:relative;z-index:20}"
-    ".mw-coltip{position:relative;display:inline-block;cursor:help;z-index:21}"
-    ".mw-coltip-lab{display:inline-block;padding:4px 9px;border-radius:8px;"
-    "border:1px solid rgba(103,232,249,.4);color:#C5D4FF;font-size:11px;"
-    "font-weight:700;letter-spacing:.04em;background:rgba(8,19,37,.72);"
-    "text-decoration:underline dotted rgba(103,232,249,.7);"
-    "text-underline-offset:3px}"
-    ".mw-coltip:hover .mw-coltip-lab,.mw-coltip:focus .mw-coltip-lab{"
-    "color:#67E8F9;border-color:#67E8F9}"
-    ".mw-coltip-pop{display:none;position:absolute;left:0;top:calc(100% + 7px);"
-    "z-index:99999;min-width:220px;max-width:300px;padding:9px 11px;"
-    "background:#0c1829;border:1px solid #67E8F9;border-radius:10px;"
-    "color:#EAF2FF;font-size:12px;font-weight:500;line-height:1.4;"
-    "box-shadow:0 10px 28px rgba(0,0,0,.5);white-space:normal}"
-    ".mw-coltip:hover .mw-coltip-pop,.mw-coltip:focus .mw-coltip-pop{"
-    "display:block}"
-    "</style>"
-)
+def _coltip_css() -> str:
+    """Column-help chips. Fortune uses paper and bronze instead of navy."""
+    try:
+        import streamlit as _st
+        light = str(_st.session_state.get("mw_look") or "") == "Fortune"
+    except Exception:
+        light = False
+    if light:
+        lab_bg, lab_fg, lab_bd = "#F3EBDD", "#5C3A1A", "#C6A15B"
+        pop_bg, pop_fg, pop_bd = "#FFFCF6", "#2C2416", "#C6A15B"
+        hover = "#8A6A2F"
+    else:
+        lab_bg, lab_fg, lab_bd = "rgba(8,19,37,.72)", "#C5D4FF", "rgba(103,232,249,.4)"
+        pop_bg, pop_fg, pop_bd = "#0c1829", "#EAF2FF", "#67E8F9"
+        hover = "#67E8F9"
+    return (
+        "<style>"
+        ".mw-coltip-row{display:flex;flex-wrap:wrap;gap:6px 8px;"
+        "margin:2px 0 10px;align-items:center;position:relative;z-index:20}"
+        ".mw-coltip{position:relative;display:inline-block;cursor:help;z-index:21}"
+        f".mw-coltip-lab{{display:inline-block;padding:4px 9px;border-radius:8px;"
+        f"border:1px solid {lab_bd};color:{lab_fg};font-size:11px;"
+        f"font-weight:700;letter-spacing:.04em;background:{lab_bg};"
+        f"text-decoration:underline dotted {lab_bd};text-underline-offset:3px}}"
+        f".mw-coltip:hover .mw-coltip-lab,.mw-coltip:focus .mw-coltip-lab{{"
+        f"color:{hover};border-color:{hover}}}"
+        ".mw-coltip-pop{display:none;position:absolute;left:0;top:calc(100% + 7px);"
+        "z-index:99999;min-width:220px;max-width:300px;padding:9px 11px;"
+        f"background:{pop_bg};border:1px solid {pop_bd};border-radius:10px;"
+        f"color:{pop_fg};font-size:12px;font-weight:500;line-height:1.4;"
+        "box-shadow:0 10px 28px rgba(0,0,0,.18);white-space:normal}"
+        ".mw-coltip:hover .mw-coltip-pop,.mw-coltip:focus .mw-coltip-pop{"
+        "display:block}"
+        "</style>"
+    )
 
 
 def scan_col_help_strip_html(cols) -> str:
@@ -2093,7 +2107,7 @@ def scan_col_help_strip_html(cols) -> str:
         )
     if not bits:
         return ""
-    return _COLTIP_CSS + "<div class='mw-coltip-row'>" + "".join(bits) + "</div>"
+    return _coltip_css() + "<div class='mw-coltip-row'>" + "".join(bits) + "</div>"
 
 
 def render_scan_col_help_strip(st_mod, cols) -> None:

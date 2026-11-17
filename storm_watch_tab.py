@@ -479,13 +479,23 @@ def _draw_chart(tk: str):
         vcol = np.where(d.Close.diff().fillna(0) >= 0, GREEN, RED)
         fig.add_trace(go.Bar(x=d.index, y=d.Volume, marker_color=vcol,
                              name="Volume", opacity=0.6), row=2, col=1)
-    fig.update_layout(height=420, template="plotly_dark",
-                      paper_bgcolor="#081325", plot_bgcolor="#0c1829",
-                      font_color="#F6F4E9", showlegend=True,
+    _fq = str(st.session_state.get("mw_look") or "") == "Fortune"
+    fig.update_layout(height=420,
+                      template="plotly_white" if _fq else "plotly_dark",
+                      paper_bgcolor="#FFFCF6" if _fq else "#081325",
+                      plot_bgcolor="#F6F1E7" if _fq else "#0c1829",
+                      font_color="#2C2416" if _fq else "#F6F4E9",
+                      showlegend=True,
                       legend=dict(orientation="h", y=1.05),
                       xaxis_rangeslider_visible=False,
                       margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, width="stretch", key=f"sw_chart_{tk}")
+    if _fq:
+        fig.update_xaxes(gridcolor="#E3D5BE", tickfont=dict(color="#5C3A1A"))
+        fig.update_yaxes(gridcolor="#E3D5BE", tickfont=dict(color="#5C3A1A"))
+    try:
+        st.plotly_chart(fig, theme=None, width="stretch", key=f"sw_chart_{tk}")
+    except TypeError:
+        st.plotly_chart(fig, width="stretch", key=f"sw_chart_{tk}")
     last = float(df["Close"].iloc[-1])
     sma50 = float(c_full.rolling(50).mean().iloc[-1]) if len(c_full) >= 50 else np.nan
     if np.isfinite(sma50):

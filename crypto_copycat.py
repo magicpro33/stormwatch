@@ -650,17 +650,24 @@ def _flow_chart(fills: list, title: str, key: str = "cc_flow") -> None:
         marker_color=[GREEN if v >= 0 else RED for v in vals],
         hovertemplate="%{x}<br>%{y:$,.0f}<extra></extra>",
     ))
+    _fq = str(st.session_state.get("mw_look") or "") == "Fortune"
+    _ink = "#2C2416" if _fq else INK
+    _grid = "#E3D5BE" if _fq else "#1d2b40"
     fig.update_layout(
-        title=dict(text=title, font=dict(size=14, color=INK)),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color=INK),
+        title=dict(text=title, font=dict(size=14, color=_ink)),
+        paper_bgcolor="#FFFCF6" if _fq else "rgba(0,0,0,0)",
+        plot_bgcolor="#F6F1E7" if _fq else "rgba(0,0,0,0)",
+        font=dict(color=_ink),
         height=320,
         margin=dict(l=8, r=8, t=40, b=8),
-        yaxis=dict(gridcolor="#1d2b40", zerolinecolor="#4a7aa0", tickprefix="$", separatethousands=True),
-        xaxis=dict(gridcolor="#1d2b40"),
+        yaxis=dict(gridcolor=_grid, zerolinecolor="#C6A15B" if _fq else "#4a7aa0",
+                   tickprefix="$", separatethousands=True, tickfont=dict(color=_ink)),
+        xaxis=dict(gridcolor=_grid, tickfont=dict(color=_ink)),
     )
-    st.plotly_chart(fig, width="stretch", key=key)
+    try:
+        st.plotly_chart(fig, theme=None, width="stretch", key=key)
+    except TypeError:
+        st.plotly_chart(fig, width="stretch", key=key)
 
 
 def _position_nets(positions: list) -> list[tuple[str, float, int, int]]:

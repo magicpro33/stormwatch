@@ -431,8 +431,13 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
 }}
 .stApp [data-baseweb="select"] *,
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"],
-.stApp [data-testid="stSelectbox"] [data-baseweb="select"] * {{
-    color: #5C3A1A !important;
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] *,
+.stApp [data-testid="stSelectbox"] > div,
+.stApp [data-testid="stSelectbox"] > div > div {{
+    color: #1A1208 !important;
+    -webkit-text-fill-color: #1A1208 !important;
+    background-color: #FFFCF6 !important;
+    opacity: 1 !important;
 }}
 [data-baseweb="popover"],
 [data-baseweb="popover"] *,
@@ -614,23 +619,35 @@ section.main::-webkit-scrollbar-track,
 [data-testid="stAppViewContainer"]::-webkit-scrollbar-track {{
     background: #E7DCC8 !important;
 }}
-[data-testid="stDataFrame"], [data-testid="stDataFrame"] * {{
-    --gdg-bg-cell: #FFFCF6;
-    --gdg-bg-cell-medium: #F6F1E7;
-    --gdg-bg-header: #F3EBDD;
-    --gdg-bg-header-has-focus: #F3EBDD;
-    --gdg-bg-header-hovered: #EFE6D6;
-    --gdg-text-dark: #2C2416;
-    --gdg-text-medium: #5C5346;
-    --gdg-text-light: #5C5346;
-    --gdg-text-header: #5C3A1A;
-    --gdg-text-group: #5C3A1A;
-    --gdg-border-color: #E3D5BE;
-    --gdg-horizontal-border-color: #E3D5BE;
-    --gdg-bg-bubble: #F3EBDD;
-    --gdg-accent-color: #C6A15B;
-    --gdg-accent-fg: #2C2416;
-    --gdg-link-color: #5C3A1A;
+:root, .stApp, [data-testid="stDataFrame"], [data-testid="stDataFrame"] *,
+.dvn-scroller, .glideDataEditor {{
+    --gdg-bg-cell: #FFFCF6 !important;
+    --gdg-bg-cell-medium: #F6F1E7 !important;
+    --gdg-bg-header: #F3EBDD !important;
+    --gdg-bg-header-has-focus: #F3EBDD !important;
+    --gdg-bg-header-hovered: #EFE6D6 !important;
+    --gdg-text-dark: #2C2416 !important;
+    --gdg-text-medium: #5C5346 !important;
+    --gdg-text-light: #5C5346 !important;
+    --gdg-text-header: #5C3A1A !important;
+    --gdg-text-group-header: #5C3A1A !important;
+    --gdg-text-group: #5C3A1A !important;
+    --gdg-border-color: #E3D5BE !important;
+    --gdg-horizontal-border-color: #E3D5BE !important;
+    --gdg-bg-bubble: #FFFCF6 !important;
+    --gdg-accent-color: #C6A15B !important;
+    --gdg-accent-fg: #2C2416 !important;
+    --gdg-link-color: #5C3A1A !important;
+}}
+.mw-coltip-lab {{
+    background: #F3EBDD !important;
+    color: #5C3A1A !important;
+    border-color: #C6A15B !important;
+}}
+.mw-coltip-pop {{
+    background: #FFFCF6 !important;
+    color: #2C2416 !important;
+    border-color: #C6A15B !important;
 }}
 [style*="EAF2FF" i], [style*="F6F4E9" i], [style*="e8f4fd" i],
 [style*="b0c8e8" i], [style*="9FB0C8" i], [style*="9aa8bd" i],
@@ -2984,11 +3001,13 @@ def _fig_show(fig, **kw):
             plot_bgcolor="#F6F1E7",
             font=dict(color="#2C2416", size=12),
         )
-        axis = dict(gridcolor="#E3D5BE", zerolinecolor="#E3D5BE",
-                    color="#5C3A1A", tickfont=dict(color="#5C3A1A"),
-                    title_font=dict(color="#5C3A1A"))
-        fig.update_xaxes(**axis)
-        fig.update_yaxes(**axis)
+        polar = any(getattr(t, "type", "") == "scatterpolar" for t in fig.data)
+        if not polar:
+            axis = dict(gridcolor="#E3D5BE", zerolinecolor="#E3D5BE",
+                        color="#5C3A1A", tickfont=dict(color="#5C3A1A"),
+                        title_font=dict(color="#5C3A1A"))
+            fig.update_xaxes(**axis)
+            fig.update_yaxes(**axis)
     try:
         st.plotly_chart(fig, theme=None, **kw)
     except TypeError:
@@ -3666,8 +3685,8 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
         name="Quant",
     ))
     fig.update_layout(
-        height=340,
-        margin=dict(l=56, r=56, t=28, b=28),
+        height=420,
+        margin=dict(l=72, r=72, t=48, b=48),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color="#5C3A1A" if _look_name() == "Fortune" else "#e8edf5",
@@ -3707,8 +3726,9 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
             "Same shape as the Sector Rotation Radar. 0–100, higher is the "
             "better side of that lens.</div>",
             unsafe_allow_html=True)
-        left, right = st.columns([1.25, 0.75], vertical_alignment="center")
-        _fig_show(fig, width="stretch", key=f"{box}_chart")
+        left, right = st.columns([1.35, 0.85], vertical_alignment="center")
+        with left:
+            _fig_show(fig, width="stretch", key=f"{box}_chart")
         rows = []
         for s in spokes:
             if not s.get("live"):
@@ -7211,6 +7231,8 @@ def _hub_df(data, **kwargs):
     fn = getattr(ce, "render_scan_col_help_strip", None)
     if callable(fn):
         fn(st, cols)
+    if _look_name() == "Fortune" and hasattr(data, "set_properties"):
+        data = data.set_properties(**{"background-color": "#FFFCF6"})
     extra = kwargs.get("column_config")
     kwargs["column_config"] = _scan_col_cfgs(extra)
     return st.dataframe(data, **kwargs)
@@ -11497,7 +11519,10 @@ with st.container(border=True, key="mw_page"):
                     else:
                         _pdf = _stamp_hs(_pdf)
                         _cnt = _pdf.Stage.value_counts().to_dict()
-                        st.markdown(f"""<div style="background:#0c1829;border:1px solid #3d6a94;
+                        _rb, _rl, _ri = (("#FFFCF6", "#E3D5BE", "#5C3A1A")
+                                         if _look_name() == "Fortune"
+                                         else ("#0c1829", "#3d6a94", "#F6F4E9"))
+                        st.markdown(f"""<div style="background:{_rb};border:1px solid {_rl};color:{_ri};
                             border-left:5px solid #6EE7B7;border-radius:10px;padding:10px 14px;margin:8px 0;">
                             <b>{len(_pdf)} setups</b> —
                             <span style="color:{GREEN};">{_cnt.get('TRIGGERED',0)} triggered</span> ·

@@ -1501,12 +1501,17 @@ def render_hybrid_screener() -> None:
     ma_txt = ("" if ma50_mode == "off"
               else f", {ma50_mode} the 50-day MA")
     _score_txt = ("" if _best_eps else f", score ≥ {float(min_score):g}")
+    _fq = str(st.session_state.get("mw_look") or "") == "Fortune"
+    _rb = "#FFFCF6" if _fq else "#16344f"
+    _rl = "#E3D5BE" if _fq else "#3d6a94"
+    _ri = "#5C3A1A" if _fq else "#F6F4E9"
+    _ra = "#8A6A2F" if _fq else "#F0A6FF"
     st.markdown(
-        f"<div style='background:#16344f;border:1px solid #3d6a94;"
-        f"border-left:4px solid #F0A6FF;padding:10px 14px;margin:4px 0 12px;"
+        f"<div style='background:{_rb};border:1px solid {_rl};color:{_ri};"
+        f"border-left:4px solid {_ra};padding:10px 14px;margin:4px 0 12px;"
         f"font-size:13.5px;border-radius:8px;'>"
         f"Ranking the top <b>{int(top_n)}</b> by "
-        f"<b style='color:#F0A6FF;'>{eng}</b>, "
+        f"<b style='color:{_ra};'>{eng}</b>, "
         f"{exchange}, max ${int(max_price):,}"
         f"{_score_txt}{ma_txt}{sec_txt}{rank_filters}."
         f"</div>",
