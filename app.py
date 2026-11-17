@@ -527,10 +527,17 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
 }}
 .stApp label[data-testid="stRadioOption"]:not(:has(input:checked)) > div > div:first-child,
 .stApp [data-testid="stRadio"] label:not(:has(input:checked)) > div:first-child {{
-    background: #F6F1E7 !important;
-    background-color: #F6F1E7 !important;
-    border: 2px solid #5C3A1A !important;
-    box-shadow: inset 0 0 0 1px #5C3A1A !important;
+    background: #FFFCF6 !important;
+    background-color: #FFFCF6 !important;
+    border: 2px solid #2C2416 !important;
+    box-shadow: 0 0 0 1px #2C2416 !important;
+    opacity: 1 !important;
+}}
+.stApp label[data-testid="stRadioOption"]:not(:has(input:checked)) > div > div:first-child > div,
+.stApp [data-testid="stRadio"] label:not(:has(input:checked)) > div:first-child > div {{
+    background: transparent !important;
+    background-color: transparent !important;
+    opacity: 0 !important;
 }}
 .stApp .mw-sec,
 .stApp [class*="_thatbiz"] label,
@@ -12776,9 +12783,16 @@ _embed_html(
           var lab = dot.closest("label");
           var input = lab && lab.querySelector("input");
           if (input && input.checked) return;
-          setImp(dot, "background", "#F6F1E7");
-          setImp(dot, "background-color", "#F6F1E7");
-          setImp(dot, "border", "2px solid #5C3A1A");
+          setImp(dot, "background", "#FFFCF6");
+          setImp(dot, "background-color", "#FFFCF6");
+          setImp(dot, "border", "2px solid #2C2416");
+          setImp(dot, "box-shadow", "0 0 0 1px #2C2416");
+          setImp(dot, "opacity", "1");
+          dot.querySelectorAll("div").forEach(function (inner) {
+            setImp(inner, "background", "transparent");
+            setImp(inner, "background-color", "transparent");
+            setImp(inner, "opacity", "0");
+          });
         });
         var view = doc.defaultView || root;
         function navy(bg) {
