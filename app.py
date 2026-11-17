@@ -514,6 +514,45 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     background-color: #C6A15B !important;
     color: #1C1915 !important;
 }}
+[data-testid="stDateInput"] svg,
+[data-testid="stDateInput"] svg path {{
+    fill: #5C3A1A !important;
+    color: #5C3A1A !important;
+    opacity: 1 !important;
+}}
+.stApp label[data-testid="stRadioOption"]:not(:has(input:checked)) > div > div:first-child,
+.stApp [data-testid="stRadio"] label:not(:has(input:checked)) > div:first-child {{
+    background: #F6F1E7 !important;
+    background-color: #F6F1E7 !important;
+    border: 2px solid #5C3A1A !important;
+    box-shadow: inset 0 0 0 1px #5C3A1A !important;
+}}
+.stApp .mw-sec,
+.stApp [class*="_thatbiz"] label,
+.stApp [class*="_thatbiz"] label p,
+.stApp [class*="_thatbiz"] label span,
+.stApp [class*="_safe_ai"] label,
+.stApp [class*="_safe_ai"] label p,
+.stApp [class*="_safe_ai"] label span,
+.stApp [class*="_use_cat"] label,
+.stApp [class*="_use_cat"] label p,
+.stApp [class*="_use_cat"] label span {{
+    color: #8A6A2F !important;
+    -webkit-text-fill-color: #8A6A2F !important;
+    opacity: 1 !important;
+}}
+[style*="16344f" i],
+[style*="0a1929" i],
+[style*="0d2137" i],
+[style*="0d1b2a" i],
+[style*="1a2d45" i],
+[style*="12233c" i],
+[style*="0a1828" i],
+[style*="07111f" i] {{
+    background: #FFFCF6 !important;
+    background-color: #FFFCF6 !important;
+    color: #2C2416 !important;
+}}
 .js-plotly-plot .bglayer rect,
 .js-plotly-plot rect.bg {{
     fill: #F6F1E7 !important;
@@ -6794,8 +6833,12 @@ def _rank_filters_html(key: str) -> str:
 def _rank_banner(body: str, color: str | None = None):
     """Settings recap above a scanner's run button — same block Top 20 uses."""
     c = color or ACCENT
+    if _look_name() == "Fortune":
+        bg, line, ink = "#FFFCF6", "#E3D5BE", "#5C3A1A"
+    else:
+        bg, line, ink = "#16344f", "#3d6a94", "#F6F4E9"
     _md_html(
-        f"<div style='background:#16344f;border:1px solid #3d6a94;"
+        f"<div style='background:{bg};border:1px solid {line};color:{ink};"
         f"border-left:4px solid {c};padding:10px 14px;margin:4px 0 12px;"
         f"font-size:13.5px;border-radius:8px;'>{body}</div>")
 
@@ -6967,7 +7010,8 @@ def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
     with ctx:
         cat_col, ai_col = st.columns([1.35, 1], gap="medium")
         with cat_col:
-            _md_html(f"<div class='mw-sec' style='--sc:{cat_color}'>Catalysts</div>")
+            _cat_head = "#8A6A2F" if _look_name() == "Fortune" else cat_color
+            _md_html(f"<div class='mw-sec' style='--sc:{_cat_head};color:{_cat_head}'>Catalysts</div>")
             on = st.toggle(
                 "Add Catalysts to the list and rank by net up/down score",
                 key=f"{key}_use_cat",
@@ -6979,7 +7023,8 @@ def _catalysts_section(key: str, pill: bool = True, cat_color: str = "#FF9B6A",
             if on:
                 _md_html(ce.catalyst_legend_html())
         with ai_col:
-            _md_html("<div class='mw-sec' style='--sc:#6EE7B7'>Filter</div>")
+            _filt_head = "#8A6A2F" if _look_name() == "Fortune" else "#6EE7B7"
+            _md_html(f"<div class='mw-sec' style='--sc:{_filt_head};color:{_filt_head}'>Filter</div>")
             st.toggle(
                 "3 Magic Rules",
                 key=f"{key}_thatbiz",
@@ -12712,10 +12757,38 @@ _embed_html(
           setImp(g, "background", "#F6F1E7");
           setImp(g, "background-color", "#F6F1E7");
         });
-        doc.querySelectorAll('[data-baseweb="calendar"], [data-baseweb="datepicker"], [data-testid="stDateInput"] input, [data-testid="stDateInput"] div').forEach(function (el) {
+        doc.querySelectorAll('[data-baseweb="calendar"], [data-baseweb="datepicker"], [data-testid="stDateInput"] input, [data-testid="stDateInput"] div, [data-testid="stTooltipContent"], [data-testid="stPopoverBody"], [role="tooltip"]').forEach(function (el) {
           setImp(el, "background", "#FFFCF6");
           setImp(el, "background-color", "#FFFCF6");
+          setImp(el, "color", "#2C2416");
+        });
+        doc.querySelectorAll('[data-testid="stDateInput"] svg, [data-testid="stDateInput"] svg path').forEach(function (el) {
+          setImp(el, "fill", "#5C3A1A");
           setImp(el, "color", "#5C3A1A");
+          setImp(el, "opacity", "1");
+        });
+        doc.querySelectorAll('label[data-testid="stRadioOption"] > div > div:first-child, [data-testid="stRadio"] label > div:first-child').forEach(function (dot) {
+          var lab = dot.closest("label");
+          var input = lab && lab.querySelector("input");
+          if (input && input.checked) return;
+          setImp(dot, "background", "#F6F1E7");
+          setImp(dot, "background-color", "#F6F1E7");
+          setImp(dot, "border", "2px solid #5C3A1A");
+        });
+        var view = doc.defaultView || root;
+        function navy(bg) {
+          var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(bg || "");
+          if (!m) return false;
+          var r = +m[1], g = +m[2], b = +m[3];
+          return r < 55 && g < 80 && b < 130 && b >= r && (r + g + b) < 200;
+        }
+        doc.querySelectorAll('[data-baseweb="calendar"] *, [data-baseweb="datepicker"] *, [data-baseweb="popover"] *, [data-testid="stDateInput"] *, [style*="0c1829"], [style*="081325"], [style*="16344f"], [style*="0d1e33"], [style*="0a1929"], [style*="07111f"]').forEach(function (el) {
+          var bg = "";
+          try { bg = view.getComputedStyle(el).backgroundColor; } catch (e) { return; }
+          if (!navy(bg)) return;
+          setImp(el, "background", "#FFFCF6");
+          setImp(el, "background-color", "#FFFCF6");
+          setImp(el, "color", "#2C2416");
         });
         doc.querySelectorAll('[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [role="option"]').forEach(function (el) {
           setImp(el, "background", "#FFFCF6");

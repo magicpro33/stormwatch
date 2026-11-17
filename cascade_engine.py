@@ -2880,18 +2880,29 @@ def catalyst_legend_html() -> str:
                 f"color:{color}'>{_html.escape(label)}</span>")
         return "".join(bits)
 
-    up = chips("up", "#3fbf7f", "#1e6b35", "#0d2215")
-    down = chips("down", "#9E1B2F", "#6E1220", "#220d0d")
+    try:
+        import streamlit as _st
+        _light = str(_st.session_state.get("mw_look") or "") == "Fortune"
+    except Exception:
+        _light = False
+    if _light:
+        up = chips("up", "#1F7A45", "#2E7D4F", "#E5F6EC")
+        down = chips("down", "#9E1B2F", "#9E1B2F", "#F8E8EA")
+        note = "#5C5346"
+    else:
+        up = chips("up", "#3fbf7f", "#1e6b35", "#0d2215")
+        down = chips("down", "#9E1B2F", "#6E1220", "#220d0d")
+        note = "#9aa8bd"
     return (
         "<div style='margin:6px 0 2px'>"
-        "<span style='color:#3fbf7f;font-weight:800;font-size:11px;"
+        f"<span style='color:{'#1F7A45' if _light else '#3fbf7f'};font-weight:800;font-size:11px;"
         "letter-spacing:.6px;margin-right:8px'>▲ UP</span>"
         f"{up}</div>"
         "<div style='margin:2px 0 0'>"
         "<span style='color:#9E1B2F;font-weight:800;font-size:11px;"
         "letter-spacing:.6px;margin-right:8px'>▼ DOWN</span>"
         f"{down}</div>"
-        "<div style='color:#9aa8bd;font-size:11px;margin-top:2px'>"
+        f"<div style='color:{note};font-size:11px;margin-top:2px'>"
         "Hover an icon for what it means.</div>"
     )
 
