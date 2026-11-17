@@ -458,10 +458,15 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"] div,
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"] span,
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"] p,
+.stApp [data-testid="stSelectbox"] div,
+.stApp [data-testid="stSelectbox"] span,
+.stApp [data-testid="stSelectbox"] p,
+.stApp [data-testid="stSelectbox"] input,
 .stApp [data-testid="stMultiSelect"] [data-baseweb="select"] div,
-.stApp [data-testid="stMultiSelect"] [data-baseweb="select"] span {{
-    color: #2C2416 !important;
-    -webkit-text-fill-color: #2C2416 !important;
+.stApp [data-testid="stMultiSelect"] [data-baseweb="select"] span,
+.stApp [data-testid="stMultiSelect"] [data-baseweb="select"] p {{
+    color: #1A1208 !important;
+    -webkit-text-fill-color: #1A1208 !important;
     opacity: 1 !important;
 }}
 [data-testid="stTooltipContent"],
@@ -12795,9 +12800,10 @@ _embed_html(
           setImp(el, "background-color", "#FFFCF6");
           setImp(el, "color", "#5C3A1A");
         });
-        doc.querySelectorAll('[data-baseweb="select"] span, [data-baseweb="select"] div, [data-baseweb="select"] p, [role="option"] span, [role="option"] div, [data-testid="stRadio"] label, [data-testid="stRadio"] p, [data-testid="stRadio"] span, label[data-testid="stRadioOption"], label[data-testid="stRadioOption"] p').forEach(function (el) {
-          setImp(el, "color", "#2C2416");
-          setImp(el, "-webkit-text-fill-color", "#2C2416");
+        doc.querySelectorAll('[data-testid="stSelectbox"] div, [data-testid="stSelectbox"] span, [data-testid="stSelectbox"] p, [data-testid="stSelectbox"] input, [data-baseweb="select"] div, [data-baseweb="select"] span, [data-baseweb="select"] p, [role="option"], [role="option"] div, [role="option"] span, [data-testid="stRadio"] label, [data-testid="stRadio"] p, [data-testid="stRadio"] span, label[data-testid="stRadioOption"], label[data-testid="stRadioOption"] p').forEach(function (el) {
+          if (el.closest && el.closest("[data-baseweb='tag']")) return;
+          setImp(el, "color", "#1A1208");
+          setImp(el, "-webkit-text-fill-color", "#1A1208");
           setImp(el, "opacity", "1");
         });
         doc.querySelectorAll('[data-testid="stTooltipContent"], [data-testid="stPopoverBody"], [role="tooltip"], [data-baseweb="tooltip"]').forEach(function (el) {
