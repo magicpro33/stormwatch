@@ -418,7 +418,10 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     box-shadow: none !important;
 }}
 .stApp button[role="radio"][aria-pressed="true"],
-.stApp button[role="radio"][aria-checked="true"] {{
+.stApp button[role="radio"][aria-checked="true"],
+.stApp button[role="radio"][aria-selected="true"],
+.stApp button[role="tab"][aria-selected="true"],
+.stApp [role="tab"][aria-selected="true"] {{
     background: #C6A15B !important;
     background-color: #C6A15B !important;
     color: #1C1915 !important;
@@ -584,10 +587,72 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     background-color: #FFFCF6 !important;
     color: #2C2416 !important;
 }}
-[data-testid="stPlotlyChart"] {{
+[data-testid="stPlotlyChart"],
+.js-plotly-plot,
+.js-plotly-plot .plot-container,
+.js-plotly-plot .svg-container,
+.js-plotly-plot .main-svg {{
     background: #FFFCF6 !important;
-    border: 1px solid #C6A15B !important;
-    border-radius: 8px !important;
+    background-color: #FFFCF6 !important;
+    border: none !important;
+    box-shadow: none !important;
+}}
+.js-plotly-plot .bglayer > rect {{
+    fill: #E7DCC8 !important;
+}}
+[data-testid="stToast"],
+[data-testid="stToast"] > div,
+[data-testid="stToastContainer"] [data-baseweb="toast"],
+[data-testid="stToastContainer"] [data-baseweb="toaster"] {{
+    background: #F3EBDD !important;
+    background-color: #F3EBDD !important;
+    color: #1A1208 !important;
+    border: 1px solid #8C6A32 !important;
+}}
+[data-testid="stToast"] div,
+[data-testid="stToast"] span,
+[data-testid="stToast"] p {{
+    color: #1A1208 !important;
+    -webkit-text-fill-color: #1A1208 !important;
+    background: transparent !important;
+}}
+[data-testid="stDateInput"] input,
+[data-testid="stDateInput"] > div {{
+    background: #FFFCF6 !important;
+    background-color: #FFFCF6 !important;
+    color: #1A1208 !important;
+    -webkit-text-fill-color: #1A1208 !important;
+    border: 2px solid #1A1208 !important;
+}}
+[data-baseweb="calendar"],
+[data-baseweb="calendar"] > div,
+[data-baseweb="datepicker"],
+[data-baseweb="datepicker"] > div,
+[role="dialog"] [role="grid"] {{
+    background: #FFFCF6 !important;
+    background-color: #FFFCF6 !important;
+    color: #1A1208 !important;
+    border-color: #1A1208 !important;
+}}
+[data-baseweb="calendar"] [aria-selected="true"],
+[data-baseweb="calendar"] [aria-selected="true"] *,
+[role="gridcell"][aria-selected="true"],
+[role="gridcell"][aria-selected="true"] * {{
+    background: #C6A15B !important;
+    background-color: #C6A15B !important;
+    color: #1A1208 !important;
+    -webkit-text-fill-color: #1A1208 !important;
+    border: 2px solid #1A1208 !important;
+    box-shadow: inset 0 0 0 2px #1A1208 !important;
+}}
+.stApp [data-testid="stSelectbox"] input,
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] div,
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] span,
+.stApp [role="listbox"] [role="option"],
+.stApp [role="listbox"] [role="option"] * {{
+    color: #1A1208 !important;
+    -webkit-text-fill-color: #1A1208 !important;
+    opacity: 1 !important;
 }}
 .stApp [data-testid="stExpander"] details,
 .stApp [data-testid="stExpander"] summary,
@@ -598,8 +663,9 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
 }}
 .stApp [data-testid="stExpander"] summary,
 .stApp [data-testid="stExpander"] summary * {{
-    color: #5C3A1A !important;
-    -webkit-text-fill-color: #5C3A1A !important;
+    color: #1A1208 !important;
+    -webkit-text-fill-color: #1A1208 !important;
+    opacity: 1 !important;
 }}
 .stApp [data-testid="stMetricDelta"] {{
     background: #F3EBDD !important;
@@ -12896,9 +12962,11 @@ _embed_html(
       if (!fortune) clearFortuneChrome();
       if (fortune) {
         doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"], button[role="radio"]').forEach(function (b) {
-          var on = (b.getAttribute("data-testid") || "").indexOf("Active") >= 0
+          var tid = b.getAttribute("data-testid") || "";
+          var on = tid.indexOf("Active") >= 0
             || b.getAttribute("aria-pressed") === "true"
-            || b.getAttribute("aria-checked") === "true";
+            || b.getAttribute("aria-checked") === "true"
+            || b.getAttribute("aria-selected") === "true";
           setImp(b, "background", on ? "#C6A15B" : "#F6F1E7");
           setImp(b, "background-color", on ? "#C6A15B" : "#F6F1E7");
           setImp(b, "color", on ? "#1C1915" : "#5C3A1A");
@@ -12929,6 +12997,7 @@ _embed_html(
           var input = lab.querySelector("input");
           if (input && input.checked) return;
           lab.querySelectorAll("div").forEach(function (el) {
+            if (el.getAttribute("data-mw-ring") === "1") return;
             var cs;
             try { cs = view.getComputedStyle(el); } catch (e) { return; }
             var w = parseFloat(cs.width), h = parseFloat(cs.height);
@@ -12940,6 +13009,7 @@ _embed_html(
             setImp(el, "border", "3px solid #1A1208");
             setImp(el, "box-shadow", "inset 0 0 0 1px #1A1208");
             setImp(el, "opacity", "1");
+            el.setAttribute("data-mw-ring", "1");
           });
         });
         var view = doc.defaultView || root;
@@ -12950,6 +13020,8 @@ _embed_html(
           return r < 55 && g < 80 && b < 130 && b >= r && (r + g + b) < 200;
         }
         doc.querySelectorAll('[data-baseweb="calendar"] *, [data-baseweb="datepicker"] *, [data-baseweb="popover"] *, [data-testid="stDateInput"] *, [style*="0c1829"], [style*="081325"], [style*="16344f"], [style*="0d1e33"], [style*="0a1929"], [style*="07111f"]').forEach(function (el) {
+          if (el.closest && el.closest(".js-plotly-plot, [data-testid='stPlotlyChart']")) return;
+          if (el.style && el.style.getPropertyValue("background-color") === "#FFFCF6") return;
           var bg = "";
           try { bg = view.getComputedStyle(el).backgroundColor; } catch (e) { return; }
           if (!navy(bg)) return;
@@ -12987,16 +13059,30 @@ _embed_html(
             setImp(n, "-webkit-text-fill-color", "#2C2416");
           });
         });
-        doc.querySelectorAll('[data-testid="stAlert"], [data-testid="stNotification"], [data-testid="stStatusWidget"], [data-testid="stSpinner"]').forEach(function (el) {
+        doc.querySelectorAll('[data-testid="stAlert"], [data-testid="stNotification"], [data-testid="stStatusWidget"], [data-testid="stSpinner"], [data-testid="stToast"], [data-testid="stToast"] > div').forEach(function (el) {
           setImp(el, "background", "#F3EBDD");
           setImp(el, "background-color", "#F3EBDD");
-          setImp(el, "color", "#5C3A1A");
-          setImp(el, "border-color", "#C6A15B");
+          setImp(el, "color", "#1A1208");
+          setImp(el, "border-color", "#8C6A32");
+        });
+        doc.querySelectorAll('[data-testid="stToast"] div, [data-testid="stToast"] span, [data-testid="stToast"] p').forEach(function (el) {
+          setImp(el, "color", "#1A1208");
+          setImp(el, "-webkit-text-fill-color", "#1A1208");
+          setImp(el, "background", "transparent");
+          setImp(el, "background-color", "transparent");
+        });
+        doc.querySelectorAll('[data-baseweb="calendar"] [aria-selected="true"], [role="gridcell"][aria-selected="true"]').forEach(function (el) {
+          setImp(el, "background", "#C6A15B");
+          setImp(el, "background-color", "#C6A15B");
+          setImp(el, "color", "#1A1208");
+          setImp(el, "border", "2px solid #1A1208");
+          setImp(el, "box-shadow", "inset 0 0 0 2px #1A1208");
         });
         doc.querySelectorAll('[data-testid="stExpander"] details, [data-testid="stExpander"] summary, [data-testid="stExpanderDetails"]').forEach(function (el) {
           setImp(el, "background", "#FFFCF6");
           setImp(el, "background-color", "#FFFCF6");
-          setImp(el, "color", "#5C3A1A");
+          setImp(el, "color", "#1A1208");
+          setImp(el, "-webkit-text-fill-color", "#1A1208");
         });
         doc.querySelectorAll('[data-testid="stMetricDelta"]').forEach(function (el) {
           var c = "";
@@ -13010,26 +13096,6 @@ _embed_html(
           }
           setImp(el, "background", bg);
           setImp(el, "background-color", bg);
-        });
-        function paleFill(fill) {
-          var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(fill || "");
-          if (!m && fill && fill.charAt(0) === "#") {
-            var h = fill.slice(1);
-            if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
-            if (h.length === 6) m = [0, parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
-          }
-          if (!m || m.length < 4) return false;
-          var r = +m[1], g = +m[2], b = +m[3];
-          if (isNaN(r)) return false;
-          if (g > r + 30 && g > b + 15) return false;
-          if (r > g + 30 && r > b + 15) return false;
-          return (r + g + b) > 280 || Math.min(r, g, b) > 145 || (b > 110 && r > 120 && g > 130);
-        }
-        doc.querySelectorAll(".js-plotly-plot text, .js-plotly-plot tspan").forEach(function (el) {
-          var fill = el.getAttribute("fill") || "";
-          if (!fill) { try { fill = view.getComputedStyle(el).fill || ""; } catch (e) { fill = ""; } }
-          if (!paleFill(fill)) return;
-          setImp(el, "fill", "#2C2416");
         });
       }
       doc.querySelectorAll('[data-testid="stRadio"] label, label[data-testid="stRadioOption"]').forEach(function (lab) {
@@ -13087,7 +13153,16 @@ _embed_html(
   root.__mwPaint = paint;
   paint();
   if (!root.__mwTrackObs && root.MutationObserver) {
-    root.__mwTrackObs = new root.MutationObserver(function () {
+    root.__mwTrackObs = new root.MutationObserver(function (recs) {
+      var onlyChart = true;
+      for (var i = 0; i < recs.length; i++) {
+        var n = recs[i].target;
+        if (!n || !n.closest || !n.closest(".js-plotly-plot, [data-testid='stPlotlyChart']")) {
+          onlyChart = false;
+          break;
+        }
+      }
+      if (onlyChart) return;
       if (root.__mwPaintQueued) return;
       root.__mwPaintQueued = true;
       root.requestAnimationFrame(function () {
