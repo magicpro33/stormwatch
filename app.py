@@ -238,8 +238,8 @@ def _money_green_css() -> str:
     background-color: #3fbf7f !important;
     border-color: #2E7D4F !important;
 }
-.stApp label[data-baseweb="radio"][aria-checked="true"] > div:first-child,
-.stApp label[data-baseweb="radio"][aria-checked="true"] > div:first-child div {
+.stApp [data-testid="stRadio"] label:has(input:checked) > div:first-child {
+    background: #3fbf7f !important;
     background-color: #3fbf7f !important;
     border-color: #2E7D4F !important;
 }
@@ -12369,4 +12369,77 @@ with st.container(border=True, key="mw_page"):
                    "opinion that matters. Not investment advice.")
 
 if _look_name() in ("Fortune", "Private Bank"):
-    st.markdown("<style>" + _money_green_css() + "</style>", unsafe_allow_html=True)
+    st.markdown(
+        "<style>" + _money_green_css() + "</style>"
+        f'<div id="mw-paint" data-look="{_look_name()}" hidden></div>',
+        unsafe_allow_html=True)
+    _embed_html(
+        """<script>
+(function () {
+  var root = window.parent || window;
+  if (root.__mwMoneyGreen) return;
+  root.__mwMoneyGreen = true;
+  var doc = root.document;
+  var GREEN = "#3fbf7f";
+  var painting = false;
+  function setImp(el, prop, val) {
+    if (!el || !el.style) return;
+    if (el.style.getPropertyValue(prop) === val && el.style.getPropertyPriority(prop) === "important") return;
+    el.style.setProperty(prop, val, "important");
+  }
+  function paint() {
+    if (painting || !doc.body) return;
+    var mark = doc.getElementById("mw-paint");
+    if (!mark) return;
+    var fortune = mark.getAttribute("data-look") === "Fortune";
+    painting = true;
+    try {
+      if (fortune) {
+        doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"]').forEach(function (b) {
+          setImp(b, "background", "#F6F1E7");
+          setImp(b, "background-color", "#F6F1E7");
+          setImp(b, "color", "#2C2416");
+          setImp(b, "box-shadow", "none");
+          var on = (b.getAttribute("data-testid") || "").indexOf("Active") >= 0;
+          setImp(b, "border", on ? "2px solid #C6A15B" : "1px solid transparent");
+        });
+        doc.querySelectorAll('[data-baseweb="button-group"]').forEach(function (g) {
+          setImp(g, "background", "#F6F1E7");
+          setImp(g, "background-color", "#F6F1E7");
+        });
+      }
+      doc.querySelectorAll('[data-testid="stRadio"] label').forEach(function (lab) {
+        var input = lab.querySelector("input");
+        var dot = lab.firstElementChild;
+        if (!input || !dot || !input.checked) return;
+        setImp(dot, "background", GREEN);
+        setImp(dot, "background-color", GREEN);
+        setImp(dot, "border-color", "#2E7D4F");
+      });
+      doc.querySelectorAll('[data-testid="stSlider"] [role="slider"]').forEach(function (el) {
+        setImp(el, "background", GREEN);
+        setImp(el, "background-color", GREEN);
+        setImp(el, "border-color", "#2E7D4F");
+      });
+      var view = doc.defaultView || root;
+      doc.querySelectorAll('[data-testid="stSlider"] [data-baseweb="slider"] div').forEach(function (el) {
+        var img = "";
+        try { img = view.getComputedStyle(el).backgroundImage || ""; } catch (e) { return; }
+        if (img.indexOf("232, 119, 34") < 0 && img.indexOf("232,119,34") < 0) return;
+        setImp(el, "background-image", img.replace(/rgb\\(232,\\s*119,\\s*34\\)/g, "rgb(63, 191, 127)"));
+      });
+      doc.querySelectorAll('[data-testid="stMultiSelect"] [data-baseweb="tag"]').forEach(function (el) {
+        setImp(el, "background", GREEN);
+        setImp(el, "background-color", GREEN);
+        setImp(el, "border-color", "#2E7D4F");
+      });
+    } finally {
+      painting = false;
+    }
+  }
+  paint();
+  root.setInterval(paint, 400);
+})();
+</script>""",
+        height=0,
+    )
