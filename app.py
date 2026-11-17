@@ -264,6 +264,14 @@ def _money_green_css() -> str:
     background-color: #3fbf7f !important;
     border-color: #2E7D4F !important;
 }
+.stApp [data-testid="stCheckbox"] label:has(input[role="switch"]:checked) > div:nth-child(2) {
+    background: #3fbf7f !important;
+    background-color: #3fbf7f !important;
+}
+.stApp [data-testid="stCheckbox"] label:has(input[role="switch"]:checked) > div:nth-child(2) > div {
+    background: #F6F4E9 !important;
+    background-color: #F6F4E9 !important;
+}
 """
 
 
@@ -12481,12 +12489,28 @@ if _look_name() in ("Fortune", "Private Bank"):
         setImp(el, "box-shadow", "none");
       });
       var view = doc.defaultView || root;
+      function toGreen(img) {
+        return img.replace(/rgba?\\(232,\\s*119,\\s*34(?:,\\s*[\\d.]+)?\\)/g, "rgb(63, 191, 127)");
+      }
       doc.querySelectorAll('[data-testid="stSlider"] div').forEach(function (el) {
         var img = "";
         try { img = view.getComputedStyle(el).backgroundImage || ""; } catch (e) { return; }
         if (img.indexOf("232, 119, 34") < 0 && img.indexOf("232,119,34") < 0) return;
-        setImp(el, "background-image", img.replace(/rgb\\(232,\\s*119,\\s*34\\)/g, "rgb(63, 191, 127)"));
+        setImp(el, "background-image", toGreen(img));
       });
+      var sheets = doc.styleSheets;
+      for (var s = 0; s < sheets.length; s++) {
+        var rules;
+        try { rules = sheets[s].cssRules; } catch (e) { continue; }
+        if (!rules) continue;
+        for (var i = 0; i < rules.length; i++) {
+          var stl = rules[i].style;
+          if (!stl || !stl.backgroundImage) continue;
+          var img = stl.backgroundImage;
+          if (img.indexOf("232, 119, 34") < 0 && img.indexOf("232,119,34") < 0) continue;
+          stl.backgroundImage = toGreen(img);
+        }
+      }
       doc.querySelectorAll('[data-testid="stMultiSelect"] [data-baseweb="tag"], [data-testid="stMultiSelectTagsContainer"] > span > span').forEach(function (el) {
         setImp(el, "background", GREEN);
         setImp(el, "background-color", GREEN);
