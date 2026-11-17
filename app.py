@@ -732,6 +732,7 @@ section.main::-webkit-scrollbar-track,
     --gdg-text-group: #5C3A1A !important;
     --gdg-border-color: #E3D5BE !important;
     --gdg-horizontal-border-color: #E3D5BE !important;
+    --gdg-header-bottom-border-color: #C6A15B !important;
     --gdg-bg-bubble: #FFFCF6 !important;
     --gdg-accent-color: #C6A15B !important;
     --gdg-accent-fg: #2C2416 !important;
@@ -749,8 +750,46 @@ section.main::-webkit-scrollbar-track,
 }}
 [style*="EAF2FF" i], [style*="F6F4E9" i], [style*="e8f4fd" i],
 [style*="b0c8e8" i], [style*="9FB0C8" i], [style*="9aa8bd" i],
-[style*="7a9ab8" i], [style*="B8C6DC" i], [style*="eaf2ff" i] {{
+[style*="7a9ab8" i], [style*="B8C6DC" i], [style*="eaf2ff" i],
+[style*="d7e0ec" i], [style*="e8edf5" i], [style*="6b7fa3" i],
+[style*="F4F8FF" i], [style*="c5d4ff" i] {{
     color: #2C2416 !important;
+}}
+[style*="0d2215" i] {{
+    background: #E5F6EC !important;
+    background-color: #E5F6EC !important;
+    color: #1A1208 !important;
+    border-color: #2E7D4F !important;
+}}
+[style*="1a1500" i] {{
+    background: #F8F1DC !important;
+    background-color: #F8F1DC !important;
+    color: #1A1208 !important;
+    border-color: #C6A15B !important;
+}}
+[style*="border:1px solid #1d2b40" i],
+[style*="border:1px solid #3d6a94" i] {{
+    border-top-color: #E3D5BE !important;
+    border-right-color: #E3D5BE !important;
+    border-bottom-color: #E3D5BE !important;
+}}
+.mw-fq-table table {{
+    width: 100%;
+    border-collapse: collapse;
+    background: #FFFCF6 !important;
+    color: #2C2416;
+}}
+.mw-fq-table th {{
+    background: #F3EBDD !important;
+    color: #5C3A1A !important;
+    border: 1px solid #E3D5BE !important;
+    border-bottom: 1px solid #C6A15B !important;
+    padding: 8px 10px;
+    text-align: left;
+}}
+.mw-fq-table td {{
+    border: 1px solid #E3D5BE;
+    padding: 6px 10px;
 }}
 """
         return extra + _money_green_css()
@@ -1760,7 +1799,8 @@ def _css_sign(v, pos_good=True, dead=0.0):
     except (TypeError, ValueError):
         return ""
     if not np.isfinite(v) or abs(v) <= dead:
-        return f"color:{DIM}"
+        ink = "#5C5346" if _look_name() == "Fortune" else DIM
+        return f"color:{ink}"
     good = (v > 0) if pos_good else (v < 0)
     return f"color:{GREEN};font-weight:600" if good else f"color:{RED};font-weight:600"
 
@@ -2158,7 +2198,8 @@ def _css_insider_act(v):
         return f"color:{GREEN};font-weight:600"
     if s == "sell":
         return f"color:{RED};font-weight:600"
-    return f"color:{DIM}"
+    ink = "#5C5346" if _look_name() == "Fortune" else DIM
+    return f"color:{ink}"
 
 
 def _lk_owner_fold(name: str) -> str:
@@ -2275,8 +2316,10 @@ def _lk_owner_bucket(name: str, flag: str) -> str:
 
 def _css_owner_flag(v):
     if str(v or "").strip() and str(v).strip() != "—":
-        return f"color:{ACCENT};font-weight:600"
-    return f"color:{DIM}"
+        ink = "#8A6A2F" if _look_name() == "Fortune" else ACCENT
+        return f"color:{ink};font-weight:600"
+    ink = "#5C5346" if _look_name() == "Fortune" else DIM
+    return f"color:{ink}"
 
 
 def _lk_parse_num(v):
@@ -2927,6 +2970,16 @@ def metric_scale(value, vmin, vmax, good, ok, caption, higher=True, neg_bad=Fals
         f"background:{color}'></div></div>"
         f"<div class='{tone}' style='font-size:10px;color:{color};margin-top:2px;line-height:1.2'>{cap}</div>"
     )
+
+
+def _sig_txt(text, tone):
+    """Color a technical-signal reading. Fortune keeps these classes."""
+    cols = {"good": "#3fbf7f", "mid": "#E87722", "bad": "#9E1B2F"}
+    if tone not in cols:
+        ink = "#2C2416" if _look_name() == "Fortune" else "#b0c8e8"
+        return f"<span style='color:{ink};font-family:monospace'>{text}</span>"
+    return (f"<span class='mw-{tone}' style='color:{cols[tone]};"
+            f"font-family:monospace'>{text}</span>")
 
 
 def mrow(label, tooltip, value, scale=""):
@@ -4201,29 +4254,40 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
         with az_section("Technical Signals", key_prefix):
             rows = []
             if rsi_v is not None:
-                rc = "#3fbf7f" if 45 < rsi_v < 65 else ("#9E1B2F" if rsi_v > 70 else "#d0b040")
-                ri = "oversold" if rsi_v < 30 else ("overbought" if rsi_v > 70 else "sweet spot" if 45 < rsi_v < 65 else "neutral")
+                if 45 < rsi_v < 65:
+                    rt, ri = "good", "sweet spot"
+                elif rsi_v > 70:
+                    rt, ri = "bad", "overbought"
+                elif rsi_v < 30:
+                    rt, ri = "mid", "oversold"
+                else:
+                    rt, ri = "mid", "neutral"
                 rows.append(mrow("RSI (14d)", "0-100. Below 30 oversold, above 70 overbought, 45-65 momentum sweet spot.",
-                                 f"<span style='color:{rc};font-family:monospace'>{rsi_v:.1f}</span> <span style='font-size:11px;color:#7a9ab8'>{ri}</span>"))
+                                 f"{_sig_txt(f'{rsi_v:.1f}', rt)} {_sig_txt(ri, rt)}"))
             if macd_v is not None and macd_s is not None:
-                mc = "#3fbf7f" if macd_v > macd_s else "#9E1B2F"
+                mt = "good" if macd_v > macd_s else "bad"
                 rows.append(mrow("MACD", "MACD above its signal line = buyers in control.",
-                                 f"<span style='color:{mc};font-family:monospace'>{macd_v:.3f}</span> <span style='font-size:11px;color:#7a9ab8'>{'bullish' if macd_v > macd_s else 'bearish'}</span>"))
+                                 f"{_sig_txt(f'{macd_v:.3f}', mt)} {_sig_txt('bullish' if mt == 'good' else 'bearish', mt)}"))
             if ma50_v is not None:
                 pvs = (px - ma50_v) / ma50_v * 100
                 rows.append(mrow("50-Day MA", "Price just above = support; below = watch for reclaim.",
-                                 f"${ma50_v:,.2f} <span style='color:{'#3fbf7f' if pvs >= 0 else '#9E1B2F'};font-size:11px'>({pvs:+.1f}%)</span>"))
+                                 f"${ma50_v:,.2f} {_sig_txt(f'({pvs:+.1f}%)', 'good' if pvs >= 0 else 'bad')}"))
             if ma200_v is not None:
-                gi = "golden cross" if (ma50_v is not None and ma50_v > ma200_v) else "below 50MA"
+                golden = ma50_v is not None and ma50_v > ma200_v
                 rows.append(mrow("200-Day MA", "Golden Cross (50MA over 200MA) = major trend signal.",
-                                 f"${ma200_v:,.2f} <span style='font-size:11px;color:#7a9ab8'>{gi}</span>"))
+                                 f"${ma200_v:,.2f} {_sig_txt('golden cross' if golden else 'below 50MA', 'good' if golden else 'bad')}"))
             if atr is not None:
                 rows.append(mrow("ATR (14d)", "Average True Range — typical daily travel in dollars.",
-                                 f"<span style='font-family:monospace;color:#b0c8e8'>${atr:,.2f}</span>"))
+                                 _sig_txt(f"${atr:,.2f}", "ink")))
             if bb_u is not None and bb_l is not None:
-                bpos = "above upper" if px > bb_u else ("below lower" if px < bb_l else "inside")
+                if px > bb_u:
+                    bt, bpos = "bad", "above upper"
+                elif px < bb_l:
+                    bt, bpos = "bad", "below lower"
+                else:
+                    bt, bpos = "good", "inside"
                 rows.append(mrow("Bollinger 20/2", "Price vs 2-sigma bands: outside the bands = stretched.",
-                                 f"<span style='font-family:monospace;color:#b0c8e8'>{bpos}</span> <span style='font-size:11px;color:#7a9ab8'>${bb_l:,.0f}–${bb_u:,.0f}</span>"))
+                                 f"{_sig_txt(bpos, bt)} {_sig_txt(f'${bb_l:,.0f}–${bb_u:,.0f}', 'ink')}"))
             if rows:
                 mtable(rows)
 
@@ -4372,8 +4436,8 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
             rows.append(mrow(
                 "6-month tape",
                 "Yahoo's last-6-month Form 4 summary: purchases vs sales (shares).",
-                f"<span style='color:{GREEN}'>{_sh_txt(pack.get('purch_shares'))} bought</span>"
-                f" · <span style='color:{RED}'>{_sh_txt(pack.get('sale_shares'))} sold</span>"
+                f"<span class='mw-good' style='color:{GREEN}'>{_sh_txt(pack.get('purch_shares'))} bought</span>"
+                f" · <span class='mw-bad' style='color:{RED}'>{_sh_txt(pack.get('sale_shares'))} sold</span>"
                 f" · net {_sh_txt(pack.get('net_shares'))}"))
         rows.append(mrow(
             "90-day open market",
@@ -4391,9 +4455,7 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                     subset=["Shares"] if "Shares" in odf.columns else [])
                 if "Flag" in odf.columns:
                     _ost = _ost.map(_css_owner_flag, subset=["Flag"])
-                if _look_name() == "Fortune":
-                    _ost = _ost.set_properties(**{"background-color": "#FFFCF6"})
-                st.dataframe(
+                _show_df(
                     _ost, width="stretch", hide_index=True,
                     height=_fit_list_height(min(len(odf), 10)),
                     column_config=_scan_col_cfgs({
@@ -4416,9 +4478,7 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                     na_rep="—", subset=["Shares", "Value"])
                 if "Action" in tdf.columns:
                     _tst = _tst.map(_css_insider_act, subset=["Action"])
-                if _look_name() == "Fortune":
-                    _tst = _tst.set_properties(**{"background-color": "#FFFCF6"})
-                st.dataframe(
+                _show_df(
                     _tst, width="stretch", hide_index=True,
                     height=_fit_list_height(min(len(tdf), 12)),
                     column_config=_scan_col_cfgs({
@@ -7433,6 +7493,57 @@ def _health_setup_col_cfgs():
     return _scan_col_cfgs()
 
 
+def _show_df(data, **kwargs):
+    """Fortune draws these small tables in cream so the header is not navy."""
+    if _look_name() == "Fortune" and hasattr(data, "set_properties"):
+        if kwargs.get("hide_index"):
+            try:
+                data = data.hide(axis="index")
+            except Exception:
+                pass
+        data = data.set_properties(**{
+            "background-color": "#FFFCF6",
+            "color": "#2C2416",
+        })
+        todo = getattr(data, "_todo", None)
+        if todo and len(todo) > 1:
+            todo.insert(0, todo.pop())
+        html = f"<div class='mw-fq-table'>{data.to_html()}</div>"
+        if hasattr(st, "html"):
+            st.html(html)
+        else:
+            st.markdown(html, unsafe_allow_html=True)
+        return None
+    return st.dataframe(data, **kwargs)
+
+
+def _theme_line(data, height, key):
+    """Line chart that follows the look. Streamlit's own line chart stays navy."""
+    import plotly.graph_objects as go
+    fortune = _look_name() == "Fortune"
+    palette = (["#5C3A1A", "#3fbf7f", "#9E1B2F", "#8A6A2F"] if fortune
+               else ["#67E8F9", "#C6A15B", "#3fbf7f", "#FF8FA3"])
+    fig = go.Figure()
+    if isinstance(data, pd.Series):
+        fig.add_trace(go.Scatter(
+            x=data.index, y=data.values, mode="lines",
+            line=dict(color=palette[0], width=2),
+            name=str(getattr(data, "name", "") or "")))
+        show = False
+    else:
+        for i, col in enumerate(list(getattr(data, "columns", []))):
+            fig.add_trace(go.Scatter(
+                x=data.index, y=data[col], mode="lines", name=str(col),
+                line=dict(color=palette[i % len(palette)], width=2)))
+        show = True
+    fig.update_layout(
+        height=height, showlegend=show,
+        margin=dict(l=8, r=8, t=28 if show else 8, b=8),
+        legend=dict(orientation="h", y=1.12),
+    )
+    _fig_show(fig, width="stretch", key=key)
+
+
 def _hub_df(data, **kwargs):
     """Scan list: HTML column-name chips with hover popups, then the table.
 
@@ -9630,7 +9741,9 @@ with st.container(border=True, key="mw_page"):
                         g = wshow[wshow.target_name == t]
                         nup = int(g.call.str.contains("UP").sum())
                         labels.append(f"{t} · {len(g)} wave{'s' if len(g) > 1 else ''}")
-                        node_col.append(GREEN if nup * 2 > len(g) else (RED if nup * 2 < len(g) else "#12233c"))
+                        node_col.append(GREEN if nup * 2 > len(g) else (
+                            RED if nup * 2 < len(g) else (
+                                "#8A6A2F" if _look_name() == "Fortune" else "#12233c")))
                     s_ix = {s: i for i, s in enumerate(srcs)}
                     t_ix = {t: len(srcs) + i for i, t in enumerate(tgts)}
                     link_col = [("rgba(63,191,127,0.45)" if "UP" in c else "rgba(224,82,82,0.45)")
@@ -9638,7 +9751,7 @@ with st.container(border=True, key="mw_page"):
                     fig = go.Figure(go.Sankey(
                         arrangement="snap",
                         node=dict(label=labels, color=node_col, pad=14, thickness=16,
-                                  line=dict(color="#1d2b40", width=1)),
+                                  line=dict(color="#C6A15B" if _look_name() == "Fortune" else "#1d2b40", width=1)),
                         link=dict(source=[s_ix[s] for s in wshow.source_name],
                                   target=[t_ix[t] for t in wshow.target_name],
                                   value=(wshow.strength * 100).clip(lower=5).tolist(),
@@ -9660,7 +9773,7 @@ with st.container(border=True, key="mw_page"):
                     e = e[["source_name", "target_name", "ic", "hit_rate"]].rename(columns={
                         "source_name": "Leads", "target_name": "Follows",
                         "ic": "IC", "hit_rate": "Hit %"}).head(60)
-                    st.dataframe(
+                    _show_df(
                         e.style.format({"IC": "{:+.2f}", "Hit %": "{:.0%}"})
                         .map(lambda v: _css_sign(abs(v) if v == v else v, dead=0.15)
                              if isinstance(v, float) else "", subset=["IC"])
@@ -9677,7 +9790,7 @@ with st.container(border=True, key="mw_page"):
                     st.caption("A sector counts as 'receiving money' when its return, how "
                                "many of its stocks rose, and how heavily it traded all "
                                "lean the same way — not just because one big name jumped.")
-                    st.dataframe(
+                    _show_df(
                         _mflow[["Rank", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
                         .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
                                        "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
@@ -11506,7 +11619,7 @@ with st.container(border=True, key="mw_page"):
                     "Wins": _gcd.get("leads", ""),
                     "Loses": _gcd.get("lags", ""),
                 })
-            st.dataframe(pd.DataFrame(_glance_rows), width=_DF_WIDTH, hide_index=True,
+            _show_df(pd.DataFrame(_glance_rows).style, width=_DF_WIDTH, hide_index=True,
                          column_config=_scan_col_cfgs())
 
             st.divider()
@@ -11552,7 +11665,7 @@ with st.container(border=True, key="mw_page"):
                 _fmt = _grid.style.format("{:.2f}")
                 _styled = (_fmt.map(_tilt_css) if hasattr(_fmt, "map")
                            else _fmt.applymap(_tilt_css))
-                st.dataframe(
+                _show_df(
                     _styled, width=_DF_WIDTH,
                     column_config={
                         col: st.column_config.Column(
@@ -12534,13 +12647,15 @@ with st.container(border=True, key="mw_page"):
                 g1, g2 = st.columns(2)
                 if "netliq" in p:
                     g1.markdown("**Net US Liquidity ($tn)** — Fed BS − TGA − RRP")
-                    g1.line_chart(p["netliq"].tail(500), height=220)
+                    with g1:
+                        _theme_line(p["netliq"].tail(500), 220, "mw_netliq")
                 if "stables" in p:
                     g2.markdown("**Stablecoin supply ($bn)** — crypto dry powder")
-                    g2.line_chart(p["stables"].tail(500), height=220)
+                    with g2:
+                        _theme_line(p["stables"].tail(500), 220, "mw_stables")
                 if "hy_oas" in p:
                     st.markdown("**High-yield credit spread (%)** — the market's blood pressure (down = risk-on)")
-                    st.line_chart(p["hy_oas"].tail(500), height=200)
+                    _theme_line(p["hy_oas"].tail(500), 200, "mw_hy")
                 for err in p.get("errors", []):
                     st.caption(f"⚠️ {err}")
             except Exception as e:
@@ -12561,7 +12676,7 @@ with st.container(border=True, key="mw_page"):
             if sb.empty:
                 st.info("No sentinel data loaded.")
             else:
-                st.dataframe(
+                _show_df(
                     sb.style.format({"Last": "{:,.2f}", "5d %": "{:+.1f}%",
                                      "21d %": "{:+.1f}%", "ImpulseZ": "{:+.2f}"})
                     .map(lambda v: f"color:{GREEN}" if isinstance(v, str) and "surging" in v
@@ -12616,7 +12731,7 @@ with st.container(border=True, key="mw_page"):
                     </div></div>""", unsafe_allow_html=True)
                 _bl = pd.DataFrame(_bond["legs"])
                 _bl["Role"] = np.where(_bl.scored, "✅ scored", "· context")
-                st.dataframe(
+                _show_df(
                     _bl[["leg", "z", "move", "Role", "note"]]
                     .rename(columns={"leg": "Signal", "z": "z-score",
                                      "move": "21d move %", "note": "Reading"})
@@ -12780,8 +12895,8 @@ with st.container(border=True, key="mw_page"):
                     with st.expander("❓ What the honesty split means"):
                         st.markdown(HELP["honesty"])
                     eq = (1 + bt.set_index("date")[["strat", "bench"]]).cumprod()
-                    st.line_chart(eq, height=260)
-                    st.dataframe(
+                    _theme_line(eq, 260, "mw_val_eq")
+                    _show_df(
                         bt.tail(20).style.format(
                             {"strat": "{:+.2%}", "bench": "{:+.2%}", "excess": "{:+.2%}"})
                         .map(lambda v: _css_sign(v), subset=["strat", "excess"])

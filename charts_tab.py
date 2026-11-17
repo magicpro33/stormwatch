@@ -1110,6 +1110,8 @@ def _css() -> None:
   font-variant-numeric:tabular-nums;font-size:15px;color:{INK}}}
 .ch-coin-chg{{font-family:ui-monospace,JetBrains Mono,monospace;font-weight:700;
   font-variant-numeric:tabular-nums;font-size:13px}}
+.ch-flow-when{{font-weight:700;font-size:14px;letter-spacing:.02em;
+  color:#F6F4E9;margin:0 0 8px}}
 </style>"""
     )
     if _fortune():
@@ -1122,6 +1124,11 @@ def _css() -> None:
 .ch-coin-wrap{background:#FFFCF6 !important;border-color:#E3D5BE !important}
 .ch-coin-row,.ch-coin-head{border-color:#E3D5BE !important}
 .ch-coin-name,.ch-coin-px{color:#2C2416 !important}
+.ch-coin-chg.mw-good{color:#3fbf7f !important}
+.ch-coin-chg.mw-bad{color:#9E1B2F !important}
+.ch-flow-when{color:#1A1208 !important;background:#F3EBDD !important;
+  border:1px solid #C6A15B;border-radius:8px;display:inline-block;
+  padding:4px 10px}
 </style>"""
         )
 
@@ -1326,9 +1333,11 @@ def _crypto_series(px: pd.DataFrame, last: dict | None = None) -> list:
 def _chg_cell(pct) -> str:
     if pct is None or not np.isfinite(pct):
         return f"<span class='ch-coin-chg' style='color:{DIM}'>—</span>"
-    col = GREEN if pct >= 0 else RED
-    arrow = "▲" if pct >= 0 else "▼"
-    return (f"<span class='ch-coin-chg' style='color:{col}'>"
+    up = pct >= 0
+    col = GREEN if up else RED
+    tone = "mw-good" if up else "mw-bad"
+    arrow = "▲" if up else "▼"
+    return (f"<span class='ch-coin-chg {tone}' style='color:{col}'>"
             f"{arrow}{abs(pct):.2f}%</span>")
 
 
@@ -1388,11 +1397,18 @@ def _crypto_chart(px: pd.DataFrame) -> None:
         if len(s) < 2:
             continue
         any_trace = True
+        shown = s[s.index >= cut] if cut is not None else s
+        if len(shown) < 2:
+            shown = s
+        base = float(shown.iloc[0])
+        lastv = float(shown.iloc[-1])
+        pct = (lastv / base - 1.0) * 100.0 if base else 0.0
+        up = pct >= 0
         fig.add_trace(go.Scatter(
             x=s.index, y=s.values,
             mode="lines",
-            line=dict(color=_vis(color), width=2.2),
-            name=name,
+            line=dict(color=GREEN if up else RED, width=2.2),
+            name=f"{name} {pct:+.0f}%",
             hovertemplate=name + "<br>%{x|%b %d, %Y}<br>$%{y:,.2f}<extra></extra>",
         ))
         first, last = s.index[0], s.index[-1]
@@ -1790,7 +1806,7 @@ def _money_flow_chart() -> None:
     labels = [name for name, _ in _FLOW_SPANS]
     days = {name: n for name, n in _FLOW_SPANS}
     pick = st.selectbox(
-        "Range",
+        "Time frame",
         labels,
         index=0,
         key="ch_money_flow_span",
@@ -1811,6 +1827,9 @@ def _money_flow_chart() -> None:
     start = flow.attrs.get("start") or ""
     _sec("Money entering and leaving the market", GOLD)
     sessions = int(flow.attrs.get("sessions") or flow.attrs.get("lookback") or 1)
+    when = (f"{pick} · {start} → {asof} · {sessions} "
+            f"session{'s' if sessions != 1 else ''}")
+    _html(f"<div class='ch-flow-when'>{_esc(when)}</div>")
     st.caption(
         f"{start} → {asof} · {sessions} session{'s' if sessions != 1 else ''}. "
         "Each bar adds up, day by day, the sector's traded dollars times "
@@ -1828,11 +1847,12 @@ def _money_flow_chart() -> None:
     ))
     fig.add_vline(x=0, line_color=_vis(DIM), line_width=1)
     fig.update_layout(
-        height=max(320, 28 * len(flow) + 60),
+        height=max(320, 28 * len(flow) + 80),
         showlegend=False,
-        margin=dict(l=8, r=16, t=8, b=8),
+        margin=dict(l=8, r=16, t=36, b=8),
+        title=dict(text=when, x=0, xanchor="left", font=dict(size=13)),
         xaxis=dict(title="Billions of dollars", zeroline=False, ticksuffix="B",
-                   tickprefix="$"),
+                   tickprefix="$", rangeslider=dict(visible=False)),
         yaxis=dict(zeroline=False),
     )
     _plotly(fig, "ch_money_flow")
