@@ -13348,6 +13348,38 @@ _embed_html(
           setImp(el, "box-shadow", "none");
           el.setAttribute("data-mw-green", "1");
         });
+        function greenize(img) {
+          return String(img || "")
+            .replace(/rgba?\(\s*232[\s,]+119[\s,]+34(?:\s*[,/]\s*[\d.]+%?)?\s*\)/gi, "rgb(63, 191, 127)")
+            .replace(/#e87722/gi, "#3fbf7f");
+        }
+        function hasOrange(s) {
+          var low = String(s || "").toLowerCase();
+          if (low.indexOf("e87722") >= 0) return true;
+          if (low.indexOf("232") >= 0 && low.indexOf("119") >= 0 && low.indexOf("34") >= 0) return true;
+          var m = /rgba?\((\d+)[\s,]+(\d+)[\s,]+(\d+)/.exec(low);
+          if (!m) return false;
+          var r = +m[1], g = +m[2], b = +m[3];
+          return r > 180 && g > 60 && g < 180 && b < 100 && (r - g) > 30;
+        }
+        var sheets = doc.styleSheets;
+        for (var s = 0; s < sheets.length; s++) {
+          var rules;
+          try { rules = sheets[s].cssRules; } catch (e) { continue; }
+          if (!rules) continue;
+          for (var i = 0; i < rules.length; i++) {
+            var stl = rules[i].style;
+            if (!stl) continue;
+            var text = rules[i].cssText || "";
+            if (text.indexOf("2px") < 0 && text.indexOf("1px") < 0 && text.indexOf("4px") < 0) continue;
+            ["backgroundImage", "background", "backgroundColor"].forEach(function (prop) {
+              var img = stl.getPropertyValue(prop);
+              if (!img || img.indexOf("gradient") < 0 || !hasOrange(img)) return;
+              var next = greenize(img);
+              if (next !== img) stl.setProperty(prop, next, stl.getPropertyPriority(prop));
+            });
+          }
+        }
         doc.querySelectorAll('[data-testid="stSlider"], [data-testid="stSelectSlider"], [data-baseweb="slider"]').forEach(function (slider) {
           var thumbs = slider.querySelectorAll('[role="slider"]');
           if (!thumbs.length) return;
@@ -13364,20 +13396,35 @@ _embed_html(
           var grad = thumbs.length > 1
             ? "linear-gradient(to right, " + trackRest + " " + lo + "%, " + GREEN + " " + lo + "%, " + GREEN + " " + hi + "%, " + trackRest + " " + hi + "%)"
             : "linear-gradient(to right, " + GREEN + " 0%, " + GREEN + " " + hi + "%, " + trackRest + " " + hi + "%, " + trackRest + " 100%)";
+          var box = slider.getBoundingClientRect();
+          var best = null;
+          var bestH = 99;
           slider.querySelectorAll("div").forEach(function (el) {
             if (el.getAttribute("role") === "slider") return;
             if ((el.getAttribute("data-testid") || "") === "stSliderThumbValue") return;
-            if (el.querySelector("[role='slider']")) return;
-            var cs;
-            try { cs = view2.getComputedStyle(el); } catch (e) { return; }
-            var h = parseFloat(cs.height) || 0;
-            var w = parseFloat(cs.width) || 0;
-            if (h < 1 || h > 16 || w < 80) return;
-            setImp(el, "background-color", "transparent");
-            setImp(el, "background-image", grad);
-            setImp(el, "background", grad);
-            el.setAttribute("data-mw-green", "1");
+            if (el.querySelector("[data-testid='stSliderThumbValue'], [role='slider']")) return;
+            var rect;
+            try { rect = el.getBoundingClientRect(); } catch (e) { return; }
+            if (rect.width < Math.max(48, box.width * 0.55)) return;
+            if (rect.height < 1 || rect.height > 14) return;
+            if (rect.height < bestH) { best = el; bestH = rect.height; }
           });
+          if (!best) {
+            slider.querySelectorAll("div").forEach(function (el) {
+              if (best) return;
+              if (el.getAttribute("role") === "slider") return;
+              var cs;
+              try { cs = view2.getComputedStyle(el); } catch (e) { return; }
+              var img = (cs.backgroundImage || "") + " " + (cs.backgroundColor || "");
+              if (img.indexOf("gradient") >= 0 && (hasOrange(img) || el.getAttribute("data-mw-track") === "1")) best = el;
+            });
+          }
+          if (!best) return;
+          setImp(best, "background-color", "transparent");
+          setImp(best, "background-image", grad);
+          setImp(best, "background", grad);
+          best.setAttribute("data-mw-track", "1");
+          best.setAttribute("data-mw-green", "1");
         });
         doc.querySelectorAll('[data-testid="stMultiSelect"] [data-baseweb="tag"], [data-testid="stMultiSelectTagsContainer"] > span > span').forEach(function (el) {
           setImp(el, "background", GREEN);
