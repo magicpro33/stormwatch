@@ -462,11 +462,32 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
 .stApp [data-testid="stAlert"],
 .stApp [data-testid="stAlert"] > div,
 .stApp [data-testid="stNotification"],
-.stApp [data-testid="stNotification"] > div {{
+.stApp [data-testid="stNotification"] > div,
+.stApp [data-testid="stStatusWidget"],
+.stApp [data-testid="stStatusWidget"] *,
+.stApp [data-testid="stSpinner"],
+.stApp [data-testid="stSpinner"] * {{
     background: #F3EBDD !important;
     background-color: #F3EBDD !important;
     color: #5C3A1A !important;
     border-color: #C6A15B !important;
+}}
+.js-plotly-plot .bg,
+.js-plotly-plot .bglayer rect,
+.js-plotly-plot rect.bg,
+[data-testid="stPlotlyChart"],
+[data-testid="stPlotlyChart"] > div,
+[data-testid="stVegaLiteChart"],
+[data-testid="stArrowVegaLiteChart"] {{
+    background: #FFFCF6 !important;
+    background-color: #FFFCF6 !important;
+}}
+.js-plotly-plot .bglayer rect,
+.js-plotly-plot rect.bg {{
+    fill: #F6F1E7 !important;
+}}
+.js-plotly-plot text {{
+    fill: #5C3A1A !important;
 }}
 .stApp span.mw-good, .stApp .mw-good {{ color: #3fbf7f !important; }}
 .stApp span.mw-mid, .stApp .mw-mid {{ color: #E87722 !important; }}
@@ -1180,11 +1201,11 @@ _TAB_COLOR = {
 _MENU_CAT_COLORS = {
     "mw_main": [_TAB_COLOR[k] for k in (
         "Scan Hub", "Stock Lookup", "Bull List", "Dividend Calender", "Crypto Copycat",
-        "Macro Sim", "Cascade Map", "Nerd Hub")],
+        "Macro Sim", "Cascade Map", "Nerd Hub", "Help")],
     "mw_hub": [_TAB_COLOR[k] for k in (
         "TOP20", "Apex Flow", "POC Future", "ShakeOut", "Insider Buying",
         "Hybrid Screener", "Ignition Scanner", "Key Word Search",
-        "Trump Effect", "Elections", "Help")],
+        "Trump Effect", "Elections")],
     "mw_map": [_TAB_COLOR[k] for k in (
         "Market Weather", "Cascade Pressure", "Cascade Sentinels",
         "Forced Flows", "Cascade Validation Lab", "Lenses", "Guide")],
@@ -3397,8 +3418,9 @@ def render_business_summary(info: dict, tk: str) -> None:
 
     st.markdown("#### Business Summary")
     if text:
+        _sum_col = "#5C3A1A" if _look_name() == "Fortune" else "#ccc"
         st.markdown(
-            f"<div style='color:#ccc;line-height:1.6;padding:4px 0 10px'>"
+            f"<div style='color:{_sum_col};line-height:1.6;padding:4px 0 10px'>"
             f"{_esc(text)}</div>",
             unsafe_allow_html=True)
     else:
@@ -4129,17 +4151,25 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
         )
     if not right:
         right = f"<div style='color:{DIM};font-size:1.05em;'>across {n:,} look-alike cases</div>"
+    _fq = _look_name() == "Fortune"
+    _fc_bg = "#FFFCF6" if _fq else "linear-gradient(135deg,#0d1b2a,#1a2d45)"
+    _fc_line = "#E3D5BE" if _fq else "#1e3a5f"
+    _fc_ink = "#5C3A1A" if _fq else "#e8f4fd"
+    _fc_num = "#2C2416" if _fq else "#F6F4E9"
+    _fc_track = "#E7DCC8" if _fq else "#12233c"
+    if _fq and outlook:
+        right = right.replace("color:#d7e0ec", "color:#5C5346")
 
-    st.markdown(f"""<div style="background:linear-gradient(135deg,#0d1b2a,#1a2d45);
-      border:1px solid #1e3a5f;border-radius:14px;padding:24px 28px 22px;margin-bottom:16px;">
-      <div style="font-size:1.45em;font-weight:700;color:#e8f4fd;letter-spacing:.3px;margin-bottom:14px;">
+    st.markdown(f"""<div style="background:{_fc_bg};
+      border:1px solid {_fc_line};border-radius:14px;padding:24px 28px 22px;margin-bottom:16px;">
+      <div style="font-size:1.45em;font-weight:700;color:{_fc_ink};letter-spacing:.3px;margin-bottom:14px;">
         🌦 Forecast</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:28px;flex-wrap:wrap;">
       <div title="Share of the {n:,} analog cases that were positive 21 sessions later. 50% = coin flip.">
         <svg viewBox="0 0 160 95" style="width:240px;max-width:100%;">
-          <path d="M15,85 A65,65 0 0 1 145,85" fill="none" stroke="#12233c" stroke-width="14" stroke-linecap="round"/>
+          <path d="M15,85 A65,65 0 0 1 145,85" fill="none" stroke="{_fc_track}" stroke-width="14" stroke-linecap="round"/>
           <path d="M15,85 A65,65 0 0 1 {ax:.1f},{ay:.1f}" fill="none" stroke="{acol}" stroke-width="14" stroke-linecap="round"/>
-          <text x="80" y="66" text-anchor="middle" font-size="28" font-weight="700" fill="#F6F4E9">{pu:.0%}</text>
+          <text x="80" y="66" text-anchor="middle" font-size="28" font-weight="700" fill="{_fc_num}">{pu:.0%}</text>
           <text x="80" y="88" text-anchor="middle" font-size="11" fill="{DIM}">odds of gain - 21 sessions</text>
         </svg>
       </div>
@@ -4270,8 +4300,8 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
         up_txt = (f"<span style='color:{tgt_col};font-weight:600;'>"
                   f"{upside:+.1f}%</span>" if upside is not None else "")
         tgt_html = (
-            f"<div style='font-size:1.05em;color:#7fb3d3;margin-top:8px;'>"
-            f"Target <span style='color:#e8f4fd;font-weight:700;'>${target:,.2f}</span>"
+            f"<div style='font-size:1.05em;color:{'#5C5346' if _look_name() == 'Fortune' else '#7fb3d3'};margin-top:8px;'>"
+            f"Target <span style='color:{'#5C3A1A' if _look_name() == 'Fortune' else '#e8f4fd'};font-weight:700;'>${target:,.2f}</span>"
             f"{(' · ' + up_txt) if up_txt else ''}</div>"
         )
     _src_txt = (px_src or ("Alpaca" if live_on else "") or src_label or "").strip()
@@ -4379,8 +4409,18 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
         earn_txt, earn_col = f"{earn_days}d", _HY_UP
         earn_tip = f"Next earnings {earn_ed:%a %b %d}. Clear of the near print."
 
+    _fq = _look_name() == "Fortune"
+    _chip_bg = "#F6F1E7" if _fq else "#0a1929"
+    _chip_lab = "#5C5346" if _fq else _HY_MUTED
+    _card = ("#FFFCF6" if _fq else
+             "linear-gradient(135deg,#0d1b2a 0%,#1a2d45 100%)")
+    _card_line = "#E3D5BE" if _fq else "#1e3a5f"
+    _name_col = "#5C3A1A" if _fq else "#e8f4fd"
+    _sub_col = "#5C5346" if _fq else "#7fb3d3"
+    _tick_bg = "#F3EBDD" if _fq else "#0d2137"
+
     def _chip(label, value, color="#c5dff0", tip="", sub=""):
-        tip_html = (f" <span title='{_esc(tip)}' style='cursor:help;color:{_HY_MUTED};"
+        tip_html = (f" <span title='{_esc(tip)}' style='cursor:help;color:{_chip_lab};"
                     f"font-size:0.85em;'>ⓘ</span>") if tip else ""
         sub_html = (
             f"<div style='font-size:0.72em;font-weight:600;color:{color};"
@@ -4388,9 +4428,10 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
             if sub else ""
         )
         return (
-            f"<div style='text-align:center;background:#0a1929;border-radius:10px;"
-            f"padding:16px 8px;flex:1 1 0;min-width:0;border-left:3px solid {color};'>"
-            f"<div style='font-size:0.85em;color:{_HY_MUTED};text-transform:uppercase;"
+            f"<div style='text-align:center;background:{_chip_bg};border-radius:10px;"
+            f"padding:16px 8px;flex:1 1 0;min-width:0;border:1px solid {_card_line};"
+            f"border-left:3px solid {color};'>"
+            f"<div style='font-size:0.85em;color:{_chip_lab};text-transform:uppercase;"
             f"letter-spacing:.06em;'>{label}{tip_html}</div>"
             f"<div style='font-size:1.45em;font-weight:700;color:{color};margin-top:6px;"
             f"line-height:1.15;'>{_esc(value)}</div>{sub_html}</div>"
@@ -4412,22 +4453,22 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
         + _chip("Earnings", earn_txt, earn_col, earn_tip, sub=earn_sub)
     )
     _md_html(
-        f"""<div style="background:linear-gradient(135deg,#0d1b2a 0%,#1a2d45 100%);
-        border:1px solid #1e3a5f;border-radius:14px;padding:28px 28px 24px;margin-bottom:16px;">
+        f"""<div style="background:{_card};
+        border:1px solid {_card_line};border-radius:14px;padding:28px 28px 24px;margin-bottom:16px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;">
           <div style="flex:1;min-width:220px;">
-            <div style="font-size:2.05em;font-weight:700;color:#e8f4fd;letter-spacing:-0.5px;line-height:1.15;">
+            <div style="font-size:2.05em;font-weight:700;color:{_name_col};letter-spacing:-0.5px;line-height:1.15;">
               {_esc(name)}
-              <span style="font-size:0.48em;font-weight:500;color:#5b9bd5;
-              background:#0d2137;padding:4px 12px;border-radius:6px;margin-left:10px;
+              <span style="font-size:0.48em;font-weight:500;color:{_name_col};
+              background:{_tick_bg};padding:4px 12px;border-radius:6px;margin-left:10px;
               vertical-align:middle;">{_esc(tk)}</span>
             </div>
-            <div style="font-size:1.15em;color:#7fb3d3;margin-top:8px;">
+            <div style="font-size:1.15em;color:{_sub_col};margin-top:8px;">
               {_esc(sector)}{" · " + _esc(industry) if industry else ""}
             </div>
           </div>
           <div style="text-align:right;flex-shrink:0;">
-            <div style="font-size:2.8em;font-weight:700;color:#e8f4fd;line-height:1;">
+            <div style="font-size:2.8em;font-weight:700;color:{_name_col};line-height:1;">
               {"$" + f"{px:,.2f}" if px else "N/A"}
             </div>
             <div style="font-size:1.2em;color:{chg_col};font-weight:600;margin-top:4px;">
@@ -4453,10 +4494,10 @@ def render_hybrid_lookup_header(tk: str, info: dict, df: pd.DataFrame,
             )
         else:
             _md_html(
-                f"<div style='background:linear-gradient(135deg,#0d1b2a,#1a2d45);"
-                f"border:1px solid #1e3a5f;border-radius:14px;padding:24px 28px;"
+                f"<div style='background:{'#FFFCF6' if _look_name() == 'Fortune' else 'linear-gradient(135deg,#0d1b2a,#1a2d45)'};"
+                f"border:1px solid {'#E3D5BE' if _look_name() == 'Fortune' else '#1e3a5f'};border-radius:14px;padding:24px 28px;"
                 f"margin-bottom:16px;'>"
-                f"<div style='font-size:1.45em;font-weight:700;color:#e8f4fd;"
+                f"<div style='font-size:1.45em;font-weight:700;color:{'#5C3A1A' if _look_name() == 'Fortune' else '#e8f4fd'};"
                 f"letter-spacing:.3px;margin-bottom:12px;'>🌦 Forecast</div>"
                 f"<div style='color:{_HY_MUTED};font-size:1.05em;line-height:1.5;'>"
                 f"Not enough look-alike history to forecast this one honestly "
@@ -6000,9 +6041,9 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     _light_chart = _look_name() == "Fortune"
     fig.update_layout(height=500,
                       template="plotly_white" if _light_chart else "plotly_dark",
-                      paper_bgcolor="rgba(0,0,0,0)",
-                      plot_bgcolor="rgba(0,0,0,0)" if _light_chart else "rgba(255,255,255,0.03)",
-                      font_color="#1C1915" if _light_chart else "#EAF2FF",
+                      paper_bgcolor="#FFFCF6" if _light_chart else "rgba(0,0,0,0)",
+                      plot_bgcolor="#F6F1E7" if _light_chart else "rgba(255,255,255,0.03)",
+                      font_color="#2C2416" if _light_chart else "#EAF2FF",
                       showlegend=True,
                       legend=dict(orientation="h", y=1.05),
                       xaxis_rangeslider_visible=False,
@@ -6021,7 +6062,10 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
                           line_color=ACCENT, row=1, col=1)
         except Exception:
             pass
-    grid = dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", zeroline=False)
+    grid = dict(showgrid=True,
+                gridcolor="#E3D5BE" if _look_name() == "Fortune" else "rgba(255,255,255,0.06)",
+                zeroline=False,
+                tickfont=dict(color="#5C3A1A" if _look_name() == "Fortune" else "#EAF2FF"))
     fig.update_yaxes(**grid)
     fig.update_xaxes(**grid, rangeslider_visible=False)
     if pack and len(d):
@@ -7298,29 +7342,35 @@ def _render_signed_catalysts(tk: str, sector: str = "", *, notes: bool = True) -
         return "".join(rows)
 
     sc_col = GREEN if score > 0 else (RED if score < 0 else DIM)
+    _fq = _look_name() == "Fortune"
+    _card = "#FFFCF6" if _fq else "#0c1829"
+    _up_bg = "#E5F6EC" if _fq else "#0d2215"
+    _dn_bg = "#F8E8EA" if _fq else "#220d0d"
+    _mid_bg = "#F8F1DC" if _fq else "#221800"
+    _note = "#5C5346" if _fq else DIM
     _md_html(
         f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;"
         f"margin:6px 0 8px'>"
-        f"<div style='background:#0c1829;border:1px solid {GREEN};border-radius:10px;"
+        f"<div style='background:{_card};border:1px solid {GREEN};border-radius:10px;"
         f"padding:10px 12px'>"
         f"<div style='color:{GREEN};font-weight:800;font-size:11px;letter-spacing:1px;"
         f"text-transform:uppercase;margin-bottom:8px'>▲ Up</div>"
-        f"{_pills(up, GREEN, '#1e6b35', '#0d2215')}"
+        f"{_pills(up, GREEN, '#1e6b35', _up_bg)}"
         f"{_notes('up', GREEN) if notes else ''}</div>"
-        f"<div style='background:#0c1829;border:1px solid {RED};border-radius:10px;"
+        f"<div style='background:{_card};border:1px solid {RED};border-radius:10px;"
         f"padding:10px 12px'>"
         f"<div style='color:{RED};font-weight:800;font-size:11px;letter-spacing:1px;"
         f"text-transform:uppercase;margin-bottom:8px'>▼ Down</div>"
-        f"{_pills(down, RED, '#a03535', '#220d0d')}"
+        f"{_pills(down, RED, '#a03535', _dn_bg)}"
         f"{_notes('down', RED) if notes else ''}</div></div>"
-        + (f"<div style='background:#0c1829;border:1px solid {MIX_COLOR};border-radius:10px;"
+        + (f"<div style='background:{_card};border:1px solid {MIX_COLOR};border-radius:10px;"
            f"padding:10px 12px;margin:0 0 8px'>"
            f"<div style='color:{MIX_COLOR};font-weight:800;font-size:11px;letter-spacing:1px;"
            f"text-transform:uppercase;margin-bottom:8px'>▲▼ Either way</div>"
-           f"{_pills(other, MIX_COLOR, '#c47d0e', '#221800')}"
+           f"{_pills(other, MIX_COLOR, '#c47d0e', _mid_bg)}"
            f"{_notes('both', MIX_COLOR) if notes else ''}</div>"
            if other else "")
-        + f"<div style='color:{DIM};font-size:12px;margin-bottom:8px'>"
+        + f"<div style='color:{_note};font-size:12px;margin-bottom:8px'>"
         f"Net signed score <b style='color:{sc_col}'>{score:+d}</b> "
         f"(extras show, score 0)</div>"
     )
@@ -7364,28 +7414,32 @@ def _user_tz() -> str:
 def _news_items_html(items, color, border, bg, badge, empty):
     if not items:
         return f"<div style='color:{DIM};font-size:13px'>{_esc(empty)}</div>"
+    _fq = _look_name() == "Fortune"
+    _ink = "#5C3A1A" if _fq else "#F6F4E9"
+    _line = "#E3D5BE" if _fq else "#1d2b40"
+    _meta = "#5C5346" if _fq else DIM
     rows = []
     for it in items[:12]:
         title = _esc(it.get("title") or "")
         url = str(it.get("url") or "").strip()
         if url:
             head = (f"<a href='{_esc(url)}' target='_blank' rel='noopener noreferrer' "
-                    f"style='color:#F6F4E9;text-decoration:none;font-weight:700'>"
+                    f"style='color:{_ink};text-decoration:none;font-weight:700'>"
                     f"{title}</a>")
         else:
-            head = f"<span style='color:#F6F4E9;font-weight:700'>{title}</span>"
+            head = f"<span style='color:{_ink};font-weight:700'>{title}</span>"
         meta = " · ".join(x for x in (
             _esc(it.get("source") or ""),
             _esc(_news_when(it.get("published"))),
         ) if x)
         rows.append(
-            f"<div style='padding:8px 0;border-bottom:1px solid #1d2b40'>"
+            f"<div style='padding:8px 0;border-bottom:1px solid {_line}'>"
             f"<div style='display:flex;gap:8px;align-items:flex-start'>"
             f"<span style='flex:0 0 auto;font-size:10px;font-weight:800;letter-spacing:.6px;"
             f"color:{color};border:1px solid {border};background:{bg};border-radius:4px;"
             f"padding:2px 6px;margin-top:2px'>{_esc(badge)}</span>"
             f"<div style='flex:1;font-size:13.5px;line-height:1.4'>{head}"
-            f"<div style='color:{DIM};font-size:11px;margin-top:3px'>{meta}</div>"
+            f"<div style='color:{_meta};font-size:11px;margin-top:3px'>{meta}</div>"
             f"</div></div></div>"
         )
     return "".join(rows)
@@ -7409,23 +7463,27 @@ def _render_lookup_news(tk: str, name: str = "") -> None:
     pos = [x for x in items if x.get("side") == "up"]
     neg = [x for x in items if x.get("side") == "down"]
     other = [x for x in items if x.get("side") not in ("up", "down")]
+    _fq = _look_name() == "Fortune"
+    _card = "#FFFCF6" if _fq else "#0c1829"
+    _pos_bg = "#E5F6EC" if _fq else "#0d2215"
+    _neg_bg = "#F8E8EA" if _fq else "#220d0d"
     c1, c2 = st.columns(2)
     with c1:
         _md_html(
-            f"<div style='background:#0c1829;border:1px solid {GREEN};border-radius:10px;"
+            f"<div style='background:{_card};border:1px solid {GREEN};border-radius:10px;"
             f"padding:10px 12px;margin-bottom:8px'>"
             f"<div style='color:{GREEN};font-weight:800;font-size:11px;letter-spacing:1px;"
             f"text-transform:uppercase;margin-bottom:6px'>Positive news · {len(pos)}</div>"
-            f"{_news_items_html(pos, GREEN, '#1e6b35', '#0d2215', 'POS', 'No positive headlines.')}"
+            f"{_news_items_html(pos, GREEN, '#1e6b35', _pos_bg, 'POS', 'No positive headlines.')}"
             f"</div>"
         )
     with c2:
         _md_html(
-            f"<div style='background:#0c1829;border:1px solid {RED};border-radius:10px;"
+            f"<div style='background:{_card};border:1px solid {RED};border-radius:10px;"
             f"padding:10px 12px;margin-bottom:8px'>"
             f"<div style='color:{RED};font-weight:800;font-size:11px;letter-spacing:1px;"
             f"text-transform:uppercase;margin-bottom:6px'>Negative news · {len(neg)}</div>"
-            f"{_news_items_html(neg, RED, '#a03535', '#220d0d', 'NEG', 'No negative headlines.')}"
+            f"{_news_items_html(neg, RED, '#a03535', _neg_bg, 'NEG', 'No negative headlines.')}"
             f"</div>"
         )
     if other:
@@ -8352,14 +8410,17 @@ def _try_closes():
 
 
 _MAIN = ["Scan Hub", "Stock Lookup", "Bull List", "Dividend Calender", "Crypto Copycat",
-         "Macro Sim", "Cascade Map", "Nerd Hub"]
+         "Macro Sim", "Cascade Map", "Nerd Hub", "Help"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Insider Buying",
         "Hybrid Screener", "Ignition Scanner", "Key Word Search",
-        "Trump Effect", "Elections", "Help"]
+        "Trump Effect", "Elections"]
 _MAP = ["Market Weather", "Cascade Pressure", "Cascade Sentinels", "Forced Flows",
         "Cascade Validation Lab", "Lenses", "Guide"]
 if st.session_state.get("mw_hub") == "Key Word":
     st.session_state["mw_hub"] = "Key Word Search"
+if st.session_state.get("mw_hub") == "Help":
+    st.session_state["mw_main"] = "Help"
+    st.session_state["mw_hub"] = "TOP20"
 if st.session_state.get("mw_main") in ("Charts", "Nerd Hut"):
     st.session_state["mw_main"] = "Nerd Hub"
 if st.session_state.get("mw_main") in ("Advanced Guide", "Cascade Guide"):
@@ -12102,7 +12163,7 @@ with st.container(border=True, key="mw_page"):
 
 
     # ── ❓ scan hub help ─────────────────────────────────────────────────
-    if _main == "Scan Hub" and _hub == "Help":
+    if _main == "Help":
         _render_scan_hub_help()
 
 
@@ -12561,12 +12622,12 @@ with st.container(border=True, key="mw_page"):
         st.caption("Probability tilts, not prophecy. Position sizing is the only "
                    "opinion that matters. Not investment advice.")
 
-if _look_name() in ("Fortune", "Private Bank"):
-    st.markdown(
-        "<style>" + _money_green_css() + "</style>"
-        f'<div id="mw-paint" data-look="{_look_name()}" hidden></div>',
-        unsafe_allow_html=True)
-    _embed_html(
+st.markdown(
+    (("<style>" + _money_green_css() + "</style>")
+     if _look_name() in ("Fortune", "Private Bank") else "")
+    + f'<div id="mw-paint" data-look="{_look_name()}" hidden></div>',
+    unsafe_allow_html=True)
+_embed_html(
         """<script>
 (function () {
   var root = window.parent || window;
@@ -12578,13 +12639,27 @@ if _look_name() in ("Fortune", "Private Bank"):
     if (el.style.getPropertyValue(prop) === val && el.style.getPropertyPriority(prop) === "important") return;
     el.style.setProperty(prop, val, "important");
   }
+  function clearImp(el) {
+    if (!el || !el.style) return;
+    ["background", "background-color", "color", "border", "box-shadow", "border-color"].forEach(function (p) {
+      el.style.removeProperty(p);
+    });
+  }
+  function clearFortuneChrome() {
+    doc.querySelectorAll('button[role="radio"], button[data-testid^="stBaseButton-segmented_control"]').forEach(function (b) {
+      clearImp(b);
+      b.querySelectorAll("p, span, div").forEach(clearImp);
+    });
+    doc.querySelectorAll('[data-baseweb="button-group"], [data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [role="option"], [data-testid="stAlert"], [data-testid="stNotification"]').forEach(clearImp);
+    doc.querySelectorAll('[data-baseweb="select"] span, [data-baseweb="select"] div, [data-testid="stRadio"] label, [data-testid="stRadio"] p, [data-testid="stRadio"] span, label[data-testid="stRadioOption"], label[data-testid="stRadioOption"] p').forEach(clearImp);
+  }
   function paint() {
     if (painting || !doc.body) return;
     var mark = doc.getElementById("mw-paint");
-    if (!mark) return;
-    var fortune = mark.getAttribute("data-look") === "Fortune";
+    var fortune = mark && mark.getAttribute("data-look") === "Fortune";
     painting = true;
     try {
+      if (!fortune) clearFortuneChrome();
       if (fortune) {
         doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"], button[role="radio"]').forEach(function (b) {
           var on = (b.getAttribute("data-testid") || "").indexOf("Active") >= 0
@@ -12613,7 +12688,7 @@ if _look_name() in ("Fortune", "Private Bank"):
         doc.querySelectorAll('[data-baseweb="select"] span, [data-baseweb="select"] div, [role="option"] span, [role="option"] div, [data-testid="stRadio"] label, [data-testid="stRadio"] p, [data-testid="stRadio"] span, label[data-testid="stRadioOption"], label[data-testid="stRadioOption"] p').forEach(function (el) {
           setImp(el, "color", "#5C3A1A");
         });
-        doc.querySelectorAll('[data-testid="stAlert"], [data-testid="stNotification"]').forEach(function (el) {
+        doc.querySelectorAll('[data-testid="stAlert"], [data-testid="stNotification"], [data-testid="stStatusWidget"], [data-testid="stSpinner"]').forEach(function (el) {
           setImp(el, "background", "#F3EBDD");
           setImp(el, "background-color", "#F3EBDD");
           setImp(el, "color", "#5C3A1A");
@@ -12667,10 +12742,11 @@ if _look_name() in ("Fortune", "Private Bank"):
       painting = false;
     }
   }
+  root.__mwPaint = paint;
   paint();
   if (!root.__mwMoneyGreen) {
     root.__mwMoneyGreen = true;
-    root.setInterval(paint, 50);
+    root.setInterval(function () { if (root.__mwPaint) root.__mwPaint(); }, 50);
   }
 })();
 </script>""",
