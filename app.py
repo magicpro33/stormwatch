@@ -446,6 +446,31 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     background-color: #FFFCF6 !important;
     color: #5C3A1A !important;
 }}
+.stApp [data-testid="stRadio"] label,
+.stApp [data-testid="stRadio"] label p,
+.stApp [data-testid="stRadio"] label span,
+.stApp label[data-testid="stRadioOption"],
+.stApp label[data-testid="stRadioOption"] p,
+.stApp label[data-testid="stRadioOption"] span,
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"],
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] div,
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] span,
+.stApp [data-testid="stMultiSelect"] [data-baseweb="select"] div,
+.stApp [data-testid="stMultiSelect"] [data-baseweb="select"] span {{
+    color: #5C3A1A !important;
+}}
+.stApp [data-testid="stAlert"],
+.stApp [data-testid="stAlert"] > div,
+.stApp [data-testid="stNotification"],
+.stApp [data-testid="stNotification"] > div {{
+    background: #F3EBDD !important;
+    background-color: #F3EBDD !important;
+    color: #5C3A1A !important;
+    border-color: #C6A15B !important;
+}}
+.stApp span.mw-good, .stApp .mw-good {{ color: #3fbf7f !important; }}
+.stApp span.mw-mid, .stApp .mw-mid {{ color: #E87722 !important; }}
+.stApp span.mw-bad, .stApp .mw-bad {{ color: #9E1B2F !important; }}
 .stApp [data-baseweb="select"] > div,
 .stApp [data-baseweb="select"] span,
 .stApp [data-baseweb="select"] div,
@@ -2587,8 +2612,14 @@ def az_pill(label, good):
 def az_tag(v, hi, lo, fmt="{:.2f}", suffix=""):
     try:
         fv = float(v)
-        col = "#3fbf7f" if fv >= hi else ("#d0b040" if fv >= lo else "#9E1B2F")
-        return f"<span style='font-family:monospace;color:{col}'>{fmt.format(fv)}{suffix}</span>"
+        if fv >= hi:
+            tone, col = "mw-good", "#3fbf7f"
+        elif fv >= lo:
+            tone, col = "mw-mid", "#E87722"
+        else:
+            tone, col = "mw-bad", "#9E1B2F"
+        return (f"<span class='{tone}' style='font-family:monospace;color:{col}'>"
+                f"{fmt.format(fv)}{suffix}</span>")
     except Exception:
         return "--"
 
@@ -2596,8 +2627,14 @@ def az_tag(v, hi, lo, fmt="{:.2f}", suffix=""):
 def az_tag_inv(v, hi, lo, fmt="{:.2f}", suffix=""):
     try:
         fv = float(v)
-        col = "#9E1B2F" if fv >= hi else ("#d0b040" if fv >= lo else "#3fbf7f")
-        return f"<span style='font-family:monospace;color:{col}'>{fmt.format(fv)}{suffix}</span>"
+        if fv >= hi:
+            tone, col = "mw-bad", "#9E1B2F"
+        elif fv >= lo:
+            tone, col = "mw-mid", "#E87722"
+        else:
+            tone, col = "mw-good", "#3fbf7f"
+        return (f"<span class='{tone}' style='font-family:monospace;color:{col}'>"
+                f"{fmt.format(fv)}{suffix}</span>")
     except Exception:
         return "--"
 
@@ -2624,22 +2661,29 @@ def metric_scale(value, vmin, vmax, good, ok, caption, higher=True, neg_bad=Fals
     if higher:
         in_good = v >= good
         in_ok = v >= ok
-        zones = _band(ok, good, "rgba(208,176,64,.45)") + _band(good, vmax, "rgba(77,216,128,.5)")
+        zones = _band(ok, good, "rgba(232,119,34,.40)") + _band(good, vmax, "rgba(63,191,127,.45)")
     else:
         in_good = v <= good
         in_ok = v <= ok
-        zones = _band(vmin, good, "rgba(77,216,128,.5)") + _band(good, ok, "rgba(208,176,64,.45)")
+        zones = _band(vmin, good, "rgba(63,191,127,.45)") + _band(good, ok, "rgba(232,119,34,.40)")
     if neg_bad and v < 0:
         in_good = in_ok = False
-    color = "#3fbf7f" if in_good else ("#d0b040" if in_ok else "#9E1B2F")
+    if in_good:
+        color, tone = "#3fbf7f", "mw-good"
+    elif in_ok:
+        color, tone = "#E87722", "mw-mid"
+    else:
+        color, tone = "#9E1B2F", "mw-bad"
     mark = _pct(0 if (neg_bad and v < 0) else v)
     cap = _esc(caption)
+    track = "#E7DCC8" if _look_name() == "Fortune" else "#122540"
+    capc = "#5C5346" if _look_name() == "Fortune" else "#9aa8bd"
     return (
-        f"<div title='{cap}' style='position:relative;height:12px;background:{'#E7DCC8' if _look_name() == 'Fortune' else '#122540'};"
+        f"<div title='{cap}' style='position:relative;height:12px;background:{track};"
         f"border-radius:4px;overflow:hidden'>{zones}"
-        f"<div style='position:absolute;left:calc({mark:.1f}% - 2px);top:0;width:4px;"
-        f"height:12px;background:{color}'></div></div>"
-        f"<div style='font-size:10px;color:#9aa8bd;margin-top:2px;line-height:1.2'>{cap}</div>"
+        f"<div class='{tone}' style='position:absolute;left:0;width:{mark:.1f}%;top:0;bottom:0;"
+        f"background:{color}'></div></div>"
+        f"<div class='{tone}' style='font-size:10px;color:{color};margin-top:2px;line-height:1.2'>{cap}</div>"
     )
 
 
@@ -2822,8 +2866,29 @@ class az_section:
 def pct_color(v):
     if v is None:
         return "--"
-    col = "#3fbf7f" if v >= 0 else "#9E1B2F"
-    return f"<span style='font-family:monospace;color:{col}'>{'+' if v >= 0 else ''}{v:.2f}%</span>"
+    tone, col = ("mw-good", "#3fbf7f") if v >= 0 else ("mw-bad", "#9E1B2F")
+    return (f"<span class='{tone}' style='font-family:monospace;color:{col}'>"
+            f"{'+' if v >= 0 else ''}{v:.2f}%</span>")
+
+
+def _fig_show(fig, **kw):
+    """Draw a chart. Fortune uses light paper and bronze lettering."""
+    if _look_name() == "Fortune":
+        fig.update_layout(
+            template="plotly_white",
+            paper_bgcolor="#FFFCF6",
+            plot_bgcolor="#F6F1E7",
+            font=dict(color="#2C2416", size=12),
+        )
+        axis = dict(gridcolor="#E3D5BE", zerolinecolor="#E3D5BE",
+                    color="#5C3A1A", tickfont=dict(color="#5C3A1A"),
+                    title_font=dict(color="#5C3A1A"))
+        fig.update_xaxes(**axis)
+        fig.update_yaxes(**axis)
+    try:
+        st.plotly_chart(fig, theme=None, **kw)
+    except TypeError:
+        st.plotly_chart(fig, **kw)
 
 
 # Price Range Analysis lookbacks. Session counts are trading days
@@ -3538,7 +3603,7 @@ def _render_quant_radar(key_prefix, *, pe, pb, ps, roe, roa, om, opm, gm, pm,
             "better side of that lens.</div>",
             unsafe_allow_html=True)
         left, right = st.columns([1.25, 0.75], vertical_alignment="center")
-        left.plotly_chart(fig, width="stretch", key=f"{box}_chart")
+        _fig_show(fig, width="stretch", key=f"{box}_chart")
         rows = []
         for s in spokes:
             if not s.get("live"):
@@ -4114,7 +4179,7 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
                            margin=dict(l=10, r=10, t=10, b=30),
                            xaxis_title="return over next 21 sessions (%)",
                            showlegend=False)
-        st.plotly_chart(figh, width="stretch",
+        _fig_show(figh, width="stretch",
                         key=f"{key_prefix}_hist_{tk}")
 
 
@@ -5533,18 +5598,23 @@ def _lk_cs_readout(cs: dict) -> None:
                    _CS_BULL if rsi < 35 else "#EAF2FF")
     else:
         rsi_txt, rsi_col = "—", DIM
-    cell = ("flex:1;min-width:92px;padding:8px 12px;"
-            "background:rgba(8,19,37,0.72);"
-            "border:1px solid rgba(255,255,255,0.08);border-radius:10px")
+    _light = _look_name() == "Fortune"
+    cell = ("flex:1;min-width:92px;padding:8px 12px;border-radius:10px;"
+            + ("background:#FFFCF6;border:1px solid #E3D5BE;"
+               if _light else
+               "background:rgba(8,19,37,0.72);border:1px solid rgba(255,255,255,0.08);"))
     lab = ("font-size:11px;letter-spacing:1px;text-transform:uppercase;"
-           "color:#9aa8bd;margin-bottom:4px")
+           f"color:{'#5C5346' if _light else '#9aa8bd'};margin-bottom:4px")
     val = "font-size:18px;font-weight:700;font-family:JetBrains Mono,monospace"
+    idle = "#5C3A1A" if _light else "#EAF2FF"
+    if rsi_col == "#EAF2FF" and _light:
+        rsi_col = "#5C3A1A"
     st.markdown(
         f"<div style='display:flex;gap:10px;margin:4px 0 10px'>"
         f"<div style='{cell}'><div style='{lab}'>Trend</div>"
         f"<div style='{val};color:{col}'>{label}</div></div>"
         f"<div style='{cell}'><div style='{lab}'>Active</div>"
-        f"<div style='{val};color:#EAF2FF'>{_esc(active)}</div></div>"
+        f"<div style='{val};color:{idle}'>{_esc(active)}</div></div>"
         f"<div style='{cell}'><div style='{lab}'>RSI</div>"
         f"<div style='{val};color:{rsi_col}'>{_esc(rsi_txt)}</div></div>"
         f"</div>",
@@ -5970,7 +6040,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     _chart_key = (f"chart_{state_key}_{tk}_{chart_tf}_{chart_ov}_"
                   f"{int(bool(chart_vol_on))}_{int(bool(chart_measure))}")
     if chart_measure:
-        _ev = st.plotly_chart(
+        _ev = _fig_show(
             fig, width="stretch", key=_chart_key,
             on_select="rerun", selection_mode=("box", "points"))
         _m = _lk_measure_from_event(_ev, d, xx, pack)
@@ -5980,7 +6050,7 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
         _lk_measure_hud(_shown, hint=_shown is None)
     else:
         st.session_state.pop(_mbox_key, None)
-        st.plotly_chart(fig, width="stretch", key=_chart_key)
+        _fig_show(fig, width="stretch", key=_chart_key)
 
 
 def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
@@ -7542,12 +7612,14 @@ def _cs_help_overlay_fig(kind: str):
 def _cs_help_pattern_card(title, body, bars, bull=True):
     svg = _cs_help_candles_svg(bars, title, bull=bull)
     col = _CS_BULL if bull else _CS_BEAR
+    _light = _look_name() == "Fortune"
     _md_html(
-        f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+        f"<div style='background:{'#FFFCF6' if _light else '#0c1829'};"
+        f"border:1px solid {'#E3D5BE' if _light else '#3d6a94'};"
         f"border-left:4px solid {col};border-radius:12px;"
         f"padding:10px 12px;margin:0 0 10px'>"
         f"<div style='margin:0 0 8px'>{svg}</div>"
-        f"<div style='color:{DIM};font-size:13px;line-height:1.5'>{body}</div>"
+        f"<div style='color:{'#5C5346' if _light else DIM};font-size:13px;line-height:1.5'>{body}</div>"
         f"</div>")
 
 
@@ -7572,21 +7644,24 @@ def _render_clean_setup_help():
         "gate on the last 90 bars."
     )
 
-    cell = ("flex:1;min-width:92px;padding:8px 12px;"
-            "background:rgba(8,19,37,0.72);"
-            "border:1px solid rgba(255,255,255,0.08);border-radius:10px")
+    _light = _look_name() == "Fortune"
+    cell = ("flex:1;min-width:92px;padding:8px 12px;border-radius:10px;"
+            + ("background:#FFFCF6;border:1px solid #E3D5BE;"
+               if _light else
+               "background:rgba(8,19,37,0.72);border:1px solid rgba(255,255,255,0.08);"))
     lab = ("font-size:11px;letter-spacing:1px;text-transform:uppercase;"
-           "color:#9aa8bd;margin-bottom:4px")
+           f"color:{'#5C5346' if _light else '#9aa8bd'};margin-bottom:4px")
     val = "font-size:18px;font-weight:700;font-family:JetBrains Mono,monospace"
+    ink = "#5C3A1A" if _light else "#EAF2FF"
     st.markdown("#### The three readout chips")
     st.markdown(
         f"<div style='display:flex;gap:10px;margin:4px 0 10px;flex-wrap:wrap'>"
         f"<div style='{cell}'><div style='{lab}'>Trend</div>"
         f"<div style='{val};color:{_CS_BULL}'>▲  Bull · 8–3</div></div>"
         f"<div style='{cell}'><div style='{lab}'>Active</div>"
-        f"<div style='{val};color:#EAF2FF'>2 targets</div></div>"
+        f"<div style='{val};color:{ink}'>2 targets</div></div>"
         f"<div style='{cell}'><div style='{lab}'>RSI</div>"
-        f"<div style='{val};color:#EAF2FF'>52.4</div></div>"
+        f"<div style='{val};color:{ink}'>52.4</div></div>"
         f"</div>",
         unsafe_allow_html=True)
     st.markdown(
@@ -7603,11 +7678,11 @@ def _render_clean_setup_help():
     st.markdown("#### Lines on the candles")
     b1, b2 = st.columns(2)
     with b1:
-        st.plotly_chart(_cs_help_overlay_fig("bull"), width="stretch",
+        _fig_show(_cs_help_overlay_fig("bull"), width="stretch",
                         config={"displayModeBar": False},
                         key="cs_help_bull_fig")
     with b2:
-        st.plotly_chart(_cs_help_overlay_fig("bear"), width="stretch",
+        _fig_show(_cs_help_overlay_fig("bear"), width="stretch",
                         config={"displayModeBar": False},
                         key="cs_help_bear_fig")
     st.caption("Schematic candles vs a short EMA (labeled EMA 50) and a longer "
@@ -9181,7 +9256,7 @@ with st.container(border=True, key="mw_page"):
                     fig.update_layout(height=max(340, 26 * max(len(srcs), len(tgts))),
                                       paper_bgcolor="rgba(0,0,0,0)", font_color="#EAF2FF",
                                       font_size=12, margin=dict(l=10, r=10, t=10, b=24))
-                    st.plotly_chart(fig, width="stretch", key="wd_sankey")
+                    _fig_show(fig, width="stretch", key="wd_sankey")
                     st.caption("Ribbon width = signal strength · green pushes the target UP, "
                                "red pushes DOWN · ribbons converging on one target = independent "
                                "waves agreeing. Hover a ribbon for its stats.")
@@ -12535,8 +12610,14 @@ if _look_name() in ("Fortune", "Private Bank"):
           setImp(el, "background-color", "#FFFCF6");
           setImp(el, "color", "#5C3A1A");
         });
-        doc.querySelectorAll('[data-baseweb="select"] span, [data-baseweb="select"] div, [role="option"] span, [role="option"] div').forEach(function (el) {
+        doc.querySelectorAll('[data-baseweb="select"] span, [data-baseweb="select"] div, [role="option"] span, [role="option"] div, [data-testid="stRadio"] label, [data-testid="stRadio"] p, [data-testid="stRadio"] span, label[data-testid="stRadioOption"], label[data-testid="stRadioOption"] p').forEach(function (el) {
           setImp(el, "color", "#5C3A1A");
+        });
+        doc.querySelectorAll('[data-testid="stAlert"], [data-testid="stNotification"]').forEach(function (el) {
+          setImp(el, "background", "#F3EBDD");
+          setImp(el, "background-color", "#F3EBDD");
+          setImp(el, "color", "#5C3A1A");
+          setImp(el, "border-color", "#C6A15B");
         });
       }
       doc.querySelectorAll('[data-testid="stRadio"] label, label[data-testid="stRadioOption"]').forEach(function (lab) {
