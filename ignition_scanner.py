@@ -2238,6 +2238,40 @@ def render_ignition_scanner_tab(render_detail=None):
     ):
         _css = _css.replace(_drop, "")
     st.markdown(_css, unsafe_allow_html=True)
+    _look = str(st.session_state.get("mw_look") or "")
+    if _look == "Fortune":
+        _ig_bg, _ig_card, _ig_ink, _ig_muted, _ig_line, _ig_metal = (
+            "#FFFCF6", "#F6F1E7", "#5C3A1A", "#5C5346", "#E3D5BE", "#8A6A2F")
+    elif _look == "Private Bank":
+        _ig_bg, _ig_card, _ig_ink, _ig_muted, _ig_line, _ig_metal = (
+            "#0C1424", "#121C30", "#E4C77B", "#C0C0C0", "#C6A15B", "#C6A15B")
+    else:
+        _ig_bg = ""
+    if _ig_bg:
+        st.markdown(
+            f"""<style>
+.hub-sec, .hub-sec small, .hub-title, .hub-title-pop,
+.ctick, .ctile-val, .ctile-lbl, .ctile-sub, .csub, .cscore,
+.ref-table td, .ref-table .trm, .ref-table .lvl, .ref-table .mng,
+.alert-row, .fuel-tag, .dtc-gauge, .sidebar-section,
+h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
+[data-testid="stCaptionContainer"] p, [data-testid="stCaptionContainer"] span {{
+  color: {_ig_ink} !important;
+  text-shadow: none !important;
+}}
+.hub-title, .hub-sec, .hub-title-pop, .crow, .ctile, .fuel-tag,
+.alert-row, .dtc-gauge, .ignite-banner, .ignite-banner.rev {{
+  background: {_ig_card} !important;
+  border-color: {_ig_line} !important;
+  box-shadow: none !important;
+}}
+.cflag, .cflag.rev, .stSuccess, .stInfo {{
+  color: {_ig_metal} !important;
+  border-color: {_ig_metal} !important;
+  background: {_ig_card} !important;
+}}
+</style>""",
+            unsafe_allow_html=True)
 
     APP_VERSION = "v3.10"
     last_scan = st.session_state.get("ig_last_scan_time", "--:--:--")

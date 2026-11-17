@@ -449,15 +449,35 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
 .stApp [data-testid="stRadio"] label,
 .stApp [data-testid="stRadio"] label p,
 .stApp [data-testid="stRadio"] label span,
+.stApp [data-testid="stRadio"] [data-testid="stMarkdownContainer"],
+.stApp [data-testid="stRadio"] [data-testid="stMarkdownContainer"] p,
 .stApp label[data-testid="stRadioOption"],
 .stApp label[data-testid="stRadioOption"] p,
 .stApp label[data-testid="stRadioOption"] span,
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"],
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"] div,
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"] span,
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] p,
 .stApp [data-testid="stMultiSelect"] [data-baseweb="select"] div,
 .stApp [data-testid="stMultiSelect"] [data-baseweb="select"] span {{
-    color: #5C3A1A !important;
+    color: #2C2416 !important;
+    -webkit-text-fill-color: #2C2416 !important;
+    opacity: 1 !important;
+}}
+[data-testid="stTooltipContent"],
+[data-testid="stTooltipContent"] *,
+[data-testid="stPopoverBody"],
+[data-testid="stPopoverBody"] *,
+[data-testid="stPopover"] [data-baseweb="popover"],
+[role="tooltip"],
+[role="tooltip"] *,
+[data-baseweb="tooltip"],
+[data-baseweb="tooltip"] * {{
+    background: #FFFCF6 !important;
+    background-color: #FFFCF6 !important;
+    color: #2C2416 !important;
+    -webkit-text-fill-color: #2C2416 !important;
+    opacity: 1 !important;
 }}
 .stApp [data-testid="stAlert"],
 .stApp [data-testid="stAlert"] > div,
@@ -478,9 +498,21 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
 [data-testid="stPlotlyChart"],
 [data-testid="stPlotlyChart"] > div,
 [data-testid="stVegaLiteChart"],
-[data-testid="stArrowVegaLiteChart"] {{
+[data-testid="stArrowVegaLiteChart"],
+[data-testid="stDateInput"] input,
+[data-testid="stDateInput"] div,
+[data-baseweb="calendar"],
+[data-baseweb="calendar"] > div,
+[data-baseweb="datepicker"],
+[data-baseweb="datepicker"] > div {{
     background: #FFFCF6 !important;
     background-color: #FFFCF6 !important;
+    color: #5C3A1A !important;
+}}
+[data-baseweb="calendar"] [aria-selected="true"] {{
+    background: #C6A15B !important;
+    background-color: #C6A15B !important;
+    color: #1C1915 !important;
 }}
 .js-plotly-plot .bglayer rect,
 .js-plotly-plot rect.bg {{
@@ -12680,13 +12712,31 @@ _embed_html(
           setImp(g, "background", "#F6F1E7");
           setImp(g, "background-color", "#F6F1E7");
         });
+        doc.querySelectorAll('[data-baseweb="calendar"], [data-baseweb="datepicker"], [data-testid="stDateInput"] input, [data-testid="stDateInput"] div').forEach(function (el) {
+          setImp(el, "background", "#FFFCF6");
+          setImp(el, "background-color", "#FFFCF6");
+          setImp(el, "color", "#5C3A1A");
+        });
         doc.querySelectorAll('[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [role="option"]').forEach(function (el) {
           setImp(el, "background", "#FFFCF6");
           setImp(el, "background-color", "#FFFCF6");
           setImp(el, "color", "#5C3A1A");
         });
-        doc.querySelectorAll('[data-baseweb="select"] span, [data-baseweb="select"] div, [role="option"] span, [role="option"] div, [data-testid="stRadio"] label, [data-testid="stRadio"] p, [data-testid="stRadio"] span, label[data-testid="stRadioOption"], label[data-testid="stRadioOption"] p').forEach(function (el) {
-          setImp(el, "color", "#5C3A1A");
+        doc.querySelectorAll('[data-baseweb="select"] span, [data-baseweb="select"] div, [data-baseweb="select"] p, [role="option"] span, [role="option"] div, [data-testid="stRadio"] label, [data-testid="stRadio"] p, [data-testid="stRadio"] span, label[data-testid="stRadioOption"], label[data-testid="stRadioOption"] p').forEach(function (el) {
+          setImp(el, "color", "#2C2416");
+          setImp(el, "-webkit-text-fill-color", "#2C2416");
+          setImp(el, "opacity", "1");
+        });
+        doc.querySelectorAll('[data-testid="stTooltipContent"], [data-testid="stPopoverBody"], [role="tooltip"], [data-baseweb="tooltip"]').forEach(function (el) {
+          setImp(el, "background", "#FFFCF6");
+          setImp(el, "background-color", "#FFFCF6");
+          setImp(el, "color", "#2C2416");
+          el.querySelectorAll("*").forEach(function (n) {
+            setImp(n, "background", "#FFFCF6");
+            setImp(n, "background-color", "#FFFCF6");
+            setImp(n, "color", "#2C2416");
+            setImp(n, "-webkit-text-fill-color", "#2C2416");
+          });
         });
         doc.querySelectorAll('[data-testid="stAlert"], [data-testid="stNotification"], [data-testid="stStatusWidget"], [data-testid="stSpinner"]').forEach(function (el) {
           setImp(el, "background", "#F3EBDD");
@@ -12717,22 +12767,27 @@ _embed_html(
       function toGreen(img) {
         return img.replace(/rgba?\\(232,\\s*119,\\s*34(?:,\\s*[\\d.]+)?\\)/g, "rgb(63, 191, 127)");
       }
-      doc.querySelectorAll('[data-testid="stSlider"] div, [data-testid="stSelectSlider"] div').forEach(function (el) {
-        if (el.style && el.style.getPropertyValue("background-image")) el.style.removeProperty("background-image");
-      });
-      var sheets = doc.styleSheets;
-      for (var s = 0; s < sheets.length; s++) {
-        var rules;
-        try { rules = sheets[s].cssRules; } catch (e) { continue; }
-        if (!rules) continue;
-        for (var i = 0; i < rules.length; i++) {
-          var stl = rules[i].style;
-          if (!stl || !stl.backgroundImage) continue;
-          var img = stl.backgroundImage;
-          if (img.indexOf("232, 119, 34") < 0 && img.indexOf("232,119,34") < 0) continue;
-          stl.backgroundImage = toGreen(img);
+      function recolorTracks() {
+        var sheets = doc.styleSheets;
+        for (var s = 0; s < sheets.length; s++) {
+          var rules;
+          try { rules = sheets[s].cssRules; } catch (e) { continue; }
+          if (!rules) continue;
+          for (var i = 0; i < rules.length; i++) {
+            var stl = rules[i].style;
+            if (!stl || !stl.backgroundImage) continue;
+            var img = stl.backgroundImage;
+            if (img.indexOf("232, 119, 34") < 0 && img.indexOf("232,119,34") < 0) continue;
+            stl.backgroundImage = toGreen(img);
+          }
         }
+        doc.querySelectorAll('[data-testid="stSlider"] div, [data-testid="stSelectSlider"] div').forEach(function (el) {
+          var inline = el.style ? (el.style.backgroundImage || "") : "";
+          if (inline.indexOf("232, 119, 34") < 0 && inline.indexOf("232,119,34") < 0) return;
+          el.style.setProperty("background-image", toGreen(inline), "important");
+        });
       }
+      recolorTracks();
       doc.querySelectorAll('[data-testid="stMultiSelect"] [data-baseweb="tag"], [data-testid="stMultiSelectTagsContainer"] > span > span').forEach(function (el) {
         setImp(el, "background", GREEN);
         setImp(el, "background-color", GREEN);
@@ -12744,6 +12799,20 @@ _embed_html(
   }
   root.__mwPaint = paint;
   paint();
+  if (!root.__mwTrackObs && root.MutationObserver) {
+    root.__mwTrackObs = new root.MutationObserver(function () {
+      if (root.__mwPaintQueued) return;
+      root.__mwPaintQueued = true;
+      root.requestAnimationFrame(function () {
+        root.__mwPaintQueued = false;
+        if (root.__mwPaint) root.__mwPaint();
+      });
+    });
+    root.__mwTrackObs.observe(doc.documentElement, {
+      subtree: true, childList: true, attributes: true,
+      attributeFilter: ["class", "style"]
+    });
+  }
   if (!root.__mwMoneyGreen) {
     root.__mwMoneyGreen = true;
     root.setInterval(function () { if (root.__mwPaint) root.__mwPaint(); }, 50);
