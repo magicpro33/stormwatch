@@ -229,25 +229,37 @@ def _look_name() -> str:
 
 
 def _money_green_css() -> str:
-    """Orange slider thumbs, the selected radio dot, and sector chips."""
+    """Orange slider bar, the selected radio dot, and sector chips.
+
+    Streamlit Cloud's widgets no longer use the old baseweb test ids, so
+    both shapes are covered. The number sitting on the slider stays clear.
+    """
     return """
 .stApp [data-testid="stSlider"] [role="slider"],
-.stApp [data-testid="stSlider"] [role="slider"] > div,
-.stApp [data-baseweb="slider"] [role="slider"] > div {
+.stApp [data-baseweb="slider"] [role="slider"],
+.stApp [data-testid="stSlider"] div:has(> [data-testid="stSliderThumbValue"]) {
     background: #3fbf7f !important;
     background-color: #3fbf7f !important;
     border-color: #2E7D4F !important;
 }
-.stApp [data-testid="stRadio"] label:has(input:checked) > div:first-child {
+.stApp [data-testid="stSlider"] [role="slider"] > div,
+.stApp [data-testid="stSliderThumbValue"],
+.stApp [data-testid="stSliderThumbValue"] *,
+.stApp [data-testid="stSliderTickBar"],
+.stApp [data-testid="stSliderTickBar"] * {
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+.stApp [data-testid="stRadio"] label:has(input:checked) > div:first-child,
+.stApp label[data-testid="stRadioOption"]:has(input:checked) > div > div:first-child {
     background: #3fbf7f !important;
     background-color: #3fbf7f !important;
     border-color: #2E7D4F !important;
 }
 .stApp [data-testid="stMultiSelect"] [data-baseweb="tag"],
 .stApp [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
-.stApp [data-testid="stMultiSelect"] [style*="232, 119, 34"],
-.stApp [data-testid="stMultiSelect"] [style*="232,119,34"],
-.stApp [data-testid="stMultiSelect"] [style*="232, 119, 34"] span {
+.stApp [data-testid="stMultiSelectTagsContainer"] > span > span {
     background: #3fbf7f !important;
     background-color: #3fbf7f !important;
     border-color: #2E7D4F !important;
@@ -12420,8 +12432,6 @@ if _look_name() in ("Fortune", "Private Bank"):
         """<script>
 (function () {
   var root = window.parent || window;
-  if (root.__mwMoneyGreen) return;
-  root.__mwMoneyGreen = true;
   var doc = root.document;
   var GREEN = "#3fbf7f";
   var painting = false;
@@ -12451,27 +12461,33 @@ if _look_name() in ("Fortune", "Private Bank"):
           setImp(g, "background-color", "#F6F1E7");
         });
       }
-      doc.querySelectorAll('[data-testid="stRadio"] label').forEach(function (lab) {
+      doc.querySelectorAll('[data-testid="stRadio"] label, label[data-testid="stRadioOption"]').forEach(function (lab) {
         var input = lab.querySelector("input");
-        var dot = lab.firstElementChild;
-        if (!input || !dot || !input.checked) return;
+        if (!input || !input.checked) return;
+        var dot = lab.querySelector(":scope > div > div:first-child") || lab.firstElementChild;
+        if (!dot) return;
         setImp(dot, "background", GREEN);
         setImp(dot, "background-color", GREEN);
         setImp(dot, "border-color", "#2E7D4F");
       });
-      doc.querySelectorAll('[data-testid="stSlider"] [role="slider"]').forEach(function (el) {
+      doc.querySelectorAll('[data-testid="stSlider"] [role="slider"], [data-testid="stSlider"] div:has(> [data-testid="stSliderThumbValue"])').forEach(function (el) {
         setImp(el, "background", GREEN);
         setImp(el, "background-color", GREEN);
         setImp(el, "border-color", "#2E7D4F");
       });
+      doc.querySelectorAll('[data-testid="stSliderThumbValue"], [data-testid="stSlider"] [role="slider"] > div, [data-testid="stSliderTickBar"]').forEach(function (el) {
+        setImp(el, "background", "transparent");
+        setImp(el, "background-color", "transparent");
+        setImp(el, "box-shadow", "none");
+      });
       var view = doc.defaultView || root;
-      doc.querySelectorAll('[data-testid="stSlider"] [data-baseweb="slider"] div').forEach(function (el) {
+      doc.querySelectorAll('[data-testid="stSlider"] div').forEach(function (el) {
         var img = "";
         try { img = view.getComputedStyle(el).backgroundImage || ""; } catch (e) { return; }
         if (img.indexOf("232, 119, 34") < 0 && img.indexOf("232,119,34") < 0) return;
         setImp(el, "background-image", img.replace(/rgb\\(232,\\s*119,\\s*34\\)/g, "rgb(63, 191, 127)"));
       });
-      doc.querySelectorAll('[data-testid="stMultiSelect"] [data-baseweb="tag"]').forEach(function (el) {
+      doc.querySelectorAll('[data-testid="stMultiSelect"] [data-baseweb="tag"], [data-testid="stMultiSelectTagsContainer"] > span > span').forEach(function (el) {
         setImp(el, "background", GREEN);
         setImp(el, "background-color", GREEN);
         setImp(el, "border-color", "#2E7D4F");
@@ -12481,7 +12497,10 @@ if _look_name() in ("Fortune", "Private Bank"):
     }
   }
   paint();
-  root.setInterval(paint, 400);
+  if (!root.__mwMoneyGreen) {
+    root.__mwMoneyGreen = true;
+    root.setInterval(paint, 400);
+  }
 })();
 </script>""",
         height=0,
