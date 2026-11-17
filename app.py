@@ -872,7 +872,7 @@ html, body, .stApp {{
     color: {f['head']} !important;
     text-shadow: none !important;
 }}
-.stApp label, .stApp strong, .stApp b {{
+.stApp label {{
     color: {f['head']} !important;
 }}
 [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p,
@@ -1799,6 +1799,34 @@ if _look_name() in _LOOK_INK:
     ACCENT, DIM = _LOOK_INK[_look_name()]
 if _look_name() in ("Fortune", "Private Bank"):
     MIX_COLOR = "#3fbf7f"
+
+
+def _fq_on() -> bool:
+    return _look_name() == "Fortune"
+
+
+def _fq_bg() -> str:
+    return "#FFFCF6" if _fq_on() else "#0c1829"
+
+
+def _fq_chip() -> str:
+    return "#F3EBDD" if _fq_on() else "#081325"
+
+
+def _fq_ink() -> str:
+    return "#2C2416" if _fq_on() else "#d7e0ec"
+
+
+def _fq_muted() -> str:
+    return "#5C5346" if _fq_on() else DIM
+
+
+def _fq_line() -> str:
+    return "#E3D5BE" if _fq_on() else "#1d2b40"
+
+
+def _fq_line2() -> str:
+    return "#C6A15B" if _fq_on() else "#3d6a94"
 _DF_WIDTH = "content"   # size dataframe columns to cell contents; no leftover pad
 
 
@@ -1842,7 +1870,7 @@ def _css_health_lbl(v):
         return f"color:{RED};font-weight:600"
     if "█" in s or "Strong" in s or "OK" in s:
         return f"color:{_health_shade(s)};font-weight:600"
-    return f"color:{DIM}"
+    return f"color:{_fq_muted()}"
 
 
 def _css_cs_trend(v, shade=None):
@@ -1853,20 +1881,20 @@ def _css_cs_trend(v, shade=None):
         return f"color:{RED};font-weight:600"
     if "mixed" in s:
         return f"color:{shade or GREEN};font-weight:600"
-    return f"color:{DIM}"
+    return f"color:{_fq_muted()}"
 
 
 def _css_fav(v):
     s = str(v or "")
     if "★" in s:
         return "color:#F5C542;font-weight:700"
-    return f"color:{DIM}"
+    return f"color:{_fq_muted()}"
 
 
 def _css_earn_cell(v):
     s = str(v or "").strip()
     if not s or s in ("—", "Done"):
-        return f"color:{DIM}"
+        return f"color:{_fq_muted()}"
     if s.startswith("Today"):
         return f"color:{RED};font-weight:600"
     try:
@@ -1887,11 +1915,11 @@ def _css_hit(v):
     except (TypeError, ValueError):
         return ""
     if not np.isfinite(v):
-        return f"color:{DIM}"
+        return f"color:{_fq_muted()}"
     if v >= 0.60:
         return f"color:{GREEN};font-weight:600"
     if v >= 0.50:
-        return f"color:{DIM}"
+        return f"color:{_fq_muted()}"
     return f"color:{RED};font-weight:600"
 
 def _dump_header_line() -> str:
@@ -3015,7 +3043,7 @@ def _tilt_chip(mult: float) -> str:
     """1.20 → '+20%', 0.82 → '−18%'."""
     pct = (float(mult) - 1.0) * 100
     if abs(pct) < 0.5:
-        return f"<span style='color:{DIM}'>flat</span>"
+        return f"<span style='color:{_fq_muted()}'>flat</span>"
     col = GREEN if pct > 0 else RED
     return f"<span style='color:{col};font-weight:700'>{pct:+.0f}%</span>"
 
@@ -3045,10 +3073,10 @@ def render_lens_playbook(cd: dict, regkey: str | None = None, *, full: bool = Tr
                 unsafe_allow_html=True)
             for title, why in wins:
                 st.markdown(
-                    f"<div style='background:#0c1829;border-left:3px solid {GREEN};"
+                    f"<div style='background:{_fq_bg()};color:{_fq_ink()};border-left:3px solid {GREEN};"
                     f"padding:8px 12px;margin:0 0 8px;border-radius:0 8px 8px 0'>"
                     f"<div style='font-weight:700;font-size:13px;color:{GREEN}'>{_esc(title)}</div>"
-                    f"<div style='color:{DIM};font-size:12.5px;line-height:1.5'>{_esc(why)}</div>"
+                    f"<div style='color:{_fq_muted()};font-size:12.5px;line-height:1.5'>{_esc(why)}</div>"
                     f"</div>", unsafe_allow_html=True)
     else:
         _l.markdown(f"**▲ Leads**\n\n{cd.get('leads', '')}")
@@ -3060,10 +3088,10 @@ def render_lens_playbook(cd: dict, regkey: str | None = None, *, full: bool = Tr
                 unsafe_allow_html=True)
             for title, why in loses:
                 st.markdown(
-                    f"<div style='background:#0c1829;border-left:3px solid {RED};"
+                    f"<div style='background:{_fq_bg()};color:{_fq_ink()};border-left:3px solid {RED};"
                     f"padding:8px 12px;margin:0 0 8px;border-radius:0 8px 8px 0'>"
                     f"<div style='font-weight:700;font-size:13px;color:{RED}'>{_esc(title)}</div>"
-                    f"<div style='color:{DIM};font-size:12.5px;line-height:1.5'>{_esc(why)}</div>"
+                    f"<div style='color:{_fq_muted()};font-size:12.5px;line-height:1.5'>{_esc(why)}</div>"
                     f"</div>", unsafe_allow_html=True)
     else:
         _r.markdown(f"**▼ Lags**\n\n{cd.get('lags', '')}")
@@ -3096,12 +3124,12 @@ def render_lens_playbook(cd: dict, regkey: str | None = None, *, full: bool = Tr
         if tilts:
             _rows = sorted(tilts.items(), key=lambda kv: -kv[1])
             chips = " ".join(
-                f"<span style='display:inline-block;background:#0c1829;border:1px solid "
-                f"#1d2b40;border-radius:6px;padding:3px 9px;margin:2px;font-size:12px'>"
+                f"<span style='display:inline-block;background:{_fq_bg()};color:{_fq_ink()};border:1px solid "
+                f"{_fq_line()};border-radius:6px;padding:3px 9px;margin:2px;font-size:12px'>"
                 f"{_esc(sec)} {_tilt_chip(m)}</span>"
                 for sec, m in _rows)
             st.markdown(
-                f"<div style='margin-top:8px'><span style='color:{DIM};font-size:12px;"
+                f"<div style='margin-top:8px'><span style='color:{_fq_muted()};font-size:12px;"
                 f"letter-spacing:1px;text-transform:uppercase'>Sector multipliers</span>"
                 f"<br>{chips}</div>", unsafe_allow_html=True)
         elif regkey == "base":
@@ -3110,12 +3138,12 @@ def render_lens_playbook(cd: dict, regkey: str | None = None, *, full: bool = Tr
         if ind_tilts:
             _irows = sorted(ind_tilts.items(), key=lambda kv: -kv[1])
             ichips = " ".join(
-                f"<span style='display:inline-block;background:#0c1829;border:1px solid "
-                f"#1d2b40;border-radius:6px;padding:3px 9px;margin:2px;font-size:12px'>"
+                f"<span style='display:inline-block;background:{_fq_bg()};color:{_fq_ink()};border:1px solid "
+                f"{_fq_line()};border-radius:6px;padding:3px 9px;margin:2px;font-size:12px'>"
                 f"{_esc(ind)} {_tilt_chip(m)}</span>"
                 for ind, m in _irows)
             st.markdown(
-                f"<div style='margin-top:8px'><span style='color:{DIM};font-size:12px;"
+                f"<div style='margin-top:8px'><span style='color:{_fq_muted()};font-size:12px;"
                 f"letter-spacing:1px;text-transform:uppercase'>Industry overlays "
                 f"(on top of GICS)</span><br>{ichips}</div>",
                 unsafe_allow_html=True)
@@ -3694,13 +3722,13 @@ def _ov_fiscal_ye(v) -> str:
 
 def _ov_row(label, value, tip=None, html_value=False):
     """IGNITION Analyze `irow` — label left, value right, optional tooltip."""
-    tip_html = (f" <span title='{_esc(tip)}' style='cursor:help;color:{DIM};"
+    tip_html = (f" <span title='{_esc(tip)}' style='cursor:help;color:{_fq_muted()};"
                 f"font-size:11px'>ℹ️</span>") if tip else ""
     val = value if html_value else _esc(_ov_na(value))
     st.markdown(
         f"<div style='display:flex;justify-content:space-between;gap:12px;"
-        f"padding:6px 0;border-bottom:1px solid #1d2b40'>"
-        f"<span style='color:{DIM};flex-shrink:0'>{_esc(label)}{tip_html}</span>"
+        f"padding:6px 0;border-bottom:1px solid {_fq_line()}'>"
+        f"<span style='color:{_fq_muted()};flex-shrink:0'>{_esc(label)}{tip_html}</span>"
         f"<span style='font-weight:600;color:#F6F4E9;text-align:right'>{val}</span>"
         f"</div>",
         unsafe_allow_html=True)
@@ -4196,7 +4224,7 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
               if not hist.empty and len(hist) > 22 else "--",
               help="Annualised 21-day volatility.")
     st.markdown(f"<div style='margin:6px 0 4px'><strong>{_esc(name)}</strong>  "
-                f"<span style='color:{DIM};font-size:13px'>{_esc(sec_display)}</span></div>",
+                f"<span style='color:{_fq_muted()};font-size:13px'>{_esc(sec_display)}</span></div>",
                 unsafe_allow_html=True)
     if pills:
         st.markdown(f"<div style='margin:6px 0 12px'>{pills}</div>", unsafe_allow_html=True)
@@ -4522,7 +4550,7 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
         pv, plabel, pcol = pressure["val"], pressure["label"], pressure["color"]
         ptxt = "n/a" if pv is None else f"{pv:+.2f}"
         right += (
-            f"<div style='font-size:13px;color:{DIM};letter-spacing:.06em;"
+            f"<div style='font-size:13px;color:{_fq_muted()};letter-spacing:.06em;"
             f"text-transform:uppercase;margin-bottom:6px;'>Net cascade pressure</div>"
             f"<div style='font-size:2em;font-weight:700;color:{pcol};line-height:1.15;'>{ptxt}</div>"
             f"<div style='font-size:1.05em;color:{pcol};margin:4px 0 16px;'>{_esc(plabel)}</div>"
@@ -4531,11 +4559,11 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
         right += (
             f"<div style='border-left:4px solid {outlook['color']};padding:8px 0 8px 16px;'>"
             f"<div style='font-size:1.25em;font-weight:700;'>{outlook['emo']} Outlook</div>"
-            f"<div style='font-size:1.05em;color:#d7e0ec;margin-top:6px;line-height:1.45;'>{_esc(outlook['text'])}</div>"
+            f"<div style='font-size:1.05em;color:{_fq_ink()};margin-top:6px;line-height:1.45;'>{_esc(outlook['text'])}</div>"
             f"</div>"
         )
     if not right:
-        right = f"<div style='color:{DIM};font-size:1.05em;'>across {n:,} look-alike cases</div>"
+        right = f"<div style='color:{_fq_muted()};font-size:1.05em;'>across {n:,} look-alike cases</div>"
     _fq = _look_name() == "Fortune"
     _fc_bg = "#FFFCF6" if _fq else "linear-gradient(135deg,#0d1b2a,#1a2d45)"
     _fc_line = "#E3D5BE" if _fq else "#1e3a5f"
@@ -4543,7 +4571,7 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
     _fc_num = "#2C2416" if _fq else "#F6F4E9"
     _fc_track = "#E7DCC8" if _fq else "#12233c"
     if _fq and outlook:
-        right = right.replace("color:#d7e0ec", "color:#5C5346")
+        right = right.replace("color:#2C2416", "color:#5C5346")
 
     st.markdown(f"""<div style="background:{_fc_bg};
       border:1px solid {_fc_line};border-radius:14px;padding:24px 28px 22px;margin-bottom:16px;">
@@ -4576,11 +4604,11 @@ def render_outcome_forecast(oc, tk, *, pressure=None, outlook=None,
         w1.markdown("<div style='display:grid;grid-template-columns:repeat(10,14px);gap:4px;'>"
                     + "".join(dots) + "</div>", unsafe_allow_html=True)
         w2.markdown(f"""<div style="font-size:14px;line-height:2;">
-          <div><span style="color:#3fbf7f;font-weight:700;">● {n_pop}</span> <span style="color:{DIM};">exploded +15% or more</span></div>
-          <div><span style="color:{GREEN};font-weight:700;">● {n_up}</span> <span style="color:{DIM};">gained</span></div>
-          <div><span style="color:{RED};font-weight:700;">● {n_dn}</span> <span style="color:{DIM};">lost</span></div>
-          <div><span style="color:#9E1B2F;font-weight:700;">● {n_crash}</span> <span style="color:{DIM};">crashed −15% or worse</span></div>
-          <div style="font-size:12px;color:{DIM};border-top:1px solid #1d2b40;padding-top:6px;margin-top:4px;">
+          <div><span style="color:#3fbf7f;font-weight:700;">● {n_pop}</span> <span style="color:{_fq_muted()};">exploded +15% or more</span></div>
+          <div><span style="color:{GREEN};font-weight:700;">● {n_up}</span> <span style="color:{_fq_muted()};">gained</span></div>
+          <div><span style="color:{RED};font-weight:700;">● {n_dn}</span> <span style="color:{_fq_muted()};">lost</span></div>
+          <div><span style="color:#9E1B2F;font-weight:700;">● {n_crash}</span> <span style="color:{_fq_muted()};">crashed −15% or worse</span></div>
+          <div style="font-size:12px;color:{_fq_muted()};border-top:1px solid {_fq_line()};padding-top:6px;margin-top:4px;">
             100 dots summarising {n:,} real historical cases</div></div>""",
                     unsafe_allow_html=True)
         import plotly.graph_objects as go
@@ -5301,7 +5329,7 @@ def _lk_bar_legend() -> None:
             f"align-items:center;gap:6px;cursor:help'>"
             f"<span style='width:8px;height:16px;border-radius:2px;"
             f"background:{col};display:inline-block'></span>"
-            f"<span style='font-size:12px;color:{DIM};"
+            f"<span style='font-size:12px;color:{_fq_muted()};"
             f"border-bottom:1px dotted {DIM}'>{_esc(name)}</span>"
             f"</span>")
     st.markdown(
@@ -6628,9 +6656,9 @@ def _render_saved_scans(items):
                         cards = []
                         for field, text in pairs:
                             cards.append(
-                                "<div style='background:#0c1829;border:1px solid #1d2b40;"
+                                f"<div style='background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};"
                                 "border-radius:8px;padding:8px 10px;min-width:0'>"
-                                f"<div style='color:{DIM};font-size:11px;letter-spacing:.3px'>"
+                                f"<div style='color:{_fq_muted()};font-size:11px;letter-spacing:.3px'>"
                                 f"{_esc(field)}</div>"
                                 "<div style='font-weight:700;font-size:15px;margin-top:2px;"
                                 f"word-break:break-word'>{_esc(text)}</div></div>"
@@ -7052,7 +7080,7 @@ def _t20_css():
   color:#EAF2FF;letter-spacing:.02em;
   box-shadow:0 8px 32px rgba(0,0,0,0.35)}}
 .t20-head.lg{{font-size:21px;padding:14px 20px}}
-.t20-head small{{font-weight:500;font-size:12px;color:{DIM};margin-left:8px}}
+.t20-head small{{font-weight:500;font-size:12px;color:{_fq_muted()};margin-left:8px}}
 .t20-head.lg small{{font-size:14px}}
 .t20-box{{background:rgba(255,255,255,0.045);border:1px solid rgba(255,255,255,0.12);border-left:4px solid var(--bc,{_T20_BLUE});
   border-radius:10px;padding:12px 16px;color:#F6F4E9;font-size:14px;line-height:1.55;margin:6px 0}}
@@ -7230,15 +7258,15 @@ def _render_macro_lens_block(prefix: str, asof, closes, gauge, *,
             cc = {"high": GREEN, "medium": "#d0b040",
                   "low": DIM}[advice["confidence"]]
             _md_html(
-                f"<div style='background:#081325;border:1px solid #1d2b40;"
+                f"<div style='background:{_fq_chip()};border:1px solid {_fq_line()};"
                 f"border-left:5px solid {cc};border-radius:12px;"
                 f"padding:12px 16px;margin:6px 0;'>"
-                f"<div style='font-size:12px;color:{DIM};letter-spacing:1px;"
+                f"<div style='font-size:12px;color:{_fq_muted()};letter-spacing:1px;"
                 f"text-transform:uppercase;'>Recommended · "
                 f"{_esc(advice['confidence'])} confidence</div>"
                 f"<div style='font-size:17px;font-weight:800;"
                 f"margin:3px 0 5px;'>{_esc(advice['label'])}</div>"
-                f"<div style='color:{DIM};font-size:12px;'>Margin "
+                f"<div style='color:{_fq_muted()};font-size:12px;'>Margin "
                 f"{_esc(advice['margin'])} pts · "
                 f"{_esc(advice['n_articles'])} headlines read · "
                 f"{_esc(advice['stamp'])}</div></div>")
@@ -7294,11 +7322,11 @@ def _render_macro_lens_block(prefix: str, asof, closes, gauge, *,
         if cd:
             _md_html(
                 f"<div style='display:flex;align-items:center;gap:10px;"
-                f"background:#081325;border-left:3px solid {ACCENT};"
+                f"background:{_fq_chip()};border-left:3px solid {ACCENT};"
                 f"padding:8px 14px;margin:6px 0;font-size:13px;'>"
                 f"<span style='font-size:17px;'>{cd['emoji']}</span>"
                 f"<span><b>{_esc(cd['name'])}</b>"
-                f"<span style='color:{DIM};font-size:12px;'> — "
+                f"<span style='color:{_fq_muted()};font-size:12px;'> — "
                 f"{_esc(cd.get('thesis') or '')}</span>"
                 f"<br><span style='color:{GREEN};'> ▲ "
                 f"{_esc(cd['leads'])}</span>"
@@ -7757,7 +7785,7 @@ def _render_signed_catalysts(tk: str, sector: str = "", *, notes: bool = True) -
 
     def _pills(text, color, border, bg):
         if not text:
-            return f"<span style='color:{DIM};font-size:13px'>None</span>"
+            return f"<span style='color:{_fq_muted()};font-size:13px'>None</span>"
         bits = []
         for part in text.split(" · "):
             tip = "" if notes else _cat_tip(part)
@@ -7789,7 +7817,7 @@ def _render_signed_catalysts(tk: str, sector: str = "", *, notes: bool = True) -
                 continue
             lab = f"{m.get('icon', '')} {m.get('label', cid)}".strip()
             rows.append(
-                f"<div style='font-size:12px;color:{DIM};line-height:1.4;"
+                f"<div style='font-size:12px;color:{_fq_muted()};line-height:1.4;"
                 f"margin:5px 0 0'>"
                 f"<span style='color:{color};font-weight:700'>{_esc(lab)}</span>"
                 f" — {_esc(note)}</div>")
@@ -7867,7 +7895,7 @@ def _user_tz() -> str:
 
 def _news_items_html(items, color, border, bg, badge, empty):
     if not items:
-        return f"<div style='color:{DIM};font-size:13px'>{_esc(empty)}</div>"
+        return f"<div style='color:{_fq_muted()};font-size:13px'>{_esc(empty)}</div>"
     _fq = _look_name() == "Fortune"
     _ink = "#5C3A1A" if _fq else "#F6F4E9"
     _line = "#E3D5BE" if _fq else "#1d2b40"
@@ -7957,14 +7985,14 @@ def _help_card(title, blurb, body, use="", color="#7FD4FF", pop=""):
             f'{_esc(pop)}</div>'
         )
     _md_html(
-        f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+        f"<div style='background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line2()};"
         f"border-left:4px solid {color};border-radius:12px;"
         f"padding:12px 16px;margin:0 0 10px'>"
         f"<div style='font-weight:800;font-size:16px;letter-spacing:.2px'>"
         f"{_esc(title)}</div>{pop_html}"
         f"<div style='color:{color};font-size:13px;font-weight:650;"
         f"margin:4px 0 8px'>{_esc(blurb)}</div>"
-        f"<div style='color:{DIM};font-size:13.5px;line-height:1.55'>"
+        f"<div style='color:{_fq_muted()};font-size:13.5px;line-height:1.55'>"
         f"{_esc(body)}</div>{extra}</div>"
     )
 
@@ -7974,7 +8002,7 @@ def _help_key_row(icon, name, score, meaning, side="up"):
     sign = f"{int(score):+d}"
     _md_html(
         f"<div style='display:flex;gap:12px;align-items:flex-start;"
-        f"background:#0c1829;border:1px solid #1d2b40;border-radius:10px;"
+        f"background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};border-radius:10px;"
         f"padding:10px 12px;margin:0 0 8px'>"
         f"<div style='font-size:22px;line-height:1;min-width:28px'>{_esc(icon)}</div>"
         f"<div style='flex:1'>"
@@ -7983,7 +8011,7 @@ def _help_key_row(icon, name, score, meaning, side="up"):
         f"<span style='color:{col};font-weight:800;font-family:Space Mono,monospace;"
         f"font-size:13px'>{_esc(sign)}</span>"
         f"</div>"
-        f"<div style='color:{DIM};font-size:13px;line-height:1.5;margin-top:3px'>"
+        f"<div style='color:{_fq_muted()};font-size:13px;line-height:1.5;margin-top:3px'>"
         f"{_esc(meaning)}</div></div></div>"
     )
 
@@ -8012,7 +8040,7 @@ def _cs_help_candles_svg(bars, label="", bull=True, w=240, h=92):
     parts = [
         f"<div role='img' aria-label='{_esc(label or 'pattern')}' "
         f"style='position:relative;width:100%;height:{h}px;"
-        f"background:#0c1829;border:1px solid #1d2b40;border-radius:8px;"
+        f"background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};border-radius:8px;"
         f"overflow:hidden'>"
     ]
     if label:
@@ -8681,15 +8709,15 @@ def _render_scan_hub_help():
         _md_html(
             f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;"
             f"margin:0 0 14px'>"
-            f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+            f"<div style='background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line2()};"
             f"border-left:5px solid #7FD4FF;border-radius:10px;padding:10px 12px'>"
             f"<div style='font-weight:800;color:#7FD4FF'>🚫 Off</div>"
-            f"<div style='color:{DIM};font-size:13px;margin-top:4px'>"
+            f"<div style='color:{_fq_muted()};font-size:13px;margin-top:4px'>"
             f"No sector tilt. Pure scanner score.</div></div>"
-            f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+            f"<div style='background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line2()};"
             f"border-left:5px solid #F0A6FF;border-radius:10px;padding:10px 12px'>"
             f"<div style='font-weight:800;color:#F0A6FF'>📡 Auto</div>"
-            f"<div style='color:{DIM};font-size:13px;margin-top:4px'>"
+            f"<div style='color:{_fq_muted()};font-size:13px;margin-top:4px'>"
             f"Uses the regime the app detects live from oil, dollar, VIX, "
             f"and the pressure gauge.</div></div></div>"
         )
@@ -8728,12 +8756,12 @@ def _render_scan_hub_help():
                 _lens_c = ("#7FD4FF", "#6EE7B7", "#F0A6FF", "#FFD15C",
                            "#FF8FA3", "#C5D4FF", "#2DD4BF", "#A78BFA")[i % 8]
                 _md_html(
-                    f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+                    f"<div style='background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line2()};"
                     f"border-left:5px solid {_lens_c};border-radius:12px;"
                     f"padding:12px 14px;margin:0 0 10px'>"
                     f"<div style='font-weight:800;font-size:15px;color:{_lens_c}'>"
                     f"{_esc(emoji)} {_esc(title)}</div>"
-                    f"<div style='color:{DIM};font-size:13px;line-height:1.5;"
+                    f"<div style='color:{_fq_muted()};font-size:13px;line-height:1.5;"
                     f"margin-top:6px'>{_esc(thesis)}</div>"
                     f"{lead_html}{lag_html}</div>"
                 )
@@ -9471,7 +9499,7 @@ with st.container(border=True, key="mw_page"):
         _hub_title("🌊 Market Weather", "#7FD4FF")
         _cc1, _cc2 = st.columns([5.2, 1.2], vertical_alignment="center")
         _cc1.markdown(
-            f"<div style='color:{DIM};font-size:14px;line-height:1.4;padding-top:8px;'>"
+            f"<div style='color:{_fq_muted()};font-size:14px;line-height:1.4;padding-top:8px;'>"
             "No data is loaded until you hit <b>Refresh</b>.</div>",
             unsafe_allow_html=True)
         if _cc2.button("🔄 Refresh", key="mw_refresh", width="stretch",
@@ -9539,10 +9567,10 @@ with st.container(border=True, key="mw_page"):
             # ── one plain-English headline ───────────────────────────────────
             if waves.empty or board.empty:
                 st.markdown(
-                    f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                     border-left:5px solid {DIM};border-radius:12px;padding:16px 20px;margin:6px 0 12px;">
                     <div style="font-size:20px;font-weight:800;">☀️ Calm markets right now</div>
-                    <div style="color:{DIM};font-size:14px;margin-top:4px;">
+                    <div style="color:{_fq_muted()};font-size:14px;margin-top:4px;">
                     Nothing big is moving hard enough to push other things around today.
                     Come back after the next 🔄 refresh, or check other tabs.</div>
                     </div>""", unsafe_allow_html=True)
@@ -9551,14 +9579,14 @@ with st.container(border=True, key="mw_page"):
                 n_dn = int((board.call == "DOWN").sum())
                 movers = ", ".join(board.head(3).target_name)
                 st.markdown(
-                    f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                     border-left:5px solid {ACCENT};border-radius:12px;padding:16px 20px;margin:6px 0 6px;">
                     <div style="font-size:20px;font-weight:800;">🌊 {len(board)} market{'s' if len(board)!=1 else ''} moving with the current waves</div>
-                    <div style="color:#d7e0ec;font-size:14px;margin-top:5px;line-height:1.5;">
+                    <div style="color:{_fq_ink()};font-size:14px;margin-top:5px;line-height:1.5;">
                     Some big markets have been moving fast. These are the markets historically
                     connected to them — <b style="color:{GREEN};">{n_up} connected upward</b> and
                     <b style="color:{RED};">{n_dn} connected downward</b>, starting with <b>{movers}</b>.</div>
-                    <div style="color:{DIM};font-size:12px;margin-top:6px;">
+                    <div style="color:{_fq_muted()};font-size:12px;margin-top:6px;">
                     ⚠️ <b>Read this as a map, not a forecast.</b> Walk-forward testing on 3 years
                     of real data found these links have <b>no measurable ability to predict</b>
                     direction 10 days out (49% — a coin flip). They describe what moves together,
@@ -9575,16 +9603,16 @@ with st.container(border=True, key="mw_page"):
                 _in = _mflow.head(3)
                 _out = _mflow.tail(3).iloc[::-1]
                 _chip = lambda s, r, col: (
-                    f"<span style='display:inline-block;background:#081325;border:1px solid "
-                    f"#1d2b40;border-left:3px solid {col};border-radius:6px;padding:4px 10px;"
+                    f"<span style='display:inline-block;background:{_fq_chip()};border:1px solid "
+                    f"{_fq_line()};border-left:3px solid {col};border-radius:6px;padding:4px 10px;"
                     f"margin:3px 5px 3px 0;font-size:12.5px;'>{_esc(s)} "
                     f"<b style='color:{col};'>{r:+.1%}</b></span>")
                 st.markdown(
-                    f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                     border-radius:10px;padding:12px 16px;margin:6px 0 10px;">
                       <div style="font-size:14px;font-weight:700;margin-bottom:2px;">
                         💰 Where money moved — {_mlbl}</div>
-                      <div style="color:{DIM};font-size:12px;margin-bottom:8px;">
+                      <div style="color:{_fq_muted()};font-size:12px;margin-bottom:8px;">
                         Money leaves some corners of the market and shows up in others.
                         Window: {_mflow.attrs.get('window_start','—')} → {_mflow.attrs.get('window_end','—')}
                         · nightly dump through <b>{_mflow.attrs.get('window_end','—')}</b>.
@@ -9628,28 +9656,28 @@ with st.container(border=True, key="mw_page"):
                     # the edge was selected on. Out-of-sample they do not hold, so the
                     # wording is deliberately "historical fit", never "accuracy".
                     if b.avg_hit >= 0.62:
-                        conf, confc = "strong historical fit", DIM
+                        conf, confc = "strong historical fit", _fq_muted()
                     elif b.avg_hit >= 0.55:
-                        conf, confc = "moderate historical fit", DIM
+                        conf, confc = "moderate historical fit", _fq_muted()
                     else:
-                        conf, confc = "weak historical fit", DIM
+                        conf, confc = "weak historical fit", _fq_muted()
                     src_word = "market" if b.n_sources == 1 else "markets"
                     with bcols[i % 2]:
                         st.markdown(
-                            f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                            f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                             border-left:5px solid {col};border-radius:10px;
                             padding:12px 16px;margin-bottom:10px;">
                               <div style="display:flex;align-items:baseline;">
                                 <span style="font-size:18px;font-weight:800;">{_esc(b.target_name)}</span>
-                                <span style="margin-left:auto;color:{col};font-weight:800;font-size:15px;">{arrow} {verdict}</span>
+                                <span class="{'mw-good' if up else 'mw-bad'}" style="margin-left:auto;color:{col};font-weight:800;font-size:15px;">{arrow} {verdict}</span>
                               </div>
-                              <div style="background:#081325;border-radius:5px;height:8px;margin:9px 0 8px;">
+                              <div style="background:{_fq_chip()};border-radius:5px;height:8px;margin:9px 0 8px;">
                                 <div style="background:{col};height:8px;border-radius:5px;
                                 width:{max(int(b.conviction*100),8)}%;"></div></div>
-                              <div style="color:#d7e0ec;font-size:12.5px;line-height:1.5;">
+                              <div style="color:{_fq_ink()};font-size:12.5px;line-height:1.5;">
                                 <b>{_esc(b.sources)}</b> {'has' if b.n_sources==1 else 'have'} been moving, and
                                 {_esc(b.target_name)} has historically moved with {'it' if b.n_sources==1 else 'them'}.</div>
-                              <div style="color:{DIM};font-size:11.5px;margin-top:5px;">
+                              <div style="color:{_fq_muted()};font-size:11.5px;margin-top:5px;">
                                 {b.n_sources} {src_word} · <span style="color:{confc};">{conf}</span>
                                 ({b.avg_hit:.0%} in-sample — not an out-of-sample hit rate)</div>
                             </div>""", unsafe_allow_html=True)
@@ -10469,7 +10497,7 @@ with st.container(border=True, key="mw_page"):
                         _n_flag = int((_idf["Flag"].astype(str).str.strip()
                                        .isin(["—", "-", "", "nan"]) == False).sum())
                     _md_html(
-                        f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+                        f"<div style='background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line2()};"
                         f"border-left:5px solid #67E8F9;border-radius:10px;"
                         f"padding:10px 14px;margin:8px 0;'>"
                         f"<b>{len(_idf)} name{'s' if len(_idf) != 1 else ''}</b> "
@@ -10477,7 +10505,7 @@ with st.container(border=True, key="mw_page"):
                         f"{'official' if _ib_officials else 'insider'} "
                         f"{'purchases' if _ib_officials else 'buying'}"
                         f"{f' · {_n_flag} flagged' if _n_flag else ''}"
-                        f"<span style='color:{DIM};font-size:12px;'> · "
+                        f"<span style='color:{_fq_muted()};font-size:12px;'> · "
                         f"{'Senate / House / Trump · one row per filing' if _ib_officials else 'Form 4 + Congress'}"
                         f"{'' if _ib_officials else ' · ranked by recency × size'}</span></div>")
                     _ib_official_view = "Official" in _idf.columns
@@ -10773,10 +10801,10 @@ with st.container(border=True, key="mw_page"):
             if _meta["missing"]:
                 parts.append(f"<span style='color:{RED};'>{_meta['missing']} unavailable</span>")
             st.markdown(
-                f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                 border-left:4px solid {GREEN};border-radius:8px;padding:8px 14px;margin:6px 0;">
                 <b>📡 Live as of {_meta['stamp']}</b> — {' · '.join(parts)}.
-                <span style="color:{DIM};font-size:12px;">“Live” is the current price;
+                <span style="color:{_fq_muted()};font-size:12px;">“Live” is the current price;
                 “Chg%” is the move since the scan's close.</span></div>""",
                 unsafe_allow_html=True)
         if st.session_state.get("top20_go"):
@@ -10815,10 +10843,10 @@ with st.container(border=True, key="mw_page"):
                 st.info("No candidates cleared the 300-case forecast minimum this "
                         "run — try again after a data refresh.")
             else:
-                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                st.markdown(f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                     border-left:4px solid {_T20_PURPLE};border-radius:10px;padding:10px 14px;margin:8px 0;">
                     <span style="font-weight:700;">🔮 Best-odds leaderboard — ranked by analog odds of gain</span><br>
-                    <span style="color:{DIM};font-size:12px;">Each stock's look-alike history says how
+                    <span style="color:{_fq_muted()};font-size:12px;">Each stock's look-alike history says how
                     often it finished up over 21 sessions. Sorted by those odds (typical size breaks
                     ties). {'Whole universe (~5,700 stocks).' if _scan_all else 'From a 120-name cascade shortlist.'}
                     Regime: {reg.get('label','—')}.</span></div>""", unsafe_allow_html=True)
@@ -10882,10 +10910,10 @@ with st.container(border=True, key="mw_page"):
             if _m20 is None or _m20.empty:
                 st.info("No names cleared the quality bar for this scenario.")
             else:
-                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                st.markdown(f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                     border-left:4px solid {_T20_BLUE};border-radius:10px;padding:10px 14px;margin:8px 0;">
                     <span style="font-weight:700;">🎯 Macro-only: {_mmeta.get('label','')}</span><br>
-                    <span style="color:{DIM};font-size:12px;">Ranked purely on how well a
+                    <span style="color:{_fq_muted()};font-size:12px;">Ranked purely on how well a
                     quality company fits this scenario — no cascade flow, no technicals,
                     no analog odds. {_mmeta.get('eligible',0):,} names cleared the quality
                     bar; the book is spread over {_mmeta.get('n_sectors',0)} sectors.</span></div>""",
@@ -10910,7 +10938,7 @@ with st.container(border=True, key="mw_page"):
                              else (f"color:{RED}" if isinstance(v, (int, float)) and v < 1.0
                                    else ""), subset=["MacroFit"])
                         .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
-                                        else f"color:{DIM}"), subset=["Data"])),
+                                        else f"color:{_fq_muted()}"), subset=["Data"])),
                         width=_DF_WIDTH, hide_index=True, height=740,
                         on_select="rerun", selection_mode="single-row", key="macro_table",
                         column_order=_order_with_cat(
@@ -10966,16 +10994,16 @@ with st.container(border=True, key="mw_page"):
                         + (f" — {_why}" if _why else "")
                         + f". {int(_freg.get('n_sectors') or 0)} sectors in the list{_conf}."
                     )
-                    st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    st.markdown(f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                         border-left:4px solid {_T20_GOLD};border-radius:10px;padding:10px 14px;margin:8px 0;">
                         <span style="font-weight:700;">🎩 Felix + lens: {_esc(_freg.get('label',''))}</span><br>
-                        <span style="color:{DIM};font-size:12px;">{_detail}</span></div>""",
+                        <span style="color:{_fq_muted()};font-size:12px;">{_detail}</span></div>""",
                         unsafe_allow_html=True)
                 else:
-                    st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    st.markdown(f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                         border-left:4px solid {_T20_GOLD};border-radius:10px;padding:10px 14px;margin:8px 0;">
                         <span style="font-weight:700;">🎩 Felix mode — quality checklist leaderboard</span><br>
-                        <span style="color:{DIM};font-size:12px;">Only ~3% of US stocks pass all five
+                        <span style="color:{_fq_muted()};font-size:12px;">Only ~3% of US stocks pass all five
                         tests. Tests column: ROIC ≥ 15% · Piotroski ≥ 7 · OE yield ≥ 4% · ROIC trend
                         improving (the P/E ≤ 50 gate already filtered everyone here).</span></div>""",
                         unsafe_allow_html=True)
@@ -10995,12 +11023,12 @@ with st.container(border=True, key="mw_page"):
                 _fsty = _fsty.map(lambda v: _css_sign(v - 0.15, dead=0.0) if isinstance(v, float) else "",
                                   subset=["ROIC"])
                 _fsty = _fsty.map(lambda v: f"color:{GREEN};font-weight:600" if v == "4/4"
-                                  else (f"color:{DIM}" if v in ("2/4", "3/4") else f"color:{RED}"),
+                                  else (f"color:{_fq_muted()}" if v in ("2/4", "3/4") else f"color:{RED}"),
                                   subset=["Tests"])
                 _fsty = _fsty.map(lambda v: (f"color:{GREEN};font-weight:600" if v == "6/6"
                                              else (f"color:{RED};font-weight:600"
                                                    if isinstance(v, str) and v[:1] in "0123"
-                                                   else f"color:{DIM}")), subset=["Data"])
+                                                   else f"color:{_fq_muted()}")), subset=["Data"])
                 if "MacroFit" in _f.columns:
                     _fsty = _fsty.map(
                         lambda v: f"color:{GREEN};font-weight:600"
@@ -11055,10 +11083,10 @@ with st.container(border=True, key="mw_page"):
                     "reg": reg,
                 }
             if not t20.empty:
-                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                st.markdown(f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                     border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin:8px 0;">
                     <span style="font-weight:700;">{'🎛 Scenario override' if _override else '📡 Detected regime'}: {reg['label']}</span><br>
-                    <span style="color:{DIM};font-size:12px;">Detected from: {' · '.join(reg['drivers'])}
+                    <span style="color:{_fq_muted()};font-size:12px;">Detected from: {' · '.join(reg['drivers'])}
                     {('· hot waves: ' + ', '.join(reg['hot_nodes'][:5])) if reg.get('hot_nodes') else '· no waves firing (tailwind pillar neutral)'}
                     {(' · tape confirm ' + f"{float(reg['confirm']):.0%}") if reg.get('confirm') is not None and _apply_macro and not _override else ''}</span>
                     </div>""", unsafe_allow_html=True)
@@ -11085,7 +11113,7 @@ with st.container(border=True, key="mw_page"):
                         .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "5/5"
                                         else (f"color:{RED};font-weight:600"
                                               if isinstance(v, str) and v[:1] in "012"
-                                              else f"color:{DIM}")), subset=["Data"])),
+                                              else f"color:{_fq_muted()}")), subset=["Data"])),
                         width=_DF_WIDTH, hide_index=True, height=740,
                         on_select="rerun", selection_mode="single-row", key="top20_table",
                         column_order=_order_with_cat(
@@ -11123,10 +11151,10 @@ with st.container(border=True, key="mw_page"):
                 def _krow(tag, desc):
                     return (f"<div style='display:flex;gap:8px;font-size:12px;line-height:1.9;'>"
                             f"<span style='min-width:118px;font-weight:600;'>{tag}</span>"
-                            f"<span style='color:{DIM};'>{desc}</span></div>")
+                            f"<span style='color:{_fq_muted()};'>{desc}</span></div>")
                 if _t20_cat:
                     with st.expander("🔑 Catalyst key", expanded=False):
-                        st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                        st.markdown(f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                         border-left:4px solid {_T20_PURPLE};border-radius:10px;padding:12px 16px;margin-top:6px;">
                         <div style="color:{ACCENT};font-size:11px;letter-spacing:1px;text-transform:uppercase;margin:4px 0 2px;">
                           Up — dump-backed (walk-forward on the nightly gz)</div>
@@ -11140,7 +11168,7 @@ with st.container(border=True, key="mw_page"):
                         {_krow("🎈 GAP UP −8", "opened 3%+ through prior close — the chase fades (−1.2% / 5d)")}
                         {_krow("💸 OFFERING −8 / ⚖️ LEGAL −5", "dilution or litigation in the news")}
                         {_krow("🩳 SQUEEZE −3", "15%+ short while price is already up — crowded, lagged")}
-                        <div style="color:{DIM};font-size:11px;margin-top:6px;">
+                        <div style="color:{_fq_muted()};font-size:11px;margin-top:6px;">
                           Tape flags are scored across the whole dump. News tags are fetched for the final 20.</div>
                         </div>""", unsafe_allow_html=True)
                 with st.container(key="t20_help"):
@@ -11220,7 +11248,7 @@ with st.container(border=True, key="mw_page"):
                     st.markdown(f"""<div style="background:#0d2215;border:1px solid #1e6b35;
                         border-left:4px solid {GREEN};border-radius:10px;padding:11px 16px;margin:8px 0 6px;">
                         <span style="font-weight:800;color:#3fbf7f;">VALIDATED TIMEFRAME</span>
-                        <span style="color:#d7e0ec;font-size:13px;margin-left:8px;">
+                        <span style="color:{_fq_ink()};font-size:13px;margin-left:8px;">
                         Daily bars, 984 held-out tickers: the score ≥ 80 + CALM + RS gate produced a
                         <b>60.2% win rate</b> and a <b>4.28%</b> chance of a &gt;10% loss over 20 sessions,
                         against a 50.7% baseline.</span></div>""", unsafe_allow_html=True)
@@ -11229,7 +11257,7 @@ with st.container(border=True, key="mw_page"):
                     st.markdown(f"""<div style="background:#1a1500;border:1px solid #907020;
                         border-left:4px solid #d0b040;border-radius:10px;padding:11px 16px;margin:8px 0 6px;">
                         <span style="font-weight:800;color:#d0b040;">UNVALIDATED TIMEFRAME</span>
-                        <span style="color:#d7e0ec;font-size:13px;margin-left:8px;">
+                        <span style="color:{_fq_ink()};font-size:13px;margin-left:8px;">
                         The volatility thresholds are rescaled correctly for {_tf} bars
                         (CALM ≤ <b>{af.VOL_CALM_D*_sc:.2f}%</b>, HIGH &gt; <b>{af.VOL_HIGH_D*_sc:.2f}%</b>
                         instead of the daily 2.50% / 4.00%), so the gate still filters. But the
@@ -11438,7 +11466,7 @@ with st.container(border=True, key="mw_page"):
                                     "POC": "${:,.2f}", "VAL": "${:,.2f}", "VAH": "${:,.2f}",
                                 }.items() if k in _ax_view.columns}, na_rep="—")
                             .map(lambda v: (f"color:{GREEN};font-weight:600" if v == "BELOW VALUE"
-                                            else (f"color:{DIM}" if v == "IN VALUE"
+                                            else (f"color:{_fq_muted()}" if v == "IN VALUE"
                                                   else "color:#b565f3")), subset=["ValueArea"])
                             .map(lambda v: _css_sign(-abs(v) + 3, dead=0) if isinstance(v, (int, float))
                                  else "", subset=["RS"])),
@@ -11514,12 +11542,12 @@ with st.container(border=True, key="mw_page"):
         _reg_live = None
         try:
             _reg_live = ce.macro_regime(closes, pressure_gauge=GAUGE)
-            st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+            st.markdown(f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                 border-left:4px solid {ACCENT};border-radius:10px;padding:10px 14px;margin-bottom:8px;">
                 <span style="font-weight:700;">📡 Live regime (app-detected): {_reg_live['label']}</span><br>
-                <span style="color:{DIM};font-size:12px;">From: {' · '.join(_reg_live['drivers'])} —
+                <span style="color:{_fq_muted()};font-size:12px;">From: {' · '.join(_reg_live['drivers'])} —
                 Live Market in the simulator uses this weather. Other tabs are what-ifs.</span>
-                <br><span style="color:{DIM};font-size:12px;">🏛 <b>Bond check:</b>
+                <br><span style="color:{_fq_muted()};font-size:12px;">🏛 <b>Bond check:</b>
                 {_esc(ce.bond_master_switch(closes).get('warning','—'))} — the simulator's
                 rate sliders move the same lever, so set them consistently with what
                 credit is actually doing.</span></div>""",
@@ -11605,12 +11633,12 @@ with st.container(border=True, key="mw_page"):
                 _lk = _live.get("regime")
                 _lcd = ce.REGIME_CARDS.get(_lk, {})
                 st.markdown(
-                    f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                     border-left:4px solid {ACCENT};border-radius:10px;padding:12px 16px;margin:8px 0 14px;">
                     <div style="font-weight:700;font-size:15px;">📡 Live Auto call:
                     {_esc(_lcd.get('emoji',''))} {_esc(_lcd.get('name', _live.get('label','')))}</div>
                     <div style="color:{ACCENT};margin:4px 0 6px">{_esc(_lcd.get('thesis',''))}</div>
-                    <div style="color:{DIM};font-size:12.5px">From: {_esc(' · '.join(_live.get('drivers') or []))}</div>
+                    <div style="color:{_fq_muted()};font-size:12.5px">From: {_esc(' · '.join(_live.get('drivers') or []))}</div>
                     <div style="margin-top:6px;font-size:13px">
                     <span style="color:{GREEN}">▲ {_esc(_lcd.get('leads',''))}</span>
                     &nbsp;·&nbsp;
@@ -11671,7 +11699,7 @@ with st.container(border=True, key="mw_page"):
                         return f"color:{GREEN};font-weight:600"
                     if v < 0.98:
                         return f"color:{RED};font-weight:600"
-                    return f"color:{DIM}"
+                    return f"color:{_fq_muted()}"
 
                 _fmt = _grid.style.format("{:.2f}")
                 _styled = (_fmt.map(_tilt_css) if hasattr(_fmt, "map")
@@ -11872,8 +11900,8 @@ with st.container(border=True, key="mw_page"):
                             <b>{len(_pdf)} setups</b> —
                             <span style="color:{GREEN};">{_cnt.get('TRIGGERED',0)} triggered</span> ·
                             <span style="color:#d0b040;">{_cnt.get('SWEPT',0)} swept, awaiting reclaim</span> ·
-                            <span style="color:{DIM};">{_cnt.get('COILING',0)} still coiling</span>
-                            <br><span style="color:{DIM};font-size:12px;">Freshest first, then
+                            <span style="color:{_fq_muted()};">{_cnt.get('COILING',0)} still coiling</span>
+                            <br><span style="color:{_fq_muted()};font-size:12px;">Freshest first, then
                             tightest coil. Entry is the POC, stop sits below the sweep,
                             target is the far side of the range. Coils always outnumber
                             triggers — most bases never get swept, and most sweeps never
@@ -11889,14 +11917,14 @@ with st.container(border=True, key="mw_page"):
                                 "VAH": "${:,.2f}", "VAL": "${:,.2f}"}, na_rep="—")
                             .map(lambda v: (f"color:{GREEN};font-weight:700" if v == "TRIGGERED"
                                             else ("color:#d0b040" if v == "SWEPT"
-                                                  else f"color:{DIM}")), subset=["Stage"])
+                                                  else f"color:{_fq_muted()}")), subset=["Stage"])
                             .map(lambda v: _css_sign(v) if isinstance(v, (int, float)) else "",
                                  subset=["ToPOC%"])
                             .map(lambda v: (f"color:{GREEN};font-weight:700" if v >= 85
-                                            else ("color:#d0b040" if v >= 75 else f"color:{DIM}"))
+                                            else ("color:#d0b040" if v >= 75 else f"color:{_fq_muted()}"))
                                  if isinstance(v, (int, float)) else "", subset=["Win%"])
                             .map(lambda v: (f"color:{GREEN};font-weight:700" if v >= 0.50
-                                            else (f"color:{DIM}" if v >= 0.25 else f"color:{RED}"))
+                                            else (f"color:{_fq_muted()}" if v >= 0.25 else f"color:{RED}"))
                                  if isinstance(v, (int, float)) else "", subset=["ExpR"])),
                             width=_DF_WIDTH, hide_index=True, height=620,
                             on_select="rerun", selection_mode="single-row", key="poc_table",
@@ -12023,12 +12051,12 @@ with st.container(border=True, key="mw_page"):
                           if isinstance(_ksnap, dict) and _ksnap.get("query")
                           else str(_kw_q or "").strip())
                     _md_html(
-                        f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+                        f"<div style='background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line2()};"
                         f"border-left:5px solid #C5D4FF;border-radius:10px;"
                         f"padding:10px 14px;margin:8px 0;'>"
                         f"<b>{len(_kdf)} match{'es' if len(_kdf) != 1 else ''}</b> for "
                         f"<b style='color:#C5D4FF;'>{_esc(_qshow)}</b>"
-                        f"<span style='color:{DIM};font-size:12px;'> · dump last close "
+                        f"<span style='color:{_fq_muted()};font-size:12px;'> · dump last close "
                         f"${float(_ksnap.get('lo', _kw_lo)):,.2f}–"
                         f"${float(_ksnap.get('hi', _kw_hi)):,.2f}</span></div>")
                     _korder = _order_with_cat(
@@ -12182,7 +12210,7 @@ with st.container(border=True, key="mw_page"):
                 _te_about = (f" pertaining to “{_esc(_te_qhit)}”"
                              if _te_qhit else "")
                 _md_html(
-                    f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+                    f"<div style='background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line2()};"
                     f"border-left:5px solid #2DD4BF;border-radius:10px;"
                     f"padding:10px 14px;margin:8px 0;'>"
                     f"<b style='color:#2DD4BF'>{len(_wdf)} important word"
@@ -12190,7 +12218,7 @@ with st.container(border=True, key="mw_page"):
                     f"{_te_about} from "
                     f"{int((_tmeta or {}).get('n_with_text') or 0)} readable "
                     f"source{'s' if int((_tmeta or {}).get('n_with_text') or 0) != 1 else ''}"
-                    f"<span style='color:{DIM};font-size:12px;'>"
+                    f"<span style='color:{_fq_muted()};font-size:12px;'>"
                     f"{_te_when}{_te_rng} · market signals first, then "
                     f"repeated topics · tap a row to hunt the dump</span></div>")
                 _wshow = _wdf.copy()
@@ -12473,14 +12501,14 @@ with st.container(border=True, key="mw_page"):
                     except (TypeError, ValueError):
                         pass
                 _md_html(
-                    f"<div style='background:#0c1829;border:1px solid #3d6a94;"
+                    f"<div style='background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line2()};"
                     f"border-left:5px solid #FF9B6A;border-radius:10px;"
                     f"padding:10px 14px;margin:8px 0;'>"
                     f"<b style='color:#FF9B6A'>{_esc(str(_el_year) if _el_year else '—')} "
                     f"{_esc(_el_kind)}</b>"
                     f" · vote {_esc(str(_el_eday))}"
                     f"{_esc(_el_when)}"
-                    f"<div style='color:{DIM};font-size:12px;margin-top:4px'>"
+                    f"<div style='color:{_fq_muted()};font-size:12px;margin-top:4px'>"
                     f"Dump {_esc(str(_emeta.get('dump_start') or '—'))} → "
                     f"{_esc(str(_emeta.get('dump_end') or '—'))}"
                     f"{(' · pre-vote ' + _esc(_el_pre)) if _el_pre else ''}"
@@ -12728,10 +12756,10 @@ with st.container(border=True, key="mw_page"):
                 _bc = (RED if (_bz is not None and _bz <= -1.5) else
                        "#d0b040" if (_bz is not None and _bz <= -0.75) else
                        GREEN if (_bz is not None and _bz >= 1.0) else DIM)
-                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                st.markdown(f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                     border-left:5px solid {_bc};border-radius:10px;padding:12px 16px;margin-bottom:8px;">
                     <div style="font-weight:700;font-size:15px;">{_esc(_bond.get('warning',''))}</div>
-                    <div style="color:{DIM};font-size:12px;margin-top:6px;">
+                    <div style="color:{_fq_muted()};font-size:12px;margin-top:6px;">
                     The bond market is bigger than the stock market and prices everything
                     else off the risk-free rate. But only ONE bond signal earned a vote here:
                     <b>junk-credit spreads</b>. Tested on 3 years of real data, widening HY
@@ -12768,13 +12796,13 @@ with st.container(border=True, key="mw_page"):
                 _lc = {"unwind": RED, "stirring": "#d0b040", "carry_on": GREEN,
                        "calm": GREEN, "na": DIM}.get(_cm["level"], DIM)
                 _chip = lambda lab, v, inv=False: (
-                    f"<span style='background:#081325;border:1px solid #1d2b40;border-radius:6px;"
+                    f"<span style='background:{_fq_chip()};border:1px solid {_fq_line()};border-radius:6px;"
                     f"padding:3px 10px;font-size:12px;font-family:monospace;'>"
                     f"{lab} <b style='color:"
                     + (DIM if v is None else (RED if ((v >= 0.75) if inv else (v <= -0.75))
                        else (GREEN if ((v <= -0.75) if inv else (v >= 0.75)) else DIM)))
                     + f";'>{'—' if v is None else f'{v:+.1f}z'}</b></span>")
-                st.markdown(f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                st.markdown(f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                     border-left:5px solid {_lc};border-radius:10px;padding:12px 16px;margin-bottom:8px;">
                     <div style="font-weight:700;font-size:15px;">{_cm['label']}</div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">
@@ -12783,15 +12811,15 @@ with st.container(border=True, key="mw_page"):
                       {_chip("QQQ", _cm['qqq_z'])}
                       {_chip("BTC", _cm['btc_z'])}
                       {_chip("VIX", _cm['vix_z'], inv=True)}
-                      <span style='background:#081325;border:1px solid #1d2b40;border-radius:6px;
+                      <span style='background:{_fq_chip()};border:1px solid {_fq_line()};border-radius:6px;
                         padding:3px 10px;font-size:12px;font-family:monospace;'
                         title="Yen impulse amplified by how many risk assets confirm the drain — the unwind signature is COINCIDENCE, not any single number.">
                         carry stress <b style='color:{_lc};'>{_cm['stress']:.1f}</b></span>
                     </div>
-                    <div style="color:{DIM};font-size:12px;">
+                    <div style="color:{_fq_muted()};font-size:12px;">
                       {"Confirming: " + " · ".join(_cm['confirms']) if _cm['confirms'] else "No risk-asset confirmation — yen moves alone are currency noise, not forced deleveraging."}
                     </div>
-                    <div style="color:{DIM};font-size:12px;margin-top:6px;">
+                    <div style="color:{_fq_muted()};font-size:12px;margin-top:6px;">
                       <b>The mechanism:</b> the world borrows at Japan's near-zero rates to fund
                       risk positions everywhere. When the BoJ tightens or the yen surges, every
                       yen-funded long gets margin-called at once — yen ▲ + QQQ/BTC ▼ + VIX ▲
@@ -12817,7 +12845,7 @@ with st.container(border=True, key="mw_page"):
                     arrow = "▲" if (pd.notna(r.trend63) and r.trend63 > 0) else "▼"
                     ac = GREEN if arrow == "▲" else RED
                     st.markdown(f"""<div style="display:flex;align-items:center;gap:12px;
-                        background:#0c1829;border:1px solid #1d2b40;border-radius:8px;
+                        background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};border-radius:8px;
                         padding:8px 14px;margin-bottom:6px;">
                         <span style="font-family:monospace;font-weight:700;min-width:96px;">{r['pair']}</span>
                         <span style="min-width:150px;font-size:13px;">{r['name']}</span>
@@ -12825,7 +12853,7 @@ with st.container(border=True, key="mw_page"):
                               title="Impulse z of the ratio's 5-day move vs its own 6-month history — same wave math as the nodes.">z {r.z:+.1f}</span>
                         <span style="font-family:monospace;color:{ac};min-width:66px;"
                               title="63-session trend of the ratio.">{arrow} {r.trend63:+.1%}</span>
-                        <span style="color:{DIM};font-size:12px;flex:1;">{r['meaning']}</span>
+                        <span style="color:{_fq_muted()};font-size:12px;flex:1;">{r['meaning']}</span>
                         </div>""", unsafe_allow_html=True)
 
     if _main == "Cascade Map" and _map == "Forced Flows":
@@ -12850,18 +12878,18 @@ with st.container(border=True, key="mw_page"):
             for _, ev in ff.iterrows():
                 days = (ev.Date - pd.Timestamp.today().date()).days
                 st.markdown(
-                    f"""<div style="background:#0c1829;border:1px solid #1d2b40;
+                    f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                     border-radius:10px;padding:12px 14px;margin-bottom:10px;">
                     <span style="color:{ACCENT};font-weight:700;">{ev.Date:%a %b %d}</span>
-                    <span style="color:{DIM};"> · in {days}d</span><br>
+                    <span style="color:{_fq_muted()};"> · in {days}d</span><br>
                     <span style="font-weight:700;font-size:15px;">{ev.Event}</span><br>
-                    <span style="color:{DIM};font-size:13px;">{ev.Why}</span>
+                    <span style="color:{_fq_muted()};font-size:13px;">{ev.Why}</span>
                     <div style="margin-top:8px;font-size:13px;line-height:1.7;">
                       <span style="color:{ACCENT};">👥 Who's forced:</span> {ev.Who}<br>
                       <span style="color:{ACCENT};">💰 What they trade:</span> {ev.What}<br>
                       <span style="color:{ACCENT};">🎯 What to watch:</span> {ev.Watch}
                     </div>
-                    <div style="margin-top:8px;background:#081325;border:1px solid #1d2b40;
+                    <div style="margin-top:8px;background:{_fq_chip()};border:1px solid {_fq_line()};
                       border-radius:8px;padding:8px 12px;font-size:13px;line-height:1.6;">
                       <span style="color:{GREEN};font-weight:700;">{ev.Buy}</span>
                     </div></div>""", unsafe_allow_html=True)
@@ -12911,7 +12939,7 @@ with st.container(border=True, key="mw_page"):
                         bt.tail(20).style.format(
                             {"strat": "{:+.2%}", "bench": "{:+.2%}", "excess": "{:+.2%}"})
                         .map(lambda v: _css_sign(v), subset=["strat", "excess"])
-                        .map(lambda v: f"color:{DIM}", subset=["bench"]),
+                        .map(lambda v: f"color:{_fq_muted()}", subset=["bench"]),
                         width=_DF_WIDTH, hide_index=True,
                         column_config=_scan_col_cfgs({
                             "strat": st.column_config.Column(help="Direction-adjusted mean return of the top-5 forecasts that week."),
@@ -12948,10 +12976,10 @@ with st.container(border=True, key="mw_page"):
             if cat not in _by_cat:
                 continue
             chips = " ".join(
-                f"<span style='display:inline-block;background:#0c1829;border:1px solid "
-                f"#1d2b40;border-radius:6px;padding:2px 10px;margin:2px;font-size:12px;'>"
+                f"<span style='display:inline-block;background:{_fq_bg()};color:{_fq_ink()};border:1px solid "
+                f"{_fq_line()};border-radius:6px;padding:2px 10px;margin:2px;font-size:12px;'>"
                 f"<b style='font-family:monospace;'>{s}</b> "
-                f"<span style='color:{DIM};'>{n}</span></span>"
+                f"<span style='color:{_fq_muted()};'>{n}</span></span>"
                 for s, n in _by_cat[cat])
             st.markdown(f"<div style='margin:6px 0;'><span style='color:{ACCENT};"
                         f"font-size:12px;letter-spacing:1px;text-transform:uppercase;'>"
@@ -13182,15 +13210,40 @@ _embed_html(
           var r = +m[1], g = +m[2], b = +m[3];
           return r < 55 && g < 80 && b < 130 && b >= r && (r + g + b) < 200;
         }
-        doc.querySelectorAll('[data-baseweb="calendar"] *, [data-baseweb="datepicker"] *, [data-baseweb="popover"] *, [data-testid="stDateInput"] *, [style*="0c1829"], [style*="081325"], [style*="16344f"], [style*="0d1e33"], [style*="0a1929"], [style*="07111f"]').forEach(function (el) {
+        function isNavyBg(bg) {
+          var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(bg || "");
+          if (!m) return false;
+          var r = +m[1], g = +m[2], b = +m[3];
+          return b > r + 6 && b >= g && b < 150 && r < 55 && g < 95 && (r + g + b) < 240;
+        }
+        function isPaleInk(c) {
+          var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c || "");
+          if (!m) return false;
+          var r = +m[1], g = +m[2], b = +m[3];
+          if (g > r + 25 && g > 130 && b < g) return false;
+          if (r > g + 35 && r > 120 && b < 100) return false;
+          if (r > 190 && g > 70 && g < 170 && b < 90) return false;
+          return r > 130 && g > 130 && b > 130 && (r + g + b) > 430;
+        }
+        doc.querySelectorAll("[style]").forEach(function (el) {
           if (el.closest && el.closest(".js-plotly-plot, [data-testid='stPlotlyChart']")) return;
-          if (el.style && el.style.getPropertyValue("background-color") === "#FFFCF6") return;
-          var bg = "";
-          try { bg = view.getComputedStyle(el).backgroundColor; } catch (e) { return; }
-          if (!navy(bg)) return;
-          setImp(el, "background", "#FFFCF6");
-          setImp(el, "background-color", "#FFFCF6");
-          setImp(el, "color", "#2C2416");
+          var cs;
+          try { cs = view.getComputedStyle(el); } catch (e) { return; }
+          if (isNavyBg(cs.backgroundColor)) {
+            var h = parseFloat(cs.height) || 0;
+            var fill = (h > 0 && h <= 14) ? "#E7DCC8" : "#FFFCF6";
+            setImp(el, "background", fill);
+            setImp(el, "background-color", fill);
+            ["Top", "Right", "Bottom", "Left"].forEach(function (side) {
+              if (isNavyBg(cs["border" + side + "Color"])) {
+                setImp(el, "border-" + side.toLowerCase() + "-color", "#E3D5BE");
+              }
+            });
+          }
+          if (isPaleInk(cs.color) && !(el.classList && (el.classList.contains("mw-good") || el.classList.contains("mw-mid") || el.classList.contains("mw-bad")))) {
+            setImp(el, "color", "#2C2416");
+            setImp(el, "-webkit-text-fill-color", "#2C2416");
+          }
         });
         doc.querySelectorAll('[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [role="option"]').forEach(function (el) {
           setImp(el, "background", "#FFFCF6");
