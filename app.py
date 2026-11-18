@@ -13131,15 +13131,6 @@ _embed_html(
     if (el.style.getPropertyValue(prop) === val && el.style.getPropertyPriority(prop) === "important") return;
     el.style.setProperty(prop, val, "important");
   }
-  function greenize(img) {
-    return String(img || "")
-      .replace(/#e87722/gi, "#3fbf7f")
-      .replace(/rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,\/]+[\d.]+%?)?\s*\)/gi, function (full, r, g, b) {
-        r = +r; g = +g; b = +b;
-        if (r > 180 && g > 60 && g < 180 && b < 100 && (r - g) > 30) return "rgb(63, 191, 127)";
-        return full;
-      });
-  }
   function hasOrange(s) {
     var low = String(s || "").toLowerCase();
     if (low.indexOf("e87722") >= 0) return true;
@@ -13149,45 +13140,101 @@ _embed_html(
     var r = +m[1], g = +m[2], b = +m[3];
     return r > 180 && g > 60 && g < 180 && b < 100 && (r - g) > 30;
   }
-  function paintSliderFills() {
-    function walk(rules) {
-      if (!rules) return;
-      for (var i = 0; i < rules.length; i++) {
-        var rule = rules[i];
-        try {
-          if (rule.cssRules && rule.cssRules.length) { walk(rule.cssRules); continue; }
-        } catch (e) {}
-        var stl = rule.style;
-        if (!stl) continue;
-        ["backgroundImage", "background", "backgroundColor"].forEach(function (prop) {
-          try {
-            var img = stl.getPropertyValue(prop);
-            if (!img || img.indexOf("gradient") < 0 || !hasOrange(img)) return;
-            var next = greenize(img);
-            if (next && next !== img) stl.setProperty(prop, next, "important");
-          } catch (e) {}
-        });
-      }
+  function authoredImage(el) {
+    var keys = ["background", "background-image", "background-color"];
+    var saved = [];
+    for (var i = 0; i < keys.length; i++) {
+      saved.push([keys[i], el.style.getPropertyValue(keys[i]), el.style.getPropertyPriority(keys[i])]);
+      el.style.removeProperty(keys[i]);
     }
-    var sheets = doc.styleSheets;
-    for (var s = 0; s < sheets.length; s++) {
-      try { walk(sheets[s].cssRules); } catch (e) {}
+    var img = "";
+    try { img = (doc.defaultView || root).getComputedStyle(el).backgroundImage || ""; }
+    catch (e) { img = ""; }
+    for (var j = 0; j < saved.length; j++) {
+      if (saved[j][1]) el.style.setProperty(saved[j][0], saved[j][1], saved[j][2]);
     }
-    var view2 = doc.defaultView || root;
-    doc.querySelectorAll('[data-testid="stSlider"] div, [data-testid="stSelectSlider"] div, [data-baseweb="slider"] div').forEach(function (el) {
-      if (el.getAttribute("role") === "slider") return;
-      var cs;
-      try { cs = view2.getComputedStyle(el); } catch (e) { return; }
-      var img = cs.backgroundImage || "";
-      if (img.indexOf("gradient") < 0 || !hasOrange(img)) return;
-      var next = greenize(img);
-      if (!next || next === img) return;
-      setImp(el, "background-color", "transparent");
-      setImp(el, "background-image", next);
-      setImp(el, "background", next);
-      el.setAttribute("data-mw-track", "1");
-      el.setAttribute("data-mw-green", "1");
+    return img;
+  }
+  function restColor(img) {
+    var colors = String(img || "").match(/rgba?\([^)]+\)|#[0-9a-fA-F]{3,8}/g) || [];
+    for (var i = colors.length - 1; i >= 0; i--) {
+      if (!hasOrange(colors[i]) && colors[i].toLowerCase() !== "#3fbf7f" && colors[i].indexOf("63, 191, 127") < 0) return colors[i];
+    }
+    return "rgba(150, 187, 228, 0.25)";
+  }
+  function findTrack(slider) {
+    var fallback = null;
+    var nodes = slider.querySelectorAll("div");
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (el.getAttribute("role") === "slider") continue;
+      if (el.querySelector("[role='slider']")) continue;
+      var rect;
+      try { rect = el.getBoundingClientRect(); } catch (e) { continue; }
+      if (rect.width < 48 || rect.height < 1 || rect.height > 16) continue;
+      var img = authoredImage(el);
+      if (img.indexOf("gradient") >= 0) return el;
+      if (!fallback) fallback = el;
+    }
+    return fallback;
+  }
+  function clearTrack(el) {
+    if (!el) return;
+    ["background", "background-image", "background-color"].forEach(function (p) {
+      el.style.removeProperty(p);
     });
+    el.removeAttribute("data-mw-track");
+    el.removeAttribute("data-mw-fill");
+    el.removeAttribute("data-mw-green");
+  }
+  function paintSliderFills() {
+    doc.querySelectorAll('[data-testid="stSlider"], [data-testid="stSelectSlider"]').forEach(function (slider) {
+      var thumbs = slider.querySelectorAll('[role="slider"]');
+      if (!thumbs.length) return;
+      var track = findTrack(slider);
+      if (!track) return;
+      var authored = authoredImage(track);
+      if (authored.indexOf("gradient") < 0 || !hasOrange(authored)) {
+        clearTrack(track);
+        return;
+      }
+      var min = parseFloat(thumbs[0].getAttribute("aria-valuemin"));
+      var max = parseFloat(thumbs[0].getAttribute("aria-valuemax"));
+      if (!isFinite(min) || !isFinite(max) || max === min) return;
+      var lo = null;
+      var hi = null;
+      for (var t = 0; t < thumbs.length; t++) {
+        var v = parseFloat(thumbs[t].getAttribute("aria-valuenow"));
+        if (!isFinite(v)) continue;
+        if (lo === null || v < lo) lo = v;
+        if (hi === null || v > hi) hi = v;
+      }
+      if (lo === null) return;
+      var p0 = Math.max(0, Math.min(100, (lo - min) / (max - min) * 100));
+      var p1 = Math.max(0, Math.min(100, (hi - min) / (max - min) * 100));
+      var rest = restColor(authored);
+      var g = thumbs.length > 1
+        ? "linear-gradient(to right, " + rest + " " + p0 + "%, rgb(63, 191, 127) " + p0 + "%, rgb(63, 191, 127) " + p1 + "%, " + rest + " " + p1 + "%)"
+        : "linear-gradient(to right, rgb(63, 191, 127) 0%, rgb(63, 191, 127) " + p1 + "%, " + rest + " " + p1 + "%, " + rest + " 100%)";
+      if (track.getAttribute("data-mw-fill") === g) return;
+      setImp(track, "background-color", "transparent");
+      setImp(track, "background-image", g);
+      setImp(track, "background", g);
+      track.setAttribute("data-mw-track", "1");
+      track.setAttribute("data-mw-fill", g);
+      track.setAttribute("data-mw-green", "1");
+    });
+  }
+  function tickSliders() {
+    var mark = doc.getElementById("mw-paint");
+    var look = mark ? (mark.getAttribute("data-look") || "") : (root.__mwLook || "");
+    if (mark) root.__mwLook = look;
+    var money = look === "Fortune" || look === "Private Bank";
+    if (!money) {
+      doc.querySelectorAll("[data-mw-track]").forEach(clearTrack);
+      return;
+    }
+    try { paintSliderFills(); } catch (e) {}
   }
   function clearImp(el) {
     if (!el || !el.style) return;
@@ -13288,7 +13335,7 @@ _embed_html(
           return r > 130 && g > 130 && b > 130 && (r + g + b) > 430;
         }
         doc.querySelectorAll("[style]").forEach(function (el) {
-          if (el.closest && el.closest(".js-plotly-plot, [data-testid='stPlotlyChart']")) return;
+          if (el.closest && el.closest(".js-plotly-plot, [data-testid='stPlotlyChart'], [data-testid='stSlider'], [data-testid='stSelectSlider'], [data-baseweb='slider']")) return;
           var cs;
           try { cs = view.getComputedStyle(el); } catch (e) { return; }
           if (isNavyBg(cs.backgroundColor)) {
@@ -13426,6 +13473,7 @@ _embed_html(
       var onlyChart = true;
       for (var i = 0; i < recs.length; i++) {
         var n = recs[i].target;
+        if (n && n.getAttribute && n.getAttribute("data-mw-track") === "1") continue;
         if (!n || !n.closest || !n.closest(".js-plotly-plot, [data-testid='stPlotlyChart']")) {
           onlyChart = false;
           break;
@@ -13442,6 +13490,14 @@ _embed_html(
     root.__mwTrackObs.observe(doc.documentElement, {
       subtree: true, childList: true, attributes: true,
       attributeFilter: ["class", "style"]
+    });
+  }
+  root.__mwSliderTick = tickSliders;
+  if (!root.__mwSliderRAF) {
+    root.__mwSliderRAF = true;
+    root.requestAnimationFrame(function loop() {
+      try { if (root.__mwSliderTick) root.__mwSliderTick(); } catch (e) {}
+      root.requestAnimationFrame(loop);
     });
   }
   if (!root.__mwMoneyGreen) {
