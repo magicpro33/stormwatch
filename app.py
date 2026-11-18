@@ -229,10 +229,12 @@ def _look_name() -> str:
 
 
 def _money_green_css() -> str:
-    """Orange slider bar, the selected radio dot, and sector chips.
+    """Money-green slider thumb, the selected radio dot, and sector chips.
 
     Streamlit Cloud's widgets no longer use the old baseweb test ids, so
     both shapes are covered. The number sitting on the slider stays clear.
+    The orange track fill is a gradient on its own class (no pixel height),
+    so the paint script recolors that gradient; this block covers the thumb.
     """
     return """
 .stApp [data-testid="stSlider"] [role="slider"],
@@ -13129,6 +13131,64 @@ _embed_html(
     if (el.style.getPropertyValue(prop) === val && el.style.getPropertyPriority(prop) === "important") return;
     el.style.setProperty(prop, val, "important");
   }
+  function greenize(img) {
+    return String(img || "")
+      .replace(/#e87722/gi, "#3fbf7f")
+      .replace(/rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,\/]+[\d.]+%?)?\s*\)/gi, function (full, r, g, b) {
+        r = +r; g = +g; b = +b;
+        if (r > 180 && g > 60 && g < 180 && b < 100 && (r - g) > 30) return "rgb(63, 191, 127)";
+        return full;
+      });
+  }
+  function hasOrange(s) {
+    var low = String(s || "").toLowerCase();
+    if (low.indexOf("e87722") >= 0) return true;
+    if (low.indexOf("232") >= 0 && low.indexOf("119") >= 0 && low.indexOf("34") >= 0) return true;
+    var m = /rgba?\((\d+)[\s,]+(\d+)[\s,]+(\d+)/.exec(low);
+    if (!m) return false;
+    var r = +m[1], g = +m[2], b = +m[3];
+    return r > 180 && g > 60 && g < 180 && b < 100 && (r - g) > 30;
+  }
+  function paintSliderFills() {
+    function walk(rules) {
+      if (!rules) return;
+      for (var i = 0; i < rules.length; i++) {
+        var rule = rules[i];
+        try {
+          if (rule.cssRules && rule.cssRules.length) { walk(rule.cssRules); continue; }
+        } catch (e) {}
+        var stl = rule.style;
+        if (!stl) continue;
+        ["backgroundImage", "background", "backgroundColor"].forEach(function (prop) {
+          try {
+            var img = stl.getPropertyValue(prop);
+            if (!img || img.indexOf("gradient") < 0 || !hasOrange(img)) return;
+            var next = greenize(img);
+            if (next && next !== img) stl.setProperty(prop, next, "important");
+          } catch (e) {}
+        });
+      }
+    }
+    var sheets = doc.styleSheets;
+    for (var s = 0; s < sheets.length; s++) {
+      try { walk(sheets[s].cssRules); } catch (e) {}
+    }
+    var view2 = doc.defaultView || root;
+    doc.querySelectorAll('[data-testid="stSlider"] div, [data-testid="stSelectSlider"] div, [data-baseweb="slider"] div').forEach(function (el) {
+      if (el.getAttribute("role") === "slider") return;
+      var cs;
+      try { cs = view2.getComputedStyle(el); } catch (e) { return; }
+      var img = cs.backgroundImage || "";
+      if (img.indexOf("gradient") < 0 || !hasOrange(img)) return;
+      var next = greenize(img);
+      if (!next || next === img) return;
+      setImp(el, "background-color", "transparent");
+      setImp(el, "background-image", next);
+      setImp(el, "background", next);
+      el.setAttribute("data-mw-track", "1");
+      el.setAttribute("data-mw-green", "1");
+    });
+  }
   function clearImp(el) {
     if (!el || !el.style) return;
     ["background", "background-color", "color", "border", "box-shadow", "border-color"].forEach(function (p) {
@@ -13151,6 +13211,7 @@ _embed_html(
     var money = fortune || look === "Private Bank";
     painting = true;
     try {
+      if (money) { try { paintSliderFills(); } catch (e) {} }
       if (!fortune) clearFortuneChrome();
       if (fortune) {
         doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"], button[role="radio"]').forEach(function (b) {
@@ -13325,8 +13386,6 @@ _embed_html(
       }
       if (!money) clearMoneyPaint();
       if (money) {
-        var view2 = doc.defaultView || root;
-        var trackRest = fortune ? "#E3D5BE" : "#243044";
         doc.querySelectorAll('[data-testid="stRadio"] label, label[data-testid="stRadioOption"]').forEach(function (lab) {
           var input = lab.querySelector("input");
           if (!input || !input.checked) return;
@@ -13348,84 +13407,6 @@ _embed_html(
           setImp(el, "background-color", "transparent");
           setImp(el, "box-shadow", "none");
           el.setAttribute("data-mw-green", "1");
-        });
-        function greenize(img) {
-          return String(img || "")
-            .replace(/rgba?\(\s*232[\s,]+119[\s,]+34(?:\s*[,/]\s*[\d.]+%?)?\s*\)/gi, "rgb(63, 191, 127)")
-            .replace(/#e87722/gi, "#3fbf7f");
-        }
-        function hasOrange(s) {
-          var low = String(s || "").toLowerCase();
-          if (low.indexOf("e87722") >= 0) return true;
-          if (low.indexOf("232") >= 0 && low.indexOf("119") >= 0 && low.indexOf("34") >= 0) return true;
-          var m = /rgba?\((\d+)[\s,]+(\d+)[\s,]+(\d+)/.exec(low);
-          if (!m) return false;
-          var r = +m[1], g = +m[2], b = +m[3];
-          return r > 180 && g > 60 && g < 180 && b < 100 && (r - g) > 30;
-        }
-        var sheets = doc.styleSheets;
-        for (var s = 0; s < sheets.length; s++) {
-          var rules;
-          try { rules = sheets[s].cssRules; } catch (e) { continue; }
-          if (!rules) continue;
-          for (var i = 0; i < rules.length; i++) {
-            var stl = rules[i].style;
-            if (!stl) continue;
-            var text = rules[i].cssText || "";
-            if (text.indexOf("2px") < 0 && text.indexOf("1px") < 0 && text.indexOf("4px") < 0) continue;
-            ["backgroundImage", "background", "backgroundColor"].forEach(function (prop) {
-              var img = stl.getPropertyValue(prop);
-              if (!img || img.indexOf("gradient") < 0 || !hasOrange(img)) return;
-              var next = greenize(img);
-              if (next !== img) stl.setProperty(prop, next, stl.getPropertyPriority(prop));
-            });
-          }
-        }
-        doc.querySelectorAll('[data-testid="stSlider"], [data-testid="stSelectSlider"], [data-baseweb="slider"]').forEach(function (slider) {
-          var thumbs = slider.querySelectorAll('[role="slider"]');
-          if (!thumbs.length) return;
-          if (thumbs[0].getAttribute("aria-disabled") === "true") return;
-          var min = parseFloat(thumbs[0].getAttribute("aria-valuemin"));
-          var max = parseFloat(thumbs[0].getAttribute("aria-valuemax"));
-          if (!isFinite(min) || !isFinite(max) || max === min) return;
-          var a = parseFloat(thumbs[0].getAttribute("aria-valuenow"));
-          var b = thumbs.length > 1 ? parseFloat(thumbs[thumbs.length - 1].getAttribute("aria-valuenow")) : a;
-          if (!isFinite(a)) return;
-          if (!isFinite(b)) b = a;
-          var lo = Math.max(0, Math.min(100, (Math.min(a, b) - min) / (max - min) * 100));
-          var hi = Math.max(0, Math.min(100, (Math.max(a, b) - min) / (max - min) * 100));
-          var grad = thumbs.length > 1
-            ? "linear-gradient(to right, " + trackRest + " " + lo + "%, " + GREEN + " " + lo + "%, " + GREEN + " " + hi + "%, " + trackRest + " " + hi + "%)"
-            : "linear-gradient(to right, " + GREEN + " 0%, " + GREEN + " " + hi + "%, " + trackRest + " " + hi + "%, " + trackRest + " 100%)";
-          var box = slider.getBoundingClientRect();
-          var best = null;
-          var bestH = 99;
-          slider.querySelectorAll("div").forEach(function (el) {
-            if (el.getAttribute("role") === "slider") return;
-            if ((el.getAttribute("data-testid") || "") === "stSliderThumbValue") return;
-            if (el.querySelector("[data-testid='stSliderThumbValue'], [role='slider']")) return;
-            var rect;
-            try { rect = el.getBoundingClientRect(); } catch (e) { return; }
-            if (rect.width < Math.max(48, box.width * 0.55)) return;
-            if (rect.height < 1 || rect.height > 14) return;
-            if (rect.height < bestH) { best = el; bestH = rect.height; }
-          });
-          if (!best) {
-            slider.querySelectorAll("div").forEach(function (el) {
-              if (best) return;
-              if (el.getAttribute("role") === "slider") return;
-              var cs;
-              try { cs = view2.getComputedStyle(el); } catch (e) { return; }
-              var img = (cs.backgroundImage || "") + " " + (cs.backgroundColor || "");
-              if (img.indexOf("gradient") >= 0 && (hasOrange(img) || el.getAttribute("data-mw-track") === "1")) best = el;
-            });
-          }
-          if (!best) return;
-          setImp(best, "background-color", "transparent");
-          setImp(best, "background-image", grad);
-          setImp(best, "background", grad);
-          best.setAttribute("data-mw-track", "1");
-          best.setAttribute("data-mw-green", "1");
         });
         doc.querySelectorAll('[data-testid="stMultiSelect"] [data-baseweb="tag"], [data-testid="stMultiSelectTagsContainer"] > span > span').forEach(function (el) {
           setImp(el, "background", GREEN);
