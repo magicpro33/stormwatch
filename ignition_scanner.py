@@ -2789,30 +2789,41 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
 
         # Historical table — newest first
         if eps_history:
+            _fq = str(st.session_state.get("mw_look") or "") == "Fortune"
+            _hd = "#5C3A1A" if _fq else "#4a6a8a"
+            _qcol = "#2C2416" if _fq else "#b0c8e8"
+            _acol = "#1A1208" if _fq else "#ffffff"
+            _ecol = "#5C5346" if _fq else "#7a9ab8"
             rows = []
             for q in reversed(eps_history):
                 a = f"${q['actual']:.2f}"   if q["actual"]   is not None else "--"
                 e = f"${q['estimate']:.2f}" if q["estimate"] is not None else "--"
                 if q["surprise"] is not None:
-                    sc = "#3fbf7f" if q["surprise"] >= 0 else "#9E1B2F"
-                    s = f"<span style='color:{sc}'>{q['surprise']:+.1f}%</span>"
+                    sur = float(q["surprise"])
+                    if sur >= 10:
+                        cls, sc = "mw-good", "#3fbf7f"
+                    elif sur >= 0:
+                        cls, sc = "mw-mid", "#E87722"
+                    else:
+                        cls, sc = "mw-bad", "#9E1B2F"
+                    s = f"<span class='{cls}' style='color:{sc};font-weight:700'>{sur:+.1f}%</span>"
                 else:
                     s = "--"
                 rows.append(
                     f"<tr>"
-                    f"<td style='padding:3px 8px;font-family:Space Mono,monospace;font-size:11px;color:#b0c8e8'>{q['quarter']}</td>"
-                    f"<td style='padding:3px 8px;font-family:Space Mono,monospace;font-size:11px;color:#ffffff;text-align:right'>{a}</td>"
-                    f"<td style='padding:3px 8px;font-family:Space Mono,monospace;font-size:11px;color:#7a9ab8;text-align:right'>{e}</td>"
+                    f"<td style='padding:3px 8px;font-family:Space Mono,monospace;font-size:11px;color:{_qcol}'>{q['quarter']}</td>"
+                    f"<td style='padding:3px 8px;font-family:Space Mono,monospace;font-size:11px;color:{_acol};font-weight:700;text-align:right'>{a}</td>"
+                    f"<td style='padding:3px 8px;font-family:Space Mono,monospace;font-size:11px;color:{_ecol};text-align:right'>{e}</td>"
                     f"<td style='padding:3px 8px;font-family:Space Mono,monospace;font-size:11px;text-align:right'>{s}</td>"
                     f"</tr>"
                 )
             st.markdown(
                 "<table style='width:100%;border-collapse:collapse'>"
                 "<thead><tr>"
-                "<th style='padding:3px 8px;font-family:Space Mono,monospace;font-size:9px;color:#4a6a8a;text-align:left;text-transform:uppercase'>Quarter</th>"
-                "<th style='padding:3px 8px;font-family:Space Mono,monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Actual</th>"
-                "<th style='padding:3px 8px;font-family:Space Mono,monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Est</th>"
-                "<th style='padding:3px 8px;font-family:Space Mono,monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Surprise</th>"
+                f"<th style='padding:3px 8px;font-family:Space Mono,monospace;font-size:9px;color:{_hd};text-align:left;text-transform:uppercase'>Quarter</th>"
+                f"<th style='padding:3px 8px;font-family:Space Mono,monospace;font-size:9px;color:{_hd};text-align:right;text-transform:uppercase'>Actual</th>"
+                f"<th style='padding:3px 8px;font-family:Space Mono,monospace;font-size:9px;color:{_hd};text-align:right;text-transform:uppercase'>Est</th>"
+                f"<th style='padding:3px 8px;font-family:Space Mono,monospace;font-size:9px;color:{_hd};text-align:right;text-transform:uppercase'>Surprise</th>"
                 "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>",
                 unsafe_allow_html=True,
             )

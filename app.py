@@ -1478,7 +1478,7 @@ _MENU_CAT_COLORS = {
         "Trump Effect", "Elections")],
     "mw_map": [_TAB_COLOR[k] for k in (
         "Market Weather", "Cascade Pressure", "Cascade Sentinels",
-        "Forced Flows", "Cascade Validation Lab", "Lenses", "Guide")],
+        "Forced Flows", "Cascade Validation Lab", "Guide")],
     "dc_view": [_TAB_COLOR[k] for k in ("Calendar", "Calculator", "Help")],
     "cc_view": [_TAB_COLOR[k] for k in (
         "Earner tape", "Open books", "Copy vaults", "Crypto Helper")],
@@ -1751,7 +1751,7 @@ HELP = {
         "Auto = the live regime, shrunk when the tape does not confirm the "
         "lead sector. A named lens applies the full sector + industry book "
         "— it does not change the Felix score, cascade score, analog odds, "
-        "or APEX gates. Full win/lose playbooks live in the Lenses tab.",
+        "or APEX gates. Full win/lose playbooks live in Help, under Lenses.",
 }
 
 CREATOR_NAME = "AIupscale"
@@ -3289,6 +3289,7 @@ def _fig_show(fig, **kw):
         else:
             axis = dict(gridcolor="#C6A15B", zerolinecolor="#8C6A32",
                         showline=True, mirror=True, linecolor="#8C6A32", linewidth=1.2,
+                        automargin=True,
                         color="#2C2416", tickfont=dict(color="#2C2416"),
                         title_font=dict(color="#5C3A1A"))
             fig.update_xaxes(**axis)
@@ -3499,30 +3500,41 @@ def render_eps_trend(eps_history, eps_forward=None, why="", source=""):
         unsafe_allow_html=True)
 
     if eps_history:
+        _fq = _look_name() == "Fortune"
+        _hd = "#5C3A1A" if _fq else "#4a6a8a"
+        _qcol = "#2C2416" if _fq else "#b0c8e8"
+        _acol = "#1A1208" if _fq else "#ffffff"
+        _ecol = "#5C5346" if _fq else "#7a9ab8"
         rows = []
         for q in reversed(eps_history):
             a = f"${q['actual']:.2f}" if q.get("actual") is not None else "--"
             e = f"${q['estimate']:.2f}" if q.get("estimate") is not None else "--"
             if q.get("surprise") is not None:
-                sc = "#3fbf7f" if q["surprise"] >= 0 else "#9E1B2F"
-                s = f"<span style='color:{sc}'>{q['surprise']:+.1f}%</span>"
+                sur = float(q["surprise"])
+                if sur >= 10:
+                    cls, sc = "mw-good", "#3fbf7f"
+                elif sur >= 0:
+                    cls, sc = "mw-mid", "#E87722"
+                else:
+                    cls, sc = "mw-bad", "#9E1B2F"
+                s = f"<span class='{cls}' style='color:{sc};font-weight:700'>{sur:+.1f}%</span>"
             else:
                 s = "--"
             rows.append(
                 f"<tr>"
-                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:#b0c8e8'>{_esc(q.get('quarter'))}</td>"
-                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:#ffffff;text-align:right'>{a}</td>"
-                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:#7a9ab8;text-align:right'>{e}</td>"
+                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:{_qcol}'>{_esc(q.get('quarter'))}</td>"
+                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:{_acol};font-weight:700;text-align:right'>{a}</td>"
+                f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;color:{_ecol};text-align:right'>{e}</td>"
                 f"<td style='padding:3px 8px;font-family:monospace;font-size:11px;text-align:right'>{s}</td>"
                 f"</tr>"
             )
         _md_html(
             "<table style='width:100%;border-collapse:collapse'>"
             "<thead><tr>"
-            "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:left;text-transform:uppercase'>Quarter</th>"
-            "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Actual</th>"
-            "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Est</th>"
-            "<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:#4a6a8a;text-align:right;text-transform:uppercase'>Surprise</th>"
+            f"<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:{_hd};text-align:left;text-transform:uppercase'>Quarter</th>"
+            f"<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:{_hd};text-align:right;text-transform:uppercase'>Actual</th>"
+            f"<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:{_hd};text-align:right;text-transform:uppercase'>Est</th>"
+            f"<th style='padding:3px 8px;font-family:monospace;font-size:9px;color:{_hd};text-align:right;text-transform:uppercase'>Surprise</th>"
             "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
         )
 
@@ -7237,9 +7249,9 @@ def _render_macro_lens_block(prefix: str, asof, closes, gauge, *,
         st.caption("The lens decides which quality names make the book. "
                    "They stay ordered by the Felix score.")
     elif token == "off":
-        st.caption("No sector tilt. Pure ranking. Playbooks are in 🔭 Lenses.")
+        st.caption("No sector tilt. Pure ranking. Playbooks are in Help → Lenses.")
     elif token is None:
-        st.caption("Uses the regime detected now. Playbooks are in 🔭 Lenses.")
+        st.caption("Uses the regime detected now. Playbooks are in Help → Lenses.")
     else:
         cd0 = ce.REGIME_CARDS.get(token, {})
         st.caption(cd0.get("thesis") or cd0.get("leads", ""))
@@ -7335,7 +7347,7 @@ def _render_macro_lens_block(prefix: str, asof, closes, gauge, *,
             with st.expander(f"📖 What {cd['name']} means — who wins, who loses"):
                 render_lens_playbook(cd, regkey, full=False)
                 st.caption("Full playbooks, comparisons, and sector "
-                           "multipliers are in the 🔭 Lenses tab.")
+                           "multipliers are in Help → Lenses.")
 
     return {
         "token": token,
@@ -7575,11 +7587,38 @@ def _theme_line(data, height, key):
                 x=data.index, y=data[col], mode="lines", name=str(col),
                 line=dict(color=palette[i % len(palette)], width=2)))
         show = True
+    vals = []
+    if isinstance(data, pd.Series):
+        vals = [float(v) for v in data.values if pd.notna(v) and np.isfinite(v)]
+    else:
+        try:
+            flat = data.to_numpy().ravel()
+        except Exception:
+            flat = []
+        vals = []
+        for v in flat:
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(fv):
+                vals.append(fv)
+    if vals:
+        lo, hi = min(vals), max(vals)
+        pad = (hi - lo) * 0.14
+        if pad <= 0:
+            pad = abs(hi) * 0.08 or 0.1
+        fig.update_yaxes(range=[lo - pad, hi + pad])
     fig.update_layout(
-        height=height, showlegend=show,
-        margin=dict(l=8, r=8, t=28 if show else 8, b=8),
-        legend=dict(orientation="h", y=1.12),
+        height=max(int(height), 300),
+        showlegend=show,
+        margin=dict(l=12, r=16, t=36 if show else 18, b=52),
+        legend=dict(orientation="h", y=1.08, x=0),
     )
+    fig.update_xaxes(automargin=True)
+    fig.update_yaxes(automargin=True)
+    for tr in fig.data:
+        tr.update(cliponaxis=False)
     _fig_show(fig, width="stretch", key=key)
 
 
@@ -8721,50 +8760,9 @@ def _render_scan_hub_help():
             f"Uses the regime the app detects live from oil, dollar, VIX, "
             f"and the pressure gauge.</div></div></div>"
         )
-        st.caption("Pick a named lens as a what-if. Full playbooks live on "
-                   "Cascade Map → Lenses.")
-        _order = list(getattr(ce, "LENS_ORDER", []) or [])
-        for extra in ("carry", "diesel"):
-            if extra in getattr(ce, "REGIME_NAMES", {}) and extra not in _order:
-                _order.append(extra)
-        cards = getattr(ce, "REGIME_CARDS", {}) or {}
-        names = getattr(ce, "REGIME_NAMES", {}) or {}
-        labels = getattr(ce, "REGIME_LABELS", {}) or {}
-        extra_ll = {
-            "carry": ("Gold and defensives",
-                      "High-beta, crypto-adjacent, yen-funded risk"),
-            "diesel": ("Refiners and alt energy",
-                       "Fuel-cost victims and long-haul discretionary"),
-        }
-        cols = st.columns(2)
-        for i, key in enumerate(_order):
-            cd = cards.get(key) or {}
-            title = cd.get("name") or str(names.get(key, key)).lstrip()
-            emoji = cd.get("emoji") or ""
-            if not emoji and str(names.get(key, "")).strip():
-                emoji = str(names.get(key)).split(" ", 1)[0]
-            thesis = cd.get("thesis") or labels.get(key, "")
-            leads = cd.get("leads") or extra_ll.get(key, ("", ""))[0]
-            lags = cd.get("lags") or extra_ll.get(key, ("", ""))[1]
-            with cols[i % 2]:
-                lead_html = (
-                    f"<div style='color:{GREEN};font-size:12px;margin-top:8px'>"
-                    f"<b>Leads</b> · {_esc(leads)}</div>" if leads else "")
-                lag_html = (
-                    f"<div style='color:{RED};font-size:12px;margin-top:4px'>"
-                    f"<b>Lags</b> · {_esc(lags)}</div>" if lags else "")
-                _lens_c = ("#7FD4FF", "#6EE7B7", "#F0A6FF", "#FFD15C",
-                           "#FF8FA3", "#C5D4FF", "#2DD4BF", "#A78BFA")[i % 8]
-                _md_html(
-                    f"<div style='background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line2()};"
-                    f"border-left:5px solid {_lens_c};border-radius:12px;"
-                    f"padding:12px 14px;margin:0 0 10px'>"
-                    f"<div style='font-weight:800;font-size:15px;color:{_lens_c}'>"
-                    f"{_esc(emoji)} {_esc(title)}</div>"
-                    f"<div style='color:{_fq_muted()};font-size:13px;line-height:1.5;"
-                    f"margin-top:6px'>{_esc(thesis)}</div>"
-                    f"{lead_html}{lag_html}</div>"
-                )
+        st.caption("Pick a named lens as a what-if. The playbooks, the live "
+                   "call, and the sector grid are below.")
+        _render_lenses_page()
         return
 
     if sec == "ShakeOut":
@@ -8897,7 +8895,11 @@ _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Insider Buying",
         "Hybrid Screener", "Ignition Scanner", "Key Word Search",
         "Trump Effect", "Elections"]
 _MAP = ["Market Weather", "Cascade Pressure", "Cascade Sentinels", "Forced Flows",
-        "Cascade Validation Lab", "Lenses", "Guide"]
+        "Cascade Validation Lab", "Guide"]
+if st.session_state.get("mw_map") == "Lenses":
+    st.session_state["mw_map"] = "Market Weather"
+    st.session_state["mw_main"] = "Help"
+    st.session_state["hub_help_sec"] = "Lenses"
 if st.session_state.get("mw_hub") == "Key Word":
     st.session_state["mw_hub"] = "Key Word Search"
 if st.session_state.get("mw_hub") == "Help":
@@ -11604,9 +11606,8 @@ with st.container(border=True, key="mw_page"):
             st.error(f"Simulator embed failed: {_me}")
 
 
-    # ── 🔭 Lenses — full playbooks for every macro regime ─────────────────
-    if _main == "Cascade Map" and _map == "Lenses":
-        _hub_title("🔭 Lenses", "#2DD4BF")
+    # ── 🔭 Lenses — full playbooks, opened from Help ─────────────────────
+    def _render_lenses_page():
         if not st.session_state.get("mw_cascade_loaded"):
             _cascade_idle_note()
         else:
@@ -13009,7 +13010,7 @@ with st.container(border=True, key="mw_page"):
             ("Analog forecast", "We find every past (day, stock) that looked like this one does now — same momentum percentile, range position, volume buzz, trend — and report what actually happened to them next. A distribution, not a prophecy."),
             ("Landing zone", "The middle 80% of analog outcomes (10th to 90th percentile). Its WIDTH is the risk."),
             ("Pop / crash odds", "Share of analogs that gained/lost 15%+ in 21 sessions, with the lift vs an average stock's base rate."),
-            ("Macro regime", "The app's live read of the environment from oil, the dollar, VIX, gold, credit, Shiller CAPE, and the pressure gauge. Playbooks include Easy Money, Hot Inflation, Risk-On Calm, Fear / Risk-Off, Rising Dollar, Debasement, Reserve Reset, AI Power & Credit, Yen Carry, Diesel Crisis, and No Clear Driver. Full writeups live in the 🔭 Lenses tab."),
+            ("Macro regime", "The app's live read of the environment from oil, the dollar, VIX, gold, credit, Shiller CAPE, and the pressure gauge. Playbooks include Easy Money, Hot Inflation, Risk-On Calm, Fear / Risk-Off, Rising Dollar, Debasement, Reserve Reset, AI Power & Credit, Yen Carry, Diesel Crisis, and No Clear Driver. Full writeups live in Help → Lenses."),
             ("Macro lens", "A playbook overlaid on Top 20, ShakeOut, or APEX. Each tab has its own lens and Recommend button. It re-orders names that already passed that tab's filter. It does not change the Felix score, cascade score, analog odds, shakeout checklist, or APEX gates. Off ignores a detected regime; Auto uses the live call; a named lens is a what-if."),
             ("MacroFit", "Sector × industry multiplier from the current lens. Auto shrinks it toward 1.00 when the live tape does not confirm the lead sector."),
             ("Pressure gauge", "Net Fed liquidity + stablecoin flows + credit spreads combined into −3…+3. Positive = money looking for a home."),
