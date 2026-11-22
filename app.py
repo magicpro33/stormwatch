@@ -13350,7 +13350,7 @@ _embed_html(
     function near(R, G, B) {
       return Math.abs(r - R) < 3 && Math.abs(g - G) < 3 && Math.abs(b - B) < 3;
     }
-    return near(8, 19, 37) || near(14, 17, 23) || near(22, 52, 79) || near(13, 17, 23) || near(30, 33, 48);
+    return near(8, 19, 37) || near(14, 17, 23) || near(22, 52, 79) || near(13, 17, 23) || near(30, 33, 48) || near(26, 28, 36);
   }
   function navyInk(c) {
     var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(String(c || ""));
@@ -13405,17 +13405,12 @@ _embed_html(
     });
   }
   installGridHook();
-  function navyKind(r, g, b) {
-    if (r < 55 && g < 90 && b < 130 && b > r + 4 && (r + g + b) < 230) {
-      return (r + g + b) < 100 ? "bg" : "line";
-    }
-    return "";
-  }
-  function headerCanvas(canvas) {
-    return canvas.height > 0 && canvas.height <= 160;
+  function nearPx(r, g, b, R, G, B) {
+    return Math.abs(r - R) < 4 && Math.abs(g - G) < 4 && Math.abs(b - B) < 4;
   }
   function recolorGrid() {
-    if (!fortuneLook()) return;
+    var mark = doc.getElementById("mw-paint");
+    if (!mark || mark.getAttribute("data-look") !== "Fortune") return;
     var now = Date.now();
     if (now - (root.__mwGridAt || 0) < 400) return;
     root.__mwGridAt = now;
@@ -13425,37 +13420,23 @@ _embed_html(
       var ctx;
       try { ctx = canvas.getContext("2d"); } catch (e) { return; }
       if (!ctx) return;
-      var header = headerCanvas(canvas);
-      var probeY = [2, Math.max(2, canvas.height - 3)];
-      var hit = false;
-      for (var p = 0; p < probeY.length; p++) {
-        var px;
-        try { px = ctx.getImageData(2, probeY[p], 1, 1).data; } catch (e) { return; }
-        if (navyKind(px[0], px[1], px[2]) === "bg") { hit = true; break; }
-      }
-      if (!hit) return;
       var img;
       try { img = ctx.getImageData(0, 0, canvas.width, canvas.height); } catch (e) { return; }
       var d = img.data;
+      var header = canvas.height <= 160;
       var changed = false;
       for (var i = 0; i < d.length; i += 4) {
-        if (d[i + 3] < 8) continue;
-        var k = navyKind(d[i], d[i + 1], d[i + 2]);
-        if (k === "bg") {
+        var r = d[i], g = d[i + 1], b = d[i + 2];
+        if (nearPx(r, g, b, 8, 19, 37)) {
           d[i] = 255; d[i + 1] = 252; d[i + 2] = 246; changed = true;
-        } else if (k === "line") {
+        } else if (nearPx(r, g, b, 32, 42, 57)) {
           d[i] = 227; d[i + 1] = 213; d[i + 2] = 190; changed = true;
-        } else if (header && d[i] > 200 && d[i + 1] > 190 && d[i + 2] > 160) {
-          d[i] = 44; d[i + 1] = 36; d[i + 2] = 22; changed = true;
+        } else if (header && nearPx(r, g, b, 26, 28, 36)) {
+          d[i] = 243; d[i + 1] = 235; d[i + 2] = 221; changed = true;
         }
       }
       if (changed) ctx.putImageData(img, 0, 0);
     });
-  }
-  function fortuneLook() {
-    if (root.__mwLook === "Fortune") return true;
-    var mark = doc.getElementById("mw-paint");
-    return !!(mark && mark.getAttribute("data-look") === "Fortune");
   }
   function setImp(el, prop, val) {
     if (!el || !el.style) return;
@@ -13702,7 +13683,7 @@ _embed_html(
           });
         });
         try { recolorGrid(); } catch (e) {}
-        doc.querySelectorAll('[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [data-testid="stDataFrame"] > div, [data-testid="stDataFrame"] > div > div, .st-key-lk_hits_box').forEach(function (el) {
+        doc.querySelectorAll('[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], .st-key-lk_hits_box').forEach(function (el) {
           setImp(el, "background", "#FFFCF6");
           setImp(el, "background-color", "#FFFCF6");
           setImp(el, "color", "#5C3A1A");
