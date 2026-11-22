@@ -1,8 +1,8 @@
-"""Fortune scan lists as HTML with clickable headers and rows.
+"""Fortune grid colors.
 
-The glide grid sorts and selects by header and row clicks. Fortune cannot use
-that grid, so the same actions are ordinary links. A header click sorts the
-list. A row click opens that ticker.
+Scan lists and the watchlist use Streamlit's grid, the same as the other
+looks. Fortune cells need a cream ground and dark ink or the dark-theme
+grays disappear.
 """
 from __future__ import annotations
 
@@ -11,6 +11,36 @@ import re
 from urllib.parse import urlencode
 
 import pandas as pd
+
+
+def _fortune() -> bool:
+    try:
+        import streamlit as st
+        return str(st.session_state.get("mw_look") or "") == "Fortune"
+    except Exception:
+        return False
+
+
+def style_fortune_grid(data):
+    """Cream cell ground and dark ink. Color maps added earlier still win."""
+    if not _fortune() or data is None:
+        return data
+    try:
+        if hasattr(data, "style") and not hasattr(data, "set_properties"):
+            data = data.style
+        if not hasattr(data, "set_properties"):
+            return data
+        data = data.set_properties(**{
+            "background-color": "#FFFCF6",
+            "color": "#2C2416",
+        })
+        todo = getattr(data, "_todo", None)
+        if todo and len(todo) > 1:
+            todo.insert(0, todo.pop())
+    except Exception:
+        return data
+    return data
+
 
 _EMPTY = {"", "nan", "none", "—", "–", "-", "n/a", "na"}
 _TH = re.compile(r"<th([^>]*)>(.*?)</th>", re.I | re.S)

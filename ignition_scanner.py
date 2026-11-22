@@ -3467,8 +3467,9 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
             _ig_tip.render_scan_col_help_strip(st, list(df.columns))
         except Exception:
             pass
+        from mw_fortune_table import style_fortune_grid
         _igsel = st.dataframe(
-            _ig_view,
+            style_fortune_grid(_ig_view),
             width="content",
             hide_index=True,
             column_config=col_cfg,

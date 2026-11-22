@@ -202,9 +202,15 @@ def _num(v, digits=2):
     return f"{v:.{digits}f}"
 
 
+def _dim_ink() -> str:
+    if str(st.session_state.get("mw_look") or "") == "Fortune":
+        return "#5C5346"
+    return DIM
+
+
 def _css(good: bool | None):
     if good is None:
-        return f"color:{DIM}"
+        return f"color:{_dim_ink()}"
     return f"color:{GREEN};font-weight:600" if good else f"color:{RED};font-weight:600"
 
 
@@ -215,7 +221,7 @@ def _band_ret5(v):
         return _css(True)
     if v < -0.18 or v > 0:
         return _css(False)
-    return f"color:{DIM}"
+    return f"color:{_dim_ink()}"
 
 
 def _band_range(v):
@@ -225,7 +231,7 @@ def _band_range(v):
         return _css(True)
     if v >= 0.50:
         return _css(False)
-    return f"color:{DIM}"
+    return f"color:{_dim_ink()}"
 
 
 def _band_rsi(v):
@@ -235,7 +241,7 @@ def _band_rsi(v):
         return _css(True)
     if v >= 50:
         return _css(False)
-    return f"color:{DIM}"
+    return f"color:{_dim_ink()}"
 
 
 def _band_shake(v):
@@ -244,7 +250,7 @@ def _band_shake(v):
     if v >= 4:
         return _css(True)
     if v >= 3:
-        return f"color:{DIM}"
+        return f"color:{_dim_ink()}"
     return _css(False)
 
 
@@ -254,7 +260,7 @@ def _band_score(v):
     if v >= 0.80:
         return _css(True)
     if v >= 0.70:
-        return f"color:{DIM}"
+        return f"color:{_dim_ink()}"
     return _css(False)
 
 
@@ -265,7 +271,7 @@ def _band_resid(v):
         return _css(True)
     if v <= -0.12:
         return _css(False)
-    return f"color:{DIM}"
+    return f"color:{_dim_ink()}"
 
 
 def _band_vol(v):
@@ -275,14 +281,14 @@ def _band_vol(v):
         return _css(True)
     if v >= 1.20:
         return _css(False)
-    return f"color:{DIM}"
+    return f"color:{_dim_ink()}"
 
 
 def _band_fit(v):
     if v is None or not np.isfinite(v):
         return ""
     if abs(v - 1.0) < 0.02:
-        return f"color:{DIM}"
+        return f"color:{_dim_ink()}"
     return _css(v > 1.0)
 
 
@@ -290,7 +296,7 @@ def _chip(label, value, css, tip=""):
     title = f' title="{tip}"' if tip else ""
     return (f'<div style="background:#0c1829;border:1px solid #1d2b40;border-radius:8px;'
             f'padding:8px 10px;min-width:110px;flex:1;"{title}>'
-            f'<div style="font-size:11px;color:{DIM};letter-spacing:.4px;">{label}</div>'
+            f'<div style="font-size:11px;color:{_dim_ink()};letter-spacing:.4px;">{label}</div>'
             f'<div style="font-size:16px;{css}">{value}</div></div>')
 
 
@@ -655,8 +661,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                             fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
                             .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
                                            "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"}))
+                        from mw_fortune_table import style_fortune_grid
                         st.dataframe(
-                            _fs_view,
+                            style_fortune_grid(_fs_view),
                             width="content", hide_index=True,
                             column_config={
                                 "Ret": st.column_config.Column(help="Dollar-weighted sector return."),
@@ -905,8 +912,9 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         _sw_ce.render_scan_col_help_strip(st, list(show.columns))
     except Exception:
         pass
+    from mw_fortune_table import style_fortune_grid
     sel = st.dataframe(
-        styler, width="content", hide_index=True, height=min(740, 80 + 34 * len(show)),
+        style_fortune_grid(styler), width="content", hide_index=True, height=min(740, 80 + 34 * len(show)),
         on_select="rerun", selection_mode="single-row", key="sw_table",
         column_config=_sw_col_cfg({
             "#": st.column_config.NumberColumn(

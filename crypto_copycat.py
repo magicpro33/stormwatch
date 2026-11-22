@@ -529,6 +529,8 @@ def _trader_label(row: dict) -> str:
 def _sign_color(value, pos_good=True) -> str:
     v = _num(value)
     if v is None or abs(v) < 1e-9:
+        if _fortune():
+            return "#5C5346"
         return DIM
     good = v > 0 if pos_good else v < 0
     return GREEN if good else RED
@@ -643,8 +645,9 @@ def _grid(
         styled = styled.map(_cell_sign, subset=paint)
     if side_col and side_col in visible.columns:
         styled = styled.map(_side_css, subset=[side_col])
+    from mw_fortune_table import style_fortune_grid
     st.dataframe(
-        styled,
+        style_fortune_grid(styled),
         width="content",
         hide_index=True,
         height=min(int(height), 48 + 36 * max(len(visible), 1)),

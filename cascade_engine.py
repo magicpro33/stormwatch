@@ -6163,13 +6163,24 @@ def _health_shade(text) -> str:
     return _HEALTH_GREENS[n]
 
 
+def _list_dim() -> str:
+    """Neutral ink. Fortune cells sit on cream, so the slate gray washes out."""
+    try:
+        import streamlit as st
+        if st.session_state.get("mw_look") == "Fortune":
+            return "#5C5346"
+    except Exception:
+        pass
+    return "#9aa8bd"
+
+
 def css_health_lbl(v) -> str:
     s = str(v or "")
     if "Weak" in s:
         return "color:#9E1B2F;font-weight:600"
     if "█" in s or "Strong" in s or "OK" in s:
         return f"color:{_health_shade(s)};font-weight:600"
-    return "color:#9aa8bd"
+    return f"color:{_list_dim()}"
 
 
 def css_cs_trend(v, shade=None) -> str:
@@ -6180,7 +6191,7 @@ def css_cs_trend(v, shade=None) -> str:
         return "color:#9E1B2F;font-weight:600"
     if "mixed" in s:
         return f"color:{shade or '#3fbf7f'};font-weight:600"
-    return "color:#9aa8bd"
+    return f"color:{_list_dim()}"
 
 
 def earn_countdown_text(val, today=None) -> str:
@@ -6205,7 +6216,7 @@ def earn_countdown_text(val, today=None) -> str:
 def css_earn_cell(v) -> str:
     s = str(v or "").strip()
     if not s or s in ("—", "Done"):
-        return "color:#9aa8bd"
+        return f"color:{_list_dim()}"
     if s.startswith("Today"):
         return "color:#9E1B2F;font-weight:600"
     try:

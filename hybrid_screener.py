@@ -418,7 +418,8 @@ def _hs_css_sign(v, pos_good=True, dead=0.0):
     except (TypeError, ValueError):
         return ""
     if not np.isfinite(v) or abs(v) <= dead:
-        return "color:#9aa8bd"
+        dim = "#5C5346" if str(st.session_state.get("mw_look") or "") == "Fortune" else "#9aa8bd"
+        return f"color:{dim}"
     good = (v > 0) if pos_good else (v < 0)
     return "color:#3fbf7f;font-weight:600" if good else "color:#9E1B2F;font-weight:600"
 
@@ -1368,8 +1369,9 @@ def render_hybrid_screener() -> None:
                                    "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
                     .map(lambda v: _hs_css_sign(v) if isinstance(v, float) else "",
                          subset=["Ret", "RS"]))
+                from mw_fortune_table import style_fortune_grid
                 st.dataframe(
-                    _fs_view,
+                    style_fortune_grid(_fs_view),
                     width="content", hide_index=True,
                     column_config={
                         "Rank": st.column_config.Column(help="Order on this money-flow table. 1 received the most."),
@@ -1811,6 +1813,7 @@ def render_hybrid_screener() -> None:
             help=_hs_help.get(_earn) or (
                 "Days until the next earnings print, Eastern US calendar. "
                 "Green is clear, amber inside 21 days, red inside a week."))
+    from mw_fortune_table import style_fortune_grid
     try:
         if "Score" in display.columns:
             styled = display.style.map(_color_score, subset=["Score"])
@@ -1819,14 +1822,14 @@ def render_hybrid_screener() -> None:
         styled = ce.style_health_setup(styled)
         getattr(ce, "render_scan_col_help_strip", lambda *_: None)(st, order or list(display.columns))
         _tsel = st.dataframe(
-                styled, width="content", height=560, column_order=order or None,
+                style_fortune_grid(styled), width="content", height=560, column_order=order or None,
                 hide_index=True, on_select="rerun", selection_mode="single-row",
                 key=_k("chart_table"),
                 column_config=_cat_cfg if _cat_cfg else None)
     except Exception:
         getattr(ce, "render_scan_col_help_strip", lambda *_: None)(st, order or list(display.columns))
         _tsel = st.dataframe(
-            display, width="content", height=560, column_order=order or None,
+            style_fortune_grid(display), width="content", height=560, column_order=order or None,
             hide_index=True, on_select="rerun", selection_mode="single-row",
             key=_k("chart_table"),
             column_config=_cat_cfg if _cat_cfg else None)

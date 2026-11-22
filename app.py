@@ -290,7 +290,7 @@ def _look_extra_css(name: str, f: dict, serif: str) -> str:
 .js-plotly-plot .xgrid, .js-plotly-plot .ygrid,
 .js-plotly-plot .zerolinelayer line {{ stroke: #C6A15B !important; }}
 .modebar,
-[data-testid="stDataFrame"], [data-baseweb="popover"],
+[data-baseweb="popover"],
 [data-baseweb="menu"], [data-testid="stHeader"],
 .t20-title, .t20-head, .t20-box, .dc-badge, .dc-day {{
     background: {f['card']} !important;
@@ -346,11 +346,7 @@ def _look_extra_css(name: str, f: dict, serif: str) -> str:
     border-color: {f['accent']} !important;
 }}
 [data-testid="stDataFrame"],
-[data-testid="stDataFrame"] > div,
-[data-testid="stDataFrame"] > div > div,
-[data-testid="stDataFrame"] canvas,
-.dvn-scroller, .glideDataEditor {{
-    background-color: {f['card']} !important;
+[data-testid="stDataEditor"] {{
     border-color: {f['line']} !important;
     outline-color: {f['line']} !important;
     box-shadow: none !important;
@@ -7865,7 +7861,8 @@ def _hub_df(data, **kwargs):
         fn(st, cols)
     extra = kwargs.get("column_config")
     kwargs["column_config"] = _scan_col_cfgs(extra)
-    return st.dataframe(data, **kwargs)
+    from mw_fortune_table import style_fortune_grid
+    return st.dataframe(style_fortune_grid(data), **kwargs)
 
 
 def _stamp_hs(df):
@@ -9567,6 +9564,8 @@ def _stock_lookup_watchlist(closes, asof):
                 .map(_css_fav, subset=["Fav"])
             )
             _wl_styled = _style_health_setup(_wl_styled)
+            from mw_fortune_table import style_fortune_grid
+            _wl_styled = style_fortune_grid(_wl_styled)
             _edited = st.data_editor(
                 _wl_styled,
                 width="stretch", hide_index=True, height="content",
