@@ -894,7 +894,17 @@ section.main::-webkit-scrollbar-track,
     text-align: left;
     font-size: 11px;
     font-weight: 650;
+    cursor: pointer;
+    user-select: none;
+    position: sticky;
+    top: 0;
+    z-index: 2;
 }}
+.mw-fq-table th:hover {{
+    background: #E8D7B8 !important;
+}}
+.mw-fq-table th.mw-sort-asc::after {{ content: " ▲"; }}
+.mw-fq-table th.mw-sort-desc::after {{ content: " ▼"; }}
 .mw-fq-table td {{
     background: #FFFCF6;
     border: 1px solid #E3D5BE;
@@ -13641,6 +13651,56 @@ _embed_html(
     doc.querySelectorAll('[data-baseweb="button-group"], [data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [role="option"], [data-testid="stAlert"], [data-testid="stNotification"]').forEach(clearImp);
     doc.querySelectorAll('[data-baseweb="select"] span, [data-baseweb="select"] div, [data-testid="stRadio"] label, [data-testid="stRadio"] p, [data-testid="stRadio"] span, label[data-testid="stRadioOption"], label[data-testid="stRadioOption"] p').forEach(clearImp);
   }
+  function fqCellKey(td) {
+    var t = ((td && td.textContent) || "").replace(/\u00a0/g, " ").trim();
+    if (!t || t === "—" || t === "–" || t === "-" || /^n\/?a$/i.test(t) || /^nan$/i.test(t) || t === "None") {
+      return { empty: true, num: false, n: 0, t: "" };
+    }
+    var n = t.replace(/[$,%\s,]/g, "").replace(/^\+/, "").replace(/x$/i, "");
+    if (/^-?\d+(\.\d+)?$/.test(n)) return { empty: false, num: true, n: parseFloat(n), t: t.toLowerCase() };
+    return { empty: false, num: false, n: 0, t: t.toLowerCase() };
+  }
+  function fqCmp(a, b, dir) {
+    var ka = fqCellKey(a), kb = fqCellKey(b);
+    var sign = dir === "desc" ? -1 : 1;
+    if (ka.empty && kb.empty) return 0;
+    if (ka.empty) return 1;
+    if (kb.empty) return -1;
+    if (ka.num && kb.num) return (ka.n - kb.n) * sign;
+    if (ka.t < kb.t) return -1 * sign;
+    if (ka.t > kb.t) return 1 * sign;
+    return 0;
+  }
+  function bindFortuneSort() {
+    doc.querySelectorAll(".mw-fq-table table").forEach(function (table) {
+      if (table.getAttribute("data-mw-sort") === "1") return;
+      var head = table.tHead;
+      if (!head || !head.rows.length) return;
+      var headers = head.rows[head.rows.length - 1].cells;
+      if (!headers || !headers.length) return;
+      table.setAttribute("data-mw-sort", "1");
+      for (var i = 0; i < headers.length; i++) {
+        (function (idx, th) {
+          th.title = "Sort by this column";
+          th.addEventListener("click", function () {
+            var same = table.getAttribute("data-mw-col") === String(idx);
+            var dir = same && table.getAttribute("data-mw-dir") === "asc" ? "desc" : "asc";
+            table.setAttribute("data-mw-col", String(idx));
+            table.setAttribute("data-mw-dir", dir);
+            for (var h = 0; h < headers.length; h++) {
+              headers[h].classList.remove("mw-sort-asc", "mw-sort-desc");
+            }
+            th.classList.add(dir === "asc" ? "mw-sort-asc" : "mw-sort-desc");
+            var body = table.tBodies && table.tBodies[0];
+            if (!body) return;
+            var rows = Array.prototype.slice.call(body.rows);
+            rows.sort(function (ra, rb) { return fqCmp(ra.cells[idx], rb.cells[idx], dir); });
+            rows.forEach(function (r) { body.appendChild(r); });
+          });
+        })(i, headers[i]);
+      }
+    });
+  }
   function paint() {
     if (painting || !doc.body) return;
     var mark = doc.getElementById("mw-paint");
@@ -13652,6 +13712,7 @@ _embed_html(
       if (money) { try { paintSliderFills(); } catch (e) {} }
       if (!fortune) clearFortuneChrome();
       if (fortune) {
+        try { bindFortuneSort(); } catch (e) {}
         doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"], button[role="radio"]').forEach(function (b) {
           var tid = b.getAttribute("data-testid") || "";
           var on = tid.indexOf("Active") >= 0
