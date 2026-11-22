@@ -283,8 +283,8 @@ def scan(min_price: float = 5.0, min_dollar_vol: float = 5e6,
             continue
         if not r or r["stage"] not in stages:
             continue
-        # a trigger from three weeks ago is history, not a setup
-        if r["stage"] == "TRIGGERED" and r["bars_in_stage"] > max_bars_ago:
+        # The hunt banner is "fresh within N bars" for every stage.
+        if r["bars_in_stage"] > max_bars_ago:
             continue
         if r["stage"] in ("SWEPT", "TRIGGERED"):
             rr = r.get("rr")

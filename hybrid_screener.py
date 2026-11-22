@@ -1362,12 +1362,26 @@ def render_hybrid_screener() -> None:
                 _hot_mark = set(_hs_now) if _hs_now else set(
                     str(s) for s in _fs.Sector.head(5))
                 _fs["Hot"] = ["🔥" if str(s) in _hot_mark else "" for s in _fs.Sector]
-                st.dataframe(
+                _fs_view = (
                     _fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
                     .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
                                    "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
                     .map(lambda v: _hs_css_sign(v) if isinstance(v, float) else "",
-                         subset=["Ret", "RS"]),
+                         subset=["Ret", "RS"]))
+                if str(st.session_state.get("mw_look") or "") == "Fortune":
+                    try:
+                        _fs_view = _fs_view.hide(axis="index")
+                    except Exception:
+                        pass
+                    _fs_html = _fs_view.to_html()
+                    if hasattr(st, "html"):
+                        st.html("<div class='mw-fq-table'>" + _fs_html + "</div>")
+                    else:
+                        st.markdown("<div class='mw-fq-table'>" + _fs_html + "</div>",
+                                    unsafe_allow_html=True)
+                else:
+                    st.dataframe(
+                    _fs_view,
                     width="content", hide_index=True,
                     column_config={
                         "Rank": st.column_config.Column(help="Order on this money-flow table. 1 received the most."),
@@ -1816,11 +1830,43 @@ def render_hybrid_screener() -> None:
             styled = display.style
         styled = ce.style_health_setup(styled)
         getattr(ce, "render_scan_col_help_strip", lambda *_: None)(st, order or list(display.columns))
-        _tsel = st.dataframe(
-            styled, width="content", height=560, column_order=order or None,
-            hide_index=True, on_select="rerun", selection_mode="single-row",
-            key=_k("chart_table"),
-            column_config=_cat_cfg if _cat_cfg else None)
+        if str(st.session_state.get("mw_look") or "") == "Fortune":
+            _html = styled.hide(axis="index").to_html()
+            if hasattr(st, "html"):
+                st.html("<div class='mw-fq-table'>" + _html + "</div>")
+            else:
+                st.markdown("<div class='mw-fq-table'>" + _html + "</div>", unsafe_allow_html=True)
+            _labels = [f"{i + 1} · {str(t).strip()}"
+                       for i, t in enumerate(display["Ticker"].tolist())] if "Ticker" in display.columns else [str(i + 1) for i in range(len(display))]
+            _n = len(_labels)
+            _pk = _k("chart_open")
+            if _n and _pk in st.session_state:
+                try:
+                    _cur = int(st.session_state[_pk])
+                except (TypeError, ValueError):
+                    _cur = 0
+                if _cur < 0 or _cur >= _n:
+                    st.session_state[_pk] = 0
+            _choice = st.selectbox(
+                "Open a name", list(range(_n)) if _n else [0],
+                format_func=(lambda i: _labels[i]) if _n else str,
+                key=_pk,
+            ) if _n else 0
+            _seen = st.session_state.get(_pk + "_seen", None)
+            st.session_state[_pk + "_seen"] = _choice
+
+            class _HsSel:
+                def __init__(self, rows):
+                    self.selection = self
+                    self.rows = rows
+
+            _tsel = _HsSel([int(_choice)] if _n and _seen is not None and _seen != _choice else [])
+        else:
+            _tsel = st.dataframe(
+                styled, width="content", height=560, column_order=order or None,
+                hide_index=True, on_select="rerun", selection_mode="single-row",
+                key=_k("chart_table"),
+                column_config=_cat_cfg if _cat_cfg else None)
     except Exception:
         getattr(ce, "render_scan_col_help_strip", lambda *_: None)(st, order or list(display.columns))
         _tsel = st.dataframe(

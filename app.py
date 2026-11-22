@@ -875,7 +875,8 @@ section.main::-webkit-scrollbar-track,
 }}
 .mw-fq-table {{
     max-width: 100%;
-    overflow-x: auto;
+    max-height: 640px;
+    overflow: auto;
 }}
 .mw-fq-table table {{
     width: 100%;
@@ -895,10 +896,19 @@ section.main::-webkit-scrollbar-track,
     font-weight: 650;
 }}
 .mw-fq-table td {{
+    background: #FFFCF6;
     border: 1px solid #E3D5BE;
+    color: #2C2416;
     padding: 3px 6px;
     font-size: 11px;
     line-height: 1.25;
+}}
+.mw-fq-table span, .mw-fq-table td, .mw-fq-table th {{
+    -webkit-text-fill-color: currentColor;
+}}
+.stApp .mw-fq-table span {{
+    color: inherit !important;
+    -webkit-text-fill-color: currentColor !important;
 }}
 """
         return extra + _money_green_css()
@@ -3301,8 +3311,8 @@ def render_lens_playbook(cd: dict, regkey: str | None = None, *, full: bool = Tr
                         "(themes — this is where Reset actually paid)")
             _tm = pd.DataFrame(ce.RESET_THEMES,
                                columns=["Ticker", "Theme", "Excess % / 21d"])
-            st.dataframe(_tm, width=_DF_WIDTH, hide_index=True,
-                         column_config=_scan_col_cfgs())
+            _show_df(_tm, width=_DF_WIDTH, hide_index=True,
+                     column_config=_scan_col_cfgs())
         tilts = (ce.SECTOR_TILTS.get(regkey) or {}) if regkey else {}
         if tilts:
             _rows = sorted(tilts.items(), key=lambda kv: -kv[1])
@@ -7492,7 +7502,7 @@ def _render_macro_lens_block(prefix: str, asof, closes, gauge, *,
                     ev = ev.rename(columns={
                         "signal": "Signal", "reading": "Reading",
                         "weight": "Weight"})
-                    st.dataframe(
+                    _show_df(
                         ev[["Signal", "Reading", "Argues for", "Weight"]]
                         .style.format({"Weight": "{:.1f}"}),
                         width=_DF_WIDTH, hide_index=True,
@@ -7740,6 +7750,11 @@ def _health_setup_col_cfgs():
 
 def _show_df(data, **kwargs):
     """Fortune draws these small tables in cream so the header is not navy."""
+    if _look_name() == "Fortune" and hasattr(data, "style") and not hasattr(data, "set_properties"):
+        try:
+            data = data.style
+        except Exception:
+            pass
     if _look_name() == "Fortune" and hasattr(data, "set_properties"):
         if kwargs.get("hide_index"):
             try:
@@ -7816,20 +7831,17 @@ def _theme_line(data, height, key):
     _fig_show(fig, width="stretch", key=key)
 
 
-def _hub_df(data, **kwargs):
-    """Scan list: HTML column-name chips with hover popups, then the table.
+class _HubPick:
+    """Same shape as a Streamlit dataframe selection: sel.selection.rows."""
 
-    Streamlit draws dataframe headers on a canvas, so column_config `help`
-    never appears when you hover a header. These chips are real HTML.
-    """
-    order = kwargs.get("column_order")
-    raw = getattr(data, "data", data)
-    cols = list(order) if order else list(getattr(raw, "columns", []))
-    fn = getattr(ce, "render_scan_col_help_strip", None)
-    if callable(fn):
-        fn(st, cols)
-    if _look_name() == "Fortune" and hasattr(data, "set_properties"):
-        # Dark ink goes on first so later green/red cell colors still win.
+    def __init__(self, rows):
+        self.selection = self
+        self.rows = list(rows)
+
+
+def _fortune_hub_table(data, order, key, selectable):
+    """Fortune scan list as HTML. The glide canvas stays navy and washes the ink out."""
+    if hasattr(data, "set_properties"):
         data = data.set_properties(**{
             "background-color": "#FFFCF6",
             "color": "#2C2416",
@@ -7837,6 +7849,75 @@ def _hub_df(data, **kwargs):
         todo = getattr(data, "_todo", None)
         if todo and len(todo) > 1:
             todo.insert(0, todo.pop())
+    frame = getattr(data, "data", None)
+    if order and frame is not None:
+        cols = [c for c in order if c in frame.columns]
+        rest = [c for c in frame.columns if c not in cols]
+        try:
+            data._data = frame.reindex(columns=cols + rest)
+            if rest:
+                data = data.hide(subset=rest, axis="columns")
+        except Exception:
+            pass
+    try:
+        data = data.hide(axis="index")
+    except Exception:
+        pass
+    html = "<div class='mw-fq-table'>" + data.to_html() + "</div>"
+    if hasattr(st, "html"):
+        st.html(html)
+    else:
+        st.markdown(html, unsafe_allow_html=True)
+    rows = []
+    n = 0 if frame is None else len(frame)
+    if selectable and n:
+        tcol = next((c for c in ("Ticker", "ticker", "Symbol", "symbol")
+                     if frame is not None and c in frame.columns), None)
+        labels = []
+        for i in range(n):
+            if tcol:
+                labels.append(f"{i + 1} · {str(frame.iloc[i][tcol]).strip()}")
+            else:
+                labels.append(str(i + 1))
+        pick_key = f"{key or 'fq_list'}_open"
+        seen_key = f"{pick_key}_seen"
+        if pick_key in st.session_state:
+            try:
+                cur = int(st.session_state[pick_key])
+            except (TypeError, ValueError):
+                cur = 0
+            if cur < 0 or cur >= n:
+                st.session_state[pick_key] = 0
+        choice = st.selectbox(
+            "Open a name",
+            list(range(n)),
+            format_func=lambda i: labels[i],
+            key=pick_key,
+        )
+        seen = st.session_state.get(seen_key, None)
+        st.session_state[seen_key] = choice
+        if seen is not None and seen != choice:
+            rows = [int(choice)]
+    return _HubPick(rows)
+
+
+def _hub_df(data, **kwargs):
+    """Scan list: HTML column-name chips with hover popups, then the table.
+
+    Streamlit draws dataframe headers on a canvas, so column_config `help`
+    never appears when you hover a header. These chips are real HTML.
+    Fortune cannot use that canvas: its ink is painted for the dark theme
+    and ends up washed out. Fortune gets a real HTML table instead.
+    """
+    order = kwargs.get("column_order")
+    raw = getattr(data, "data", data)
+    cols = list(order) if order else list(getattr(raw, "columns", []))
+    fn = getattr(ce, "render_scan_col_help_strip", None)
+    if callable(fn):
+        fn(st, cols)
+    if _look_name() == "Fortune" and hasattr(data, "to_html"):
+        return _fortune_hub_table(
+            data, order, kwargs.get("key"), bool(kwargs.get("on_select")))
     extra = kwargs.get("column_config")
     kwargs["column_config"] = _scan_col_cfgs(extra)
     return st.dataframe(data, **kwargs)
@@ -9242,7 +9323,7 @@ def _where_money_went(asof, lookback, offset, label, hot_now=None):
         fs = fl.copy()
         mark = set(hot_now or []) or set(str(s) for s in fs.Sector.head(5))
         fs["Hot"] = ["🔥" if str(s) in mark else "" for s in fs.Sector]
-        st.dataframe(
+        _show_df(
             fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
             .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
                            "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
@@ -9541,7 +9622,60 @@ def _stock_lookup_watchlist(closes, asof):
                 .map(_css_fav, subset=["Fav"])
             )
             _wl_styled = _style_health_setup(_wl_styled)
-            _edited = st.data_editor(
+            if _look_name() == "Fortune":
+                try:
+                    _wl_view = _wl_styled.hide(subset=["sel"], axis="columns")
+                except Exception:
+                    _wl_view = _wl_styled
+                _show_df(_wl_view, hide_index=True)
+                _wl_tks = [str(t).strip().upper() for t in show["Ticker"].tolist() if str(t).strip()]
+                if _wl_tks:
+                    if "wl_fortune_open" in st.session_state:
+                        try:
+                            _wl_cur = int(st.session_state["wl_fortune_open"])
+                        except (TypeError, ValueError):
+                            _wl_cur = 0
+                        if _wl_cur < 0 or _wl_cur >= len(_wl_tks):
+                            st.session_state["wl_fortune_open"] = 0
+                    _wl_open_i = st.selectbox(
+                        "Open a name",
+                        list(range(len(_wl_tks))),
+                        format_func=lambda i: _wl_tks[i],
+                        key="wl_fortune_open",
+                    )
+                    _wl_open_seen = st.session_state.get("wl_fortune_open_seen", None)
+                    st.session_state["wl_fortune_open_seen"] = _wl_open_i
+                    if _wl_open_seen is not None and _wl_open_seen != _wl_open_i:
+                        _wtk = _wl_tks[int(_wl_open_i)]
+                        st.session_state["_wl_handled"] = _wtk
+                        st.session_state["lk_tk"] = _wtk
+                        _ent = ce.watchlist_entry(_wtk) if hasattr(ce, "watchlist_entry") else None
+                        _src_lbl = (ce.watchlist_source_label
+                                    if hasattr(ce, "watchlist_source_label")
+                                    else (lambda s, n="": str(s or n or "Stock Lookup")))
+                        st.session_state["wl_source"] = _src_lbl(
+                            (_ent or {}).get("source"), (_ent or {}).get("note"))
+                        st.rerun()
+                    _starred = [t for t in _wl_tks if _fav_of.get(t)]
+                    _fav_kw = ({} if "wl_fortune_favs" in st.session_state else {"default": _starred})
+                    _want_stars = st.multiselect(
+                        "Favorites", _wl_tks, key="wl_fortune_favs", **_fav_kw,
+                        help="Filled stars stay with the ticker. This does not open the row.")
+                    if set(_want_stars) != set(_starred):
+                        for _tk in _wl_tks:
+                            ce.watchlist_set_favorite(_tk, _tk in set(_want_stars))
+                        st.rerun()
+                    _cut = st.multiselect("Remove", _wl_tks, key="wl_fortune_cut")
+                    if st.button(f"🗑 Remove ({len(_cut)})", disabled=not _cut, key="wl_fortune_remove"):
+                        for _t in _cut:
+                            ce.watchlist_remove(_t)
+                        st.session_state.pop("_wl_handled", None)
+                        st.session_state.pop("wl_fortune_cut", None)
+                        st.success("Removed " + ", ".join(_cut))
+                        st.rerun()
+                _edited = None
+            else:
+                _edited = st.data_editor(
                 _wl_styled,
                 width="stretch", hide_index=True, height="content",
                 row_height=35, num_rows="fixed",
@@ -9576,8 +9710,8 @@ def _stock_lookup_watchlist(closes, asof):
         except Exception as _dee:
             log_exc("watchlist_editor", _dee)
             st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
-            st.dataframe(show, width="stretch", hide_index=True,
-                         column_config=_scan_col_cfgs())
+            _show_df(show, width="stretch", hide_index=True,
+                     column_config=_scan_col_cfgs())
         def _wl_as_bool(v):
             if isinstance(v, str):
                 return v.strip().lower() in ("true", "1", "yes", "on")
@@ -9617,23 +9751,24 @@ def _stock_lookup_watchlist(closes, asof):
                 st.session_state["wl_source"] = _src_lbl(
                     (_ent or {}).get("source"), (_ent or {}).get("note"))
                 st.rerun()
-        _cap, _rm = st.columns([4, 1], vertical_alignment="center")
-        _cap.caption("The ★ column is the favorite — pick filled or outline. "
-                     "It stays with the ticker when you sort. That does not "
-                     "select the row. Check a row to open it. Select one or more "
-                     "rows, then remove them here.")
-        if _rm.button(f"🗑 Remove ({len(_sel_tks)})", width="stretch",
-                      disabled=not _sel_tks, key="wl_remove_selected"):
-            for _t in _sel_tks:
-                ce.watchlist_remove(_t)
-            st.session_state.pop("_wl_handled", None)
-            st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
-            for _k in (f"wl_table_{_wl_sel_epoch}", f"wl_table_health_{_wl_sel_epoch}",
-                       f"wl_table_favsel_{_wl_sel_epoch}", f"wl_table_favbtn_{_wl_sel_epoch}",
-                       f"wl_stars_{_wl_sel_epoch}", "wl_table", "wl_mgmt_editor"):
-                st.session_state.pop(_k, None)
-            st.success("Removed " + ", ".join(_sel_tks))
-            st.rerun()
+        if _look_name() != "Fortune":
+            _cap, _rm = st.columns([4, 1], vertical_alignment="center")
+            _cap.caption("The ★ column is the favorite — pick filled or outline. "
+                         "It stays with the ticker when you sort. That does not "
+                         "select the row. Check a row to open it. Select one or more "
+                         "rows, then remove them here.")
+            if _rm.button(f"🗑 Remove ({len(_sel_tks)})", width="stretch",
+                          disabled=not _sel_tks, key="wl_remove_selected"):
+                for _t in _sel_tks:
+                    ce.watchlist_remove(_t)
+                st.session_state.pop("_wl_handled", None)
+                st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
+                for _k in (f"wl_table_{_wl_sel_epoch}", f"wl_table_health_{_wl_sel_epoch}",
+                           f"wl_table_favsel_{_wl_sel_epoch}", f"wl_table_favbtn_{_wl_sel_epoch}",
+                           f"wl_stars_{_wl_sel_epoch}", "wl_table", "wl_mgmt_editor"):
+                    st.session_state.pop(_k, None)
+                st.success("Removed " + ", ".join(_sel_tks))
+                st.rerun()
         _render_saved_scans(wl)
 
     # ── Backup / restore — always visible, even with an empty list ──
@@ -10071,6 +10206,9 @@ with st.container(border=True, key="mw_page"):
         # Dump as-of only — do not pull 3 years of node history on this tab.
         asof = _dump_asof_key()
         st.caption("Search a ticker or a company name in the 5,700-name nightly universe.")
+        _lk_next = st.session_state.pop("lk_query_next", None)
+        if _lk_next is not None:
+            st.session_state["lk_query"] = _lk_next
         with st.container(border=True, key="lk_search_box"):
             lc1, lc2 = st.columns([4, 1], vertical_alignment="bottom")
             def _lk_apply(q):
@@ -10103,7 +10241,7 @@ with st.container(border=True, key="mw_page"):
                         st.session_state["wl_source"] = "Stock Lookup"
                         st.session_state["lk_hits"] = []
                         st.session_state["lk_miss"] = False
-                        st.session_state["lk_query"] = st.session_state["lk_tk"]
+                        st.session_state["lk_query_next"] = st.session_state["lk_tk"]
                         st.rerun()
         elif st.session_state.get("lk_miss"):
             st.caption("No company or ticker matched that. Try the symbol, or a shorter piece of the name.")
@@ -10728,15 +10866,17 @@ with st.container(border=True, key="mw_page"):
                         f"{'Senate / House / Trump · one row per filing' if _ib_officials else 'Form 4 + Congress'}"
                         f"{'' if _ib_officials else ' · ranked by recency × size'}</span></div>")
                     _ib_official_view = "Official" in _idf.columns
-                    _ib_hide = ("Party", "State", "Chamber", "Flag", "Source",
-                                "Filing", "Range")
+                    _ib_hide = (("Flag", "Source") if _ib_official_view
+                                else ("Party", "State", "Chamber", "Flag", "Source",
+                                      "Filing", "Range"))
                     _idf_show = _idf.drop(
                         columns=[c for c in _ib_hide if c in _idf.columns])
                     _ib_order = _price_earn_after_setup(
                         _order_with_cat(
                             [c for c in (
-                                ["#", "Official", "Ticker", "Asset", "Trade date",
-                                 "Filed", "Age", "Delay", "Late", "Bought $", "Price"]
+                                ["#", "Official", "Chamber", "Party", "State",
+                                 "Ticker", "Asset", "Trade date", "Filed", "Age",
+                                 "Delay", "Late", "Bought $", "Range", "Filing", "Price"]
                                 if _ib_official_view else
                                 ["#", "Ticker", "Name", "Sector", "Filed",
                                  "Age", "Bought $", "Buyers",
@@ -12598,7 +12738,7 @@ with st.container(border=True, key="mw_page"):
                                 source="Trump Effect", full_lookup=True)
             if _sdf is not None and not _sdf.empty:
                 with st.expander("Sources scanned", expanded=bool(_te_qhit)):
-                    st.dataframe(
+                    _show_df(
                         _sdf, width=_DF_WIDTH, hide_index=True,
                         column_config=_scan_col_cfgs({
                             "Hits": st.column_config.Column(
@@ -12754,7 +12894,7 @@ with st.container(border=True, key="mw_page"):
                                 _el_sec_st = _el_sec_st.map(
                                     lambda v: _css_sign(v, dead=0.005),
                                     subset=[_col])
-                        st.dataframe(
+                        _show_df(
                             _el_sec_st, width=_DF_WIDTH, hide_index=True,
                             height=_fit_list_height(len(_eshow), max_h=280),
                             key="el_sec",
@@ -13375,20 +13515,6 @@ _embed_html(
       var mark = doc.getElementById("mw-paint");
       return !!(mark && mark.getAttribute("data-look") === "Fortune");
     }
-    ["fillRect", "fill"].forEach(function (name) {
-      var orig = proto[name];
-      if (!orig) return;
-      proto[name] = function () {
-        if (fortune() && gridCanvas(this) && themeNavy(this.fillStyle)) {
-          var prev = this.fillStyle;
-          this.fillStyle = "#FFFCF6";
-          var ret = orig.apply(this, arguments);
-          this.fillStyle = prev;
-          return ret;
-        }
-        return orig.apply(this, arguments);
-      };
-    });
     ["stroke", "strokeRect"].forEach(function (name) {
       var orig = proto[name];
       if (!orig) return;
@@ -13405,39 +13531,6 @@ _embed_html(
     });
   }
   installGridHook();
-  function nearPx(r, g, b, R, G, B) {
-    return Math.abs(r - R) < 4 && Math.abs(g - G) < 4 && Math.abs(b - B) < 4;
-  }
-  function recolorGrid() {
-    var mark = doc.getElementById("mw-paint");
-    if (!mark || mark.getAttribute("data-look") !== "Fortune") return;
-    var now = Date.now();
-    if (now - (root.__mwGridAt || 0) < 400) return;
-    root.__mwGridAt = now;
-    doc.querySelectorAll("[data-testid='stDataFrame'] canvas").forEach(function (canvas) {
-      if (!canvas.width || !canvas.height) return;
-      if (canvas.width * canvas.height > 12000000) return;
-      var ctx;
-      try { ctx = canvas.getContext("2d"); } catch (e) { return; }
-      if (!ctx) return;
-      var img;
-      try { img = ctx.getImageData(0, 0, canvas.width, canvas.height); } catch (e) { return; }
-      var d = img.data;
-      var header = canvas.height <= 160;
-      var changed = false;
-      for (var i = 0; i < d.length; i += 4) {
-        var r = d[i], g = d[i + 1], b = d[i + 2];
-        if (nearPx(r, g, b, 8, 19, 37)) {
-          d[i] = 255; d[i + 1] = 252; d[i + 2] = 246; changed = true;
-        } else if (nearPx(r, g, b, 32, 42, 57)) {
-          d[i] = 227; d[i + 1] = 213; d[i + 2] = 190; changed = true;
-        } else if (header && nearPx(r, g, b, 26, 28, 36)) {
-          d[i] = 243; d[i + 1] = 235; d[i + 2] = 221; changed = true;
-        }
-      }
-      if (changed) ctx.putImageData(img, 0, 0);
-    });
-  }
   function setImp(el, prop, val) {
     if (!el || !el.style) return;
     if (el.style.getPropertyValue(prop) === val && el.style.getPropertyPriority(prop) === "important") return;
@@ -13682,7 +13775,6 @@ _embed_html(
             setImp(n, "background-color", "transparent");
           });
         });
-        try { recolorGrid(); } catch (e) {}
         doc.querySelectorAll('[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], .st-key-lk_hits_box').forEach(function (el) {
           setImp(el, "background", "#FFFCF6");
           setImp(el, "background-color", "#FFFCF6");

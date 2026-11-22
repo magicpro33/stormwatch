@@ -3276,7 +3276,12 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
             # ── Price tile ───────────────────────────────────────────────
             price  = r.get("price")
             chg    = r.get("chg_pct")
-            if price:
+            try:
+                _px = float(price)
+                _price_ok = _px == _px and _px > 0
+            except (TypeError, ValueError):
+                _price_ok = False
+            if _price_ok:
                 chg_col = "#3ddc84" if (chg or 0) >= 0 else "#ff3333"
                 chg_str = f"<span class='ctile-sub' style='color:{chg_col}'>{chg:+.1f}%</span>" if chg is not None else ""
                 price_tile = (
@@ -3353,6 +3358,14 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
     # ----------------------------------------------------------------------------
     # Leaderboard
     # ----------------------------------------------------------------------------
+    if ok:
+        view_mode = st.segmented_control(
+            "Ignition results",
+            ["Compact (phone)", "Table"],
+            key="ig_view_mode",
+            label_visibility="collapsed",
+        ) or "Compact (phone)"
+        show_all_cols = view_mode != "Compact (phone)"
     if ok and view_mode == "Compact (phone)":
         render_compact(ok)
     elif ok:
@@ -3454,7 +3467,45 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
             _ig_tip.render_scan_col_help_strip(st, list(df.columns))
         except Exception:
             pass
-        _igsel = st.dataframe(
+        if str(st.session_state.get("mw_look") or "") == "Fortune" and hasattr(_ig_view, "to_html"):
+            try:
+                _ig_html_src = _ig_view.hide(axis="index")
+            except Exception:
+                _ig_html_src = _ig_view
+            _ig_html = _ig_html_src.to_html()
+            if hasattr(st, "html"):
+                st.html("<div class='mw-fq-table'>" + _ig_html + "</div>")
+            else:
+                st.markdown("<div class='mw-fq-table'>" + _ig_html + "</div>",
+                            unsafe_allow_html=True)
+            _ig_labels = [
+                f"{i + 1} · {str(t).strip()}"
+                for i, t in enumerate(df["Ticker"].tolist())
+            ] if "Ticker" in df.columns else [str(i + 1) for i in range(len(df))]
+            _ig_n = len(_ig_labels)
+            if _ig_n and "ig_table_open" in st.session_state:
+                try:
+                    _ig_cur = int(st.session_state["ig_table_open"])
+                except (TypeError, ValueError):
+                    _ig_cur = 0
+                if _ig_cur < 0 or _ig_cur >= _ig_n:
+                    st.session_state["ig_table_open"] = 0
+            _ig_choice = st.selectbox(
+                "Open a name", list(range(_ig_n)) if _ig_n else [0],
+                format_func=(lambda i: _ig_labels[i]) if _ig_n else str,
+                key="ig_table_open",
+            ) if _ig_n else 0
+            _ig_seen = st.session_state.get("ig_table_open_seen", None)
+            st.session_state["ig_table_open_seen"] = _ig_choice
+
+            class _IgSel:
+                def __init__(self, rows):
+                    self.selection = self
+                    self.rows = rows
+
+            _igsel = _IgSel([int(_ig_choice)] if _ig_n and _ig_seen is not None and _ig_seen != _ig_choice else [])
+        else:
+            _igsel = st.dataframe(
             _ig_view,
             width="content",
             hide_index=True,

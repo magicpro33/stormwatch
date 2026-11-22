@@ -17,6 +17,7 @@ datas = [
     (os.path.join(ROOT, "crypto_copycat.py"), "."),
     (os.path.join(ROOT, "charts_tab.py"), "."),
     (os.path.join(ROOT, "dividend_calendar.py"), "."),
+    (os.path.join(ROOT, "elections_scan.py"), "."),
     (os.path.join(ROOT, "mw_paths.py"), "."),
     (os.path.join(ROOT, "mw_log.py"), "."),
     (os.path.join(ROOT, "mw_secrets.py"), "."),
@@ -39,7 +40,7 @@ hiddenimports = [
     "mw_paths", "mw_log", "mw_secrets", "mw_yf",
     "cascade_engine", "apex_flow", "poc_future", "hybrid_screener",
     "storm_watch_tab", "storm_watch_engine", "ignition_scanner", "crypto_copycat",
-    "charts_tab", "dividend_calendar",
+    "charts_tab", "dividend_calendar", "elections_scan",
     "streamlit", "streamlit.web.cli", "streamlit.runtime.scriptrunner",
     "yfinance", "plotly", "plotly.graph_objects", "plotly.subplots",
     "pandas", "numpy", "pyarrow", "requests", "tzdata",
@@ -86,7 +87,8 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=[os.path.join(ROOT, "hooks")],
+    hookspath=([os.path.join(ROOT, "hooks")]
+               if os.path.isdir(os.path.join(ROOT, "hooks")) else []),
     hooksconfig={},
     runtime_hooks=[],
     excludes=[

@@ -468,6 +468,7 @@ def liquid_universe(n: int = 300, min_price: float = 5.0,
     if only_sectors:
         want = set(str(s) for s in only_sectors)
         ok = ok & np.array([str(s) in want for s in sectors])
-    idx = np.argsort(np.where(ok, mdv, -1))[::-1][:n]
+    score = np.where(ok, mdv, -1.0)
+    idx = [int(i) for i in np.argsort(score)[::-1] if score[i] >= 0][:n]
     return ([str(tickers[i]) for i in idx],
             {str(tickers[i]): str(sectors[i]) for i in idx})

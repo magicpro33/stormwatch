@@ -651,10 +651,24 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                         fs = fl.copy()
                         mark = set(hot_now) if hot_now else set(str(s) for s in fs.Sector.head(5))
                         fs["Hot"] = ["🔥" if str(s) in mark else "" for s in fs.Sector]
-                        st.dataframe(
+                        _fs_view = (
                             fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
                             .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
-                                           "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"}),
+                                           "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"}))
+                        if str(st.session_state.get("mw_look") or "") == "Fortune":
+                            try:
+                                _fs_view = _fs_view.hide(axis="index")
+                            except Exception:
+                                pass
+                            _fs_html = _fs_view.to_html()
+                            if hasattr(st, "html"):
+                                st.html("<div class='mw-fq-table'>" + _fs_html + "</div>")
+                            else:
+                                st.markdown("<div class='mw-fq-table'>" + _fs_html + "</div>",
+                                            unsafe_allow_html=True)
+                        else:
+                            st.dataframe(
+                            _fs_view,
                             width="content", hide_index=True,
                             column_config={
                                 "Ret": st.column_config.Column(help="Dollar-weighted sector return."),
@@ -903,7 +917,39 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         _sw_ce.render_scan_col_help_strip(st, list(show.columns))
     except Exception:
         pass
-    sel = st.dataframe(
+    _sw_fq = str(st.session_state.get("mw_look") or "") == "Fortune"
+    if _sw_fq:
+        _html = styler.hide(axis="index").to_html().replace("#9aa8bd", "#5C5346")
+        if hasattr(st, "html"):
+            st.html("<div class='mw-fq-table'>" + _html + "</div>")
+        else:
+            st.markdown("<div class='mw-fq-table'>" + _html + "</div>", unsafe_allow_html=True)
+        _labels = [f"{i + 1} · {str(t).strip()}" for i, t in enumerate(show.Ticker.tolist())]
+        _n = len(_labels)
+        _pk = "sw_table_open"
+        if _n and _pk in st.session_state:
+            try:
+                _cur = int(st.session_state[_pk])
+            except (TypeError, ValueError):
+                _cur = 0
+            if _cur < 0 or _cur >= _n:
+                st.session_state[_pk] = 0
+        _choice = st.selectbox(
+            "Open a name", list(range(_n)) if _n else [0],
+            format_func=(lambda i: _labels[i]) if _n else str,
+            key=_pk,
+        ) if _n else 0
+        _seen = st.session_state.get("sw_table_open_seen", None)
+        st.session_state["sw_table_open_seen"] = _choice
+
+        class _SwSel:
+            def __init__(self, rows):
+                self.selection = self
+                self.rows = rows
+
+        sel = _SwSel([int(_choice)] if _n and _seen is not None and _seen != _choice else [])
+    else:
+        sel = st.dataframe(
         styler, width="content", hide_index=True, height=min(740, 80 + 34 * len(show)),
         on_select="rerun", selection_mode="single-row", key="sw_table",
         column_config=_sw_col_cfg({
