@@ -903,8 +903,16 @@ section.main::-webkit-scrollbar-track,
 .mw-fq-table th:hover {{
     background: #E8D7B8 !important;
 }}
-.mw-fq-table th.mw-sort-asc::after {{ content: " ▲"; }}
-.mw-fq-table th.mw-sort-desc::after {{ content: " ▼"; }}
+.mw-fq-table a.mw-fq-sort, .mw-fq-table a.mw-fq-hit {{
+    color: inherit !important;
+    -webkit-text-fill-color: currentColor !important;
+    text-decoration: none !important;
+    display: block;
+    cursor: pointer;
+}}
+.mw-fq-table tbody tr:hover td {{
+    background: #F3EBDD !important;
+}}
 .mw-fq-table td {{
     background: #FFFCF6;
     border: 1px solid #E3D5BE;
@@ -7778,11 +7786,11 @@ def _show_df(data, **kwargs):
         todo = getattr(data, "_todo", None)
         if todo and len(todo) > 1:
             todo.insert(0, todo.pop())
-        html = f"<div class='mw-fq-table'>{data.to_html()}</div>"
-        if hasattr(st, "html"):
-            st.html(html)
-        else:
-            st.markdown(html, unsafe_allow_html=True)
+        from mw_fortune_table import render_fortune_table
+        _show_cols = tuple(getattr(getattr(data, "data", data), "columns", ()))
+        render_fortune_table(
+            data, kwargs.get("key") or ("fq_" + str(abs(hash(_show_cols)))),
+            selectable=False, column_order=kwargs.get("column_order"))
         return None
     return st.dataframe(data, **kwargs)
 
@@ -7850,64 +7858,10 @@ class _HubPick:
 
 
 def _fortune_hub_table(data, order, key, selectable):
-    """Fortune scan list as HTML. The glide canvas stays navy and washes the ink out."""
-    if hasattr(data, "set_properties"):
-        data = data.set_properties(**{
-            "background-color": "#FFFCF6",
-            "color": "#2C2416",
-        })
-        todo = getattr(data, "_todo", None)
-        if todo and len(todo) > 1:
-            todo.insert(0, todo.pop())
-    frame = getattr(data, "data", None)
-    if order and frame is not None:
-        cols = [c for c in order if c in frame.columns]
-        rest = [c for c in frame.columns if c not in cols]
-        try:
-            data._data = frame.reindex(columns=cols + rest)
-            if rest:
-                data = data.hide(subset=rest, axis="columns")
-        except Exception:
-            pass
-    try:
-        data = data.hide(axis="index")
-    except Exception:
-        pass
-    html = "<div class='mw-fq-table'>" + data.to_html() + "</div>"
-    if hasattr(st, "html"):
-        st.html(html)
-    else:
-        st.markdown(html, unsafe_allow_html=True)
-    rows = []
-    n = 0 if frame is None else len(frame)
-    if selectable and n:
-        tcol = next((c for c in ("Ticker", "ticker", "Symbol", "symbol")
-                     if frame is not None and c in frame.columns), None)
-        labels = []
-        for i in range(n):
-            if tcol:
-                labels.append(f"{i + 1} · {str(frame.iloc[i][tcol]).strip()}")
-            else:
-                labels.append(str(i + 1))
-        pick_key = f"{key or 'fq_list'}_open"
-        seen_key = f"{pick_key}_seen"
-        if pick_key in st.session_state:
-            try:
-                cur = int(st.session_state[pick_key])
-            except (TypeError, ValueError):
-                cur = 0
-            if cur < 0 or cur >= n:
-                st.session_state[pick_key] = 0
-        choice = st.selectbox(
-            "Open a name",
-            list(range(n)),
-            format_func=lambda i: labels[i],
-            key=pick_key,
-        )
-        seen = st.session_state.get(seen_key, None)
-        st.session_state[seen_key] = choice
-        if seen is not None and seen != choice:
-            rows = [int(choice)]
+    """Fortune scan list as HTML. Header links sort. Row links open the name."""
+    from mw_fortune_table import render_fortune_table
+    rows = render_fortune_table(
+        data, key or "fq_list", selectable=bool(selectable), column_order=order)
     return _HubPick(rows)
 
 
@@ -9637,35 +9591,20 @@ def _stock_lookup_watchlist(closes, asof):
                     _wl_view = _wl_styled.hide(subset=["sel"], axis="columns")
                 except Exception:
                     _wl_view = _wl_styled
-                _show_df(_wl_view, hide_index=True)
+                from mw_fortune_table import render_fortune_table
+                _wl_hit = render_fortune_table(_wl_view, "wl_table", selectable=True)
                 _wl_tks = [str(t).strip().upper() for t in show["Ticker"].tolist() if str(t).strip()]
+                if _wl_hit:
+                    _wtk = str(show.iloc[int(_wl_hit[0])]["Ticker"]).strip().upper()
+                    st.session_state["_wl_handled"] = _wtk
+                    st.session_state["lk_tk"] = _wtk
+                    _ent = ce.watchlist_entry(_wtk) if hasattr(ce, "watchlist_entry") else None
+                    _src_lbl = (ce.watchlist_source_label
+                                if hasattr(ce, "watchlist_source_label")
+                                else (lambda s, n="": str(s or n or "Stock Lookup")))
+                    st.session_state["wl_source"] = _src_lbl(
+                        (_ent or {}).get("source"), (_ent or {}).get("note"))
                 if _wl_tks:
-                    if "wl_fortune_open" in st.session_state:
-                        try:
-                            _wl_cur = int(st.session_state["wl_fortune_open"])
-                        except (TypeError, ValueError):
-                            _wl_cur = 0
-                        if _wl_cur < 0 or _wl_cur >= len(_wl_tks):
-                            st.session_state["wl_fortune_open"] = 0
-                    _wl_open_i = st.selectbox(
-                        "Open a name",
-                        list(range(len(_wl_tks))),
-                        format_func=lambda i: _wl_tks[i],
-                        key="wl_fortune_open",
-                    )
-                    _wl_open_seen = st.session_state.get("wl_fortune_open_seen", None)
-                    st.session_state["wl_fortune_open_seen"] = _wl_open_i
-                    if _wl_open_seen is not None and _wl_open_seen != _wl_open_i:
-                        _wtk = _wl_tks[int(_wl_open_i)]
-                        st.session_state["_wl_handled"] = _wtk
-                        st.session_state["lk_tk"] = _wtk
-                        _ent = ce.watchlist_entry(_wtk) if hasattr(ce, "watchlist_entry") else None
-                        _src_lbl = (ce.watchlist_source_label
-                                    if hasattr(ce, "watchlist_source_label")
-                                    else (lambda s, n="": str(s or n or "Stock Lookup")))
-                        st.session_state["wl_source"] = _src_lbl(
-                            (_ent or {}).get("source"), (_ent or {}).get("note"))
-                        st.rerun()
                     _starred = [t for t in _wl_tks if _fav_of.get(t)]
                     _fav_kw = ({} if "wl_fortune_favs" in st.session_state else {"default": _starred})
                     _want_stars = st.multiselect(
@@ -13651,56 +13590,6 @@ _embed_html(
     doc.querySelectorAll('[data-baseweb="button-group"], [data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [role="option"], [data-testid="stAlert"], [data-testid="stNotification"]').forEach(clearImp);
     doc.querySelectorAll('[data-baseweb="select"] span, [data-baseweb="select"] div, [data-testid="stRadio"] label, [data-testid="stRadio"] p, [data-testid="stRadio"] span, label[data-testid="stRadioOption"], label[data-testid="stRadioOption"] p').forEach(clearImp);
   }
-  function fqCellKey(td) {
-    var t = ((td && td.textContent) || "").replace(/\u00a0/g, " ").trim();
-    if (!t || t === "—" || t === "–" || t === "-" || /^n\/?a$/i.test(t) || /^nan$/i.test(t) || t === "None") {
-      return { empty: true, num: false, n: 0, t: "" };
-    }
-    var n = t.replace(/[$,%\s,]/g, "").replace(/^\+/, "").replace(/x$/i, "");
-    if (/^-?\d+(\.\d+)?$/.test(n)) return { empty: false, num: true, n: parseFloat(n), t: t.toLowerCase() };
-    return { empty: false, num: false, n: 0, t: t.toLowerCase() };
-  }
-  function fqCmp(a, b, dir) {
-    var ka = fqCellKey(a), kb = fqCellKey(b);
-    var sign = dir === "desc" ? -1 : 1;
-    if (ka.empty && kb.empty) return 0;
-    if (ka.empty) return 1;
-    if (kb.empty) return -1;
-    if (ka.num && kb.num) return (ka.n - kb.n) * sign;
-    if (ka.t < kb.t) return -1 * sign;
-    if (ka.t > kb.t) return 1 * sign;
-    return 0;
-  }
-  function bindFortuneSort() {
-    doc.querySelectorAll(".mw-fq-table table").forEach(function (table) {
-      if (table.getAttribute("data-mw-sort") === "1") return;
-      var head = table.tHead;
-      if (!head || !head.rows.length) return;
-      var headers = head.rows[head.rows.length - 1].cells;
-      if (!headers || !headers.length) return;
-      table.setAttribute("data-mw-sort", "1");
-      for (var i = 0; i < headers.length; i++) {
-        (function (idx, th) {
-          th.title = "Sort by this column";
-          th.addEventListener("click", function () {
-            var same = table.getAttribute("data-mw-col") === String(idx);
-            var dir = same && table.getAttribute("data-mw-dir") === "asc" ? "desc" : "asc";
-            table.setAttribute("data-mw-col", String(idx));
-            table.setAttribute("data-mw-dir", dir);
-            for (var h = 0; h < headers.length; h++) {
-              headers[h].classList.remove("mw-sort-asc", "mw-sort-desc");
-            }
-            th.classList.add(dir === "asc" ? "mw-sort-asc" : "mw-sort-desc");
-            var body = table.tBodies && table.tBodies[0];
-            if (!body) return;
-            var rows = Array.prototype.slice.call(body.rows);
-            rows.sort(function (ra, rb) { return fqCmp(ra.cells[idx], rb.cells[idx], dir); });
-            rows.forEach(function (r) { body.appendChild(r); });
-          });
-        })(i, headers[i]);
-      }
-    });
-  }
   function paint() {
     if (painting || !doc.body) return;
     var mark = doc.getElementById("mw-paint");
@@ -13712,7 +13601,6 @@ _embed_html(
       if (money) { try { paintSliderFills(); } catch (e) {} }
       if (!fortune) clearFortuneChrome();
       if (fortune) {
-        try { bindFortuneSort(); } catch (e) {}
         doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"], button[role="radio"]').forEach(function (b) {
           var tid = b.getAttribute("data-testid") || "";
           var on = tid.indexOf("Active") >= 0

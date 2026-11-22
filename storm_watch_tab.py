@@ -656,16 +656,8 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                             .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
                                            "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"}))
                         if str(st.session_state.get("mw_look") or "") == "Fortune":
-                            try:
-                                _fs_view = _fs_view.hide(axis="index")
-                            except Exception:
-                                pass
-                            _fs_html = _fs_view.to_html()
-                            if hasattr(st, "html"):
-                                st.html("<div class='mw-fq-table'>" + _fs_html + "</div>")
-                            else:
-                                st.markdown("<div class='mw-fq-table'>" + _fs_html + "</div>",
-                                            unsafe_allow_html=True)
+                            from mw_fortune_table import render_fortune_table
+                            render_fortune_table(_fs_view, "sw_flow", selectable=False)
                         else:
                             st.dataframe(
                             _fs_view,
@@ -919,35 +911,17 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         pass
     _sw_fq = str(st.session_state.get("mw_look") or "") == "Fortune"
     if _sw_fq:
-        _html = styler.hide(axis="index").to_html().replace("#9aa8bd", "#5C5346")
-        if hasattr(st, "html"):
-            st.html("<div class='mw-fq-table'>" + _html + "</div>")
-        else:
-            st.markdown("<div class='mw-fq-table'>" + _html + "</div>", unsafe_allow_html=True)
-        _labels = [f"{i + 1} · {str(t).strip()}" for i, t in enumerate(show.Ticker.tolist())]
-        _n = len(_labels)
-        _pk = "sw_table_open"
-        if _n and _pk in st.session_state:
-            try:
-                _cur = int(st.session_state[_pk])
-            except (TypeError, ValueError):
-                _cur = 0
-            if _cur < 0 or _cur >= _n:
-                st.session_state[_pk] = 0
-        _choice = st.selectbox(
-            "Open a name", list(range(_n)) if _n else [0],
-            format_func=(lambda i: _labels[i]) if _n else str,
-            key=_pk,
-        ) if _n else 0
-        _seen = st.session_state.get("sw_table_open_seen", None)
-        st.session_state["sw_table_open_seen"] = _choice
+        from mw_fortune_table import render_fortune_table
+        _sw_rows = render_fortune_table(
+            styler.hide(axis="index") if hasattr(styler, "hide") else styler,
+            "sw_table", selectable=True)
 
         class _SwSel:
             def __init__(self, rows):
                 self.selection = self
                 self.rows = rows
 
-        sel = _SwSel([int(_choice)] if _n and _seen is not None and _seen != _choice else [])
+        sel = _SwSel(_sw_rows)
     else:
         sel = st.dataframe(
         styler, width="content", hide_index=True, height=min(740, 80 + 34 * len(show)),
