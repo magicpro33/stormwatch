@@ -7849,29 +7849,13 @@ def _theme_line(data, height, key):
     _fig_show(fig, width="stretch", key=key)
 
 
-class _HubPick:
-    """Same shape as a Streamlit dataframe selection: sel.selection.rows."""
-
-    def __init__(self, rows):
-        self.selection = self
-        self.rows = list(rows)
-
-
-def _fortune_hub_table(data, order, key, selectable):
-    """Fortune scan list as HTML. Header links sort. Row links open the name."""
-    from mw_fortune_table import render_fortune_table
-    rows = render_fortune_table(
-        data, key or "fq_list", selectable=bool(selectable), column_order=order)
-    return _HubPick(rows)
-
-
 def _hub_df(data, **kwargs):
-    """Scan list: HTML column-name chips with hover popups, then the table.
+    """Scan list: HTML column-name chips with hover popups, then the grid.
 
     Streamlit draws dataframe headers on a canvas, so column_config `help`
     never appears when you hover a header. These chips are real HTML.
-    Fortune cannot use that canvas: its ink is painted for the dark theme
-    and ends up washed out. Fortune gets a real HTML table instead.
+    Every look, including Fortune, uses that same grid so a header click
+    sorts and a row click opens the name.
     """
     order = kwargs.get("column_order")
     raw = getattr(data, "data", data)
@@ -7879,9 +7863,6 @@ def _hub_df(data, **kwargs):
     fn = getattr(ce, "render_scan_col_help_strip", None)
     if callable(fn):
         fn(st, cols)
-    if _look_name() == "Fortune" and hasattr(data, "to_html"):
-        return _fortune_hub_table(
-            data, order, kwargs.get("key"), bool(kwargs.get("on_select")))
     extra = kwargs.get("column_config")
     kwargs["column_config"] = _scan_col_cfgs(extra)
     return st.dataframe(data, **kwargs)
@@ -9586,45 +9567,7 @@ def _stock_lookup_watchlist(closes, asof):
                 .map(_css_fav, subset=["Fav"])
             )
             _wl_styled = _style_health_setup(_wl_styled)
-            if _look_name() == "Fortune":
-                try:
-                    _wl_view = _wl_styled.hide(subset=["sel"], axis="columns")
-                except Exception:
-                    _wl_view = _wl_styled
-                from mw_fortune_table import render_fortune_table
-                _wl_hit = render_fortune_table(_wl_view, "wl_table", selectable=True)
-                _wl_tks = [str(t).strip().upper() for t in show["Ticker"].tolist() if str(t).strip()]
-                if _wl_hit:
-                    _wtk = str(show.iloc[int(_wl_hit[0])]["Ticker"]).strip().upper()
-                    st.session_state["_wl_handled"] = _wtk
-                    st.session_state["lk_tk"] = _wtk
-                    _ent = ce.watchlist_entry(_wtk) if hasattr(ce, "watchlist_entry") else None
-                    _src_lbl = (ce.watchlist_source_label
-                                if hasattr(ce, "watchlist_source_label")
-                                else (lambda s, n="": str(s or n or "Stock Lookup")))
-                    st.session_state["wl_source"] = _src_lbl(
-                        (_ent or {}).get("source"), (_ent or {}).get("note"))
-                if _wl_tks:
-                    _starred = [t for t in _wl_tks if _fav_of.get(t)]
-                    _fav_kw = ({} if "wl_fortune_favs" in st.session_state else {"default": _starred})
-                    _want_stars = st.multiselect(
-                        "Favorites", _wl_tks, key="wl_fortune_favs", **_fav_kw,
-                        help="Filled stars stay with the ticker. This does not open the row.")
-                    if set(_want_stars) != set(_starred):
-                        for _tk in _wl_tks:
-                            ce.watchlist_set_favorite(_tk, _tk in set(_want_stars))
-                        st.rerun()
-                    _cut = st.multiselect("Remove", _wl_tks, key="wl_fortune_cut")
-                    if st.button(f"🗑 Remove ({len(_cut)})", disabled=not _cut, key="wl_fortune_remove"):
-                        for _t in _cut:
-                            ce.watchlist_remove(_t)
-                        st.session_state.pop("_wl_handled", None)
-                        st.session_state.pop("wl_fortune_cut", None)
-                        st.success("Removed " + ", ".join(_cut))
-                        st.rerun()
-                _edited = None
-            else:
-                _edited = st.data_editor(
+            _edited = st.data_editor(
                 _wl_styled,
                 width="stretch", hide_index=True, height="content",
                 row_height=35, num_rows="fixed",
@@ -9700,24 +9643,23 @@ def _stock_lookup_watchlist(closes, asof):
                 st.session_state["wl_source"] = _src_lbl(
                     (_ent or {}).get("source"), (_ent or {}).get("note"))
                 st.rerun()
-        if _look_name() != "Fortune":
-            _cap, _rm = st.columns([4, 1], vertical_alignment="center")
-            _cap.caption("The ★ column is the favorite — pick filled or outline. "
-                         "It stays with the ticker when you sort. That does not "
-                         "select the row. Check a row to open it. Select one or more "
-                         "rows, then remove them here.")
-            if _rm.button(f"🗑 Remove ({len(_sel_tks)})", width="stretch",
-                          disabled=not _sel_tks, key="wl_remove_selected"):
-                for _t in _sel_tks:
-                    ce.watchlist_remove(_t)
-                st.session_state.pop("_wl_handled", None)
-                st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
-                for _k in (f"wl_table_{_wl_sel_epoch}", f"wl_table_health_{_wl_sel_epoch}",
-                           f"wl_table_favsel_{_wl_sel_epoch}", f"wl_table_favbtn_{_wl_sel_epoch}",
-                           f"wl_stars_{_wl_sel_epoch}", "wl_table", "wl_mgmt_editor"):
-                    st.session_state.pop(_k, None)
-                st.success("Removed " + ", ".join(_sel_tks))
-                st.rerun()
+        _cap, _rm = st.columns([4, 1], vertical_alignment="center")
+        _cap.caption("The ★ column is the favorite — pick filled or outline. "
+                     "It stays with the ticker when you sort. That does not "
+                     "select the row. Check a row to open it. Select one or more "
+                     "rows, then remove them here.")
+        if _rm.button(f"🗑 Remove ({len(_sel_tks)})", width="stretch",
+                      disabled=not _sel_tks, key="wl_remove_selected"):
+            for _t in _sel_tks:
+                ce.watchlist_remove(_t)
+            st.session_state.pop("_wl_handled", None)
+            st.session_state["_wl_sel_epoch"] = _wl_sel_epoch + 1
+            for _k in (f"wl_table_{_wl_sel_epoch}", f"wl_table_health_{_wl_sel_epoch}",
+                       f"wl_table_favsel_{_wl_sel_epoch}", f"wl_table_favbtn_{_wl_sel_epoch}",
+                       f"wl_stars_{_wl_sel_epoch}", "wl_table", "wl_mgmt_editor"):
+                st.session_state.pop(_k, None)
+            st.success("Removed " + ", ".join(_sel_tks))
+            st.rerun()
         _render_saved_scans(wl)
 
     # ── Backup / restore — always visible, even with an empty list ──

@@ -655,11 +655,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
                             fs[["Rank", "Hot", "Sector", "Ret", "RS", "Breadth", "VolSurge", "Names"]]
                             .style.format({"Ret": "{:+.2%}", "RS": "{:+.2%}",
                                            "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"}))
-                        if str(st.session_state.get("mw_look") or "") == "Fortune":
-                            from mw_fortune_table import render_fortune_table
-                            render_fortune_table(_fs_view, "sw_flow", selectable=False)
-                        else:
-                            st.dataframe(
+                        st.dataframe(
                             _fs_view,
                             width="content", hide_index=True,
                             column_config={
@@ -909,21 +905,7 @@ def render_storm_watch_tab(asof: str | None = None, closes=None, gauge=None,
         _sw_ce.render_scan_col_help_strip(st, list(show.columns))
     except Exception:
         pass
-    _sw_fq = str(st.session_state.get("mw_look") or "") == "Fortune"
-    if _sw_fq:
-        from mw_fortune_table import render_fortune_table
-        _sw_rows = render_fortune_table(
-            styler.hide(axis="index") if hasattr(styler, "hide") else styler,
-            "sw_table", selectable=True)
-
-        class _SwSel:
-            def __init__(self, rows):
-                self.selection = self
-                self.rows = rows
-
-        sel = _SwSel(_sw_rows)
-    else:
-        sel = st.dataframe(
+    sel = st.dataframe(
         styler, width="content", hide_index=True, height=min(740, 80 + 34 * len(show)),
         on_select="rerun", selection_mode="single-row", key="sw_table",
         column_config=_sw_col_cfg({

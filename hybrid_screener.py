@@ -1368,11 +1368,7 @@ def render_hybrid_screener() -> None:
                                    "Breadth": "{:.0%}", "VolSurge": "{:.2f}x"})
                     .map(lambda v: _hs_css_sign(v) if isinstance(v, float) else "",
                          subset=["Ret", "RS"]))
-                if str(st.session_state.get("mw_look") or "") == "Fortune":
-                    from mw_fortune_table import render_fortune_table
-                    render_fortune_table(_fs_view, "hs_flow", selectable=False)
-                else:
-                    st.dataframe(
+                st.dataframe(
                     _fs_view,
                     width="content", hide_index=True,
                     column_config={
@@ -1822,19 +1818,7 @@ def render_hybrid_screener() -> None:
             styled = display.style
         styled = ce.style_health_setup(styled)
         getattr(ce, "render_scan_col_help_strip", lambda *_: None)(st, order or list(display.columns))
-        if str(st.session_state.get("mw_look") or "") == "Fortune":
-            from mw_fortune_table import render_fortune_table
-            _hs_rows = render_fortune_table(
-                styled, _k("chart_table"), selectable=True, column_order=order)
-
-            class _HsSel:
-                def __init__(self, rows):
-                    self.selection = self
-                    self.rows = rows
-
-            _tsel = _HsSel(_hs_rows)
-        else:
-            _tsel = st.dataframe(
+        _tsel = st.dataframe(
                 styled, width="content", height=560, column_order=order or None,
                 hide_index=True, on_select="rerun", selection_mode="single-row",
                 key=_k("chart_table"),

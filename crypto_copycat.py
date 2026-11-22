@@ -643,24 +643,6 @@ def _grid(
         styled = styled.map(_cell_sign, subset=paint)
     if side_col and side_col in visible.columns:
         styled = styled.map(_side_css, subset=[side_col])
-    if _fortune():
-        try:
-            styled = styled.hide(axis="index")
-        except Exception:
-            pass
-        styled = styled.set_properties(**{
-            "background-color": "#FFFCF6",
-            "color": "#2C2416",
-        })
-        todo = getattr(styled, "_todo", None)
-        if todo and len(todo) > 1:
-            todo.insert(0, todo.pop())
-        _box = min(int(height), 48 + 28 * max(len(visible), 1))
-        _html_block(
-            f"<div class='mw-fq-table' style='max-height:{_box}px;overflow:auto;'>"
-            f"{styled.to_html()}</div>"
-        )
-        return ordered
     st.dataframe(
         styled,
         width="content",

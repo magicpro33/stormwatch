@@ -3467,17 +3467,7 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
             _ig_tip.render_scan_col_help_strip(st, list(df.columns))
         except Exception:
             pass
-        if str(st.session_state.get("mw_look") or "") == "Fortune" and hasattr(_ig_view, "to_html"):
-            from mw_fortune_table import render_fortune_table
-
-            class _IgSel:
-                def __init__(self, rows):
-                    self.selection = self
-                    self.rows = rows
-
-            _igsel = _IgSel(render_fortune_table(_ig_view, "ig_results_table", selectable=True))
-        else:
-            _igsel = st.dataframe(
+        _igsel = st.dataframe(
             _ig_view,
             width="content",
             hide_index=True,
