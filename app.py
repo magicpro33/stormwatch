@@ -327,6 +327,30 @@ def _look_extra_css(name: str, f: dict, serif: str) -> str:
     background: {f['card']} !important;
     color: {f['text']} !important;
 }}
+[data-baseweb="popover"],
+[data-baseweb="menu"],
+[role="listbox"],
+.st-key-lk_hits_box {{
+    border: 1px solid {f['accent']} !important;
+    box-shadow: 0 10px 28px rgba(92, 58, 26, 0.14) !important;
+    background: {f['card']} !important;
+}}
+.st-key-lk_hits_box [data-testid="stButton"] button {{
+    background: {f['card']} !important;
+    color: {f['text']} !important;
+    border: 1px solid {f['line']} !important;
+}}
+.st-key-lk_hits_box [data-testid="stButton"] button:hover {{
+    background: {f['pill']} !important;
+    color: {f['head']} !important;
+    border-color: {f['accent']} !important;
+}}
+[data-testid="stDataFrame"] > div,
+[data-testid="stDataFrame"] > div > div {{
+    border-color: {f['line']} !important;
+    outline-color: {f['line']} !important;
+    box-shadow: none !important;
+}}
 [data-baseweb="tag"], [data-baseweb="tag"] *,
 .hub-title, .hub-sec, .hub-title-pop, .mw-menu-title, .t20-title, .t20-head, .t20-box,
 div[data-testid="stExpander"], div[data-testid="stAlert"],
@@ -681,6 +705,8 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
 .stApp span.mw-good, .stApp .mw-good {{ color: #3fbf7f !important; }}
 .stApp span.mw-mid, .stApp .mw-mid {{ color: #E87722 !important; }}
 .stApp span.mw-bad, .stApp .mw-bad {{ color: #9E1B2F !important; }}
+.stApp td.mw-buy {{ color: #3fbf7f !important; font-weight: 700 !important; }}
+.stApp td.mw-sell {{ color: #9E1B2F !important; font-weight: 700 !important; }}
 .stApp [data-baseweb="select"] > div,
 .stApp [data-baseweb="select"] span,
 .stApp [data-baseweb="select"] div,
@@ -2230,6 +2256,68 @@ def _lk_insider_action(text, transaction="") -> str:
     if "exercise" in blob or "conversion" in blob or "option" in blob:
         return "Exercise"
     return (str(transaction).strip() or "Other")[:16]
+
+
+def _lk_name_hits(query: str):
+    """Match a Stock Lookup query to a ticker, a company name, or a short list.
+
+    Exact tickers open immediately. One name match does too. Several matches
+    stay in the list so the person can pick the right company.
+    """
+    q = " ".join(str(query or "").split())
+    if not q:
+        return "", []
+    qu = q.upper()
+    ql = q.lower()
+    rows = []
+    try:
+        fn = getattr(ce, "_keyword_corpus", None)
+        rows = list(fn() or []) if callable(fn) else []
+    except Exception:
+        rows = []
+    exact = None
+    hits = []
+    for r in rows:
+        tk = str(r.get("ticker") or "").strip().upper()
+        if not tk:
+            continue
+        name = str(r.get("name") or "").strip() or tk
+        hay = str(r.get("hay_name") or f"{tk} {name}").lower()
+        item = {"ticker": tk, "name": name, "sector": str(r.get("sector") or "")}
+        if tk == qu:
+            exact = item
+            break
+        name_l = name.lower()
+        if len(ql) >= 2 and (name_l.startswith(ql) or (len(qu) >= 2 and tk.startswith(qu))):
+            hits.append(item)
+        elif len(ql) >= 3 and ql in hay:
+            hits.append(item)
+    if exact:
+        return exact["ticker"], []
+
+    def _rank(item):
+        name_l = item["name"].lower()
+        tk = item["ticker"]
+        if name_l == ql:
+            bucket = 0
+        elif tk.startswith(qu):
+            bucket = 1
+        elif name_l.startswith(ql):
+            bucket = 2
+        else:
+            bucket = 3
+        return (bucket, len(name_l), tk)
+
+    hits.sort(key=_rank)
+    hits = hits[:20]
+    if len(hits) == 1:
+        return hits[0]["ticker"], []
+    if hits:
+        return "", hits
+    if (" " not in q and len(qu) <= 12
+            and all(c.isalnum() or c in "-." for c in qu)):
+        return qu, []
+    return "", []
 
 
 def _css_insider_act(v):
@@ -4495,8 +4583,11 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
         rows.append(mrow(
             "90-day open market",
             "Cash buys minus cash sells in the last 90 days. Awards and option exercises are excluded.",
-            f"<span style='font-family:monospace;color:{net_col}'>"
-            f"{nb} buys / {ns} sells · {_usd_txt(net90)} {net_lbl}</span>"))
+            f"<span class='mw-good' style='font-family:monospace;color:{GREEN};font-weight:700'>{nb} buys</span>"
+            f" / <span class='mw-bad' style='font-family:monospace;color:{RED};font-weight:700'>{ns} sells</span>"
+            f" · <span class='{'mw-good' if (net90 or 0) > 0 else ('mw-bad' if (net90 or 0) < 0 else '')}' "
+            f"style='font-family:monospace;color:{net_col};font-weight:700'>"
+            f"{_usd_txt(net90)} {net_lbl}</span>"))
         mtable(rows)
         owners = list(pack.get("owners") or [])
         _own_lbl = f"Top 10 owners · {len(owners)}" if owners else "Top 10 owners"
@@ -4531,6 +4622,14 @@ def render_ignition_analyzer(tk: str, closes: pd.DataFrame,
                     na_rep="—", subset=["Shares", "Value"])
                 if "Action" in tdf.columns:
                     _tst = _tst.map(_css_insider_act, subset=["Action"])
+                    if _look_name() == "Fortune":
+                        _act_cls = pd.DataFrame("", index=tdf.index, columns=tdf.columns)
+                        _act_cls["Action"] = [
+                            "mw-buy" if str(v).strip().lower() == "buy"
+                            else ("mw-sell" if str(v).strip().lower() == "sell" else "")
+                            for v in tdf["Action"]
+                        ]
+                        _tst = _tst.set_td_classes(_act_cls)
                 _show_df(
                     _tst, width="stretch", hide_index=True,
                     height=_fit_list_height(min(len(tdf), 12)),
@@ -9878,20 +9977,43 @@ with st.container(border=True, key="mw_page"):
         _hub_title("🔎 Stock Lookup", "#7FD4FF")
         # Dump as-of only — do not pull 3 years of node history on this tab.
         asof = _dump_asof_key()
-        st.caption("Search any stock in the 5,700-name nightly universe.")
+        st.caption("Search a ticker or a company name in the 5,700-name nightly universe.")
         with st.container(border=True, key="lk_search_box"):
             lc1, lc2 = st.columns([4, 1], vertical_alignment="bottom")
-            def _lk_submit():
-                q = str(st.session_state.get("lk_query") or "").strip().upper()
-                if q:
-                    st.session_state["lk_tk"] = q
+            def _lk_apply(q):
+                chosen, hits = _lk_name_hits(q)
+                st.session_state["lk_hits"] = hits
+                st.session_state["lk_miss"] = bool(q) and not chosen and not hits
+                if chosen:
+                    st.session_state["lk_tk"] = chosen
                     st.session_state["wl_source"] = "Stock Lookup"
-            _q = lc1.text_input("Ticker", key="lk_query", placeholder="e.g. NVDA",
+            def _lk_submit():
+                _lk_apply(str(st.session_state.get("lk_query") or "").strip())
+            _q = lc1.text_input("Ticker or company", key="lk_query",
+                                placeholder="NVDA or NVIDIA",
                                 label_visibility="collapsed",
-                                on_change=_lk_submit).strip().upper()
+                                on_change=_lk_submit).strip()
             if lc2.button("🔎 Look up", type="primary", width="stretch") and _q:
-                st.session_state["lk_tk"] = _q
-                st.session_state["wl_source"] = "Stock Lookup"
+                _lk_apply(_q)
+        _lk_hits = list(st.session_state.get("lk_hits") or [])
+        if _lk_hits:
+            with st.container(border=True, key="lk_hits_box"):
+                st.caption(f"{len(_lk_hits)} matches. Pick the company.")
+                for _hi, _h in enumerate(_lk_hits):
+                    _hlabel = f"{_h.get('ticker') or ''}  ·  {_h.get('name') or ''}"
+                    _hsec = str(_h.get("sector") or "").strip()
+                    if _hsec and _hsec.lower() not in ("unknown", "nan"):
+                        _hlabel += f"  ·  {_hsec}"
+                    if st.button(_hlabel, key=f"lk_hit_{_hi}_{_h.get('ticker')}",
+                                 width="stretch"):
+                        st.session_state["lk_tk"] = str(_h.get("ticker") or "").upper()
+                        st.session_state["wl_source"] = "Stock Lookup"
+                        st.session_state["lk_hits"] = []
+                        st.session_state["lk_miss"] = False
+                        st.session_state["lk_query"] = st.session_state["lk_tk"]
+                        st.rerun()
+        elif st.session_state.get("lk_miss"):
+            st.caption("No company or ticker matched that. Try the symbol, or a shorter piece of the name.")
 
         tk = st.session_state.get("lk_tk")
         if tk:
@@ -13140,90 +13262,76 @@ _embed_html(
     var r = +m[1], g = +m[2], b = +m[3];
     return r > 180 && g > 60 && g < 180 && b < 100 && (r - g) > 30;
   }
-  function authoredImage(el) {
-    var keys = ["background", "background-image", "background-color"];
-    var saved = [];
-    for (var i = 0; i < keys.length; i++) {
-      saved.push([keys[i], el.style.getPropertyValue(keys[i]), el.style.getPropertyPriority(keys[i])]);
-      el.style.removeProperty(keys[i]);
-    }
-    var img = "";
-    try { img = (doc.defaultView || root).getComputedStyle(el).backgroundImage || ""; }
-    catch (e) { img = ""; }
-    for (var j = 0; j < saved.length; j++) {
-      if (saved[j][1]) el.style.setProperty(saved[j][0], saved[j][1], saved[j][2]);
-    }
-    return img;
+  function recolorOrange(bg) {
+    return String(bg || "")
+      .replace(/#e87722/ig, "rgb(63, 191, 127)")
+      .replace(/rgba?\(\s*232\s*,\s*119\s*,\s*34(?:\s*,\s*[\d.]+)?\s*\)/ig, "rgb(63, 191, 127)");
   }
-  function restColor(img) {
-    var colors = String(img || "").match(/rgba?\([^)]+\)|#[0-9a-fA-F]{3,8}/g) || [];
-    for (var i = colors.length - 1; i >= 0; i--) {
-      if (!hasOrange(colors[i]) && colors[i].toLowerCase() !== "#3fbf7f" && colors[i].indexOf("63, 191, 127") < 0) return colors[i];
+  function gradientRules() {
+    var map = Object.create(null);
+    var sheets = doc.styleSheets;
+    for (var i = 0; i < sheets.length; i++) {
+      var rules;
+      try { rules = sheets[i].cssRules; } catch (e) { continue; }
+      if (!rules) continue;
+      for (var j = 0; j < rules.length; j++) {
+        var sel = rules[j].selectorText || "";
+        if (!/^\\.[A-Za-z0-9_-]+$/.test(sel)) continue;
+        var st = rules[j].style;
+        if (!st) continue;
+        var bg = st.getPropertyValue("background-image") || st.getPropertyValue("background") || "";
+        var gm = String(bg).match(/linear-gradient\\((?:[^()]|\\([^()]*\\))*\\)/i);
+        if (!gm) continue;
+        map[sel.slice(1)] = gm[0];
+      }
     }
-    return "rgba(150, 187, 228, 0.25)";
+    return map;
   }
-  function findTrack(slider) {
-    var fallback = null;
-    var nodes = slider.querySelectorAll("div");
-    for (var i = 0; i < nodes.length; i++) {
-      var el = nodes[i];
-      if (el.getAttribute("role") === "slider") continue;
-      if (el.querySelector("[role='slider']")) continue;
-      var rect;
-      try { rect = el.getBoundingClientRect(); } catch (e) { continue; }
-      if (rect.width < 48 || rect.height < 1 || rect.height > 16) continue;
-      var img = authoredImage(el);
-      if (img.indexOf("gradient") >= 0) return el;
-      if (!fallback) fallback = el;
+  function sliderSheet() {
+    var tag = doc.getElementById("mw-slider-fills");
+    if (!tag) {
+      tag = doc.createElement("style");
+      tag.id = "mw-slider-fills";
+      (doc.head || doc.documentElement).appendChild(tag);
     }
-    return fallback;
+    return tag;
   }
-  function clearTrack(el) {
-    if (!el) return;
-    ["background", "background-image", "background-color"].forEach(function (p) {
-      el.style.removeProperty(p);
+  function clearSliderFills() {
+    var tag = doc.getElementById("mw-slider-fills");
+    if (tag) tag.textContent = "";
+    doc.querySelectorAll("[data-mw-sid]").forEach(function (el) {
+      el.removeAttribute("data-mw-sid");
     });
-    el.removeAttribute("data-mw-track");
-    el.removeAttribute("data-mw-fill");
-    el.removeAttribute("data-mw-green");
   }
   function paintSliderFills() {
-    doc.querySelectorAll('[data-testid="stSlider"], [data-testid="stSelectSlider"]').forEach(function (slider) {
-      var thumbs = slider.querySelectorAll('[role="slider"]');
-      if (!thumbs.length) return;
-      var track = findTrack(slider);
-      if (!track) return;
-      var authored = authoredImage(track);
-      if (authored.indexOf("gradient") < 0 || !hasOrange(authored)) {
-        clearTrack(track);
+    var map = gradientRules();
+    var css = [];
+    var seen = Object.create(null);
+    doc.querySelectorAll('[data-testid="stSlider"] div, [data-testid="stSelectSlider"] div').forEach(function (el) {
+      var cls = typeof el.className === "string" ? el.className : "";
+      var parts = cls.split(/\\s+/);
+      var authored = "";
+      for (var i = 0; i < parts.length; i++) {
+        if (parts[i] && map[parts[i]]) { authored = map[parts[i]]; break; }
+      }
+      if (!authored || authored.indexOf("gradient") < 0 || !hasOrange(authored)) {
+        if (el.hasAttribute("data-mw-sid")) el.removeAttribute("data-mw-sid");
         return;
       }
-      var min = parseFloat(thumbs[0].getAttribute("aria-valuemin"));
-      var max = parseFloat(thumbs[0].getAttribute("aria-valuemax"));
-      if (!isFinite(min) || !isFinite(max) || max === min) return;
-      var lo = null;
-      var hi = null;
-      for (var t = 0; t < thumbs.length; t++) {
-        var v = parseFloat(thumbs[t].getAttribute("aria-valuenow"));
-        if (!isFinite(v)) continue;
-        if (lo === null || v < lo) lo = v;
-        if (hi === null || v > hi) hi = v;
+      var id = el.getAttribute("data-mw-sid");
+      if (!id) {
+        root.__mwSid = (root.__mwSid || 0) + 1;
+        id = "s" + root.__mwSid;
+        el.setAttribute("data-mw-sid", id);
       }
-      if (lo === null) return;
-      var p0 = Math.max(0, Math.min(100, (lo - min) / (max - min) * 100));
-      var p1 = Math.max(0, Math.min(100, (hi - min) / (max - min) * 100));
-      var rest = restColor(authored);
-      var g = thumbs.length > 1
-        ? "linear-gradient(to right, " + rest + " " + p0 + "%, rgb(63, 191, 127) " + p0 + "%, rgb(63, 191, 127) " + p1 + "%, " + rest + " " + p1 + "%)"
-        : "linear-gradient(to right, rgb(63, 191, 127) 0%, rgb(63, 191, 127) " + p1 + "%, " + rest + " " + p1 + "%, " + rest + " 100%)";
-      if (track.getAttribute("data-mw-fill") === g) return;
-      setImp(track, "background-color", "transparent");
-      setImp(track, "background-image", g);
-      setImp(track, "background", g);
-      track.setAttribute("data-mw-track", "1");
-      track.setAttribute("data-mw-fill", g);
-      track.setAttribute("data-mw-green", "1");
+      if (seen[id]) return;
+      seen[id] = 1;
+      var g = recolorOrange(authored);
+      css.push('[data-mw-sid="' + id + '"]{background-color:transparent !important;background-image:' + g + ' !important;background-repeat:no-repeat !important;background-size:100% 100% !important;}');
     });
+    var tag = sliderSheet();
+    var text = css.join("\\n");
+    if (tag.textContent !== text) tag.textContent = text;
   }
   function tickSliders() {
     var mark = doc.getElementById("mw-paint");
@@ -13231,7 +13339,7 @@ _embed_html(
     if (mark) root.__mwLook = look;
     var money = look === "Fortune" || look === "Private Bank";
     if (!money) {
-      doc.querySelectorAll("[data-mw-track]").forEach(clearTrack);
+      clearSliderFills();
       return;
     }
     try { paintSliderFills(); } catch (e) {}
@@ -13338,26 +13446,29 @@ _embed_html(
           if (el.closest && el.closest(".js-plotly-plot, [data-testid='stPlotlyChart'], [data-testid='stSlider'], [data-testid='stSelectSlider'], [data-baseweb='slider']")) return;
           var cs;
           try { cs = view.getComputedStyle(el); } catch (e) { return; }
+          ["Top", "Right", "Bottom", "Left"].forEach(function (side) {
+            if (isNavyBg(cs["border" + side + "Color"])) {
+              setImp(el, "border-" + side.toLowerCase() + "-color", "#E3D5BE");
+            }
+          });
+          if (isNavyBg(cs.outlineColor)) setImp(el, "outline-color", "#E3D5BE");
           if (isNavyBg(cs.backgroundColor)) {
             var h = parseFloat(cs.height) || 0;
             var fill = (h > 0 && h <= 14) ? "#E7DCC8" : "#FFFCF6";
             setImp(el, "background", fill);
             setImp(el, "background-color", fill);
-            ["Top", "Right", "Bottom", "Left"].forEach(function (side) {
-              if (isNavyBg(cs["border" + side + "Color"])) {
-                setImp(el, "border-" + side.toLowerCase() + "-color", "#E3D5BE");
-              }
-            });
           }
           if (isPaleInk(cs.color) && !(el.classList && (el.classList.contains("mw-good") || el.classList.contains("mw-mid") || el.classList.contains("mw-bad")))) {
             setImp(el, "color", "#2C2416");
             setImp(el, "-webkit-text-fill-color", "#2C2416");
           }
         });
-        doc.querySelectorAll('[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [role="option"]').forEach(function (el) {
+        doc.querySelectorAll('[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [data-testid="stDataFrame"] > div, [data-testid="stDataFrame"] > div > div, .st-key-lk_hits_box').forEach(function (el) {
           setImp(el, "background", "#FFFCF6");
           setImp(el, "background-color", "#FFFCF6");
           setImp(el, "color", "#5C3A1A");
+          setImp(el, "border-color", "#C6A15B");
+          setImp(el, "outline-color", "#C6A15B");
         });
         doc.querySelectorAll('[data-testid="stSelectbox"] [data-baseweb="select"], [data-testid="stSelectbox"] [data-baseweb="select"] div, [data-testid="stMultiSelect"] [data-baseweb="select"], [data-testid="stMultiSelect"] [data-baseweb="select"] > div, [data-testid="stMultiSelect"] [data-baseweb="select"] > div > div').forEach(function (el) {
           if (el.closest && el.closest("[data-baseweb='tag']")) return;

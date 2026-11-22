@@ -3867,9 +3867,10 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
                     si_rows.append(mrow("Days to Cover",   "Shares short / avg vol. High = forced shorts if price rises.",        az_tag(sratio, 5, 3, "{:.1f}", "d")))
                 if ins_buys > 0:
                     ins_col = "#3fbf7f" if ins_net > 0 else "#9E1B2F"
-                    si_rows.append(mrow("Insider Buying",  "Net insider buys last 90d (SEC Form 4).", f"<span style='font-family:Space Mono,monospace;color:{ins_col}'>{ins_buys} buys · ${ins_net/1e3:.0f}K net</span>"))
+                    _ins_tone = "mw-good" if ins_net > 0 else "mw-bad"
+                    si_rows.append(mrow("Insider Buying",  "Net insider buys last 90d (SEC Form 4).", f"<span class='{_ins_tone}' style='font-family:Space Mono,monospace;color:{ins_col}'>{ins_buys} buys · ${ins_net/1e3:.0f}K net</span>"))
                 elif ins_net < 0:
-                    si_rows.append(mrow("Insider Activity","Net insider selling last 90d.", "<span style='font-family:Space Mono,monospace;color:#9E1B2F'>net selling</span>"))
+                    si_rows.append(mrow("Insider Activity","Net insider selling last 90d.", "<span class='mw-bad' style='font-family:Space Mono,monospace;color:#9E1B2F'>net selling</span>"))
                 if news_cnt:
                     si_rows.append(mrow("News 48h",        "Headlines in last 48 hours. Momentum needs a catalyst.", f"<span style='font-family:Space Mono,monospace;color:#b0c8e8'>{news_cnt} headlines</span>"))
                 if rg is not None:
