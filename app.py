@@ -345,11 +345,48 @@ def _look_extra_css(name: str, f: dict, serif: str) -> str:
     color: {f['head']} !important;
     border-color: {f['accent']} !important;
 }}
+[data-testid="stDataFrame"],
 [data-testid="stDataFrame"] > div,
-[data-testid="stDataFrame"] > div > div {{
+[data-testid="stDataFrame"] > div > div,
+[data-testid="stDataFrame"] canvas,
+.dvn-scroller, .glideDataEditor {{
+    background-color: {f['card']} !important;
     border-color: {f['line']} !important;
     outline-color: {f['line']} !important;
     box-shadow: none !important;
+}}
+[data-testid="stFileUploader"],
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploaderDropzone"] {{
+    background: {f['card']} !important;
+    background-color: {f['card']} !important;
+    color: {f['text']} !important;
+    border: 1px dashed {f['accent']} !important;
+    box-shadow: none !important;
+}}
+[data-testid="stFileUploader"] section span,
+[data-testid="stFileUploader"] section small,
+[data-testid="stFileUploader"] section p,
+[data-testid="stFileUploader"] section div {{
+    color: {f['head']} !important;
+    -webkit-text-fill-color: {f['head']} !important;
+    background: transparent !important;
+    background-color: transparent !important;
+}}
+.stApp [data-testid="stFileUploader"] button,
+.stApp [data-testid="stFileUploader"] button[data-testid="stBaseButton-secondary"] {{
+    background: {f['accent']} !important;
+    background-color: {f['accent']} !important;
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+    border: 1px solid #8C6A32 !important;
+    box-shadow: none !important;
+}}
+.stApp [data-testid="stFileUploader"] button * {{
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+    background: transparent !important;
+    background-color: transparent !important;
 }}
 [data-baseweb="tag"], [data-baseweb="tag"] *,
 .hub-title, .hub-sec, .hub-title-pop, .mw-menu-title, .t20-title, .t20-head, .t20-box,
@@ -431,6 +468,40 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     box-shadow: none !important;
 }}
 .stApp button[data-testid="stBaseButton-segmented_controlActive"] * {{
+    background: transparent !important;
+    background-color: transparent !important;
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+}}
+.stApp .st-key-mw_nav [data-baseweb="button-group"] button[data-testid="stBaseButton-segmented_controlActive"],
+.stApp .st-key-mw_main [data-baseweb="button-group"] button[data-testid="stBaseButton-segmented_controlActive"] {{
+    background: #C6A15B !important;
+    background-color: #C6A15B !important;
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+    border: 2px solid #8C6A32 !important;
+    box-shadow: none !important;
+}}
+.stApp .st-key-mw_nav [data-baseweb="button-group"] button[data-testid="stBaseButton-segmented_controlActive"] *,
+.stApp .st-key-mw_main [data-baseweb="button-group"] button[data-testid="stBaseButton-segmented_controlActive"] * {{
+    background: transparent !important;
+    background-color: transparent !important;
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+}}
+.stApp div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"],
+.stApp .st-key-mw_nav button[data-testid="stBaseButton-segmented_controlActive"],
+.stApp .st-key-mw_main button[data-testid="stBaseButton-segmented_controlActive"] {{
+    background: #C6A15B !important;
+    background-color: #C6A15B !important;
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+    border: 2px solid #8C6A32 !important;
+    box-shadow: none !important;
+}}
+.stApp div[data-testid="stSegmentedControl"] button[data-testid="stBaseButton-segmented_controlActive"] *,
+.stApp .st-key-mw_nav button[data-testid="stBaseButton-segmented_controlActive"] *,
+.stApp .st-key-mw_main button[data-testid="stBaseButton-segmented_controlActive"] * {{
     background: transparent !important;
     background-color: transparent !important;
     color: #1C1915 !important;
@@ -1557,22 +1628,44 @@ def _bank_ink(color: str) -> str:
 def _menu_category_css() -> str:
     rules = []
     # Glass HUD: every pill menu shares one calm look; the active pill takes the cyan accent.
+    fortune_menu = _look_name() == "Fortune"
     for key in _MENU_CAT_COLORS:
-        base = f".st-key-{key} [data-baseweb='button-group']"
-        rules.append(
-            f"{base} > button, {base} > button *, {base} > * button, {base} > * button *"
-            "{color:#B8C6DC !important;}"
-        )
+        base = f".stApp .st-key-{key} [data-baseweb='button-group']"
         act = (
-            f"{base} > button[data-testid='stBaseButton-segmented_controlActive'],"
-            f"{base} > * button[data-testid='stBaseButton-segmented_controlActive'],"
-            f"{base} > button[aria-checked='true'],"
-            f"{base} > button[aria-selected='true'],"
-            f"{base} > button[aria-pressed='true']"
+            f"{base} button[data-testid='stBaseButton-segmented_controlActive'],"
+            f"{base} button[aria-checked='true'],"
+            f"{base} button[aria-selected='true'],"
+            f"{base} button[aria-pressed='true']"
         )
-        rules.append(act + "{background:rgba(103,232,249,0.16) !important;border-color:"
-                     + _bank_edge("#67E8F9") + " !important;}")
-        rules.append(act.replace(",", " *,") + " *{color:#EAF2FF !important;font-weight:500 !important;}")
+        if fortune_menu:
+            rules.append(
+                f"{base} button{{background:#F6F1E7 !important;background-color:#F6F1E7 !important;"
+                "color:#5C3A1A !important;border:1px solid #E3D5BE !important;"
+                "box-shadow:none !important;}"
+            )
+            rules.append(
+                f"{base} button *{{color:#5C3A1A !important;"
+                "-webkit-text-fill-color:#5C3A1A !important;"
+                "background:transparent !important;background-color:transparent !important;}"
+            )
+            rules.append(
+                act + "{background:#C6A15B !important;background-color:#C6A15B !important;"
+                "color:#1C1915 !important;border:2px solid #8C6A32 !important;"
+                "box-shadow:none !important;}"
+            )
+            rules.append(
+                act.replace(",", " *,") + " *{color:#1C1915 !important;"
+                "-webkit-text-fill-color:#1C1915 !important;font-weight:700 !important;"
+                "background:transparent !important;background-color:transparent !important;}"
+            )
+        else:
+            rules.append(
+                f"{base} > button, {base} > button *, {base} > * button, {base} > * button *"
+                "{color:#B8C6DC !important;}"
+            )
+            rules.append(act + "{background:rgba(103,232,249,0.16) !important;border-color:"
+                         + _bank_edge("#67E8F9") + " !important;}")
+            rules.append(act.replace(",", " *,") + " *{color:#EAF2FF !important;font-weight:500 !important;}")
     rules.append(
         "[class*='_safe_ai'] label, [class*='_safe_ai'] label p, "
         "[class*='_safe_ai'] label span {"
@@ -11596,7 +11689,8 @@ with st.container(border=True, key="mw_page"):
                                                   else "color:#b565f3")), subset=["ValueArea"])
                             .map(lambda v: _css_sign(-abs(v) + 3, dead=0) if isinstance(v, (int, float))
                                  else "", subset=["RS"])),
-                            width=_DF_WIDTH, hide_index=True, height=620,
+                            width=_DF_WIDTH, hide_index=True,
+                            height=_fit_list_height(len(_ax_view)),
                             on_select="rerun", selection_mode="single-row", key="apex_table",
                             column_order=_order_with_cat(
                                 ["#", "Ticker", "Sector"]
@@ -12051,7 +12145,8 @@ with st.container(border=True, key="mw_page"):
                             .map(lambda v: (f"color:{GREEN};font-weight:700" if v >= 0.50
                                             else (f"color:{_fq_muted()}" if v >= 0.25 else f"color:{RED}"))
                                  if isinstance(v, (int, float)) else "", subset=["ExpR"])),
-                            width=_DF_WIDTH, hide_index=True, height=620,
+                            width=_DF_WIDTH, hide_index=True,
+                            height=_fit_list_height(len(_pdf)),
                             on_select="rerun", selection_mode="single-row", key="poc_table",
                             column_order=_order_with_cat(
                                 ["Ticker", "Sector"]
@@ -13248,6 +13343,120 @@ _embed_html(
   var doc = root.document;
   var GREEN = "#3fbf7f";
   var painting = false;
+  function themeNavy(c) {
+    var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(String(c || ""));
+    if (!m) return false;
+    var r = +m[1], g = +m[2], b = +m[3];
+    function near(R, G, B) {
+      return Math.abs(r - R) < 3 && Math.abs(g - G) < 3 && Math.abs(b - B) < 3;
+    }
+    return near(8, 19, 37) || near(14, 17, 23) || near(22, 52, 79) || near(13, 17, 23) || near(30, 33, 48);
+  }
+  function navyInk(c) {
+    var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(String(c || ""));
+    if (!m) return false;
+    var r = +m[1], g = +m[2], b = +m[3];
+    return b > r + 6 && b >= g && b < 170 && r < 70 && g < 110 && (r + g + b) < 280;
+  }
+  function gridCanvas(ctx) {
+    var canvas = ctx && ctx.canvas;
+    if (!canvas) return false;
+    if (canvas.closest && canvas.closest(".js-plotly-plot, [data-testid='stPlotlyChart']")) return false;
+    if (canvas.closest && canvas.closest("[data-testid='stDataFrame']")) return true;
+    return !canvas.isConnected;
+  }
+  function installGridHook() {
+    if (root.__mwGridHook) return;
+    root.__mwGridHook = true;
+    var proto = root.CanvasRenderingContext2D && root.CanvasRenderingContext2D.prototype;
+    if (!proto) return;
+    function fortune() {
+      if (root.__mwLook === "Fortune") return true;
+      var mark = doc.getElementById("mw-paint");
+      return !!(mark && mark.getAttribute("data-look") === "Fortune");
+    }
+    ["fillRect", "fill"].forEach(function (name) {
+      var orig = proto[name];
+      if (!orig) return;
+      proto[name] = function () {
+        if (fortune() && gridCanvas(this) && themeNavy(this.fillStyle)) {
+          var prev = this.fillStyle;
+          this.fillStyle = "#FFFCF6";
+          var ret = orig.apply(this, arguments);
+          this.fillStyle = prev;
+          return ret;
+        }
+        return orig.apply(this, arguments);
+      };
+    });
+    ["stroke", "strokeRect"].forEach(function (name) {
+      var orig = proto[name];
+      if (!orig) return;
+      proto[name] = function () {
+        if (fortune() && gridCanvas(this) && (themeNavy(this.strokeStyle) || navyInk(this.strokeStyle))) {
+          var prev = this.strokeStyle;
+          this.strokeStyle = "#E3D5BE";
+          var ret = orig.apply(this, arguments);
+          this.strokeStyle = prev;
+          return ret;
+        }
+        return orig.apply(this, arguments);
+      };
+    });
+  }
+  installGridHook();
+  function navyKind(r, g, b) {
+    if (r < 55 && g < 90 && b < 130 && b > r + 4 && (r + g + b) < 230) {
+      return (r + g + b) < 100 ? "bg" : "line";
+    }
+    return "";
+  }
+  function headerCanvas(canvas) {
+    return canvas.height > 0 && canvas.height <= 160;
+  }
+  function recolorGrid() {
+    if (!fortuneLook()) return;
+    var now = Date.now();
+    if (now - (root.__mwGridAt || 0) < 400) return;
+    root.__mwGridAt = now;
+    doc.querySelectorAll("[data-testid='stDataFrame'] canvas").forEach(function (canvas) {
+      if (!canvas.width || !canvas.height) return;
+      if (canvas.width * canvas.height > 12000000) return;
+      var ctx;
+      try { ctx = canvas.getContext("2d"); } catch (e) { return; }
+      if (!ctx) return;
+      var header = headerCanvas(canvas);
+      var probeY = [2, Math.max(2, canvas.height - 3)];
+      var hit = false;
+      for (var p = 0; p < probeY.length; p++) {
+        var px;
+        try { px = ctx.getImageData(2, probeY[p], 1, 1).data; } catch (e) { return; }
+        if (navyKind(px[0], px[1], px[2]) === "bg") { hit = true; break; }
+      }
+      if (!hit) return;
+      var img;
+      try { img = ctx.getImageData(0, 0, canvas.width, canvas.height); } catch (e) { return; }
+      var d = img.data;
+      var changed = false;
+      for (var i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 8) continue;
+        var k = navyKind(d[i], d[i + 1], d[i + 2]);
+        if (k === "bg") {
+          d[i] = 255; d[i + 1] = 252; d[i + 2] = 246; changed = true;
+        } else if (k === "line") {
+          d[i] = 227; d[i + 1] = 213; d[i + 2] = 190; changed = true;
+        } else if (header && d[i] > 200 && d[i + 1] > 190 && d[i + 2] > 160) {
+          d[i] = 44; d[i + 1] = 36; d[i + 2] = 22; changed = true;
+        }
+      }
+      if (changed) ctx.putImageData(img, 0, 0);
+    });
+  }
+  function fortuneLook() {
+    if (root.__mwLook === "Fortune") return true;
+    var mark = doc.getElementById("mw-paint");
+    return !!(mark && mark.getAttribute("data-look") === "Fortune");
+  }
   function setImp(el, prop, val) {
     if (!el || !el.style) return;
     if (el.style.getPropertyValue(prop) === val && el.style.getPropertyPriority(prop) === "important") return;
@@ -13378,10 +13587,12 @@ _embed_html(
           setImp(b, "background", on ? "#C6A15B" : "#F6F1E7");
           setImp(b, "background-color", on ? "#C6A15B" : "#F6F1E7");
           setImp(b, "color", on ? "#1C1915" : "#5C3A1A");
+          setImp(b, "-webkit-text-fill-color", on ? "#1C1915" : "#5C3A1A");
           setImp(b, "box-shadow", "none");
           setImp(b, "border", on ? "2px solid #8C6A32" : "1px solid #C6A15B");
           b.querySelectorAll("p, span, div").forEach(function (n) {
             setImp(n, "color", on ? "#1C1915" : "#5C3A1A");
+            setImp(n, "-webkit-text-fill-color", on ? "#1C1915" : "#5C3A1A");
             setImp(n, "background", "transparent");
             setImp(n, "background-color", "transparent");
           });
@@ -13463,6 +13674,34 @@ _embed_html(
             setImp(el, "-webkit-text-fill-color", "#2C2416");
           }
         });
+        doc.querySelectorAll('[data-testid="stFileUploader"] section, [data-testid="stFileUploaderDropzone"]').forEach(function (el) {
+          setImp(el, "background", "#FFFCF6");
+          setImp(el, "background-color", "#FFFCF6");
+          setImp(el, "color", "#5C3A1A");
+          setImp(el, "border", "1px dashed #C6A15B");
+        });
+        doc.querySelectorAll('[data-testid="stFileUploader"] section span, [data-testid="stFileUploader"] section small, [data-testid="stFileUploader"] section p, [data-testid="stFileUploader"] section div').forEach(function (el) {
+          if (el.closest && el.closest("button")) return;
+          setImp(el, "color", "#5C3A1A");
+          setImp(el, "-webkit-text-fill-color", "#5C3A1A");
+          setImp(el, "background", "transparent");
+          setImp(el, "background-color", "transparent");
+        });
+        doc.querySelectorAll('[data-testid="stFileUploader"] button').forEach(function (el) {
+          setImp(el, "background", "#C6A15B");
+          setImp(el, "background-color", "#C6A15B");
+          setImp(el, "color", "#1C1915");
+          setImp(el, "-webkit-text-fill-color", "#1C1915");
+          setImp(el, "border", "1px solid #8C6A32");
+          setImp(el, "box-shadow", "none");
+          el.querySelectorAll("span, p, div").forEach(function (n) {
+            setImp(n, "color", "#1C1915");
+            setImp(n, "-webkit-text-fill-color", "#1C1915");
+            setImp(n, "background", "transparent");
+            setImp(n, "background-color", "transparent");
+          });
+        });
+        try { recolorGrid(); } catch (e) {}
         doc.querySelectorAll('[data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"], [data-testid="stDataFrame"] > div, [data-testid="stDataFrame"] > div > div, .st-key-lk_hits_box').forEach(function (el) {
           setImp(el, "background", "#FFFCF6");
           setImp(el, "background-color", "#FFFCF6");
