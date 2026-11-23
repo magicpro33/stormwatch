@@ -13537,14 +13537,40 @@ with st.container(border=True, key="mw_page"):
                     "creates (and the reversal after it passes) is one of the few "
                     "genuinely knowable things in markets. Each card explains its "
                     "own mechanism.")
-            ff = ce.forced_flows(closes=closes, earnings=_earnings())
+            ff = ce.forced_flows(closes=closes)
+            _plan = list(ff.attrs.get("plan") or [])
+            _measured = str(ff.attrs.get("measured") or "")
+            st.markdown("#### Buy / sell plan")
+            st.caption("Only the forced trades that are open now or start within "
+                       "three weeks. One row is one action. Size is small, and a "
+                       "row is not a view on the company. "
+                       + (_measured if _measured else ""))
+            for _row in _plan:
+                _act = str(_row.get("action") or "WAIT")
+                if _act == "BUY":
+                    _klass, _col = "mw-good", GREEN
+                elif _act == "SELL":
+                    _klass, _col = "mw-bad", RED
+                else:
+                    _klass, _col = "mw-gold", "#C6A15B"
+                st.markdown(
+                    f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
+                    border-left:4px solid {_col};border-radius:10px;padding:10px 14px;margin-bottom:8px;">
+                    <span class="{_klass}" style="color:{_col};font-weight:700;">{_act}</span>
+                    <span style="font-weight:700;"> {_esc(_row.get('what') or '')}</span>
+                    <span style="color:{_fq_muted()};"> · {_esc(_row.get('when') or '')}</span><br>
+                    <span style="font-size:13px;">{_esc(_row.get('why') or '')}</span><br>
+                    <span style="color:{_fq_muted()};font-size:12px;">Exit: {_esc(_row.get('exit') or '')}</span>
+                    </div>""", unsafe_allow_html=True)
+            st.markdown("#### Calendar")
             for _, ev in ff.iterrows():
-                days = (ev.Date - pd.Timestamp.today().date()).days
+                days = (pd.Timestamp(ev.Date).date() - pd.Timestamp.today().date()).days
+                _when = "today" if days == 0 else (f"in {days}d" if days > 0 else "open now")
                 st.markdown(
                     f"""<div style="background:{_fq_bg()};color:{_fq_ink()};border:1px solid {_fq_line()};
                     border-radius:10px;padding:12px 14px;margin-bottom:10px;">
                     <span style="color:{ACCENT};font-weight:700;">{ev.Date:%a %b %d}</span>
-                    <span style="color:{_fq_muted()};"> · in {days}d</span><br>
+                    <span style="color:{_fq_muted()};"> · {_when}</span><br>
                     <span style="font-weight:700;font-size:15px;">{ev.Event}</span><br>
                     <span style="color:{_fq_muted()};font-size:13px;">{ev.Why}</span>
                     <div style="margin-top:8px;font-size:13px;line-height:1.7;">

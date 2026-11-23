@@ -850,64 +850,444 @@ def _third_friday(y, m):
 
 
 
-def _buyback_buy_line(earnings: dict | None) -> str:
-    """Exact per-ticker dip-buy dates derived from the real earnings calendar."""
-    base = ("🛒 Buy: post-earnings DIPS in the heaviest repurchasers. "
-            "Broad: QQQ/SPY. Pure-play: PKW (Buyback Achievers ETF). ")
-    if not earnings:
-        return (base + "Per-ticker dates: earnings calendar unavailable right "
-                "now — the dip window is 1-2 sessions after each of "
-                "AAPL, GOOGL, MSFT, META, NVDA, JPM, XOM reports.")
+# Largest ongoing US repurchase programs. Dates come from the dump and the
+# Nasdaq calendar, not a hand-typed mid-month guess.
+_FF_BUYBACKS = [
+    "AAPL", "GOOGL", "MSFT", "META", "NVDA", "AVGO", "ORCL", "CSCO",
+    "ADBE", "TXN", "QCOM", "AMAT", "JPM", "BAC", "WFC", "GS",
+    "XOM", "CVX", "UNH", "V", "MA", "WMT", "COST", "HD", "PM", "KO", "PEP",
+]
+_FF_SECTORS = [
+    ("XLK", "Technology"), ("XLF", "Financials"), ("XLE", "Energy"),
+    ("XLV", "Healthcare"), ("XLI", "Industrials"), ("XLY", "Cons. Cyclical"),
+    ("XLP", "Cons. Staples"), ("XLB", "Materials"), ("XLU", "Utilities"),
+    ("XLRE", "Real Estate"), ("XLC", "Communication"),
+]
+
+
+def _ff_span(a: date, b: date) -> str:
+    if a == b:
+        return f"{a:%a %b %d}"
+    if a.month == b.month and a.year == b.year:
+        return f"{a:%a %b %d}–{b:%d}"
+    return f"{a:%a %b %d}–{b:%a %b %d}"
+
+
+def _ff_bdays_ending(day: date, n: int) -> list:
+    return [d.date() for d in pd.bdate_range(end=pd.Timestamp(day), periods=n)]
+
+
+def _ff_bdays_starting(day: date, n: int) -> list:
+    return [d.date() for d in pd.bdate_range(start=pd.Timestamp(day), periods=n)]
+
+
+def _ff_month_last(y: int, m: int) -> date:
+    cal = (date(y, m, 28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    return _ff_bdays_ending(cal, 1)[0]
+
+
+def _ff_next_session(day: date) -> date:
+    return _ff_bdays_starting(day + timedelta(days=1), 1)[0]
+
+
+def _ff_ret(closes, sym: str, since: date):
+    """Percent change from the last close before `since` to the latest close."""
+    if closes is None or sym not in getattr(closes, "columns", []):
+        return None
+    s = closes[sym].dropna()
+    if len(s) < 2:
+        return None
+    idx = pd.to_datetime(s.index)
+    if getattr(idx, "tz", None) is not None:
+        idx = idx.tz_convert(None)
+    idx = idx.normalize()
+    prev = s.loc[idx < pd.Timestamp(since)]
+    if prev.empty:
+        return None
+    a = float(prev.iloc[-1])
+    b = float(s.iloc[-1])
+    if not (a > 0 and np.isfinite(a) and np.isfinite(b)):
+        return None
+    return b / a - 1.0
+
+
+def _ff_buyback_dips(today: date, earnings: dict | None) -> list:
+    """Session after each report, when that company's buyback desk can bid."""
+    got = {}
+    try:
+        local, _missing = _earnings_dates_local(_FF_BUYBACKS)
+    except Exception as e:
+        _log_exc("ff.buyback_dates", e)
+        local = {}
+    for tk, ed in (local or {}).items():
+        if isinstance(ed, date):
+            got[str(tk).upper()] = ed
+    for tk, ed in (earnings or {}).items():
+        d = ed if isinstance(ed, date) else _coerce_earn_date(ed)
+        if d is not None:
+            got[str(tk).strip().upper()] = d
+    rows = []
+    for tk, ed in got.items():
+        if ed < today - timedelta(days=10):
+            continue
+        sess = _ff_bdays_starting(ed + timedelta(days=1), 2)
+        if len(sess) < 2 or sess[1] < today:
+            continue
+        rows.append(dict(tk=tk, report=ed, dip0=sess[0], dip1=sess[1]))
+    rows.sort(key=lambda r: (r["dip0"], r["tk"]))
+    return rows
+
+
+def _ff_tax_basket(n: int = 8) -> list:
+    """Liquid names down 30%+ this year that still score as a real business.
+
+    Used only for the December tax-loss / January reversal window.
+    """
+    try:
+        mt = _dump_mtime()
+    except Exception:
+        mt = None
+    hit = _PANEL_CACHE.get("ff_tax")
+    if hit and hit[0] == mt:
+        return list(hit[1])
+    names: list = []
+    try:
+        panel, tickers, _sectors, mdv, dts = load_dump_panel()
+        di = pd.DatetimeIndex(pd.to_datetime(dts))
+        if di.tz is not None:
+            di = di.tz_convert(None)
+        prior = np.where(di.year < int(di[-1].year))[0]
+        if len(prior):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                base = panel["c"][int(prior[-1])]
+                last = panel["c"][-1]
+                ret = last / base - 1.0
+            mask = (np.isfinite(last) & (last >= 5) & np.isfinite(base) & (base > 0)
+                    & np.isfinite(mdv) & (mdv >= 2e6)
+                    & np.isfinite(ret) & (ret <= -0.30))
+            try:
+                pio = np.asarray(dump_fundamentals_all().get("Piotroski"), dtype=float)
+                if pio.shape[0] == mask.shape[0]:
+                    healthy = ~np.isfinite(pio) | (pio >= 5)
+                    if int(np.count_nonzero(mask & healthy)) >= 5:
+                        mask = mask & healthy
+            except Exception as e:
+                _log_exc("ff.tax_pio", e)
+            ix = np.where(mask)[0]
+            if len(ix):
+                order = ix[np.argsort(ret[ix])][:n]
+                names = [str(tickers[i]).strip().upper() for i in order]
+    except Exception as e:
+        _log_exc("ff.tax_basket", e)
+        names = []
+    _PANEL_CACHE["ff_tax"] = (mt, names)
+    return names
+
+
+def forced_flow_tape(closes: pd.DataFrame | None = None,
+                     today: date | None = None,
+                     earnings: dict | None = None) -> dict:
+    """Live measurements behind the calendar: month gap, quarter leaders,
+    repurchase dates, and the December loser list when that window is open."""
+    today = today or date.today()
+    month_start = date(today.year, today.month, 1)
+    q_month = ((today.month - 1) // 3) * 3 + 1
+    q_start = date(today.year, q_month, 1)
+    spy = _ff_ret(closes, "SPY", month_start)
+    ief = _ff_ret(closes, "IEF", month_start)
+    tlt = _ff_ret(closes, "TLT", month_start)
+    bond_parts = [x for x in (ief, tlt) if x is not None]
+    bond = float(np.mean(bond_parts)) if bond_parts else None
+    bond_label = "IEF and TLT" if ief is not None and tlt is not None else (
+        "IEF" if ief is not None else "TLT")
+    gap = (spy - bond) if spy is not None and bond is not None else None
+    leaders = []
+    for sym, name in _FF_SECTORS:
+        r = _ff_ret(closes, sym, q_start)
+        if r is not None and np.isfinite(r):
+            leaders.append((sym, name, float(r)))
+    leaders.sort(key=lambda x: x[2], reverse=True)
+    buybacks = _ff_buyback_dips(today, earnings)
+    tax = _ff_tax_basket() if today.month in (11, 12, 1) else []
+    bits = []
+    if spy is not None:
+        bits.append(f"SPY this month {spy:+.1%}")
+    if bond is not None:
+        bits.append(f"bonds {bond:+.1%} ({bond_label})")
+    if gap is not None:
+        bits.append(f"stock−bond gap {gap:+.1%}")
+    hot = [f"{s} {r:+.1%}" for s, _n, r in leaders[:3] if r >= 0.02]
+    if hot:
+        bits.append("quarter leaders " + ", ".join(hot))
+    if buybacks:
+        bits.append(f"{len(buybacks)} repurchase dates on file")
+    if tax:
+        bits.append(f"{len(tax)} December losers from the nightly tape")
+    if not bits:
+        bits.append("node prices are not loaded, so the month-end side is unknown")
+    return dict(today=today, spy=spy, bond=bond, bond_label=bond_label, gap=gap,
+                leaders=leaders, buybacks=buybacks, tax=tax,
+                measured=" · ".join(bits))
+
+
+def _ff_row(action, what, start, end, why, exit_by):
+    return dict(action=action, what=what, when=_ff_span(start, end),
+                why=why, exit=exit_by, _start=start, _end=end)
+
+
+def forced_flow_plan(tape: dict | None = None, today: date | None = None) -> list:
+    """The next few buy and sell actions the calendar can actually support.
+
+    Nearest window first. A row is included when it is open now or starts
+    within three weeks. Nothing here is a view on a company's business.
+    """
+    tape = tape or {}
+    today = today or tape.get("today") or date.today()
+    rows = []
+    gap = tape.get("gap")
+    y, m = today.year, today.month
+    ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+    month_last = _ff_month_last(y, m)
+    win = _ff_bdays_ending(month_last, 3)
+    nxt = _ff_bdays_starting(date(ny, nm, 1), 3)
+    trade_pension = gap is not None and abs(gap) >= 0.005
+
+    if today <= win[-1] and (win[0] - today).days <= 21:
+        if trade_pension and gap > 0:
+            rows.append(_ff_row(
+                "SELL", "SPY", win[0], win[-1],
+                f"Stocks are ahead of bonds by {gap:.1%} this month, so pensions "
+                "sell equities and buy bonds into the month-end close.",
+                f"Stop selling on {nxt[0]:%a %b %d}. The trim is over."))
+            rows.append(_ff_row(
+                "BUY", "TLT", win[0], win[-1],
+                "That same rebalance is a forced bid for bonds. TLT is the sleeve.",
+                f"Sell the bond add on {nxt[0]:%a %b %d}."))
+            rows.append(_ff_row(
+                "BUY", "SPY", nxt[0], nxt[-1],
+                "401(k) and payroll money hits the first sessions of the month, "
+                "and the pension selling has stopped.",
+                f"Out by the close of {nxt[-1]:%a %b %d}."))
+        elif trade_pension:
+            rows.append(_ff_row(
+                "BUY", "SPY", win[0], nxt[-1],
+                f"Bonds are ahead of stocks by {-gap:.1%} this month, so pensions "
+                "buy equities into month-end. Contributions add to that bid "
+                "in the first sessions of the new month.",
+                f"Out by the close of {nxt[-1]:%a %b %d}."))
+            rows.append(_ff_row(
+                "SELL", "TLT", win[0], win[-1],
+                "Pensions are the ones selling the bond sleeve to fund that equity buy.",
+                f"Done on {nxt[0]:%a %b %d}."))
+        else:
+            rows.append(_ff_row(
+                "BUY", "SPY", win[-1], nxt[-1],
+                "No stock-versus-bond gap large enough for a pension trade. "
+                "The remaining forced bid is payroll and 401(k) money around the turn.",
+                f"Out by the close of {nxt[-1]:%a %b %d}. Small size."))
+
+    this_open = _ff_bdays_starting(date(y, m, 1), 3)
+    if date(y, m, 1) <= today <= this_open[-1]:
+        rows.append(_ff_row(
+            "BUY", "SPY", today, this_open[-1],
+            "Payroll and 401(k) money is still being invested in the first "
+            "sessions of this month.",
+            f"Out by the close of {this_open[-1]:%a %b %d}. Small size."))
+
+    opex = _third_friday(y, m)
+    buy_day = _ff_next_session(opex)
+    if buy_day < today:
+        opex = _third_friday(ny, nm)
+        buy_day = _ff_next_session(opex)
+    week = opex - timedelta(days=4)
+    if today <= buy_day and (week - today).days <= 21:
+        if today <= opex:
+            vix_day = opex - timedelta(days=2)
+            vix_note = (f" VIX options expire {vix_day:%a %b %d}."
+                        if today <= vix_day else "")
+            rows.append(_ff_row(
+                "WAIT", "new equity buys", max(today, week), opex,
+                "Dealers pin SPY, QQQ, and the crowded single-name strikes "
+                f"through OpEx.{vix_note} "
+                "A pension row on the plan is the only equity trade that still stands.",
+                f"The pin releases {buy_day:%a %b %d}."))
+        rows.append(_ff_row(
+            "BUY", "the dip you already planned (SPY or QQQ)", buy_day, buy_day,
+            "The first session after expiry is when the pin lets go. "
+            "A dip that day is the hedge coming off, not a new fact about the company.",
+            "One session. If it does not dip, skip it."))
+
+    soon = [b for b in (tape.get("buybacks") or [])
+            if b["dip1"] >= today and (b["dip0"] - today).days <= 21]
+    if soon:
+        show = soon[:4]
+        extra = f" +{len(soon) - 4} more" if len(soon) > 4 else ""
+        names = ", ".join(b["tk"] for b in show) + extra
+        dates = "; ".join(
+            f"{b['tk']} {_ff_span(b['dip0'], b['dip1'])} after the {b['report']:%b %d} report"
+            for b in show)
+        rows.append(_ff_row(
+            "BUY", names, show[0]["dip0"], soon[-1]["dip1"],
+            "Buy the dip, not the gap up. The repurchase desk can bid for the "
+            f"two sessions after the report. {dates}.",
+            "Two sessions per name, then out."))
+
+    if m in (3, 6, 9, 12):
+        qend = _ff_month_last(y, m)
+        qwin = _ff_bdays_ending(qend, 2)
+        leaders = [x for x in (tape.get("leaders") or []) if x[2] >= 0.02]
+        if today <= qend and (qwin[0] - today).days <= 14 and leaders:
+            top, top_name, top_r = leaders[0]
+            rows.append(_ff_row(
+                "BUY", f"{top} ({top_name}, {top_r:+.1%} this quarter)",
+                qwin[0], qend,
+                "Quarter-end window dressing: funds buy the quarter's winners "
+                "into the close so the holding shows on the statement.",
+                f"Sell at the {qend:%a %b %d} close. The bid ends that day."))
+        opex_q = _third_friday(y, m)
+        if today <= opex_q and (opex_q - today).days <= 14:
+            rows.append(_ff_row(
+                "WAIT", "S&P index adds", today, opex_q,
+                "Index funds must buy the adds at this close. This app does not "
+                "have S&P's add list, so there is no ticker to buy until you "
+                "read the announcement on spglobal.com.",
+                f"If you already hold an announced add, sell it into the "
+                f"{opex_q:%a %b %d} close."))
+
+    if today.month in (5, 6):
+        rr = _third_friday(today.year, 6) + timedelta(days=7)
+        start = date(today.year, 6, 1)
+        if today <= rr and (start - today).days <= 21:
+            rows.append(_ff_row(
+                "BUY", "IWM", max(today, start), rr - timedelta(days=1),
+                "Russell funds buy the adds into the reconstitution close. "
+                "IWM is the basket. The preliminary add list is on ftserussell.com.",
+                f"Sell at the {rr:%a %b %d} close. Do not hold through it."))
+
+    if today.month == 12:
+        buy0, buy1 = date(today.year, 12, 24), date(today.year, 12, 31)
+        exit_j = date(today.year + 1, 1, 15)
+        names = tape.get("tax") or []
+        label = ", ".join(names) if names else "IWM"
+        if today <= buy1:
+            if today < buy0:
+                rows.append(_ff_row(
+                    "WAIT", "this year's losers", today, buy0 - timedelta(days=1),
+                    "Tax-loss selling is still hitting them. The list is for later, "
+                    "not for buying today.",
+                    f"Buying starts {buy0:%a %b %d}."))
+            rows.append(_ff_row(
+                "BUY", label, buy0, buy1,
+                "Equal-weight basket of liquid names down 30%+ this year that "
+                "still score as a real business"
+                + ("" if names else " — the nightly list is empty, so use IWM")
+                + ". The tax seller stops on January 1.",
+                f"Sell by {exit_j:%a %b %d}. Small size. Never one name."))
+    elif today.month == 1 and today <= date(today.year, 1, 15):
+        rows.append(_ff_row(
+            "SELL", "the January basket (or IWM)", today, date(today.year, 1, 15),
+            "The reversal window is the first two weeks. After that it is a "
+            "different trade.",
+            f"Flat by {date(today.year, 1, 15):%a %b %d}."))
+    elif today.month == 11 and (date(today.year, 12, 24) - today).days <= 21:
+        names = tape.get("tax") or []
+        rows.append(_ff_row(
+            "WAIT", ", ".join(names) if names else "the December loser list",
+            today, date(today.year, 12, 23),
+            "These are the names to buy in the last week of December, not now.",
+            f"Buy window opens {date(today.year, 12, 24):%a %b %d}."))
+
+    rows.sort(key=lambda r: (r["_start"], r["action"] != "SELL"))
+    shown = [r for r in rows
+             if r["_start"] <= today <= r["_end"]
+             or 0 <= (r["_start"] - today).days <= 21]
+    if not shown and rows:
+        shown = rows[:1]
+    out = []
+    for r in shown[:6]:
+        out.append({k: v for k, v in r.items() if not k.startswith("_")})
+    if not out:
+        out.append(dict(
+            action="WAIT", what="new trades", when="no window in the next three weeks",
+            why="Nothing on the calendar is close enough to trade.",
+            exit="Check the cards below for the next date."))
+    return out
+
+
+def _buyback_buy_line(dips: list | None) -> str:
+    """Per-ticker dip dates from the earnings dates on file."""
+    base = ("🛒 Buy the dip, not the gap: the two sessions after each report, "
+            "when that company's repurchase desk is allowed to bid. "
+            "Broad book: QQQ. Basket: PKW. ")
+    if not dips:
+        return (base + "No report dates are on file yet for the repurchase "
+                "list. Do not guess a mid-month date.")
     parts = []
-    for tk, ed in sorted(earnings.items(), key=lambda kv: kv[1]):
-        dip0 = ed + timedelta(days=1)
-        dip1 = ed + timedelta(days=2)
-        parts.append(f"{tk}: reports {ed:%a %b %d} → dip window {dip0:%b %d}–{dip1:%b %d}")
-    return base + "Exact dates — " + "; ".join(parts) + "."
+    for b in dips:
+        parts.append(f"{b['tk']}: reports {b['report']:%a %b %d} → "
+                     f"buy {_ff_span(b['dip0'], b['dip1'])}")
+    return base + " · ".join(parts) + "."
 
 
 def forced_flows(today: date | None = None, days_ahead: int = 45,
                  closes: pd.DataFrame | None = None,
                  earnings: dict | None = None) -> pd.DataFrame:
     """Mechanical, scheduled flows in the next `days_ahead` days — with who
-    is forced to trade, what they trade, and what to watch."""
+    is forced to trade, what they trade, and what to watch.
+
+    The buy/sell plan on the frame (`.attrs['plan']`) is built from the same
+    tape: month-end stock-vs-bond gap, quarter-to-date sector leaders,
+    repurchase dates, and the December loser list.
+    """
     today = today or date.today()
     horizon = today + timedelta(days=days_ahead)
+    tape = forced_flow_tape(closes, today, earnings)
     events = []
 
-    def ev(d, name, why, who, what, watch, buy):
+    def ev(d, name, why, who, what, watch, buy, until=None):
         events.append(dict(Date=d, Event=name, Why=why, Who=who,
-                           What=what, Watch=watch, Buy=buy))
+                           What=what, Watch=watch, Buy=buy,
+                           Until=until or d))
 
-    # dynamic month-end call: which side do pensions rebalance INTO?
-    _pension_buy = ("Direction unknown without SPY/TLT history — pensions buy "
-                    "whichever of stocks/bonds LAGGED this month.")
-    if closes is not None and "SPY" in closes and "TLT" in closes:
-        try:
-            mtd = closes.loc[(closes.index.month == closes.index[-1].month)
-                             & (closes.index.year == closes.index[-1].year),
-                             ["SPY", "TLT"]]
-            gap = float((mtd.SPY.iloc[-1] / mtd.SPY.iloc[0] - 1)
-                        - (mtd.TLT.iloc[-1] / mtd.TLT.iloc[0] - 1))
-            if gap > 0.005:
-                _pension_buy = (f"Stocks beat bonds by {gap:+.1%} this month → "
-                                "pensions SELL equities / BUY bonds into month-end. "
-                                "Play: long TLT for the final 1-3 sessions; expect "
-                                "a mild SPY headwind, relief on day 1 of the new month.")
-            elif gap < -0.005:
-                _pension_buy = (f"Bonds beat stocks by {-gap:+.1%} this month → "
-                                "pensions SELL bonds / BUY equities into month-end. "
-                                "Play: long SPY for the final 1-3 sessions.")
-            else:
-                _pension_buy = ("Stocks and bonds are roughly tied this month → "
-                                "rebalance flow is small. No trade.")
-        except Exception:
-            pass
+    gap = tape.get("gap")
+    if gap is None:
+        _pension_buy = ("Direction unknown — SPY and the bond sleeve are not "
+                        "both in the loaded history. Pensions buy whichever of "
+                        "stocks or bonds lagged this month.")
+    elif gap > 0.005:
+        _pension_buy = (f"Stocks lead bonds by {gap:.1%} this month "
+                        f"({tape.get('bond_label')}). Pensions SELL equities and "
+                        "BUY bonds into the last 1–3 sessions. Play: long TLT "
+                        "into the month-end close, no new SPY until the first "
+                        "session of the new month.")
+    elif gap < -0.005:
+        _pension_buy = (f"Bonds lead stocks by {-gap:.1%} this month "
+                        f"({tape.get('bond_label')}). Pensions SELL bonds and "
+                        "BUY equities into the last 1–3 sessions. Play: long SPY "
+                        "through the third session of the new month.")
+    else:
+        _pension_buy = ("Stocks and bonds are within 0.5% this month. The "
+                        "rebalance is too small to trade. The turn-of-month "
+                        "bid is the only equity flow.")
+    dips = tape.get("buybacks") or []
+    leaders = [x for x in (tape.get("leaders") or []) if x[2] >= 0.02]
+    if leaders:
+        _dress = ", ".join(f"{s} {n} {r:+.1%}" for s, n, r in leaders[:3])
+        _dress_buy = (f"🛒 Buy the leader into the last two sessions — "
+                      f"{leaders[0][0]} ({leaders[0][1]}, {leaders[0][2]:+.1%} "
+                      f"this quarter). Sell at the quarter close. "
+                      f"Leaders: {_dress}.")
+    else:
+        _dress_buy = ("🛒 No sector is up 2%+ this quarter in the loaded "
+                      "history, so there is no window-dressing buy.")
 
     for k in range(3):
         m = (today.month - 1 + k) % 12 + 1
         y = today.year + (today.month - 1 + k) // 12
         opex = _third_friday(y, m)
+        buy_day = _ff_next_session(opex)
+        vix_day = opex - timedelta(days=2)
         ev(opex, "Options expiration (OpEx)",
            "Dealer hedging pins prices near big strikes into expiry; when the "
            "options expire the pin releases and volatility often expands the "
@@ -916,12 +1296,13 @@ def forced_flows(today: date | None = None, days_ahead: int = 45,
            "mechanically hedging their options books.",
            "Index & mega-cap options: SPY, QQQ, SPX, and the highest open-"
            "interest single names (NVDA, TSLA, AAPL).",
-           "Expect drift INTO OpEx week, bigger moves the week AFTER. "
-           "Fade the pin, don't fight it.",
-           f"🛒 Buy date: {opex + timedelta(days=3):%a %b %d} (first session "
-           "after expiry). Hold off NEW entries during OpEx week; place "
-           "planned buys that Monday when the pin releases — dips then are "
-           "mechanical, not fundamental.")
+           f"VIX options expire {vix_day:%a %b %d}. Expect drift INTO OpEx "
+           "week, bigger moves the session after. Fade the pin, don't fight it.",
+           f"🛒 No new equity buys {opex - timedelta(days=4):%a %b %d}–"
+           f"{opex:%b %d}. Buy date: {buy_day:%a %b %d}, the first session "
+           "after expiry, and only a dip you had already planned. "
+           "That dip is the hedge coming off.",
+           until=buy_day)
         if m in (3, 6, 9, 12):
             ev(opex, "S&P quarterly rebalance (effective at the close)",
                "Every S&P index fund must own the new weights at that close — "
@@ -933,39 +1314,79 @@ def forced_flows(today: date | None = None, days_ahead: int = 45,
                "The classic play — buy the add at announcement — has decayed "
                "as it got crowded; the reliable part is the huge closing "
                "auction volume, good for exiting positions with zero impact.",
-               f"🛒 Buy: the announced ADD tickers on announcement day — watch "
-               f"spglobal.com press releases from {opex - timedelta(days=12):%a %b %d}. "
-               f"Sell into the {opex:%b %d} rebalance close. Small size — decayed edge.")
-        last = (date(y, m, 28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+               f"🛒 No ticker until S&P publishes the adds (watch spglobal.com from "
+               f"{opex - timedelta(days=12):%a %b %d}). Buy only an announced add, "
+               f"and sell it into the {opex:%b %d} close. Small size.")
+        last = _ff_month_last(y, m)
         ev(last, "Month-end pension rebalance window (final 1-3 sessions)",
            "Pensions restore their stock/bond targets: whatever RALLIED this "
            "month gets trimmed, whatever lagged gets topped up.",
            "Corporate & state pensions (CalPERS-scale), target-date funds, "
            "sovereign wealth funds — roughly $1tn rebalancing monthly.",
-           "If stocks beat bonds this month: they SELL equities (SPY) and "
-           "BUY bonds (TLT). Reverse if bonds won.",
-           "Estimate the direction from the month's stock-vs-bond gap; the "
-           "flow hits the last 1-3 closes, then pressure vanishes on day 1 "
-           "of the new month.",
-           "🛒 " + _pension_buy
-           + f" Exact window: {', '.join(d.strftime('%a %b %d') for d in pd.bdate_range(end=last, periods=3))}."
+           ("Sell SPY and buy TLT." if gap is not None and gap > 0.005
+            else "Sell TLT and buy SPY." if gap is not None and gap < -0.005
+            else "No trade — the gap is under 0.5%." if gap is not None
+            else "Whichever of stocks or bonds lagged. Direction needs both SPY and the bond sleeve.")
+           if (y, m) == (today.year, today.month)
+           else "Not knowable yet. They buy whichever side lags that month.",
+           "The flow hits the last 1–3 closes, then it is gone on the first session of the new month.",
+           (("🛒 " + _pension_buy) if (y, m) == (today.year, today.month)
+            else "🛒 No side yet. The gap is measured only for the month that is underway.")
+           + f" Window: {', '.join(d.strftime('%a %b %d') for d in _ff_bdays_ending(last, 3))}."
            )
-        if m in (1, 4, 7, 10):
-            ev(date(y, m, 15), "Buyback blackout lifts (approx.)",
-               "Companies can't repurchase shares in the ~5 weeks before "
-               "earnings; as each company reports, its buyback desk switches "
-               "back on. Corporates are the single largest net buyer of US "
-               "equities (~$1tn/yr authorized).",
-               "The companies themselves via broker algos: Apple (~$100bn/yr "
-               "program), Alphabet, Microsoft, Meta, NVIDIA, JPMorgan, "
-               "Exxon — the mega-cap cash machines.",
-               "Their OWN stock — which concentrates the bid in mega-cap "
-               "indices. Broad exposure: SPY/QQQ; pure-play: PKW (Buyback "
-               "Achievers ETF) holds the heaviest repurchasers.",
-               "Support returns to mega-caps 1-2 days after each one "
-               "reports. Post-earnings dips in heavy-buyback names get "
-               "bought by the company itself.",
-               _buyback_buy_line(earnings))
+        turn = _ff_bdays_starting(date(y if m < 12 else y + 1, 1 if m == 12 else m + 1, 1), 3)
+        ev(last, "Turn of the month (payroll and 401(k))",
+           "A slice of retirement contributions is invested on a calendar, "
+           "not on a view. The bid shows up on the last session and the "
+           "first three sessions of the new month.",
+           "401(k) plans, payroll investment programs, and target-date funds.",
+           "Broad equities: SPY and QQQ. Not a single stock.",
+           "Small and mechanical. It does not cancel a pension SELL of SPY "
+           "in the last three sessions — that row comes first. The equity "
+           "buy is the first session after month-end.",
+           f"🛒 Buy SPY on {last:%a %b %d} only when pensions are not selling "
+           f"equities. Otherwise buy on {turn[0]:%a %b %d}. "
+           f"Out by {turn[-1]:%a %b %d}.",
+           until=turn[-1])
+        if m in (3, 6, 9, 12):
+            ev(last, "Quarter-end window dressing",
+               "Funds buy the quarter's winners into the last closes so the "
+               "name shows on the statement. The bid is gone the next session.",
+               "Mutual funds and closet indexers marking the quarter.",
+               "The sector ETFs that actually led this quarter, from the "
+               "loaded node history. Not a story about next quarter.",
+               "The leader gets the bid. The broad index may still be sold "
+               "by pensions on the same days. Those are different flows.",
+               _dress_buy,
+               until=last)
+        if m in (2, 5, 8, 11):
+            ev(last, "MSCI quarterly rebalance",
+               "MSCI index funds must hold the new weights at this close. "
+               "The add and delete list is published about two weeks prior.",
+               "Funds benchmarked to MSCI indices.",
+               "Announced adds get bought and deletes get sold at the close. "
+               "This app does not download the MSCI list, so it will not "
+               "invent the tickers.",
+               "Read the MSCI announcement. The trade is the closing auction, "
+               "not a guess made before the list exists.",
+               f"🛒 No buy until MSCI publishes the adds. If you hold an "
+               f"announced add, sell it into the {last:%b %d} close.")
+        month_dips = [b for b in dips if b["report"].month == m and b["report"].year == y]
+        if month_dips:
+            ev(month_dips[0]["dip0"], "Buyback desks turn back on",
+               "Companies can't repurchase shares in the weeks before "
+               "earnings. The session after the report, that desk can bid "
+               "again. Corporates are the largest net buyer of US equities.",
+               "The company itself, via its broker algo. Dates are the "
+               "earnings dates on file for the large ongoing programs "
+               "(Apple, Alphabet, Microsoft, Meta, NVIDIA, Avago, the big "
+               "banks, and the other cash machines on the repurchase list).",
+               "Their own stock. A broad book is QQQ. A basket of the "
+               "heaviest repurchasers is PKW.",
+               "Buy a dip in the two sessions after the report. Skip the "
+               "name if it gaps up and never dips.",
+               _buyback_buy_line(month_dips),
+               until=month_dips[-1]["dip1"])
     if today.month <= 6:
         rr = _third_friday(today.year, 6) + timedelta(days=7)
         ev(rr, "Russell reconstitution (late June)",
@@ -983,38 +1404,52 @@ def forced_flows(today: date | None = None, days_ahead: int = 45,
            "🛒 Buy: preliminary-list ADDS (ftserussell.com, published May) in "
            "early June, exit AT the reconstitution close — do not hold "
            "through it. Lazy version: IWM into recon week.")
-    if today.month >= 11 or today.month == 12:
-        ev(date(today.year, 12, 15), "Tax-loss selling peak window",
+    jan_year = today.year + 1 if today.month >= 11 else today.year
+    dec_year = jan_year - 1
+    tax_names = tape.get("tax") or []
+    basket = ", ".join(tax_names) if tax_names else "IWM"
+    if today.month >= 11:
+        ev(date(dec_year, 12, 15), "Tax-loss selling peak window",
            "Investors dump the year's losers before Dec 31 to harvest "
            "capital losses — selling that has nothing to do with the "
            "companies' prospects.",
            "Retail investors and taxable funds; advisors run harvesting "
            "programs Nov-Dec.",
-           "The year's WORST performers, hardest in small caps where retail "
-           "owns more. Screen: down 30%+ YTD, still profitable businesses.",
-           "Don't catch the falling knives in early Dec; build the January-"
-           "reversal shopping list instead.",
-           "🛒 Buy: nothing yet — this window is for LIST-BUILDING. Screen: "
-           "down 30%+ YTD, still profitable, small/mid cap. Your buy date is "
-           "the January-reversal card below.")
-        ev(date(today.year + (1 if today.month == 12 else 0), 1, 5),
-           "January reversal window",
-           "The tax-selling pressure disappears on Jan 1 and the beaten-down "
-           "names bounce — the 'January effect', strongest in the first two "
-           "weeks.",
-           "The same sellers stop selling; bargain hunters and small-cap "
-           "funds step in.",
-           "Last year's oversold losers, small-cap value especially. Broad "
-           "proxy: IWM vs SPY spread in early January.",
-           "Enter the final week of Dec, exit mid-Jan. It's a decayed but "
-           "still-positive seasonal — size it small.",
-           f"🛒 Buy dates: {date(today.year, 12, 24):%b %d}–{date(today.year, 12, 31):%b %d} "
-           f"(final Dec week). Exit by {date(today.year + 1, 1, 15):%b %d, %Y}. "
-           "Basket of 10+ December losers equal-weight (never one name), or "
-           "simply IWM. Small size — decayed seasonal.")
+           "The year's worst performers that are still liquid. The names "
+           "below are down 30%+ from last year's close, price at least $5, "
+           "and a Piotroski score of 5 or better when the dump has one.",
+           "Do not buy them while the selling is still on. The buy is the "
+           "last week of December.",
+           "🛒 Buy nothing in this window. The basket for the last week of "
+           f"December: {basket}.",
+           until=date(dec_year, 12, 31))
+    if today.month >= 11 or (today.month == 1 and today <= date(today.year, 1, 15)):
+        ev(date(dec_year, 12, 24), "January reversal window",
+           "The tax-selling pressure stops on Jan 1 and the beaten-down "
+           "names bounce. The bounce is the first two weeks, then it fades.",
+           "The same sellers stop. Bargain hunters and small-cap funds step in.",
+           f"Equal weight, never one name: {basket}. "
+           "IWM is the stand-in when the nightly list is empty.",
+           "Enter the final week of December. Exit by January 15. Small size.",
+           f"🛒 Buy {basket} from {date(dec_year, 12, 24):%b %d}–"
+           f"{date(dec_year, 12, 31):%b %d}. "
+           f"Sell by {date(jan_year, 1, 15):%b %d, %Y}.",
+           until=date(jan_year, 1, 15))
 
-    df = pd.DataFrame([e for e in events if today <= e["Date"] <= horizon])
-    return df.sort_values("Date", ignore_index=True)
+    kept = []
+    for e in events:
+        d = e["Date"]
+        until = e.get("Until") or d
+        if until >= today and d <= horizon:
+            kept.append(e)
+    df = pd.DataFrame(kept)
+    if df.empty:
+        df = pd.DataFrame(columns=["Date", "Event", "Why", "Who", "What", "Watch", "Buy"])
+    else:
+        df = df.sort_values("Date", ignore_index=True)
+    df.attrs["plan"] = forced_flow_plan(tape, today)
+    df.attrs["measured"] = tape.get("measured") or ""
+    return df
 
 
 # ── plain-language forecast board: aggregate waves by target ─────────
