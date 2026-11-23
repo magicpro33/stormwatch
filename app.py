@@ -769,9 +769,10 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     background-color: #F3EBDD !important;
     border-radius: 999px !important;
 }}
-.stApp span.mw-good, .stApp .mw-good {{ color: #3fbf7f !important; }}
-.stApp span.mw-mid, .stApp .mw-mid {{ color: #E87722 !important; }}
-.stApp span.mw-bad, .stApp .mw-bad {{ color: #9E1B2F !important; }}
+.stApp span.mw-good, .stApp .mw-good {{ color: #3fbf7f !important; -webkit-text-fill-color: #3fbf7f !important; }}
+.stApp span.mw-mid, .stApp .mw-mid {{ color: #E87722 !important; -webkit-text-fill-color: #E87722 !important; }}
+.stApp span.mw-bad, .stApp .mw-bad {{ color: #9E1B2F !important; -webkit-text-fill-color: #9E1B2F !important; }}
+.stApp span.mw-gold, .stApp .mw-gold {{ color: #C6A15B !important; -webkit-text-fill-color: #C6A15B !important; }}
 .stApp td.mw-buy {{ color: #3fbf7f !important; font-weight: 700 !important; }}
 .stApp td.mw-sell {{ color: #9E1B2F !important; font-weight: 700 !important; }}
 .stApp [data-baseweb="select"] > div,
@@ -6377,13 +6378,41 @@ _CS_TRIGGER_HELP = (
 )
 
 
+def _lk_cs_ink(side: str) -> str:
+    """Colored name and side label. Green bull, red bear, gold when it can be either."""
+    if side == "Bull":
+        return (
+            f"<span class='mw-good' style='color:{_CS_BULL};font-weight:700'>{{name}}</span>"
+            f" · <span class='mw-good' style='color:{_CS_BULL}'>Bull</span>"
+        )
+    if side == "Bear":
+        return (
+            f"<span class='mw-bad' style='color:{_CS_BEAR};font-weight:700'>{{name}}</span>"
+            f" · <span class='mw-bad' style='color:{_CS_BEAR}'>Bear</span>"
+        )
+    return (
+        "<span class='mw-gold' style='color:#C6A15B;font-weight:700'>{name}</span>"
+        f" · <span class='mw-good' style='color:{_CS_BULL}'>Bull</span>"
+        " or "
+        f"<span class='mw-bad' style='color:{_CS_BEAR}'>Bear</span>"
+    )
+
+
 def _lk_clean_setup_guide() -> None:
     """Collapsed key for every Clean Setup mark the stock chart can draw."""
+    import html as _html
     with st.expander("Clean Setup triggers", expanded=False):
-        st.caption(
-            "Green marks are bull triggers. Red marks are bear triggers. "
+        st.markdown(
+            "<p style='margin:0 0 8px'>"
+            f"<span class='mw-good' style='color:{_CS_BULL};font-weight:700'>Green</span> "
+            "marks are bull triggers. "
+            f"<span class='mw-bad' style='color:{_CS_BEAR};font-weight:700'>Red</span> "
+            "marks are bear triggers. "
             "A dashed line is the target projected from that mark. "
-            "Candle marks use the last 90 bars. Pattern marks use confirmed swing pivots.")
+            "Candle marks use the last 90 bars. Pattern marks use confirmed swing pivots."
+            "</p>",
+            unsafe_allow_html=True,
+        )
         st.markdown(
             "**Shared gates.** A bull gate wants price above EMA 50, with EMA 50 above "
             "EMA 200 or EMA 20 above EMA 50. A bear gate is the mirror. Pattern marks "
@@ -6392,12 +6421,23 @@ def _lk_clean_setup_guide() -> None:
             "Hammer, shooting star, spring, upthrust, and the star patterns use the "
             "RSI extreme instead: under 35 for bull, over 65 for bear.")
         st.markdown(
-            "**Lines.** EMA 50 is the fast average — green when price is above it, "
-            "red when price is below. EMA 200 is the slow average — green when EMA 50 "
+            "<p style='margin:0 0 8px'><b>Lines.</b> EMA 50 is the fast average — "
+            f"<span class='mw-good' style='color:{_CS_BULL}'>green</span> when price is above it, "
+            f"<span class='mw-bad' style='color:{_CS_BEAR}'>red</span> when price is below. "
+            "EMA 200 is the slow average — "
+            f"<span class='mw-good' style='color:{_CS_BULL}'>green</span> when EMA 50 "
             "is above it. The gray channel connects the last two swing highs and the "
-            "last two swing lows.")
+            "last two swing lows.</p>",
+            unsafe_allow_html=True,
+        )
+        rows = []
         for name, side, text in _CS_TRIGGER_HELP:
-            st.markdown(f"**{name}** · {side}. {text}")
+            head = _lk_cs_ink(side).format(name=_html.escape(name))
+            rows.append(
+                "<p style='margin:0 0 8px;line-height:1.45'>"
+                f"{head}. {_html.escape(text)}</p>"
+            )
+        st.markdown("".join(rows), unsafe_allow_html=True)
 
 
 def _lk_draw_clean_setup(fig, xx, d, chart_df, pack):
@@ -13730,7 +13770,7 @@ _embed_html(
             setImp(el, "background", fill);
             setImp(el, "background-color", fill);
           }
-          if (isPaleInk(cs.color) && !(el.classList && (el.classList.contains("mw-good") || el.classList.contains("mw-mid") || el.classList.contains("mw-bad")))) {
+          if (isPaleInk(cs.color) && !(el.classList && (el.classList.contains("mw-good") || el.classList.contains("mw-mid") || el.classList.contains("mw-bad") || el.classList.contains("mw-gold")))) {
             setImp(el, "color", "#2C2416");
             setImp(el, "-webkit-text-fill-color", "#2C2416");
           }
