@@ -6305,6 +6305,101 @@ def _lk_cs_readout(cs: dict) -> None:
         unsafe_allow_html=True)
 
 
+_CS_TRIGGER_HELP = (
+    ("Hammer", "Bull",
+     "Reversal candle. The lower wick is at least twice the body, the upper wick is small, and the bar closes up. RSI is under 35."),
+    ("Shooting Star", "Bear",
+     "Reversal candle. The upper wick is at least twice the body, the lower wick is small, and the bar closes down. RSI is over 65."),
+    ("Bull Engulf", "Bull",
+     "An up bar whose body swallows the prior down bar and is larger than that bar. Needs the bull trend gate or RSI under 35."),
+    ("Bear Engulf", "Bear",
+     "A down bar whose body swallows the prior up bar and is larger than that bar. Needs the bear trend gate or RSI over 65."),
+    ("3 Soldiers", "Bull",
+     "Three rising up-bars in a row, each close above the last. Bull trend gate."),
+    ("3 Crows", "Bear",
+     "Three falling down-bars in a row, each close under the last. Bear trend gate."),
+    ("Morning Star", "Bull",
+     "A down bar, a small middle bar, then an up bar that closes back through the middle of the first bar. RSI under 35."),
+    ("Evening Star", "Bear",
+     "An up bar, a small middle bar, then a down bar that closes back through the middle of the first bar. RSI over 65."),
+    ("20d Breakout", "Bull",
+     "The close takes out the high of the prior 20 bars. Bull trend gate."),
+    ("20d Breakdown", "Bear",
+     "The close takes out the low of the prior 20 bars. Bear trend gate."),
+    ("Golden Cross", "Bull",
+     "EMA 50 crosses up through EMA 200. The name still has to be liquid."),
+    ("Death Cross", "Bear",
+     "EMA 50 crosses down through EMA 200. The name still has to be liquid."),
+    ("Spring", "Bull",
+     "Price dips under the last swing low and closes back above it. RSI under 35. A failed breakdown."),
+    ("Upthrust", "Bear",
+     "Price pokes over the last swing high and closes back under it. RSI over 65. A failed breakout."),
+    ("Bull Flag", "Bull",
+     "A 6–20% pole up, then a pullback shallower than 5%. Bull trend gate. Target is most of that pole added to the high."),
+    ("Bear Flag", "Bear",
+     "A 6–20% pole down, then a bounce shallower than 5%. Bear trend gate."),
+    ("Cup & Handle", "Bull",
+     "Two rims within 2% of each other, a 12–33% cup, and a handle that holds above the cup and pulls back less than 8%."),
+    ("Asc Triangle", "Bull",
+     "Highs are flat, within 1% of each other, and the lows are stepping up. Bull trend gate."),
+    ("Desc Triangle", "Bear",
+     "Lows are flat, within 1% of each other, and the highs are stepping down. Bear trend gate."),
+    ("Inv H&S", "Bull",
+     "Three lows. The middle one is the deepest. The two shoulders are within 3% of each other. Bull trend gate."),
+    ("H&S Top", "Bear",
+     "Three highs. The middle one is the highest. The two shoulders are within 3% of each other. Bear trend gate."),
+    ("Falling Wedge", "Bull",
+     "Both lines fall, and the lower line falls faster, so the range tightens. Bull trend gate. Treated as a bull break."),
+    ("Rising Wedge", "Bear",
+     "Both lines rise, and the lower line rises faster, so the range tightens. Bear trend gate. Treated as a bear break."),
+    ("Sym Triangle", "Bear",
+     "Highs step down and lows step up. In this overlay it is marked only on the bear gate, matching the original script."),
+    ("Rounding Bottom", "Bull",
+     "Three lows form a saucer: the middle is at least 4% under the sides, and the right side recovers near the left."),
+    ("Higher Lows", "Bull",
+     "Three swing lows, each at least 2% above the one before. Bull trend gate."),
+    ("Lower Highs", "Bear",
+     "Three swing highs, each at least 2% under the one before. Bear trend gate."),
+    ("Double Bottom", "Bull",
+     "Two swing lows within 1.5% of each other, the second not under the first. Bull trend gate."),
+    ("Double Top", "Bear",
+     "Two swing highs within 1.5% of each other, the second not over the first. Bear trend gate."),
+    ("Rounding Top", "Bear",
+     "Three highs form an arch: the middle is at least 4% over the sides, and the right side falls back near the left."),
+    ("Pennant", "Bull",
+     "A 6–25% pole, then both sides compress — lower highs and higher lows. Bull trend gate."),
+    ("Asc Channel", "Bull",
+     "Three rising swing highs and three rising swing lows. Bull trend gate."),
+    ("Desc Channel", "Bear",
+     "Three falling swing highs and three falling swing lows. Bear trend gate."),
+    ("Rectangle", "Bull or bear",
+     "Three highs inside a 1.2% band and three lows inside a 1.2% band, with room between them. The bull gate marks a break up. The bear gate marks a break down."),
+)
+
+
+def _lk_clean_setup_guide() -> None:
+    """Collapsed key for every Clean Setup mark the stock chart can draw."""
+    with st.expander("Clean Setup triggers", expanded=False):
+        st.caption(
+            "Green marks are bull triggers. Red marks are bear triggers. "
+            "A dashed line is the target projected from that mark. "
+            "Candle marks use the last 90 bars. Pattern marks use confirmed swing pivots.")
+        st.markdown(
+            "**Shared gates.** A bull gate wants price above EMA 50, with EMA 50 above "
+            "EMA 200 or EMA 20 above EMA 50. A bear gate is the mirror. Pattern marks "
+            "also want a liquid name (price at least $5 and 20-bar average volume at "
+            "least 250,000), RSI between 40 and 60, and volume above that 20-bar average. "
+            "Hammer, shooting star, spring, upthrust, and the star patterns use the "
+            "RSI extreme instead: under 35 for bull, over 65 for bear.")
+        st.markdown(
+            "**Lines.** EMA 50 is the fast average — green when price is above it, "
+            "red when price is below. EMA 200 is the slow average — green when EMA 50 "
+            "is above it. The gray channel connects the last two swing highs and the "
+            "last two swing lows.")
+        for name, side, text in _CS_TRIGGER_HELP:
+            st.markdown(f"**{name}** · {side}. {text}")
+
+
 def _lk_draw_clean_setup(fig, xx, d, chart_df, pack):
     """Paint Clean Setup EMAs, channel, live targets, and pattern labels."""
     cs = _lk_clean_setup(chart_df)
@@ -6741,6 +6836,8 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     else:
         st.session_state.pop(_mbox_key, None)
         _fig_show(fig, width="stretch", key=_chart_key)
+    if chart_ov == "Clean Setup" and has_ohlc:
+        _lk_clean_setup_guide()
 
 
 def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
