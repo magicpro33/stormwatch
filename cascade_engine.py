@@ -2034,6 +2034,17 @@ SCAN_COL_HELP = {
     "RSI5": "RSI(14) on 5-minute bars. 55–75 is thrust; above 75 is stretched.",
     "Short%Flt": "Short interest as a percent of float.",
     "InsiderNet$": "Net insider buys minus sells over the last 90 days (Form 4).",
+    "Trader": "Officer, director, 10% holder, or member of Congress on the buy.",
+    "Role": "Title on the filing — CEO, Director, Senator, Representative.",
+    "Buys": "Purchases old enough to score. A buy counts once the horizon has passed.",
+    "Wins": "Scored buys whose close was higher after the horizon.",
+    "Losses": "Scored buys whose close was lower or flat after the horizon.",
+    "Win %": "Wins divided by scored buys. Open buys are not in this rate.",
+    "Avg %": "Average percent change from the entry close to the close after the horizon.",
+    "Best %": "That person's best scored buy.",
+    "Bought $": "Reported dollars, or the midpoint of a Congress amount band.",
+    "Est. profit $": "Bought dollars times the scored percent change. A rough dollar result, not a brokerage fill.",
+    "Open": "Buys that are not old enough to score yet.",
     "News48h": "Headline count in the last 48 hours.",
     "Signals": "Which live ignition triggers are firing on this name.",
     CAT_UP_COL: (
@@ -4231,6 +4242,163 @@ def insider_buy_scan(lookback_days: int = 30, min_value: float = 100_000,
     df = pd.DataFrame(rows[:nkeep])
     df = df.drop(columns=["_score"])
     return stamp_rank(df)
+
+
+def insider_win_board(horizon: int = 60, who: str = "all",
+                      min_value: float = 25_000) -> pd.DataFrame:
+    """Win/loss record for each insider or member of Congress.
+
+    A scored buy is a win when the dump close `horizon` sessions after the
+    trade is higher than the close on the trade date (filing date if the
+    trade date is missing). Buys that are not that old yet stay Open and
+    do not change the rate. Company Form 4 history is the last year the
+    public screens publish. Congress history is the STOCK Act file.
+    """
+    cols = ["Trader", "Role", "Buys", "Wins", "Losses", "Win %", "Avg %",
+            "Best %", "Bought $", "Est. profit $", "Open", "Ticker"]
+    empty = pd.DataFrame(columns=cols)
+    try:
+        horizon = max(5, int(horizon or 60))
+    except (TypeError, ValueError):
+        horizon = 60
+    try:
+        floor = float(min_value or 0)
+    except (TypeError, ValueError):
+        floor = 0.0
+    if not np.isfinite(floor) or floor < 0:
+        floor = 0.0
+    kind = str(who or "all").strip().lower()
+    trades = []
+    if kind in ("all", "everyone", "form4", "company", "insiders"):
+        for loader in (_ib_trades_openinsider, _ib_trades_finviz):
+            try:
+                trades.extend(loader(365, floor) or [])
+            except Exception as e:
+                _log_exc(f"insider_win.{getattr(loader, '__name__', 'src')}", e)
+    if kind in ("all", "everyone", "congress", "officials"):
+        try:
+            trades.extend(_ib_trades_congress(3650) or [])
+        except Exception as e:
+            _log_exc("insider_win.congress", e)
+    if not trades:
+        return empty
+    try:
+        panel, tickers, _secs, _mdv, dts = load_dump_panel()
+    except Exception as e:
+        _log_exc("insider_win.panel", e)
+        return empty
+    ix = _tick_ix_map(tickers)
+    closes = np.asarray(panel["c"], dtype=float)
+    cal_idx = pd.DatetimeIndex(pd.to_datetime(dts))
+    if cal_idx.tz is not None:
+        cal_idx = cal_idx.tz_convert(None)
+    cal = cal_idx.normalize().values
+    seen = set()
+    by_tk = {}
+    for tr in trades:
+        buyer = str(tr.get("buyer") or "").strip()
+        tk = str(tr.get("ticker") or "").strip().upper()
+        when = tr.get("trade_date") or tr.get("filed")
+        if not buyer or not tk or when is None or tk not in ix:
+            continue
+        if buyer.lower() in ("nan", "none", "—", "-"):
+            continue
+        day = when.isoformat() if hasattr(when, "isoformat") else str(when)
+        key = (_ib_fold(buyer), tk, day)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            val = float(tr.get("value"))
+        except (TypeError, ValueError):
+            val = float("nan")
+        if str(tr.get("source") or "") != "Congress":
+            if np.isfinite(floor) and floor > 0 and (
+                    not np.isfinite(val) or val < floor):
+                continue
+        by_tk.setdefault(tk, []).append((buyer, when, val, str(tr.get("title") or "").strip()))
+    if not by_tk:
+        return empty
+
+    people = {}
+
+    def _person(name: str):
+        key = _ib_fold(name)
+        rec = people.get(key)
+        if rec is None:
+            rec = {
+                "name": name, "roles": {}, "wins": 0, "losses": 0,
+                "rets": [], "dollars": 0.0, "profit": 0.0, "open": 0,
+                "best": None, "best_tk": "",
+            }
+            people[key] = rec
+        elif len(name) > len(rec["name"]):
+            rec["name"] = name
+        return rec
+
+    for tk, lots in by_tk.items():
+        j = ix[tk]
+        col = closes[:, j]
+        finite = np.flatnonzero(np.isfinite(col) & (col > 0))
+        if finite.size == 0:
+            continue
+        for buyer, when, val, title in lots:
+            rec = _person(buyer)
+            if title:
+                rec["roles"][title] = rec["roles"].get(title, 0) + 1
+            ts = np.datetime64(pd.Timestamp(when).normalize())
+            start = int(np.searchsorted(cal, ts, side="left"))
+            pos = int(np.searchsorted(finite, start, side="left"))
+            if pos >= finite.size:
+                continue
+            entry = float(col[finite[pos]])
+            if not np.isfinite(entry) or entry <= 0:
+                continue
+            exit_pos = pos + horizon
+            if exit_pos >= finite.size:
+                rec["open"] += 1
+                continue
+            exit_px = float(col[finite[exit_pos]])
+            if not np.isfinite(exit_px) or exit_px <= 0:
+                rec["open"] += 1
+                continue
+            ret = exit_px / entry - 1.0
+            rec["rets"].append(ret)
+            if ret > 0:
+                rec["wins"] += 1
+            else:
+                rec["losses"] += 1
+            if np.isfinite(val) and val > 0:
+                rec["dollars"] += val
+                rec["profit"] += val * ret
+            if rec["best"] is None or ret > rec["best"]:
+                rec["best"] = ret
+                rec["best_tk"] = tk
+    rows = []
+    for rec in people.values():
+        n = rec["wins"] + rec["losses"]
+        if n <= 0:
+            continue
+        role = ""
+        if rec["roles"]:
+            role = max(rec["roles"].items(), key=lambda kv: (kv[1], len(kv[0])))[0]
+        rows.append({
+            "Trader": rec["name"],
+            "Role": role or "—",
+            "Buys": int(n),
+            "Wins": int(rec["wins"]),
+            "Losses": int(rec["losses"]),
+            "Win %": round(100.0 * rec["wins"] / n, 1),
+            "Avg %": round(100.0 * float(np.mean(rec["rets"])), 1),
+            "Best %": round(100.0 * float(rec["best"]), 1) if rec["best"] is not None else np.nan,
+            "Bought $": round(rec["dollars"], 0) if rec["dollars"] else np.nan,
+            "Est. profit $": round(rec["profit"], 0) if rec["dollars"] else np.nan,
+            "Open": int(rec["open"]),
+            "Ticker": rec["best_tk"] or "—",
+        })
+    if not rows:
+        return empty
+    return pd.DataFrame(rows, columns=cols)
 
 
 def drop_blank_columns(df: pd.DataFrame) -> pd.DataFrame:

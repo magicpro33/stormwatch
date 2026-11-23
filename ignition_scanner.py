@@ -881,6 +881,25 @@ def send_ntfy(title: str, message: str, priority: str = "default", tags: str = "
         return False
 
 
+_ALPACA_HITS: list[float] = []
+_ALPACA_LOCK = threading.Lock()
+
+
+def _alpaca_pace() -> None:
+    """Keep Alpaca under the free-plan cap so a full-dump scan is not rejected."""
+    window, cap = 60.0, 180
+    while True:
+        with _ALPACA_LOCK:
+            now = time.monotonic()
+            while _ALPACA_HITS and now - _ALPACA_HITS[0] >= window:
+                _ALPACA_HITS.pop(0)
+            if len(_ALPACA_HITS) < cap:
+                _ALPACA_HITS.append(now)
+                return
+            wait = window - (now - _ALPACA_HITS[0]) + 0.02
+        time.sleep(min(max(wait, 0.02), 1.5))
+
+
 def _alpaca_bars(ticker: str, timeframe: str, start_iso: str, key: str, secret: str):
     """Fetch bars from Alpaca Market Data v2 (IEX feed works on free plans)."""
     url = f"https://data.alpaca.markets/v2/stocks/{ticker}/bars"
@@ -896,6 +915,7 @@ def _alpaca_bars(ticker: str, timeframe: str, start_iso: str, key: str, secret: 
     rows = []
     _page_limit = 50  # safety guard: max 50 pages (~500k bars) before bail
     for _ in range(_page_limit):
+        _alpaca_pace()
         resp = requests.get(url, headers=headers, params=params, timeout=10)
         resp.raise_for_status()
         data = resp.json()
@@ -2181,7 +2201,21 @@ def _scanner_feed_lists():
     return feeds
 
 
+def _ig_dump_count() -> int:
+    """How many names the nightly dump actually holds."""
+    try:
+        import cascade_engine as ce
+        _panel, tickers, *_rest = ce.load_dump_panel()
+        return len(tickers) if tickers is not None else 0
+    except Exception:
+        return 0
+
+
 def _source_option_label(option, feeds, watch_n):
+    if option == _IG_SRC_DUMP:
+        n = _ig_dump_count()
+        if n:
+            return f"{option} · {n:,} names"
     if option == _IG_SRC_WATCH:
         unit = "name" if watch_n == 1 else "names"
         return f"{option} · {watch_n} {unit}"
@@ -2342,8 +2376,9 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
             format_func=lambda opt: _source_option_label(opt, feeds, len(watch_tks)),
             help="Preset / Custom: a sector list. Stock Lookup watchlist: every "
                  "name on your saved list. Scan over 5000 stocks: nightly dump "
-                 "pre-ranks the universe, then live-scans the top candidates. "
-                 "After you run another scanner, its list shows up here.",
+                 "pre-ranks every name, then live-scans the candidate pool. "
+                 "The pool can be the whole dump. After you run another "
+                 "scanner, its list shows up here.",
         )
 
         screener_mode = False
@@ -2371,7 +2406,14 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
                 help="Excludes stocks below this price from the candidate pool.",
             )
             tickers = []
-            st.caption("Dump pre-rank + live scan run only when you hit Scan.")
+            _dump_n = _ig_dump_count()
+            if _dump_n:
+                st.caption(
+                    f"Nightly dump has {_dump_n:,} names. Pre-rank uses all of "
+                    "them. The candidate pool below is how many get the live scan."
+                )
+            else:
+                st.caption("Dump pre-rank + live scan run only when you hit Scan.")
         elif source == _IG_SRC_WATCH:
             tickers = watch_tks[:_IG_FEED_CAP]
             if not watch_tks:
@@ -2432,11 +2474,31 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
                  "when all live conditions confirm at once.",
         )
         if screener_mode:
+            _dump_n = _ig_dump_count()
+            pool_cap = _dump_n if _dump_n >= 20 else 5000
+            # Older builds capped this at 80. Lift a saved cap to the full dump
+            # once, then leave whatever the slider is set to.
+            if _dump_n >= 20 and not st.session_state.get("ig_pool_expanded"):
+                st.session_state["ig_pool_size"] = int(pool_cap)
+                st.session_state["ig_pool_expanded"] = True
+            if int(st.session_state.get("ig_pool_size") or 0) > pool_cap:
+                st.session_state["ig_pool_size"] = int(pool_cap)
+            _pool_help = (
+                "The whole dump is pre-ranked by its own nightly signals. "
+                "This many of the top names get the live ignition scan. "
+                f"The dump has {_dump_n:,} names, and the top of the slider is all of them."
+                if _dump_n else
+                "The whole dump is pre-ranked by its own nightly signals. "
+                "This many of the top names get the live ignition scan."
+            )
+            _pool_kwargs = dict(
+                min_value=20, max_value=int(pool_cap), key="ig_pool_size",
+                help=_pool_help,
+            )
+            if "ig_pool_size" not in st.session_state:
+                _pool_kwargs["value"] = int(pool_cap)
             pool_size = st.slider(
-                "Candidate pool (pre-ranked from dump)", 20, 80, 40,
-                key="ig_pool_size",
-                help="The whole dump is pre-ranked by its own nightly signals; the top "
-                     "N candidates get the live ignition scan.",
+                "Candidate pool (pre-ranked from dump)", **_pool_kwargs,
             )
     view_mode = "Compact (phone)"
     show_all_cols = False

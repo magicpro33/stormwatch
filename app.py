@@ -1572,6 +1572,7 @@ _TAB_COLOR = {
     "POC Future": "#FF8FA3",
     "ShakeOut": "#C8F542",
     "Insider Buying": "#67E8F9",
+    "Insider Winners": "#9AF7C4",
     "Hybrid Screener": "#F0A6FF",
     "Ignition Scanner": "#FFB020",
     "Key Word Search": "#2DD4BF",
@@ -1598,6 +1599,7 @@ _MENU_CAT_COLORS = {
         "Macro Sim", "Cascade Map", "Nerd Hub", "Help")],
     "mw_hub": [_TAB_COLOR[k] for k in (
         "TOP20", "Apex Flow", "POC Future", "ShakeOut", "Insider Buying",
+        "Insider Winners",
         "Hybrid Screener", "Ignition Scanner", "Key Word Search",
         "Trump Effect", "Elections")],
     "mw_map": [_TAB_COLOR[k] for k in (
@@ -3028,6 +3030,12 @@ def _insider_buy_scan(asof: str, days: int, min_value: float, top: int,
                                top=int(top), big_only=bool(big_only),
                                officials_only=bool(officials_only),
                                only_sectors=secs)
+
+
+@st.cache_data(ttl=21600, max_entries=8, show_spinner="Scoring insider buys against the nightly tape…")
+def _insider_win_board(asof: str, horizon: int, who: str, min_value: float):
+    return ce.insider_win_board(horizon=int(horizon), who=str(who),
+                                min_value=float(min_value))
 
 
 @st.cache_data(ttl=300, max_entries=2, show_spinner="Reading latest White House remarks…")
@@ -7146,6 +7154,7 @@ _IG_FEED_LABELS = {
     "poc": "POC Future",
     "kw": "Key Word Search",
     "ib": "Insider Buying",
+    "iw": "Insider Winners",
     "te": "Trump Effect",
     "el": "Elections",
 }
@@ -9045,6 +9054,18 @@ def _render_scan_hub_help():
             "not a technical setup.",
             color="#67E8F9")
         _help_card(
+            "🏆 Insider Winners",
+            "Who actually made money after they bought.",
+            "Each purchase is a win when the close is higher after 20, 60, "
+            "120, or 250 trading sessions. The list ranks people, not tickers: "
+            "win rate, wins, losses, average gain, and a rough dollar profit. "
+            "Company insiders are the last year of large Form 4 buys. Congress "
+            "uses the STOCK Act history. Buys that are not old enough yet stay "
+            "open and do not change the rate. Tap a row to open that person's "
+            "best scored buy.",
+            "You want the buyers with a record, not the newest filing.",
+            color="#9AF7C4")
+        _help_card(
             "📊 Hybrid Screener",
             "The dump filter suite with named presets.",
             "Same metrics as the standalone hybrid screener: ROIC, owner-earnings "
@@ -9322,6 +9343,7 @@ def _try_closes():
 _MAIN = ["Scan Hub", "Stock Lookup", "Bull List", "Dividend Calender", "Crypto Copycat",
          "Macro Sim", "Cascade Map", "Nerd Hub", "Help"]
 _HUB = ["TOP20", "Apex Flow", "POC Future", "ShakeOut", "Insider Buying",
+        "Insider Winners",
         "Hybrid Screener", "Ignition Scanner", "Key Word Search",
         "Trump Effect", "Elections"]
 _MAP = ["Market Weather", "Cascade Pressure", "Cascade Sentinels", "Forced Flows",
@@ -11054,6 +11076,183 @@ with st.container(border=True, key="mw_page"):
             st.info("Set the hunt, then hit **Scan insider buying**. Nothing is fetched until then.")
 
         _hub_keep_save("ib", ("ib_",))
+
+
+    # ── 🏆 Insider Winners — who made money after they bought ────────────
+    if _main == "Scan Hub" and _hub == "Insider Winners":
+        _hub_title("🏆 Insider Winners", "#9AF7C4")
+        _hub_keep_restore("iw", ("iw_",))
+        _hub_sec("1 · How a win is counted", "#9AF7C4",
+                 "higher close after the horizon")
+        with _hub_pill("iw_box"):
+            _w1, _w2, _w3 = st.columns(3)
+            _iw_who_lbl = _w1.selectbox(
+                "Who",
+                ["Everyone", "Congress", "Company insiders"],
+                key="iw_who",
+                help="Congress is the STOCK Act history. Company insiders are "
+                     "the last year of large Form 4 buys the public screens publish.",
+            )
+            _iw_h = _w2.selectbox(
+                "Score after",
+                [20, 60, 120, 250],
+                index=1,
+                key="iw_horizon",
+                format_func=lambda n: {
+                    20: "20 sessions (~1 month)",
+                    60: "60 sessions (~3 months)",
+                    120: "120 sessions (~6 months)",
+                    250: "250 sessions (~1 year)",
+                }[int(n)],
+                help="Trading sessions in the nightly dump, not calendar days. "
+                     "A buy newer than this stays open and is left out of the rate.",
+            )
+            _iw_min_n = _w3.selectbox(
+                "At least this many scored buys",
+                [2, 3, 5, 8, 12],
+                index=1,
+                key="iw_min_n",
+                help="Hides one-off buys so the win rate is a record, not a single lucky trade.",
+            )
+            _s1, _s2 = st.columns(2)
+            _iw_floor = _s1.selectbox(
+                "Min Form 4 buy",
+                [1_000, 25_000, 50_000, 100_000, 250_000],
+                index=1,
+                key="iw_floor",
+                format_func=lambda n: f"${n:,.0f}",
+                help="Company filings under this size are dropped. Congress buys stay, "
+                     "because those amounts are reported as bands.",
+            )
+            _iw_sort = _s2.selectbox(
+                "Rank by",
+                ["Win rate", "Average gain", "Estimated profit", "Most buys"],
+                key="iw_sort",
+                help="Win rate is wins divided by scored buys. Estimated profit "
+                     "is the reported dollars times that percent change.",
+            )
+        _iw_who_key = {
+            "Everyone": "all",
+            "Congress": "congress",
+            "Company insiders": "form4",
+        }[_iw_who_lbl]
+        if st.button("🏆 Score the buyers", type="primary", key="iw_go",
+                     width="stretch"):
+            st.session_state["iw_run"] = True
+            st.session_state.pop("iw_snap", None)
+            st.session_state.pop("iw_inline_tk", None)
+        if st.session_state.get("iw_run"):
+            _iw_sig = (int(_iw_h), _iw_who_key, float(_iw_floor))
+            _iw_snap = st.session_state.get("iw_snap") or {}
+            if "df" in _iw_snap:
+                _iw_raw = _iw_snap.get("df")
+                if _iw_raw is None:
+                    _iw_raw = pd.DataFrame()
+                if _iw_snap.get("sig") != _iw_sig:
+                    st.info("Score settings changed. Hit **Score the buyers** to refresh.")
+            else:
+                try:
+                    _iw_raw = _insider_win_board(
+                        _dump_asof_key(), int(_iw_h), _iw_who_key, float(_iw_floor))
+                except Exception as _we:
+                    _iw_raw = pd.DataFrame()
+                    st.error(f"Insider scorecard failed: {_we}")
+                st.session_state["iw_snap"] = {
+                    "df": _iw_raw.copy() if isinstance(_iw_raw, pd.DataFrame)
+                    else pd.DataFrame(),
+                    "sig": _iw_sig,
+                }
+            if _iw_raw is None or _iw_raw.empty:
+                st.info("No scored buys came back. The filing sources may be "
+                        "down, or none of those buys are in the nightly tape.")
+            else:
+                _iw = _iw_raw[_iw_raw["Buys"] >= int(_iw_min_n)].copy()
+                _sort_col = {
+                    "Win rate": "Win %",
+                    "Average gain": "Avg %",
+                    "Estimated profit": "Est. profit $",
+                    "Most buys": "Buys",
+                }[_iw_sort]
+                if _iw.empty:
+                    st.info("Nobody has that many scored buys. Lower the minimum.")
+                else:
+                    _iw = _iw.sort_values(
+                        _sort_col, ascending=False, na_position="last")
+                    _iw = ce.stamp_rank(_iw.reset_index(drop=True))
+                    _top = _iw.iloc[0]
+                    _wr = float(_top["Win %"])
+                    _tone = "#3fbf7f" if _wr >= 50 else "#9E1B2F"
+                    import html as _iw_html
+                    _nm = _iw_html.escape(str(_top["Trader"]))
+                    _role = _iw_html.escape(str(_top["Role"]))
+                    _avg = float(_top["Avg %"])
+                    _avg_tone = "#3fbf7f" if _avg > 0 else "#9E1B2F"
+                    _md_html(
+                        f"<div style='background:{_fq_bg()};color:{_fq_ink()};"
+                        f"border:1px solid {_fq_line2()};border-left:5px solid {_tone};"
+                        f"border-radius:10px;padding:10px 14px;margin:8px 0;'>"
+                        f"<b style='color:{_tone}'>{_nm}</b> "
+                        f"<span style='color:{_fq_muted()}'>{_role}</span><br>"
+                        f"<b style='color:{_tone}'>{_wr:.1f}% wins</b> · "
+                        f"{int(_top['Wins'])}–{int(_top['Losses'])} · "
+                        f"average <b style='color:{_avg_tone}'>{_avg:+.1f}%</b> "
+                        f"after {int(_iw_h)} sessions"
+                        f"<span style='color:{_fq_muted()};font-size:12px;'> · "
+                        f"{len(_iw)} people with at least {int(_iw_min_n)} scored buys"
+                        f"</span></div>")
+
+                    def _iw_win(v):
+                        try:
+                            x = float(v)
+                        except (TypeError, ValueError):
+                            return ""
+                        if not np.isfinite(x):
+                            return ""
+                        if x >= 60:
+                            return "color: #3fbf7f; font-weight: 700"
+                        if x < 45:
+                            return "color: #9E1B2F; font-weight: 700"
+                        return "color: #C6A15B; font-weight: 700"
+
+                    def _iw_signed(v):
+                        try:
+                            x = float(v)
+                        except (TypeError, ValueError):
+                            return ""
+                        if not np.isfinite(x) or x == 0:
+                            return ""
+                        col = "#3fbf7f" if x > 0 else "#9E1B2F"
+                        return f"color: {col}; font-weight: 700"
+
+                    _iw_sty = _iw.style.format(
+                        {
+                            "Win %": "{:.1f}%",
+                            "Avg %": "{:+.1f}%",
+                            "Best %": "{:+.1f}%",
+                            "Bought $": "${:,.0f}",
+                            "Est. profit $": "${:,.0f}",
+                        },
+                        na_rep="—",
+                    ).map(_iw_win, subset=["Win %"]).map(
+                        _iw_signed, subset=["Avg %", "Best %", "Est. profit $"])
+                    _iw_sel = _hub_df(
+                        _iw_sty,
+                        width=_DF_WIDTH, hide_index=True,
+                        height=_fit_list_height(len(_iw)),
+                        on_select="rerun", selection_mode="single-row",
+                        key="iw_table",
+                        column_order=list(_iw.columns),
+                    )
+                    st.caption("A win is a higher close after the horizon. "
+                               "A flat close counts as a loss. Open buys are "
+                               "too new to score. Tap a row to open that "
+                               "person's best scored buy.")
+                    _scan_hub_pick_and_show(_iw_sel, _iw, "iw_inline", "iwaz",
+                                           source="Insider Winners")
+        else:
+            st.info("Pick who and the horizon, then hit **Score the buyers**. "
+                    "Nothing is fetched until then.")
+        _hub_keep_save("iw", ("iw_",))
 
 
     # ── 🏆 top 20 mega screener ──────────────────────────────────────────
