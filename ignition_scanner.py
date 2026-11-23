@@ -1373,21 +1373,88 @@ def _dump_seed(ticker: str) -> dict:
     return seed
 
 
-@st.cache_data(ttl=86400, max_entries=1, show_spinner="Building today's watchlist from nightly dump...")
+def _fast_dump_rank(min_price: float) -> pd.Series | None:
+    """Rank the whole nightly panel from daily bars. No network.
+
+    Keeps names at or above the price floor with enough dollar volume to
+    trade, then scores relative volume and how hard the price just moved.
+    """
+    try:
+        import cascade_engine as ce
+        panel, tickers, _secs, _mdv, _dts = ce.load_dump_panel()
+    except Exception:
+        return None
+    C = np.asarray(panel.get("c"), dtype=float)
+    V = np.asarray(panel.get("v"), dtype=float)
+    if C.ndim != 2 or C.shape[0] < 6 or C.shape[1] == 0:
+        return None
+    if V.shape != C.shape:
+        return None
+    last = C[-1]
+    prev = C[-2]
+    vol = V[-1]
+    w = min(20, C.shape[0] - 1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        avg_vol = np.nanmean(V[-(w + 1):-1], axis=0)
+        rvol = vol / avg_vol
+        ret1 = last / prev - 1.0
+        back = min(6, C.shape[0])
+        ret5 = last / C[-back] - 1.0
+        hi = np.nanmax(C[-min(20, C.shape[0]):], axis=0)
+        near = last / hi
+    dvol = last * avg_vol
+    price_ok = (np.isfinite(last) & (last >= float(min_price))
+                & np.isfinite(prev) & (prev > 0))
+    liq = (price_ok & np.isfinite(dvol) & (dvol >= 1_000_000)
+           & np.isfinite(rvol) & (avg_vol > 0))
+    if int(np.count_nonzero(liq)) < 20:
+        liq = price_ok & np.isfinite(rvol) & (avg_vol > 0)
+    if int(np.count_nonzero(liq)) == 0:
+        return None
+    rvol_c = np.clip(np.where(np.isfinite(rvol), rvol, 0.0), 0.0, 10.0)
+    move1 = np.abs(np.where(np.isfinite(ret1), ret1, 0.0))
+    move5 = np.abs(np.where(np.isfinite(ret5), ret5, 0.0))
+    near_c = np.clip(np.where(np.isfinite(near), near, 0.0), 0.0, 1.5)
+
+    def _pct(arr):
+        return pd.Series(arr).where(liq).rank(pct=True).fillna(0.0).to_numpy()
+
+    score = (0.50 * _pct(rvol_c) + 0.25 * _pct(move1)
+             + 0.15 * _pct(move5) + 0.10 * _pct(near_c)) * 100.0
+    score = np.where(liq, score, np.nan)
+    syms = pd.Index([str(t).strip().upper() for t in tickers])
+    out = pd.Series(score, index=syms)
+    out = out[np.isfinite(out.to_numpy())]
+    if out.index.has_duplicates:
+        out = out[~out.index.duplicated(keep="first")]
+    return out if len(out) else None
+
+
+@st.cache_data(ttl=86400, max_entries=1, show_spinner="Ranking the nightly tape…")
 def screener_watchlist(url: str, pool_size: int, min_price: float, day_key: str):
-    """Pin the candidate watchlist ONCE per calendar day from the nightly dump.
+    """Rank the dump locally, then keep only the short list for the live scan.
+
     day_key (today's date) is part of the cache key, so this recomputes only
-    when the date changes or the settings change. After this, all live data
-    comes from the real-time feed - the dump is not touched again."""
+    when the date changes or the settings change. The live minute-bar pass
+    never sees the names this screen drops.
+    """
+    keep = max(1, int(pool_size or 1))
+    ranked = _fast_dump_rank(float(min_price))
+    if ranked is not None and len(ranked):
+        candidates = ranked.sort_values(ascending=False).head(keep)
+        meta = {"n_tickers": len(ranked), "n_screened": len(ranked),
+                "n_fields": 0, "fields": [], "fast": True}
+        return list(candidates.index), candidates, meta
     dump = load_screener_dump(url)
     pre = prescore_screener(dump)
     pcol = _find_col(dump.columns, "price") or _find_col(dump.columns, "close")
     if pcol is not None:
         prices = pd.to_numeric(dump[pcol], errors="coerce")
         pre = pre[prices >= float(min_price)]
-    candidates = pre.sort_values(ascending=False).head(pool_size)
-    meta = {"n_tickers": len(dump), "n_fields": len(dump.columns),
-            "fields": [str(c) for c in dump.columns]}
+    candidates = pre.sort_values(ascending=False).head(keep)
+    meta = {"n_tickers": len(dump), "n_screened": int(pre.notna().sum()),
+            "n_fields": len(dump.columns),
+            "fields": [str(c) for c in dump.columns], "fast": False}
     return list(candidates.index), candidates, meta
 
 
@@ -1826,8 +1893,46 @@ def ignition_watch_fields(r, rank=None) -> dict:
     return row
 
 
-def compute_signals(ticker: str) -> dict:
-    """Returns a dict of raw signals, sub-scores and the composite score."""
+def _fuel_from_dump(ticker: str) -> dict:
+    """Fuel fields already on the nightly tape. No Yahoo round-trip."""
+    out = {
+        "short_pct_float": None, "float_shares": None,
+        "insider_net_buy_usd": 0.0, "insider_buys": 0, "insider_sells": 0,
+        "news_count_48h": 0, "news_sentiment": 0, "latest_headline": "",
+        "high_52w": None, "name": ticker, "target_mean": None,
+        "earnings_days": None, "days_to_cover": None, "inst_pct": None,
+        "sector": "", "catalyst_tags": [], "catalyst_score": 0.0,
+        "bimodal_event": False, "catalyst_suppressed": [],
+        "earnings_surprise": None, "data_issues": [],
+    }
+    seed = _dump_seed(ticker)
+    for k in ("short_pct_float", "float_shares", "high_52w", "name",
+              "target_mean", "days_to_cover", "sector", "inst_pct"):
+        v = seed.get(k)
+        if v in (None, ""):
+            continue
+        if k == "name" or out.get(k) in (None, ""):
+            out[k] = v
+    ed = seed.get("earnings_date")
+    if ed is not None:
+        try:
+            import cascade_engine as ce
+            today = ce._ny_calendar_date()
+        except Exception:
+            today = datetime.now().date()
+        try:
+            out["earnings_days"] = (ed - today).days
+        except Exception:
+            pass
+    return out
+
+
+def compute_signals(ticker: str, quick: bool = False) -> dict:
+    """Returns a dict of raw signals, sub-scores and the composite score.
+
+    quick=True skips the Yahoo news and insider pass. The wide dump scan
+    uses that so only the minute bars hit the network.
+    """
     s = {
         "ticker": ticker, "price": None, "chg_pct": None,
         "rvol": 0.0, "surge": 0.0, "velocity": 0.0, "accel": 0.0,
@@ -1840,7 +1945,7 @@ def compute_signals(ticker: str) -> dict:
 
     m1, m5 = fetch_intraday(ticker)
     daily = fetch_daily(ticker)
-    fuel = fetch_fuel(ticker)
+    fuel = _fuel_from_dump(ticker) if quick else fetch_fuel(ticker)
     s["fuel"] = fuel
 
     live = m1 is not None and len(m1) >= 6
@@ -2110,7 +2215,7 @@ def compute_signals(ticker: str) -> dict:
     return s
 
 
-def scan_tickers_parallel(ticker_list, progress_cb=None, max_workers=12):
+def scan_tickers_parallel(ticker_list, progress_cb=None, max_workers=12, quick=False):
     """Scan many tickers concurrently using a thread pool.
 
     compute_signals is a pure function whose results are cached by
@@ -2130,7 +2235,7 @@ def scan_tickers_parallel(ticker_list, progress_cb=None, max_workers=12):
     # Cap workers so we don't hammer the API past its rate limits.
     workers = min(max_workers, total)
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(compute_signals, t): t for t in ticker_list}
+        futures = {pool.submit(compute_signals, t, quick): t for t in ticker_list}
         done = 0
         for fut in as_completed(futures):
             t = futures[fut]
@@ -2375,10 +2480,10 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
             key="ig_source",
             format_func=lambda opt: _source_option_label(opt, feeds, len(watch_tks)),
             help="Preset / Custom: a sector list. Stock Lookup watchlist: every "
-                 "name on your saved list. Scan over 5000 stocks: nightly dump "
-                 "pre-ranks every name, then live-scans the candidate pool. "
-                 "The pool can be the whole dump. After you run another "
-                 "scanner, its list shows up here.",
+                 "name on your saved list. Scan over 5000 stocks: the nightly "
+                 "tape is ranked on this machine, then only a short list gets "
+                 "live minute bars. After you run another scanner, its list "
+                 "shows up here.",
         )
 
         screener_mode = False
@@ -2409,11 +2514,12 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
             _dump_n = _ig_dump_count()
             if _dump_n:
                 st.caption(
-                    f"Nightly dump has {_dump_n:,} names. Pre-rank uses all of "
-                    "them. The candidate pool below is how many get the live scan."
+                    f"Nightly dump has {_dump_n:,} names. They are ranked here "
+                    "from daily volume and the size of the move. Only the "
+                    "candidate pool below gets live minute bars."
                 )
             else:
-                st.caption("Dump pre-rank + live scan run only when you hit Scan.")
+                st.caption("The nightly tape is ranked locally. Live bars run only when you hit Scan.")
         elif source == _IG_SRC_WATCH:
             tickers = watch_tks[:_IG_FEED_CAP]
             if not watch_tks:
@@ -2474,31 +2580,20 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
                  "when all live conditions confirm at once.",
         )
         if screener_mode:
-            _dump_n = _ig_dump_count()
-            pool_cap = _dump_n if _dump_n >= 20 else 5000
-            # Older builds capped this at 80. Lift a saved cap to the full dump
-            # once, then leave whatever the slider is set to.
-            if _dump_n >= 20 and not st.session_state.get("ig_pool_expanded"):
-                st.session_state["ig_pool_size"] = int(pool_cap)
-                st.session_state["ig_pool_expanded"] = True
-            if int(st.session_state.get("ig_pool_size") or 0) > pool_cap:
-                st.session_state["ig_pool_size"] = int(pool_cap)
-            _pool_help = (
-                "The whole dump is pre-ranked by its own nightly signals. "
-                "This many of the top names get the live ignition scan. "
-                f"The dump has {_dump_n:,} names, and the top of the slider is all of them."
-                if _dump_n else
-                "The whole dump is pre-ranked by its own nightly signals. "
-                "This many of the top names get the live ignition scan."
-            )
-            _pool_kwargs = dict(
-                min_value=20, max_value=int(pool_cap), key="ig_pool_size",
-                help=_pool_help,
-            )
-            if "ig_pool_size" not in st.session_state:
-                _pool_kwargs["value"] = int(pool_cap)
+            pool_cap = 80
+            _saved_pool = int(st.session_state.get("ig_pool_size") or 0)
+            if (_saved_pool < 20 or _saved_pool > pool_cap
+                    or not st.session_state.get("ig_pool_fast")):
+                st.session_state["ig_pool_size"] = 40
+                st.session_state["ig_pool_fast"] = True
             pool_size = st.slider(
-                "Candidate pool (pre-ranked from dump)", **_pool_kwargs,
+                "Live scan list",
+                min_value=20,
+                max_value=pool_cap,
+                key="ig_pool_size",
+                help="The whole nightly tape is ranked on this machine first. "
+                     "Only this many leaders get live minute bars. 40 is the "
+                     "fast default. 80 is the longest live pass.",
             )
     view_mode = "Compact (phone)"
     show_all_cols = False
@@ -2524,8 +2619,12 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
                     screener_url, pool_size, float(min_price), day_key
                 )
                 st.session_state["ig_screener_pre"] = candidates
+                st.session_state["ig_screener_screened"] = int(
+                    (meta or {}).get("n_screened") or 0)
+                _screened_n = int((meta or {}).get("n_screened") or 0)
                 st.caption(
-                    f"Watchlist pinned for {day_key}. Pool: {len(tickers)}."
+                    f"Ranked {_screened_n:,} names on the nightly tape. "
+                    f"Live scan: {len(tickers)}."
                 )
             except Exception as e:
                 st.error(f"Could not load nightly dump: {e}")
@@ -2538,7 +2637,8 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
             bar.progress(min(done / n, 1.0), text=f"Scanning… ({done}/{total})")
 
         _warm_data_chain()
-        results = scan_tickers_parallel(tickers, progress_cb=_scan_progress)
+        results = scan_tickers_parallel(
+            tickers, progress_cb=_scan_progress, quick=bool(screener_mode))
         ig_progress_slot.empty()
         st.session_state["ig_last_results"] = results
         st.session_state["ig_last_scan_time"] = datetime.now().strftime("%H:%M:%S")
@@ -2563,9 +2663,12 @@ h1, h2, h3, .stCaption, [data-testid="stCaptionContainer"],
                         r["pre_rank"] = float(pre_ranks[r["ticker"]])
             else:
                 ok = ok[:top_n]
+            _screened_n = int(st.session_state.get("ig_screener_screened") or 0)
+            _screened_txt = (f"Ranked {_screened_n:,} names locally, then "
+                             if _screened_n else "Ranked the nightly tape, then ")
             st.caption(
-                f"Nightly Screener mode: pre-ranked the full dump, live-scanned the top "
-                f"{scanned_n} candidates, showing the top {top_n} by ignition score."
+                f"{_screened_txt}live-scanned {scanned_n}. "
+                f"Showing the top {top_n} by ignition score."
             )
         else:
             ok = ok[:top_n]
