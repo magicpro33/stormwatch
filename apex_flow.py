@@ -30,6 +30,7 @@ daily-swing edge apply to a 2-minute bar. Intraday results are unvalidated.
 from __future__ import annotations
 
 from datetime import date, timedelta
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -102,9 +103,11 @@ def _structure_vote(h: np.ndarray, l: np.ndarray, left: int = 5,
     lw = np.lib.stride_tricks.sliding_window_view(l, win, axis=0)
     centre_h = h[idx]                       # (n, N)
     centre_l = l[idx]
-    with np.errstate(invalid="ignore"):
-        is_ph = centre_h >= np.nanmax(hw, axis=2)
-        is_pl = centre_l <= np.nanmin(lw, axis=2)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        with np.errstate(invalid="ignore"):
+            is_ph = centre_h >= np.nanmax(hw, axis=2)
+            is_pl = centre_l <= np.nanmin(lw, axis=2)
         # strict: the centre must beat every OTHER bar in the window
         n_max = (hw >= centre_h[:, :, None] - 0).sum(axis=2)
         n_min = (lw <= centre_l[:, :, None] + 0).sum(axis=2)
@@ -137,8 +140,10 @@ def score_panel(o: np.ndarray, h: np.ndarray, l: np.ndarray,
     out = {}
 
     # --- 1. risk gate (35) ------------------------------------------
-    rets = np.diff(c[-21:], axis=0) / c[-21:-1]
-    vol20 = np.nanstd(rets, axis=0, ddof=1) * 100.0
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        rets = np.diff(c[-21:], axis=0) / c[-21:-1]
+        vol20 = np.nanstd(rets, axis=0, ddof=1) * 100.0
     sc = tf_scale(bars_per_day)
     calm_th, high_th = VOL_CALM_D * sc, VOL_HIGH_D * sc
     s_risk = np.where(vol20 <= calm_th, 35.0,
@@ -147,8 +152,10 @@ def score_panel(o: np.ndarray, h: np.ndarray, l: np.ndarray,
                           np.where(vol20 <= high_th, 1, 0))
 
     # --- 2. range position (25) -------------------------------------
-    d_hi = np.nanmax(h[-20:], axis=0)
-    d_lo = np.nanmin(l[-20:], axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        d_hi = np.nanmax(h[-20:], axis=0)
+        d_lo = np.nanmin(l[-20:], axis=0)
     rng = d_hi - d_lo
     px = c[-1]
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -158,8 +165,10 @@ def score_panel(o: np.ndarray, h: np.ndarray, l: np.ndarray,
 
     # --- 3. value-area structure (15) -------------------------------
     LB, BINS, VA = 50, 12, 0.70
-    w_lo = np.nanmin(l[-LB:], axis=0)
-    w_hi = np.nanmax(h[-LB:], axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        w_lo = np.nanmin(l[-LB:], axis=0)
+        w_hi = np.nanmax(h[-LB:], axis=0)
     step = np.where(w_hi > w_lo, (w_hi - w_lo) / BINS, np.nan)
     tp = (h[-LB:] + l[-LB:] + c[-LB:]) / 3.0
     vol_w = np.nan_to_num(v[-LB:])
@@ -209,9 +218,11 @@ def score_panel(o: np.ndarray, h: np.ndarray, l: np.ndarray,
     # The 5th is a TRI-STATE — that zero is what lets the tally land on the
     # odd buckets (+/-1, +/-3) the STRONG/MILD thresholds were written for.
     # Without it every tally was even and STRONG required a unanimous 4.
-    sma20 = np.nanmean(c[-20:], axis=0)
-    sma50 = np.nanmean(c[-50:], axis=0)
-    sma200 = np.nanmean(c[-200:], axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        sma20 = np.nanmean(c[-20:], axis=0)
+        sma50 = np.nanmean(c[-50:], axis=0)
+        sma200 = np.nanmean(c[-200:], axis=0)
     struct_vote = _structure_vote(h, l)
     tally = (np.where(px > sma20, 1, -1) + np.where(px > sma50, 1, -1)
              + np.where(sma20 > sma50, 1, -1) + np.where(px > sma200, 1, -1)

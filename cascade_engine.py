@@ -20,6 +20,8 @@ import os
 import io
 import json
 import re
+import warnings
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 
 try:
@@ -1335,9 +1337,16 @@ def _dump_coverage_compute() -> dict:
         if not path or not os.path.isfile(path):
             return empty
         try:
-            z = np.load(path, allow_pickle=False, mmap_mode="r")
-        except ValueError:
-            z = _np_load_arrays(path)
+            try:
+                z = np.load(path, allow_pickle=False, mmap_mode="r")
+            except ValueError:
+                z = _np_load_arrays(path)
+        except (EOFError, OSError, zipfile.BadZipFile):
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+            return empty
         tickers = z["tickers"]
         sectors = z["sectors"]
         mdv = z["mdv"]
@@ -1584,7 +1593,9 @@ def load_dump_panel():
     last_ok = np.isfinite(panel["c"][-1])
     recent_ok = np.isfinite(panel["c"][-3:]).any(axis=0)
     panel["c"] = pd.DataFrame(panel["c"]).ffill(limit=5).values.astype(np.float32)
-    mdv = np.nanmedian((panel["c"] * np.nan_to_num(panel["v"]))[-21:], axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        mdv = np.nanmedian((panel["c"] * np.nan_to_num(panel["v"]))[-21:], axis=0)
     tickers, sectors = np.array(tickers, dtype="U24"), np.array(sectors, dtype="U48")
     industries = np.array(industries, dtype="U64")
     _dump_w = _data_write_path(LOCAL_DUMP)
@@ -7077,23 +7088,25 @@ def _feature_panels():
     days = list(range(70, T - 22, 3))
     feats, fwds = [], []
     dvol = C * V
-    with np.errstate(all="ignore"):
-        for t in days:
-            mom = C[t - 5] / C[t - 63] - 1.0
-            mom_pct = pd.Series(mom).rank(pct=True).values
-            lo = np.nanmin(panel["l"][t - 62:t + 1], 0)
-            hi = np.nanmax(panel["h"][t - 62:t + 1], 0)
-            rangepos = (C[t] - lo) / np.where(hi - lo == 0, np.nan, hi - lo)
-            rvol = V[t - 4:t + 1].mean(0) / np.where(V[t - 62:t + 1].mean(0) == 0,
-                                                     np.nan, V[t - 62:t + 1].mean(0))
-            above = (C[t] > np.nanmean(C[t - 49:t + 1], 0)).astype(np.float32)
-            ok = np.isfinite(C[t]) & (C[t] >= 3) & (
-                np.nanmedian(dvol[max(t - 20, 0):t + 1], 0) >= 2e6)
-            f10 = C[t + 10] / C[t] - 1.0
-            f21 = C[t + 21] / C[t] - 1.0
-            m = ok & np.isfinite(mom_pct) & np.isfinite(rangepos) & np.isfinite(rvol) & np.isfinite(f21)
-            feats.append(np.column_stack([mom_pct[m], rangepos[m], rvol[m], above[m]]))
-            fwds.append(np.column_stack([f10[m], f21[m]]))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        with np.errstate(all="ignore"):
+            for t in days:
+                mom = C[t - 5] / C[t - 63] - 1.0
+                mom_pct = pd.Series(mom).rank(pct=True).values
+                lo = np.nanmin(panel["l"][t - 62:t + 1], 0)
+                hi = np.nanmax(panel["h"][t - 62:t + 1], 0)
+                rangepos = (C[t] - lo) / np.where(hi - lo == 0, np.nan, hi - lo)
+                rvol = V[t - 4:t + 1].mean(0) / np.where(V[t - 62:t + 1].mean(0) == 0,
+                                                         np.nan, V[t - 62:t + 1].mean(0))
+                above = (C[t] > np.nanmean(C[t - 49:t + 1], 0)).astype(np.float32)
+                ok = np.isfinite(C[t]) & (C[t] >= 3) & (
+                    np.nanmedian(dvol[max(t - 20, 0):t + 1], 0) >= 2e6)
+                f10 = C[t + 10] / C[t] - 1.0
+                f21 = C[t + 21] / C[t] - 1.0
+                m = ok & np.isfinite(mom_pct) & np.isfinite(rangepos) & np.isfinite(rvol) & np.isfinite(f21)
+                feats.append(np.column_stack([mom_pct[m], rangepos[m], rvol[m], above[m]]))
+                fwds.append(np.column_stack([f10[m], f21[m]]))
     F = np.vstack(feats).astype(np.float32)
     R = np.vstack(fwds).astype(np.float32)
     _PANEL_CACHE["featpan"] = (mt, (F, R))
@@ -12034,8 +12047,10 @@ def sector_flow(lookback: int = SECTOR_FLOW_LOOKBACK,
     prev = C[start]
     r = px / np.where(prev == 0, np.nan, prev) - 1.0
     dvol = C * V
-    with np.errstate(all="ignore"):
-        dv_now = np.nanmean(dvol[start + 1:end + 1], axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        with np.errstate(all="ignore"):
+            dv_now = np.nanmean(dvol[start + 1:end + 1], axis=0)
         dv_base = np.nanmean(dvol[max(0, end - 62):end + 1], axis=0)
         surge = dv_now / np.where(dv_base == 0, np.nan, dv_base)
         ok = (np.isfinite(r) & np.isfinite(px) & (px >= 3.0) & (mdv >= 2e6)

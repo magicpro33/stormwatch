@@ -99,17 +99,12 @@ def _md_html(html: str) -> None:
 def _embed_html(html: str, height: int = 0, scrolling: bool = False) -> None:
     """Embed HTML without putting it in the iframe URL.
 
-    Passing a document as st.iframe(src=...) turns it into a data: URI and
-    nginx/Streamlit Cloud answer 414 Request-URI Too Large. srcdoc /
-    components.v1.html keep the markup in the iframe body.
+    st.iframe(src=...) turns a document into a data: URI, and Streamlit
+    Cloud answers 414 Request-URI Too Large. srcdoc keeps the markup in
+    the iframe body. The old components.v1.html path is only for builds
+    that do not accept srcdoc yet.
     """
     h = max(int(height or 0), 1)
-    try:
-        import streamlit.components.v1 as _stc
-        _stc.html(html, height=h, scrolling=bool(scrolling))
-        return
-    except Exception:
-        pass
     iframe = getattr(st, "iframe", None)
     if callable(iframe):
         try:
@@ -117,6 +112,12 @@ def _embed_html(html: str, height: int = 0, scrolling: bool = False) -> None:
             return
         except TypeError:
             pass
+    try:
+        import streamlit.components.v1 as _stc
+        _stc.html(html, height=h, scrolling=bool(scrolling))
+        return
+    except Exception:
+        pass
     st.warning("This Streamlit build cannot embed HTML.")
 
 try:

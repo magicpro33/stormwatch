@@ -28,6 +28,7 @@ Data: nightly dump first, then Alpaca API keys, then yfinance.
 """
 
 import time
+import warnings
 import random
 import math
 import re
@@ -1394,8 +1395,10 @@ def _fast_dump_rank(min_price: float) -> pd.Series | None:
     prev = C[-2]
     vol = V[-1]
     w = min(20, C.shape[0] - 1)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        avg_vol = np.nanmean(V[-(w + 1):-1], axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            avg_vol = np.nanmean(V[-(w + 1):-1], axis=0)
         rvol = vol / avg_vol
         ret1 = last / prev - 1.0
         back = min(6, C.shape[0])
