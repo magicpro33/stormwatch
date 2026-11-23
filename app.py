@@ -6164,7 +6164,8 @@ def _lk_clean_setup(chart: pd.DataFrame) -> dict:
                 score=int(pack.get("score") or 0),
                 bull=int(pack.get("bull") or 0),
                 bear=int(pack.get("bear") or 0),
-                adx=pack.get("adx", np.nan))
+                adx=pack.get("adx", np.nan),
+                votes=dict(pack.get("votes") or {}))
 
 
 def _lk_clip_seg(i0, y0, i1, y1, vis0, vis1):
@@ -6378,8 +6379,108 @@ _CS_TRIGGER_HELP = (
 )
 
 
+_CS_VOTE_LABEL = (
+    ("ema_slow", "EMA slow"),
+    ("ema_fast", "EMA fast"),
+    ("macd", "MACD"),
+    ("roc", "ROC"),
+    ("linreg", "Linreg"),
+    ("donchian", "Donchian"),
+    ("structure", "Structure"),
+    ("aroon", "Aroon"),
+    ("di", "DI"),
+    ("supertrend", "Supertrend"),
+    ("psar", "PSAR"),
+    ("ichimoku", "Ichimoku"),
+    ("obv", "OBV"),
+)
+
+
+def _lk_cs_trend_section(cs: dict) -> str:
+    """Plain explanation of the last-bar vote that paints the chart trend."""
+    import html as _html
+    votes = cs.get("votes") or {}
+    trend = str(cs.get("trend") or "mixed")
+    if trend == "bull":
+        tone, col, word = "mw-good", _CS_BULL, "Bull"
+    elif trend == "bear":
+        tone, col, word = "mw-bad", _CS_BEAR, "Bear"
+    else:
+        tone, col, word = "mw-gold", "#C6A15B", "Mixed"
+    if not votes:
+        return (
+            "<p style='margin:0 0 10px;line-height:1.45'><b>Current trend.</b> "
+            f"<span class='{tone}' style='color:{col};font-weight:700'>{word}</span>. "
+            "Not enough bars yet for the factor vote.</p>"
+        )
+    score = int(cs.get("score") or 0)
+    bu, be = int(cs.get("bull") or 0), int(cs.get("bear") or 0)
+    adx = cs.get("adx")
+    try:
+        adx_f = float(adx)
+    except (TypeError, ValueError):
+        adx_f = float("nan")
+    has_hl = "supertrend" in votes
+    if np.isfinite(adx_f) and adx_f >= 35:
+        need, tape = 2, f"ADX is {adx_f:.1f}, a strong trend, so only 2 votes are needed"
+    elif np.isfinite(adx_f) and adx_f >= 25:
+        need, tape = 3, f"ADX is {adx_f:.1f}, so 3 votes are needed"
+    elif has_hl:
+        adx_bit = f"ADX is {adx_f:.1f}. " if np.isfinite(adx_f) else ""
+        need, tape = 4, f"{adx_bit}The tape is quiet, so 4 votes are needed"
+    else:
+        need, tape = 3, "High and low are missing, so 3 votes are needed"
+    core = ("linreg", "structure", "aroon", "ema_slow", "ema_fast", "di")
+    cu = sum(1 for k in core if int(votes.get(k) or 0) > 0)
+    cd = sum(1 for k in core if int(votes.get(k) or 0) < 0)
+    triple_up = all(int(votes.get(k) or 0) > 0 for k in ("linreg", "structure", "aroon"))
+    triple_dn = all(int(votes.get(k) or 0) < 0 for k in ("linreg", "structure", "aroon"))
+    sign = f"+{score}" if score > 0 else str(score)
+    if score >= need and trend == "bull":
+        why = f"The score clears +{need}."
+    elif score <= -need and trend == "bear":
+        why = f"The score clears −{need}."
+    elif triple_up and trend == "bull" and score > -need:
+        why = ("Linreg, structure, and Aroon all voted bull, so the trend "
+               "stays bull.")
+    elif triple_dn and trend == "bear" and score < need:
+        why = ("Linreg, structure, and Aroon all voted bear, so the trend "
+               "stays bear.")
+    elif trend == "bull" and cu >= 3 and cu >= cd + 2:
+        why = ("The score is still inside the mixed band, but the core "
+               "factors agree on a bull pullback.")
+    elif trend == "bear" and cd >= 3 and cd >= cu + 2:
+        why = ("The score is still inside the mixed band, but the core "
+               "factors agree on a bear pullback.")
+    else:
+        why = f"The score stays inside ±{need}, so neither side has a trend."
+    up, dn, flat = [], [], []
+    for key, label in _CS_VOTE_LABEL:
+        if key not in votes:
+            continue
+        v = int(votes.get(key) or 0)
+        (up if v > 0 else dn if v < 0 else flat).append(label)
+    def _names(items, cls, color):
+        if not items:
+            return "none"
+        return ", ".join(
+            f"<span class='{cls}' style='color:{color}'>{_html.escape(n)}</span>"
+            for n in items)
+    flat_txt = _html.escape(", ".join(flat)) if flat else "none"
+    return (
+        "<p style='margin:0 0 6px;line-height:1.45'><b>Current trend.</b> "
+        f"<span class='{tone}' style='color:{col};font-weight:700'>{word}</span>. "
+        f"{bu} factors voted bull and {be} voted bear. Score {sign}. {tape}. {why}</p>"
+        "<p style='margin:0 0 4px;line-height:1.45'><b>Bull.</b> "
+        f"{_names(up, 'mw-good', _CS_BULL)}</p>"
+        "<p style='margin:0 0 4px;line-height:1.45'><b>Bear.</b> "
+        f"{_names(dn, 'mw-bad', _CS_BEAR)}</p>"
+        f"<p style='margin:0 0 10px;line-height:1.45'><b>No vote.</b> {flat_txt}</p>"
+    )
+
+
 def _lk_clean_setup_guide(cs: dict) -> None:
-    """Collapsed list of the Clean Setup marks actually drawn on this chart."""
+    """Collapsed list of this chart's trend and the marks drawn on it."""
     import html as _html
     help_by = {name: text for name, _side, text in _CS_TRIGGER_HELP}
     order = []
@@ -6390,9 +6491,9 @@ def _lk_clean_setup_guide(cs: dict) -> None:
             counts[key] = 0
             order.append(key)
         counts[key] += 1
-    if not order:
-        return
-    rows = []
+    rows = [_lk_cs_trend_section(cs)]
+    if order:
+        rows.append("<p style='margin:0 0 6px'><b>Triggers on this chart.</b></p>")
     for name, is_up in order:
         tone, col, side = (
             ("mw-good", _CS_BULL, "Bull") if is_up
