@@ -6378,65 +6378,37 @@ _CS_TRIGGER_HELP = (
 )
 
 
-def _lk_cs_ink(side: str) -> str:
-    """Colored name and side label. Green bull, red bear, gold when it can be either."""
-    if side == "Bull":
-        return (
-            f"<span class='mw-good' style='color:{_CS_BULL};font-weight:700'>{{name}}</span>"
-            f" · <span class='mw-good' style='color:{_CS_BULL}'>Bull</span>"
-        )
-    if side == "Bear":
-        return (
-            f"<span class='mw-bad' style='color:{_CS_BEAR};font-weight:700'>{{name}}</span>"
-            f" · <span class='mw-bad' style='color:{_CS_BEAR}'>Bear</span>"
-        )
-    return (
-        "<span class='mw-gold' style='color:#C6A15B;font-weight:700'>{name}</span>"
-        f" · <span class='mw-good' style='color:{_CS_BULL}'>Bull</span>"
-        " or "
-        f"<span class='mw-bad' style='color:{_CS_BEAR}'>Bear</span>"
-    )
-
-
-def _lk_clean_setup_guide() -> None:
-    """Collapsed key for every Clean Setup mark the stock chart can draw."""
+def _lk_clean_setup_guide(cs: dict) -> None:
+    """Collapsed list of the Clean Setup marks actually drawn on this chart."""
     import html as _html
+    help_by = {name: text for name, _side, text in _CS_TRIGGER_HELP}
+    order = []
+    counts = {}
+    for txt, is_up in cs.get("shown") or []:
+        key = (txt, bool(is_up))
+        if key not in counts:
+            counts[key] = 0
+            order.append(key)
+        counts[key] += 1
+    if not order:
+        return
+    rows = []
+    for name, is_up in order:
+        tone, col, side = (
+            ("mw-good", _CS_BULL, "Bull") if is_up
+            else ("mw-bad", _CS_BEAR, "Bear"))
+        n = counts[(name, is_up)]
+        extra = f" ×{n}" if n > 1 else ""
+        text = help_by.get(name, "")
+        detail = f" {_html.escape(text)}" if text else ""
+        rows.append(
+            "<p style='margin:0 0 8px;line-height:1.45'>"
+            f"<span class='{tone}' style='color:{col};font-weight:700'>"
+            f"{_html.escape(name)}{extra}</span>"
+            f" · <span class='{tone}' style='color:{col}'>{side}</span>."
+            f"{detail}</p>"
+        )
     with st.expander("Clean Setup triggers", expanded=False):
-        st.markdown(
-            "<p style='margin:0 0 8px'>"
-            f"<span class='mw-good' style='color:{_CS_BULL};font-weight:700'>Green</span> "
-            "marks are bull triggers. "
-            f"<span class='mw-bad' style='color:{_CS_BEAR};font-weight:700'>Red</span> "
-            "marks are bear triggers. "
-            "A dashed line is the target projected from that mark. "
-            "Candle marks use the last 90 bars. Pattern marks use confirmed swing pivots."
-            "</p>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "**Shared gates.** A bull gate wants price above EMA 50, with EMA 50 above "
-            "EMA 200 or EMA 20 above EMA 50. A bear gate is the mirror. Pattern marks "
-            "also want a liquid name (price at least $5 and 20-bar average volume at "
-            "least 250,000), RSI between 40 and 60, and volume above that 20-bar average. "
-            "Hammer, shooting star, spring, upthrust, and the star patterns use the "
-            "RSI extreme instead: under 35 for bull, over 65 for bear.")
-        st.markdown(
-            "<p style='margin:0 0 8px'><b>Lines.</b> EMA 50 is the fast average — "
-            f"<span class='mw-good' style='color:{_CS_BULL}'>green</span> when price is above it, "
-            f"<span class='mw-bad' style='color:{_CS_BEAR}'>red</span> when price is below. "
-            "EMA 200 is the slow average — "
-            f"<span class='mw-good' style='color:{_CS_BULL}'>green</span> when EMA 50 "
-            "is above it. The gray channel connects the last two swing highs and the "
-            "last two swing lows.</p>",
-            unsafe_allow_html=True,
-        )
-        rows = []
-        for name, side, text in _CS_TRIGGER_HELP:
-            head = _lk_cs_ink(side).format(name=_html.escape(name))
-            rows.append(
-                "<p style='margin:0 0 8px;line-height:1.45'>"
-                f"{head}. {_html.escape(text)}</p>"
-            )
         st.markdown("".join(rows), unsafe_allow_html=True)
 
 
@@ -6490,12 +6462,14 @@ def _lk_draw_clean_setup(fig, xx, d, chart_df, pack):
                               family="JetBrains Mono, monospace"),
                     bgcolor=_tgt_bg, bordercolor=_tgt_ink, borderpad=2,
                     row=1, col=1)
+    shown = []
     for bar, price, txt, is_up in cs["signals"]:
         if bar < vis0 or bar > vis1 or not np.isfinite(price):
             continue
         x = _lk_bar_x(bar, vis0, xx, pack, d)
         if x is None:
             continue
+        shown.append((str(txt), bool(is_up)))
         col = _CS_BULL if is_up else _CS_BEAR
         fig.add_annotation(
             x=x, y=price, text=txt, showarrow=False,
@@ -6506,6 +6480,7 @@ def _lk_draw_clean_setup(fig, xx, d, chart_df, pack):
                       family="JetBrains Mono, monospace"),
             bgcolor=_lk_hex_rgba(col, 0.9), bordercolor=col, borderpad=3,
             row=1, col=1)
+    cs["shown"] = shown
     arrow = {"bull": "▲  Bull", "bear": "▼  Bear"}.get(cs["trend"], "—  Mixed")
     rsi_txt = f"{cs['rsi']:.1f}" if np.isfinite(cs["rsi"]) else "—"
     n_tgt = int(cs["n_tgt"] or 0)
@@ -6876,8 +6851,8 @@ def render_ticker_analysis(tk: str, closes: pd.DataFrame,
     else:
         st.session_state.pop(_mbox_key, None)
         _fig_show(fig, width="stretch", key=_chart_key)
-    if chart_ov == "Clean Setup" and has_ohlc:
-        _lk_clean_setup_guide()
+    if chart_ov == "Clean Setup" and cs_hud is not None:
+        _lk_clean_setup_guide(cs_hud)
 
 
 def _render_lookup_stack(tk: str, state_key: str, az_prefix: str) -> None:
