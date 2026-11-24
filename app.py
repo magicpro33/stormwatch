@@ -997,6 +997,38 @@ html body .stApp .st-key-cc_view button[kind^="segmented_control"] * {{
     font-weight: 500 !important;
     opacity: 1 !important;
 }}
+html body .stApp .stButtonGroup button[kind="segmented_control"]:hover,
+html body .stApp .stButtonGroup button[kind="segmented_control"]:focus-visible,
+html body .stApp .st-key-mw_nav button[kind="segmented_control"]:hover,
+html body .stApp .st-key-mw_main button[kind="segmented_control"]:hover,
+html body .stApp .st-key-mw_hub button[kind="segmented_control"]:hover,
+html body .stApp .st-key-mw_map button[kind="segmented_control"]:hover,
+html body .stApp .st-key-mw_look_bar button[kind="segmented_control"]:hover,
+html body .stApp .st-key-dc_view button[kind="segmented_control"]:hover,
+html body .stApp .st-key-cc_view button[kind="segmented_control"]:hover {{
+    background: #EADBB9 !important;
+    background-color: #EADBB9 !important;
+    border-color: #8C6A32 !important;
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+    cursor: pointer !important;
+    z-index: 2 !important;
+}}
+html body .stApp .stButtonGroup button[kind="segmented_control"]:hover *,
+html body .stApp .stButtonGroup button[kind="segmented_control"]:focus-visible *,
+html body .stApp .st-key-mw_nav button[kind="segmented_control"]:hover *,
+html body .stApp .st-key-mw_main button[kind="segmented_control"]:hover *,
+html body .stApp .st-key-mw_hub button[kind="segmented_control"]:hover *,
+html body .stApp .st-key-mw_map button[kind="segmented_control"]:hover *,
+html body .stApp .st-key-mw_look_bar button[kind="segmented_control"]:hover *,
+html body .stApp .st-key-dc_view button[kind="segmented_control"]:hover *,
+html body .stApp .st-key-cc_view button[kind="segmented_control"]:hover * {{
+    background: transparent !important;
+    background-color: transparent !important;
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+}}
+html body .stApp .stButtonGroup button[kind="segmented_controlActive"],
 html body .stApp .st-key-mw_nav button[kind="segmented_controlActive"],
 html body .stApp .st-key-mw_main button[kind="segmented_controlActive"],
 html body .stApp .st-key-mw_hub button[kind="segmented_controlActive"],
@@ -1018,10 +1050,32 @@ html body .stApp .st-key-cc_view button[data-testid="stBaseButton-segmented_cont
     -webkit-text-fill-color: #1C1915 !important;
     border: 1px solid #C6A15B !important;
     box-shadow: none !important;
+    font-family: {serif} !important;
     font-weight: 700 !important;
     opacity: 1 !important;
     z-index: 1 !important;
 }}
+html body .stApp .st-key-mw_look_bar [data-baseweb="button-group"] > button:not([kind="segmented_controlActive"]):not([data-testid="stBaseButton-segmented_controlActive"]) {{
+    border: 1px solid #C6A15B !important;
+}}
+html body .stApp .st-key-mw_look_bar [data-baseweb="button-group"] > button:not([kind="segmented_controlActive"]):not([data-testid="stBaseButton-segmented_controlActive"]):hover {{
+    background: #EADBB9 !important;
+    background-color: #EADBB9 !important;
+    border-color: #8C6A32 !important;
+    color: #1C1915 !important;
+}}
+html body .stApp .st-key-mw_look_bar [data-baseweb="button-group"] > button:not([kind="segmented_controlActive"]):not([data-testid="stBaseButton-segmented_controlActive"]):hover * {{
+    background: transparent !important;
+    background-color: transparent !important;
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+}}
+html body .stApp .stButtonGroup button[kind="segmented_controlActive"]:hover {{
+    background: #B8924D !important;
+    background-color: #B8924D !important;
+    border-color: #8C6A32 !important;
+}}
+html body .stApp .stButtonGroup button[kind="segmented_controlActive"] *,
 html body .stApp .st-key-mw_nav button[kind="segmented_controlActive"] *,
 html body .stApp .st-key-mw_main button[kind="segmented_controlActive"] *,
 html body .stApp .st-key-mw_hub button[kind="segmented_controlActive"] *,
@@ -1042,6 +1096,7 @@ html body .stApp .st-key-cc_view button[data-testid="stBaseButton-segmented_cont
     border: 0 !important;
     color: #1C1915 !important;
     -webkit-text-fill-color: #1C1915 !important;
+    font-family: {serif} !important;
     font-weight: 700 !important;
     opacity: 1 !important;
 }}
@@ -1798,6 +1853,16 @@ def _menu_category_css() -> str:
             rules.append(
                 f"{idle} *{{color:#5C3A1A !important;"
                 "-webkit-text-fill-color:#5C3A1A !important;"
+                "background:transparent !important;background-color:transparent !important;}"
+            )
+            rules.append(
+                f"{idle}:hover, {idle}:focus-visible{{background:#EADBB9 !important;"
+                "background-color:#EADBB9 !important;border-color:#8C6A32 !important;"
+                "color:#1C1915 !important;cursor:pointer !important;z-index:2 !important;}"
+            )
+            rules.append(
+                f"{idle}:hover *, {idle}:focus-visible *{{color:#1C1915 !important;"
+                "-webkit-text-fill-color:#1C1915 !important;"
                 "background:transparent !important;background-color:transparent !important;}"
             )
             rules.append(
@@ -14105,12 +14170,20 @@ _embed_html(
       if (money) { try { paintSliderFills(); } catch (e) {} }
       if (!fortune) clearFortuneChrome();
       if (fortune) {
-        doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"], button[kind^="segmented_control"], button[role="radio"]').forEach(function (b) {
+        doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"], button[kind^="segmented_control"]').forEach(function (b) {
+          ["background", "background-color", "color", "-webkit-text-fill-color", "border", "box-shadow", "opacity"].forEach(function (p) {
+            if (b.style.getPropertyValue(p)) b.style.removeProperty(p);
+          });
+          b.querySelectorAll("p, span, div").forEach(function (n) {
+            ["background", "background-color", "color", "-webkit-text-fill-color"].forEach(function (p) {
+              if (n.style.getPropertyValue(p)) n.style.removeProperty(p);
+            });
+          });
+        });
+        doc.querySelectorAll('button[role="radio"]').forEach(function (b) {
           var tid = b.getAttribute("data-testid") || "";
-          var kind = b.getAttribute("kind") || "";
-          var on = tid.indexOf("Active") >= 0
-            || kind.indexOf("Active") >= 0
-            || b.getAttribute("aria-pressed") === "true"
+          if (tid.indexOf("segmented_control") >= 0) return;
+          var on = b.getAttribute("aria-pressed") === "true"
             || b.getAttribute("aria-checked") === "true"
             || b.getAttribute("aria-selected") === "true";
           setImp(b, "background", on ? "#C6A15B" : "#F6F1E7");
@@ -14298,24 +14371,6 @@ _embed_html(
           }
           setImp(el, "background", bg);
           setImp(el, "background-color", bg);
-        });
-        doc.querySelectorAll('.st-key-mw_nav button, .st-key-mw_main button, .st-key-mw_hub button, .st-key-mw_map button, .st-key-mw_look_bar button, .st-key-dc_view button, .st-key-cc_view button').forEach(function (b) {
-          var tid = b.getAttribute("data-testid") || "";
-          var kind = b.getAttribute("kind") || "";
-          if (tid.indexOf("segmented_control") < 0 && kind.indexOf("segmented_control") < 0) return;
-          var on = tid.indexOf("Active") >= 0 || kind.indexOf("Active") >= 0;
-          setImp(b, "background", on ? "#C6A15B" : "#F6F1E7");
-          setImp(b, "background-color", on ? "#C6A15B" : "#F6F1E7");
-          setImp(b, "color", on ? "#1C1915" : "#5C3A1A");
-          setImp(b, "-webkit-text-fill-color", on ? "#1C1915" : "#5C3A1A");
-          setImp(b, "box-shadow", "none");
-          setImp(b, "opacity", "1");
-          b.querySelectorAll("p, span, div").forEach(function (n) {
-            setImp(n, "background", "transparent");
-            setImp(n, "background-color", "transparent");
-            setImp(n, "color", on ? "#1C1915" : "#5C3A1A");
-            setImp(n, "-webkit-text-fill-color", on ? "#1C1915" : "#5C3A1A");
-          });
         });
       }
       function clearMoneyPaint() {
