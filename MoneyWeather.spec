@@ -46,11 +46,11 @@ hiddenimports = [
     "yfinance", "plotly", "plotly.graph_objects", "plotly.subplots",
     "pandas", "numpy", "pyarrow", "requests", "tzdata",
     "altair", "tornado", "watchdog", "blinker", "click",
-    "ijson", "tomli",
+    "ijson", "tomli", "lxml",
 ]
 binaries = []
 
-for pkg in ("streamlit", "altair", "plotly", "yfinance", "tzdata"):
+for pkg in ("streamlit", "altair", "plotly", "yfinance", "tzdata", "lxml"):
     try:
         t, b, h = collect_all(pkg)
         datas += t
@@ -108,7 +108,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe_kw = dict(
     exclude_binaries=True,
-    name="MoneyWeather",
+    name="MoneyMaker",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -140,5 +140,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="MoneyWeather",
+    name="MoneyMaker",
 )

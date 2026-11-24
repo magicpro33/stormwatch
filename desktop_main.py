@@ -1,6 +1,6 @@
 """Windows desktop entry — no Python install required after PyInstaller.
 
-Double-click MoneyWeather.exe. This window must stay open while you use
+Double-click MoneyMaker.exe. This window must stay open while you use
 the app. Closing it shuts the local server down.
 """
 from __future__ import annotations
@@ -145,7 +145,7 @@ def main() -> int:
     app = os.path.join(bundle, "app.py")
     if not os.path.isfile(app):
         _say("ERROR: app.py is missing from the package.")
-        _say("Re-run build_windows.ps1 and use the whole dist\\MoneyWeather folder.")
+        _say("Use the whole MoneyMaker folder. Do not move MoneyMaker.exe out by itself.")
         try:
             input("Press Enter to close...")
         except EOFError:
