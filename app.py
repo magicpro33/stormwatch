@@ -406,22 +406,24 @@ div[data-testid="stSegmentedControl"] [data-baseweb="button-group"],
     background: {f['bg']} !important;
     background-color: {f['bg']} !important;
 }}
-.st-key-mw_nav [data-baseweb="button-group"] > button,
-.st-key-mw_nav [data-baseweb="button-group"] > button *,
-.st-key-mw_main [data-baseweb="button-group"] > button,
-.st-key-mw_main [data-baseweb="button-group"] > button *,
-.st-key-mw_hub [data-baseweb="button-group"] > button,
-.st-key-mw_hub [data-baseweb="button-group"] > button *,
-.st-key-mw_map [data-baseweb="button-group"] > button,
-.st-key-mw_map [data-baseweb="button-group"] > button *,
-.st-key-dc_view [data-baseweb="button-group"] > button,
-.st-key-dc_view [data-baseweb="button-group"] > button *,
-.st-key-cc_view [data-baseweb="button-group"] > button,
-.st-key-cc_view [data-baseweb="button-group"] > button *,
-.st-key-mw_look_bar [data-baseweb="button-group"] > button,
-.st-key-mw_look_bar [data-baseweb="button-group"] > button *,
-div[data-testid="stSegmentedControl"] button,
-div[data-testid="stSegmentedControl"] button * {{
+.st-key-mw_nav [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]),
+.st-key-mw_nav [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]) *,
+.st-key-mw_main [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]),
+.st-key-mw_main [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]) *,
+.st-key-mw_hub [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]),
+.st-key-mw_hub [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]) *,
+.st-key-mw_map [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]),
+.st-key-mw_map [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]) *,
+.st-key-dc_view [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]),
+.st-key-dc_view [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]) *,
+.st-key-cc_view [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]),
+.st-key-cc_view [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]) *,
+.st-key-mw_look_bar [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]),
+.st-key-mw_look_bar [data-baseweb="button-group"] > button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]) *,
+div[data-testid="stSegmentedControl"] button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]),
+div[data-testid="stSegmentedControl"] button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]) *,
+div[data-testid="stButtonGroup"] button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]),
+div[data-testid="stButtonGroup"] button:not([data-testid="stBaseButton-segmented_controlActive"]):not([kind="segmented_controlActive"]) * {{
     background: {f['bg']} !important;
     background-color: {f['bg']} !important;
     color: {f['head']} !important;
@@ -449,8 +451,10 @@ div[data-testid="stMultiSelect"] [data-baseweb="tag"] {{
     color: #143028 !important;
     border-color: #2E7D4F !important;
 }}
-.stApp button[data-testid^="stBaseButton-segmented_control"],
-.stApp button[data-testid^="stBaseButton-segmented_control"] * {{
+.stApp button[data-testid="stBaseButton-segmented_control"],
+.stApp button[kind="segmented_control"],
+.stApp button[data-testid="stBaseButton-segmented_control"] *,
+.stApp button[kind="segmented_control"] * {{
     background: #F6F1E7 !important;
     background-color: #F6F1E7 !important;
     color: #2C2416 !important;
@@ -925,6 +929,34 @@ section.main::-webkit-scrollbar-track,
 .stApp .mw-fq-table span {{
     color: inherit !important;
     -webkit-text-fill-color: currentColor !important;
+}}
+/* Selected menu tab. Later cream rules paint the label the same color as
+   the page, which hides the gold. This block is last and more specific. */
+html body .stApp div[data-testid="stButtonGroup"] [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
+html body .stApp div[data-testid="stButtonGroup"] [data-baseweb="button-group"] > button[kind="segmented_controlActive"],
+html body .stApp [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"],
+html body .stApp [data-baseweb="button-group"] > button[kind="segmented_controlActive"] {{
+    background: #C6A15B !important;
+    background-color: #C6A15B !important;
+    background-image: none !important;
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+    border: 2px solid #8C6A32 !important;
+    box-shadow: none !important;
+    font-weight: 700 !important;
+    opacity: 1 !important;
+}}
+html body .stApp div[data-testid="stButtonGroup"] [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"] *,
+html body .stApp div[data-testid="stButtonGroup"] [data-baseweb="button-group"] > button[kind="segmented_controlActive"] *,
+html body .stApp [data-baseweb="button-group"] > button[data-testid="stBaseButton-segmented_controlActive"] *,
+html body .stApp [data-baseweb="button-group"] > button[kind="segmented_controlActive"] * {{
+    background: transparent !important;
+    background-color: transparent !important;
+    background-image: none !important;
+    color: #1C1915 !important;
+    -webkit-text-fill-color: #1C1915 !important;
+    font-weight: 700 !important;
+    opacity: 1 !important;
 }}
 """
         return extra + _money_green_css()
@@ -1661,18 +1693,23 @@ def _menu_category_css() -> str:
         base = f".stApp .st-key-{key} [data-baseweb='button-group']"
         act = (
             f"{base} button[data-testid='stBaseButton-segmented_controlActive'],"
+            f"{base} button[kind='segmented_controlActive'],"
             f"{base} button[aria-checked='true'],"
             f"{base} button[aria-selected='true'],"
             f"{base} button[aria-pressed='true']"
         )
+        idle = (
+            f"{base} button:not([data-testid='stBaseButton-segmented_controlActive'])"
+            f":not([kind='segmented_controlActive'])"
+        )
         if fortune_menu:
             rules.append(
-                f"{base} button{{background:#F6F1E7 !important;background-color:#F6F1E7 !important;"
+                f"{idle}{{background:#F6F1E7 !important;background-color:#F6F1E7 !important;"
                 "color:#5C3A1A !important;border:1px solid #E3D5BE !important;"
                 "box-shadow:none !important;}"
             )
             rules.append(
-                f"{base} button *{{color:#5C3A1A !important;"
+                f"{idle} *{{color:#5C3A1A !important;"
                 "-webkit-text-fill-color:#5C3A1A !important;"
                 "background:transparent !important;background-color:transparent !important;}"
             )
@@ -13981,9 +14018,11 @@ _embed_html(
       if (money) { try { paintSliderFills(); } catch (e) {} }
       if (!fortune) clearFortuneChrome();
       if (fortune) {
-        doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"], button[role="radio"]').forEach(function (b) {
+        doc.querySelectorAll('button[data-testid^="stBaseButton-segmented_control"], button[kind^="segmented_control"], button[role="radio"]').forEach(function (b) {
           var tid = b.getAttribute("data-testid") || "";
+          var kind = b.getAttribute("kind") || "";
           var on = tid.indexOf("Active") >= 0
+            || kind.indexOf("Active") >= 0
             || b.getAttribute("aria-pressed") === "true"
             || b.getAttribute("aria-checked") === "true"
             || b.getAttribute("aria-selected") === "true";
@@ -14057,7 +14096,7 @@ _embed_html(
           return r > 130 && g > 130 && b > 130 && (r + g + b) > 430;
         }
         doc.querySelectorAll("[style]").forEach(function (el) {
-          if (el.closest && el.closest(".js-plotly-plot, [data-testid='stPlotlyChart'], [data-testid='stSlider'], [data-testid='stSelectSlider'], [data-baseweb='slider']")) return;
+          if (el.closest && el.closest(".js-plotly-plot, [data-testid='stPlotlyChart'], [data-testid='stSlider'], [data-testid='stSelectSlider'], [data-baseweb='slider'], button[data-testid^='stBaseButton-segmented'], button[kind^='segmented_control']")) return;
           var cs;
           try { cs = view.getComputedStyle(el); } catch (e) { return; }
           ["Top", "Right", "Bottom", "Left"].forEach(function (side) {
